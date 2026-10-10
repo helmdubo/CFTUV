@@ -3,7 +3,8 @@
 Скелет считается в ПОДГОТОВКЕ (`prepare_conveyor` -> `_prepare_region`), а подготовка идёт до `produce_domain` — в родителе и в воркерах пула. Нативное ядро здесь подставное
 (`_fake_native`: отвечает эталоном и пишет, в каком блоке его позвали). Что держат тесты:
 
-1. УМОЛЧАНИЕ СТАДИИ — `NATIVE` (`DEFAULT_SKELETON_BACKEND`), и оно названо своим единственным местом; покрытие и резка при этом остаются `NATIVE`.
+1. ПОРЯДОК СТАДИИ — как главный переключатель (`kernel_backend`): у скелета собственного умолчания и собственной настройки сцены нет; постадийный порядок задаёт только API
+   (`run_production(skeleton_backend=...)`), и эти тесты изолируют скелет именно им.
 2. БЛОК БЭКЕНДА СТОИТ ВОКРУГ ПОДГОТОВКИ на каждом пути, где её строят: родитель (`prepare_for_production`, кэш сессии), холодная задача воркера (`solve_cold_production_task`),
    очередь (`run_queue_domain`, в том числе задача `solve_task` и задача с выгрузкой `solve_exported_task`), провайдер подготовки отладочной сессии.
 3. ЗАПИСЬ ДОМЕНА несёт скелет ОТДЕЛЬНО (`skeleton_*`), доезжает из воркера и сливается с записью материализации; строка журнала называет стадии порознь.
@@ -77,22 +78,15 @@ def keys_of(controller):
 # --------------------------------------------------------------------------
 
 
-def test_the_skeleton_stage_defaults_to_native_with_coverage_and_clip():
-    from types import SimpleNamespace
-
-    assert host_backend.DEFAULT_SKELETON_BACKEND == "NATIVE" and host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
-    assert host_backend.skeleton_backend_of(SimpleNamespace()) == "NATIVE"
-    assert host_backend.skeleton_backend_of(SimpleNamespace(skeleton_backend="NATIVE")) == "NATIVE"
-    assert host_backend.skeleton_backend_of(SimpleNamespace(skeleton_backend="PYTHON")) == "PYTHON"
-    with pytest.raises(ValueError, match="unknown kernel backend"):
-        host_backend.skeleton_backend_of(SimpleNamespace(skeleton_backend="RUST"))
-    # порядок пунктов — формат хранения в сцене (индекс): PYTHON = 0, NATIVE = 1
-    assert [item[0] for item in host_backend.SKELETON_BACKEND_ITEMS] == ["PYTHON", "NATIVE"]
-    assert "Default" not in host_backend.SKELETON_BACKEND_ITEMS[0][2] and "Default" in host_backend.SKELETON_BACKEND_ITEMS[1][2]
-    # задача пула и прогон несут умолчание стадии
+def test_the_skeleton_stage_follows_the_master_switch_and_has_no_setting_or_default_of_its_own():
+    assert host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
+    for gone in ("DEFAULT_SKELETON_BACKEND", "skeleton_backend_of", "SKELETON_BACKEND_ITEMS", "SKELETON_SETTING_NAME"):
+        assert not hasattr(host_backend, gone), gone
+    # задача пула несёт порядок стадии: без слова - как главный переключатель, явное имя - порядок API
     task = pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset())
     assert (task.backend, task.skeleton_backend) == ("NATIVE", "NATIVE")
-    assert pickle.loads(pickle.dumps(pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset(), skeleton_backend="NATIVE"))).skeleton_backend == "NATIVE"
+    assert pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset(), backend="PYTHON").skeleton_backend == "PYTHON"
+    assert pickle.loads(pickle.dumps(pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset(), backend="PYTHON", skeleton_backend="NATIVE"))).skeleton_backend == "NATIVE"
 
 
 def test_the_identity_of_the_stage_and_of_the_execution(monkeypatch):
@@ -132,8 +126,8 @@ def test_a_native_skeleton_press_gives_the_python_answer_computes_the_skeleton_i
     assert all((record.skeleton_native_calls, record.skeleton_python_calls, record.skeleton_outcomes) == (1, 0, ()) for record in records)
     assert all(record.requested == "PYTHON" and (record.native_calls, record.python_calls) == (0, 0) for record in records)
     line = host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")
-    assert line == [f"[CFTUV][Production] BACKEND coverage/clip python; skeleton native {ROW} / python 0"]
-    assert production.production_timing_text(native).endswith(f" | skeleton native {ROW} / python 0")
+    assert line == [f"[CFTUV][Production] BACKEND native: skeleton {ROW} | ordered python: coverage/clip, embedding"]
+    assert production.production_timing_text(native).endswith(f" | native: skeleton {ROW}")
     assert native.skeleton_backend == "NATIVE" and native.kernel_backend == "PYTHON"
     assert keys_of(controller) == [f"NATIVE:{BUILD_ID}"] * ROW
     # явный PYTHON на обеих стадиях: ни записи, ни строки
@@ -151,11 +145,11 @@ def test_the_default_press_computes_the_native_skeleton_and_names_its_actual_cal
     assert calls == [("NATIVE", "NATIVE")] * ROW
     assert run.skeleton_backend == "NATIVE" and run.kernel_backend == "NATIVE"
     assert all(item.backend_record.skeleton_requested == "NATIVE" and item.backend_record.skeleton_native_calls == 1 and not item.backend_record.skeleton_outcomes for item in run.results)
-    line = host_backend.backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend)[0]
-    # умолчание называет и третью стадию (сертификат вложения, EMBEDDING_NATIVE_DEFAULT_V1): её часть стоит после скелета
-    assert line.startswith("[CFTUV][Production] BACKEND coverage/clip native ") and f"; skeleton native {ROW} / python 0; embedding calls native " in line
+    line = host_backend.backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend)[0]
+    # умолчание называет все три стадии списком: `native: coverage/clip N, skeleton N, embedding N`
+    assert line.startswith("[CFTUV][Production] BACKEND native: coverage/clip ") and f", skeleton {ROW}, embedding " in line and f"skeleton {ROW} (" not in line  # скелет не откатывался
     assert all(item.backend_record.embedding_requested == "NATIVE" for item in run.results) and run.embedding_backend == "NATIVE"
-    assert f"skeleton native {ROW} / python 0" in production.production_timing_text(run)
+    assert f", skeleton {ROW}, embedding " in production.production_timing_text(run)
 
 
 def test_both_stages_native_are_named_apart_in_one_line(row):
@@ -163,7 +157,7 @@ def test_both_stages_native_are_named_apart_in_one_line(row):
     native_skeleton(module)
     run, _ = press(row, skeleton="NATIVE", backend="NATIVE")
     line = host_backend.backend_console_lines(run.results, "NATIVE", "NATIVE")[0]
-    assert "BACKEND coverage/clip native " in line and f"; skeleton native {ROW} / python 0" in line
+    assert "BACKEND native: coverage/clip " in line and f", skeleton {ROW}" in line and line.endswith("ordered python: embedding")  # `press` изолирует скелет: вложение заказано на PYTHON
 
 
 def test_a_cold_press_in_the_worker_pool_ships_the_stage_computes_the_skeleton_in_the_worker_block_and_brings_the_record_back(row, pool):
@@ -203,7 +197,7 @@ def test_a_warm_press_on_the_cached_preparations_does_not_compute_a_skeleton_and
     assert len(calls) == ROW  # ширина другая, подготовки из кэша: скелет не считался
     assert warm.counter(production.PRODUCTION_PREPARATION_BUILDS) == 0 and warm.counter(production.PRODUCTION_PREPARATION_REUSED) == ROW
     assert all(item.backend_record.skeleton_ran == "" for item in warm.results if item.placement != PLACEMENT_CACHED)
-    assert host_backend.backend_console_lines(warm.results, "NATIVE", "NATIVE")[0].endswith("; skeleton native 0 / python 0")
+    assert ", skeleton 0" in host_backend.backend_console_lines(warm.results, "NATIVE", "NATIVE", "PYTHON")[0]
 
 
 def test_a_press_without_the_wheel_gives_the_python_answer_and_names_the_unavailable_skeleton(row):
@@ -212,9 +206,7 @@ def test_a_press_without_the_wheel_gives_the_python_answer_and_names_the_unavail
 
     assert _projection(native) == _projection(reference)
     assert all(item.backend_record.skeleton_outcomes == ("NATIVE_UNAVAILABLE",) and item.backend_record.skeleton_ran == "python" for item in native.results)
-    assert host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")[0].endswith(
-        f"skeleton native 0 / python {ROW} (NATIVE_UNAVAILABLE: patch 0, 1, 2, 3, 4)"
-    )
+    assert f"python: skeleton {ROW} (NATIVE_UNAVAILABLE: patch 0, 1, 2, 3, 4)" in host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")[0]
 
 
 def test_a_wheel_without_the_skeleton_operation_falls_back_by_name_and_keeps_coverage_and_clip_available(row):
@@ -323,9 +315,7 @@ def test_a_named_refusal_of_the_native_skeleton_gives_the_python_answer_and_name
 
     assert _projection(native) == _projection(reference)
     assert all(item.backend_record.skeleton_outcomes == ("NATIVE_PORT_STALE",) and item.backend_record.skeleton_ran == "python" for item in native.results)
-    assert host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")[0].endswith(
-        f"skeleton native 0 / python {ROW} (NATIVE_PORT_STALE: patch 0, 1, 2, 3, 4)"
-    )
+    assert f"python: skeleton {ROW} (NATIVE_PORT_STALE: patch 0, 1, 2, 3, 4)" in host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")[0]
     assert keys_of(controller) == [f"NATIVE:{BUILD_ID}"] * ROW  # ключ называет заказ; откат назван в записи, а не в ключе
 
 

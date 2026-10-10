@@ -63,7 +63,7 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_width_mesh_preview import (
     PRIME_BASE_REPLACED,
     capture_ownership,
@@ -115,10 +115,15 @@ class LastProductionBuildV1:
     width: float
     #: «Dissolve UV tolerance» (проценты ширины), с которой кнопка записала меш.
     dissolve_percent: float = 0.390625
-    #: Бэкенд ядра кнопки: живая ширина считает тем же (смена настройки действует с ближайшей кнопки).
+    #: Главный переключатель ядра кнопки: живая ширина считает тем же (смена настройки действует с ближайшей кнопки).
     kernel_backend: str = DEFAULT_KERNEL_BACKEND
-    #: Бэкенд стадии скелета кнопки: живая ширина берёт подготовки из кэша сессии под ключом ЭТОЙ стадии (подготовки Python и Rust не смешиваются).
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND
+    #: Порядки стадий кнопки (`None` — как `kernel_backend`, `__post_init__` приводит их к именам): живая ширина считает ТЕМИ ЖЕ порядками и берёт подготовки из кэша сессии
+    #: под ключом стадии скелета (подготовки Python и Rust не смешиваются).
+    skeleton_backend: str | None = None
+    embedding_backend: str | None = None
+
+    def __post_init__(self) -> None:
+        settle_stage_orders(self, "kernel_backend")
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,7 +190,8 @@ def remember_build(
     width: float,
     dissolve_percent: float = 0.390625,
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+    skeleton_backend: str | None = None,
+    embedding_backend: str | None = None,
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
@@ -203,7 +209,8 @@ def remember_build(
         width=float(width),
         dissolve_percent=float(dissolve_percent),
         kernel_backend=str(kernel_backend),
-        skeleton_backend=str(skeleton_backend),
+        skeleton_backend=None if skeleton_backend is None else str(skeleton_backend),
+        embedding_backend=None if embedding_backend is None else str(embedding_backend),
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -495,6 +502,7 @@ def _begin(controller, request):
     slide = envelope_dissolve_uv_slide(record.dissolve_percent)
     kernel_backend = record.kernel_backend
     skeleton_backend = record.skeleton_backend
+    embedding_backend = record.embedding_backend
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     prime = target.purpose == PURPOSE_PRIME
     displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_model
@@ -519,6 +527,7 @@ def _begin(controller, request):
                 quiesce=False,
                 kernel_backend=kernel_backend,
                 skeleton_backend=skeleton_backend,
+                embedding_backend=embedding_backend,
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc

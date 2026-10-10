@@ -69,7 +69,7 @@ import os
 from enum import Enum
 from fractions import Fraction
 
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, DEFAULT_EMBEDDING_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
 
 CONTENT_KEY_SCHEMA = "cftuv.content-key.v1"
 #: Поля `HostExportInputV1`, которые ключ содержимого НЕ кодирует (см. модуль). Остальные входят.
@@ -216,15 +216,15 @@ def code_identity() -> tuple[str, str]:
     )
 
 
-def execution_identity(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> tuple[str, str, str]:
-    """`(отпечаток ядра, отпечаток хоста, идентичность бэкенда)`: отпечаток кода процесса и бэкенды обеих стадий (покрытие с резкой и скелет), которыми считают."""
+def execution_identity(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> tuple[str, str, str]:
+    """`(отпечаток ядра, отпечаток хоста, идентичность бэкенда)`: отпечаток кода процесса и бэкенды всех стадий, которыми считают (`None` у стадии - как главный переключатель `backend`)."""
 
     from .envelope_kernel_backend import backend_identity_of
 
     return (*code_identity(), backend_identity_of(backend, skeleton_backend, embedding_backend))
 
 
-def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> tuple:
+def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> tuple:
     """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра, отпечаток кода и бэкенд ядра."""
 
     from . import envelope_request_export as export
@@ -278,14 +278,14 @@ def _normalized_budget(budget):
     return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
-def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> str:
+def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> str:
     """Ключ содержимого домена: sha256 от входа воркера без ревизии, выделения домена и политик.
 
     `export` — `HostExportInputV1` ЭТОГО домена, `selected_edge_ids` — выделенные рёбра домена, `band_key` —
     ключ полосы домена (`band_key_of`: досягаемость и выбранные рёбра патча, `None` — политики полосы нет).
     Ключ не зависит от ревизии источника, `alpha` и id запроса; от всего остального — зависит. `backend` — имя бэкенда ядра, которым
-    считают (`PYTHON` либо `NATIVE`), `skeleton_backend` — то же для стадии скелета (подготовка, лежащая в хранилище под ключом, построена им): их идентичность
-    (`execution_identity`) входит в ключ, и подготовка Python не читается как подготовка Rust.
+    считают (`PYTHON` либо `NATIVE`: главный переключатель), `skeleton_backend` и `embedding_backend` — постадийный порядок (`None` - как `backend`; подготовка, лежащая в хранилище под ключом,
+    построена ими): идентичность стадий (`execution_identity`) входит в ключ, и подготовка Python не читается как подготовка Rust.
     """
 
     from .envelope_request_policy import normalize_envelope_fan_density

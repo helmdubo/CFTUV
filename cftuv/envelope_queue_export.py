@@ -42,7 +42,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, prepared_under_backend
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, prepared_under_backend
 
 #: Имена, переехавшие в ядро (`cftuv_envelope.materialize`), и их прежние
 #: хостовые синонимы. Разрешаются ЛЕНИВО: модуль импортируется при
@@ -882,7 +882,7 @@ def run_queue_domain(
     profile=None,
     preparation_provider=None,
     backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+    skeleton_backend: str | None = None,
 ):
     """Две ступени очереди на одном домене, каждая под своей стадией профиля.
 
@@ -890,7 +890,7 @@ def run_queue_domain(
     нужна вызывающему и дальше — её кэширует сессия и по ней же считается
     покрытие при смене alpha.
 
-    ПОДГОТОВКА ИДЁТ ПОД БЛОКОМ БЭКЕНДА (`prepared_under_backend`): скелет считается в ней, и стадия заказана `skeleton_backend` (умолчание продукта — `NATIVE`).
+    ПОДГОТОВКА ИДЁТ ПОД БЛОКОМ БЭКЕНДА (`prepared_under_backend`): скелет считается в ней, и стадия заказана `skeleton_backend` (`None` — как главный переключатель `backend`, по умолчанию `NATIVE`).
     Блок стоит вокруг ВСЕГО шага подготовки, включая `preparation_provider` (провайдер кэша сессии отладки зовёт `prepare_conveyor` изнутри блока), поэтому и
     собственная подготовка, и подготовка через кэш записаны одинаково; запись бэкенда подготовки лежит в `EnvelopeQueueDomainV1.backend_record`. Домен, которому
     нативное ядро отказало по имени, поднимает `PreparationRefused` (отладочная кнопка называет сбой, а не прячет его).

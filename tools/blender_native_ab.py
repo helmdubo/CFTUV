@@ -769,28 +769,26 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
 
     from cftuv.analysis import build_analysis_bundle
     from cftuv.analysis_surface import source_revision_from_bmesh
-    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, KERNEL_BACKEND_PYTHON, kernel_backend_of, skeleton_backend_of
+    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, KERNEL_BACKEND_NATIVE, KERNEL_BACKEND_PYTHON, kernel_backend_of
     from cftuv.envelope_production_export import run_production
     from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
     mesh_name, alpha_text, density, stretch = spec.split(":")
     settings = bpy.context.scene.hotspotuv_settings
     mesh_settings = bpy.context.scene.hotspotuv_decal_mesh
-    embedding = KERNEL_BACKEND_PYTHON
+    # Одна настройка сцены (главный переключатель); изоляция одной стадии - постадийные порядки API `run_production(skeleton_backend=..., embedding_backend=...)`.
+    skeleton = embedding = KERNEL_BACKEND_PYTHON
     if args.stage == STAGE_EMBEDDING:
         from cftuv_envelope._embedding import clear_embedding_memo
 
         clear_embedding_memo()  # cold A/B: Python половина не прогревает значение для Native половины
-        mesh_settings.kernel_backend = "NATIVE"
-        mesh_settings.skeleton_backend = "NATIVE"
-        embedding = backend
+        mesh_settings.kernel_backend = KERNEL_BACKEND_NATIVE
+        skeleton, embedding = KERNEL_BACKEND_NATIVE, backend
     elif args.stage == STAGE_SKELETON:
-        mesh_settings.skeleton_backend = backend
         mesh_settings.kernel_backend = DEFAULT_KERNEL_BACKEND
-        assert skeleton_backend_of(mesh_settings) == backend
+        skeleton = backend
     else:
-        mesh_settings.kernel_backend = backend
-        mesh_settings.skeleton_backend = KERNEL_BACKEND_PYTHON  # изоляция coverage/clip не зависит от умолчания продукта
+        mesh_settings.kernel_backend = backend  # изоляция coverage/clip: остальные стадии заказаны на PYTHON порядками API
         assert kernel_backend_of(mesh_settings) == backend
     _fresh_state(controller, args.workers)
     obj = bpy.data.objects[mesh_name]
@@ -819,8 +817,8 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
             developable_stretch_budget=envelope_stretch_budget(int(stretch)),
             silhouette_uv_slide=slide,
             workers=args.workers,
-            kernel_backend=mesh_settings.kernel_backend,
-            skeleton_backend=mesh_settings.skeleton_backend,
+            kernel_backend=kernel_backend_of(mesh_settings),
+            skeleton_backend=skeleton,
             embedding_backend=embedding,
         )
         wall = time.perf_counter() - started
