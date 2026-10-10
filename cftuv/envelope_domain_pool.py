@@ -222,6 +222,7 @@ class DomainTaskV1:
     #: Бэкенд стадии скелета воркера (`PYTHON` | `NATIVE`): скелет считается в подготовке (холодная задача, задача очереди), а не в материализации, и воркер ставит блок
     #: бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`). Умолчание — умолчание стадии (`DEFAULT_SKELETON_BACKEND`, `NATIVE`).
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND
+    #: Бэкенд сертификата вложения привязки источника воркера (`PYTHON` | `NATIVE`): он считается в экспорте, подготовке и материализации. Умолчание — умолчание стадии (`DEFAULT_EMBEDDING_BACKEND`, `NATIVE`).
     embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
 
 

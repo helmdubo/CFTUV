@@ -92,7 +92,8 @@ def _run(bundle, *, backend=None, controller=None, workers=0):
         density=None,
         workers=workers,
         kernel_backend=backend,
-        skeleton_backend="PYTHON",  # здесь изолируется coverage/clip; прогон без аргументов проверяет оба умолчания
+        skeleton_backend="PYTHON",  # здесь изолируется coverage/clip; прогон без аргументов проверяет умолчания
+        embedding_backend="PYTHON",
     )
 
 
@@ -170,7 +171,7 @@ def test_every_backend_default_of_the_host_is_the_one_named_constant():
     import ast
     from pathlib import Path
 
-    names = {"backend", "kernel_backend", "backend_id", "skeleton_backend"}
+    names = {"backend", "kernel_backend", "backend_id", "skeleton_backend", "embedding_backend"}
     found: list = []
     for path in sorted((Path(__file__).resolve().parents[1] / "cftuv").glob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -187,7 +188,7 @@ def test_every_backend_default_of_the_host_is_the_one_named_constant():
                 if value is not None:
                     found.append((path.name, node.target.id, ast.unparse(value)))
     # стадия скелета — своё единственное место умолчания (`DEFAULT_SKELETON_BACKEND`): покрытие с резкой и скелет переводятся на Rust порознь
-    allowed = {"skeleton_backend": {"DEFAULT_SKELETON_BACKEND"}}
+    allowed = {"skeleton_backend": {"DEFAULT_SKELETON_BACKEND"}, "embedding_backend": {"DEFAULT_EMBEDDING_BACKEND"}}
     plain = {"DEFAULT_KERNEL_BACKEND", "None"}
     unnamed = [item for item in found if item[2] not in allowed.get(item[1], plain)]
     assert not unnamed, unnamed
@@ -210,6 +211,11 @@ def test_every_backend_default_of_the_host_is_the_one_named_constant():
         ("envelope_width_live.py", "skeleton_backend"),
         ("envelope_production_operator.py", "skeleton_backend"),
         ("envelope_content_key.py", "skeleton_backend"),
+        # стадия сертификата вложения: те же места проводки, кроме настройки сцены (её нет)
+        ("envelope_kernel_backend.py", "embedding_backend"),
+        ("envelope_production_export.py", "embedding_backend"),
+        ("envelope_domain_pool.py", "embedding_backend"),
+        ("envelope_content_key.py", "embedding_backend"),
     ):
         assert site in seen, site
 
@@ -324,13 +330,15 @@ def test_a_backend_switch_clears_the_clip_memo_once_per_switch(row, monkeypatch)
 def test_an_installed_native_module_changes_the_identity_not_the_answer(row):
     module = _fake_native()
 
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == f"NATIVE:{BUILD_ID}"
-    assert host_backend.backend_identity_of("PYTHON", "PYTHON") == "PYTHON"
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON") == f"NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("PYTHON", "PYTHON", "PYTHON") == "PYTHON"
+    # умолчание стадии сертификата вложения - Native: без третьего слова идентичность несёт и её (EMBEDDING_NATIVE_DEFAULT_V1)
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == f"NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}"
     assert _projection(_run(row, backend="NATIVE")) == _projection(_python(row))
     # другая сборка при том же номере колеса — другая идентичность (ключи кэшей не читают результат прежней сборки)
     module.native_build_id = lambda: "cd" * 32
     kernel_backend.refresh_native()
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == "NATIVE:" + "cd" * 32
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON") == "NATIVE:" + "cd" * 32
 
 
 # --------------------------------------------------------------------------
@@ -340,12 +348,13 @@ def test_an_installed_native_module_changes_the_identity_not_the_answer(row):
 
 def test_the_execution_identity_adds_the_backend_to_the_code_fingerprint_and_leaves_the_fingerprint_alone():
     kernel_fingerprint, host_fingerprint = content_key.code_identity()
-    assert content_key.execution_identity("PYTHON", "PYTHON") == (kernel_fingerprint, host_fingerprint, "PYTHON")
-    assert content_key.execution_identity("NATIVE", "PYTHON") == (kernel_fingerprint, host_fingerprint, "NATIVE:unavailable")
+    assert content_key.execution_identity("PYTHON", "PYTHON", "PYTHON") == (kernel_fingerprint, host_fingerprint, "PYTHON")
+    assert content_key.execution_identity("NATIVE", "PYTHON", "PYTHON") == (kernel_fingerprint, host_fingerprint, "NATIVE:unavailable")
+    assert content_key.execution_identity("PYTHON", "PYTHON") == (kernel_fingerprint, host_fingerprint, "PYTHON|snap_embedding=NATIVE:unavailable")  # умолчание сертификата - Native
     assert len(content_key.code_identity()) == 2
     # с колесом идентичность исполнения несёт отпечаток сборки (`native_build_id()`), а не номер колеса
     _fake_native()
-    assert content_key.execution_identity("NATIVE", "PYTHON") == (kernel_fingerprint, host_fingerprint, f"NATIVE:{BUILD_ID}")
+    assert content_key.execution_identity("NATIVE", "PYTHON", "PYTHON") == (kernel_fingerprint, host_fingerprint, f"NATIVE:{BUILD_ID}")
 
 
 def test_the_content_key_and_the_result_slot_carry_the_backend(row):
@@ -354,7 +363,7 @@ def test_the_content_key_and_the_result_slot_carry_the_backend(row):
     # без идентичности слот несёт идентичность умолчания продукта (без колеса — `NATIVE:unavailable`), а не молчаливый `PYTHON`
     default = content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT")
     assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", host_backend.backend_identity_of(host_backend.DEFAULT_KERNEL_BACKEND))
-    assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:unavailable|skeleton=NATIVE:unavailable") != first
+    assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable") != first
     assert content_key.execution_identity() == content_key.execution_identity(host_backend.DEFAULT_KERNEL_BACKEND)
     assert content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", f"NATIVE:{BUILD_ID}") != content_key.result_slot(
         "0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:" + "cd" * 32
@@ -485,7 +494,8 @@ def test_a_domain_refusal_of_the_native_core_names_the_domain_whatever_the_stage
     def plain(patch_id, domain_id):
         return production._refusal(patch_id, domain_id, "MATERIALIZED", "")
 
-    assert plain(7, "domain-7", backend="PYTHON", skeleton_backend="PYTHON").outcome == "MATERIALIZED" and plain(7, "domain-7", backend="PYTHON", skeleton_backend="PYTHON").backend_record is None
+    assert plain(7, "domain-7", backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="PYTHON").outcome == "MATERIALIZED"
+    assert plain(7, "domain-7", backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="PYTHON").backend_record is None
     assert plain(7, "domain-7").backend_record is not None and plain(7, "domain-7").backend_record.requested == "NATIVE"
 
 

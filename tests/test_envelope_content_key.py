@@ -575,7 +575,8 @@ def test_embedding_execution_identity_separates_results_and_content_without_chan
     python = backend_identity_of("NATIVE", "NATIVE", "PYTHON")
     native = backend_identity_of("NATIVE", "NATIVE", "NATIVE")
     assert python != native
-    assert domain_content_key(export, selected) == domain_content_key(export, selected, embedding_backend="PYTHON")
+    assert domain_content_key(export, selected) == domain_content_key(export, selected, embedding_backend="NATIVE")  # умолчание стадии - Native (EMBEDDING_NATIVE_DEFAULT_V1)
+    assert domain_content_key(export, selected) != domain_content_key(export, selected, embedding_backend="PYTHON")
     assert domain_content_key(export, selected, embedding_backend="NATIVE") != domain_content_key(export, selected, embedding_backend="PYTHON")
     assert execution_identity(embedding_backend="NATIVE") != execution_identity(embedding_backend="PYTHON")
     assert result_slot(".25", "uv", "topology", "lift", python) != result_slot(".25", "uv", "topology", "lift", native)

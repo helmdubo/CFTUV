@@ -1857,7 +1857,7 @@ def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
 #: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
 #: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
-RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton")
+RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding")
 
 
 def test_python_sources_of_rust_only_stages_stay_at_their_pin():
@@ -2074,4 +2074,4 @@ def test_embedding_hook_preserves_the_value_memo_and_frozen_python_leaf():
     dispatcher = _parse(KERNEL_SOURCE / "cftuv_envelope" / "backend.py")
     required = next(n for n in dispatcher.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_REQUIRED" for t in n.targets))
     assert "snap_embedding_certificate" not in ast.dump(required), "B1 must not disable the older three-operation wheel"
-    assert "snap_embedding" not in RUST_ONLY_OPERATIONS, "B1 default remains PYTHON until parity acceptance"
+    assert "snap_embedding" in RUST_ONLY_OPERATIONS, "EMBEDDING_NATIVE_DEFAULT_V1: the certificate stage is Rust-only after the strict field A/B and parity"

@@ -64,6 +64,7 @@ def _press(ctx: dict, name: str, alpha: float, stretch: int) -> None:
         ctx["controller"], opened["bundle"], frozenset(opened["selected"]), alpha,
         source_object_key=opened["key"], source_data_key=opened["data_key"], density=ctx["args"].density,
         developable_stretch_budget=envelope_stretch_budget(stretch), workers=0, kernel_backend="PYTHON",
+        embedding_backend="PYTHON",  # the corpus records the ORACLE's calls: the default of the stage (Native) would bypass the recorder
     )
 
 

@@ -63,6 +63,7 @@ def press(bundle, *, skeleton, backend="NATIVE", controller=None, workers=0, alp
         workers=workers,
         kernel_backend=backend,
         skeleton_backend=skeleton,
+        embedding_backend="PYTHON",  # здесь изолируется стадия скелета; прогон без аргументов проверяет умолчания (в том числе сертификата вложения)
     )
     return run, controller
 
@@ -96,13 +97,17 @@ def test_the_skeleton_stage_defaults_to_native_with_coverage_and_clip():
 
 def test_the_identity_of_the_stage_and_of_the_execution(monkeypatch):
     assert host_backend.skeleton_identity_of("PYTHON") == "PYTHON" and host_backend.skeleton_identity_of() == "NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == "NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE", "NATIVE") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
+    # идентичность двух стадий (сертификат вложения - третья, заказана явно на PYTHON: она не меняет строку)
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON") == "NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", embedding_backend="PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
+    # умолчание третьей стадии - Native (EMBEDDING_NATIVE_DEFAULT_V1): идентичность умолчания продукта несёт все три
+    assert host_backend.backend_identity_of("NATIVE") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable"
     _fake_native()
     assert host_backend.skeleton_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}"
-    assert host_backend.backend_identity_of("PYTHON", "NATIVE") == f"PYTHON|skeleton=NATIVE:{BUILD_ID}"
-    assert host_backend.backend_identity_of("NATIVE", "NATIVE") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("PYTHON", "NATIVE", "PYTHON") == f"PYTHON|skeleton=NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}"
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +152,9 @@ def test_the_default_press_computes_the_native_skeleton_and_names_its_actual_cal
     assert run.skeleton_backend == "NATIVE" and run.kernel_backend == "NATIVE"
     assert all(item.backend_record.skeleton_requested == "NATIVE" and item.backend_record.skeleton_native_calls == 1 and not item.backend_record.skeleton_outcomes for item in run.results)
     line = host_backend.backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend)[0]
-    assert line.startswith("[CFTUV][Production] BACKEND coverage/clip native ") and line.endswith(f"; skeleton native {ROW} / python 0")
+    # умолчание называет и третью стадию (сертификат вложения, EMBEDDING_NATIVE_DEFAULT_V1): её часть стоит после скелета
+    assert line.startswith("[CFTUV][Production] BACKEND coverage/clip native ") and f"; skeleton native {ROW} / python 0; embedding calls native " in line
+    assert all(item.backend_record.embedding_requested == "NATIVE" for item in run.results) and run.embedding_backend == "NATIVE"
     assert f"skeleton native {ROW} / python 0" in production.production_timing_text(run)
 
 
@@ -398,7 +405,7 @@ def test_prepare_for_production_runs_the_preparation_in_the_block_and_returns_th
     assert calls == [("NATIVE", "PYTHON")] and (record.skeleton_ran, record.skeleton_native_calls) == ("native", 1)
     plain = production.prepare_for_production(snapshot, request, backend="PYTHON", skeleton_backend="PYTHON")
     assert plain.outcome == prepared.outcome and len(calls) == 1
-    assert production.prepare_for_production_recorded(snapshot, request, backend="PYTHON", skeleton_backend="PYTHON")[1] is None
+    assert production.prepare_for_production_recorded(snapshot, request, backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="PYTHON")[1] is None
     # умолчание продукта: все стадии заказаны NATIVE; запись подготовки называет настоящий вызов скелета
     default_record = production.prepare_for_production_recorded(snapshot, request)[1]
     assert default_record.requested == "NATIVE" and default_record.skeleton_requested == "NATIVE" and default_record.skeleton_ran == "native" and default_record.skeleton_native_calls == 1

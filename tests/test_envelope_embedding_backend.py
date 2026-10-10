@@ -43,12 +43,13 @@ def _produced(record=None):
     return production._refusal(7, "domain", "MATERIALIZED", "").with_changes(backend_record=record)
 
 
-def test_embedding_is_api_only_python_by_default_and_preparation_identity_is_unchanged():
-    assert host.DEFAULT_EMBEDDING_BACKEND == "PYTHON"
+def test_embedding_is_api_only_native_by_default_and_preparation_identity_is_unchanged():
+    assert host.DEFAULT_EMBEDDING_BACKEND == "NATIVE"  # EMBEDDING_NATIVE_DEFAULT_V1; явный PYTHON остаётся эталоном
     task = pool_module.DomainTaskV1(0, 7, "d", None, None, ".25", frozenset())
-    assert task.embedding_backend == "PYTHON"
-    assert host.backend_identity_of("PYTHON", "PYTHON") == "PYTHON"
-    assert host.backend_identity_of("PYTHON", "PYTHON", "NATIVE").startswith("PYTHON|snap_embedding=NATIVE:")
+    assert task.embedding_backend == "NATIVE"
+    assert host.backend_identity_of("PYTHON", "PYTHON", "PYTHON") == "PYTHON"
+    assert host.backend_identity_of("PYTHON", "PYTHON") == host.backend_identity_of("PYTHON", "PYTHON", "NATIVE")
+    assert host.backend_identity_of("PYTHON", "PYTHON").startswith("PYTHON|snap_embedding=NATIVE:")
     assert host.skeleton_identity_of("PYTHON") == "PYTHON"
 
 

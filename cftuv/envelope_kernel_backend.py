@@ -27,6 +27,10 @@
 `DEFAULT_SKELETON_BACKEND` (`NATIVE`, SKELETON_NATIVE_DEFAULT_V1 после строгой сверки и замера кнопки). Явный `PYTHON` остаётся эталоном; сохранённый выбор сцены не меняется. Настройка едет всюду, где едет `kernel_backend`
 (`run_production`, `DomainTaskV1.skeleton_backend`, запись живой ширины, свойство сцены).
 
+СТАДИЯ SNAP_EMBEDDING — ТРЕТЬЯ, ТОЛЬКО API (`embedding_backend`, `PYTHON` | `NATIVE`, настройки сцены нет). Сертификат вложения привязки источника (`cftuv_envelope._embedding`) считается в экспорте, подготовке и
+материализации; его умолчание — `DEFAULT_EMBEDDING_BACKEND` (`NATIVE`, EMBEDDING_NATIVE_DEFAULT_V1). Явный `PYTHON` остаётся эталоном и именованным откатом; память сертификата по значениям остаётся на Python (хук
+подменяет только лист), идентичность стадии входит в ключи результата и содержимого, но не в ключ подготовки.
+
 ПОДГОТОВКА ПОД БЛОКОМ БЭКЕНДА. Скелет считается в подготовке (`prepare_conveyor` -> `_prepare_region`), которая идёт ДО `produce_domain` — в родителе и в воркерах пула. Поэтому блок `use_backend`
 стоит и вокруг подготовки (`prepared_under_backend`, `prepare_for_production`, `run_queue_domain`), а запись домена — слияние записи подготовки и записи материализации
 (`BackendRecordV1.merged`). Подготовка зависит только от бэкенда скелета, поэтому ключ её кэша в сессии несёт `skeleton_identity_of` (`PYTHON` | `NATIVE:<native_build_id()>`):
@@ -51,8 +55,9 @@ DEFAULT_KERNEL_BACKEND = KERNEL_BACKEND_NATIVE
 #: УМОЛЧАНИЕ СТАДИИ SKELETON — Native (SKELETON_NATIVE_DEFAULT_V1): строгий полевой A/B и замер настоящей кнопки; явный Python — эталон и именованный откат.
 #: Названо ОДНИМ местом, как и `DEFAULT_KERNEL_BACKEND`; сохранённый выбор PYTHON не меняется.
 DEFAULT_SKELETON_BACKEND = KERNEL_BACKEND_NATIVE
-#: B1 пока доступен только через API; до строгой сверки умолчание — эталон.
-DEFAULT_EMBEDDING_BACKEND = KERNEL_BACKEND_PYTHON
+#: УМОЛЧАНИЕ СТАДИИ SNAP_EMBEDDING (сертификат вложения привязки источника, `_embedding`) — Native (EMBEDDING_NATIVE_DEFAULT_V1): строгий полевой A/B (`blender_native_ab.py --stage embedding`)
+#: и паритет; явный Python — эталон и именованный откат. Названо ОДНИМ местом, как и остальные умолчания; настройки сцены у стадии нет (только API), поэтому сохранённого выбора PYTHON нет.
+DEFAULT_EMBEDDING_BACKEND = KERNEL_BACKEND_NATIVE
 #: Имя свойства в `HOTSPOTUV_DecalMeshSettings`.
 SETTING_NAME = "kernel_backend"
 #: Имя свойства стадии скелета там же.
@@ -145,7 +150,7 @@ def skeleton_identity_of(skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
 def entered_backend(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND):
     """`use_backend` ядра; смена бэкенда покрытия и резки в ЭТОМ процессе сбрасывает память стадии резки.
 
-    Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если обе `PYTHON`. Память резки сбрасывается потому, что её ключ бэкенд не несёт;
+    Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если все `PYTHON`. Память резки сбрасывается потому, что её ключ бэкенд не несёт;
     скелет в этой памяти не участвует (ответ скелета побитово один), поэтому его смена память резки не трогает.
     """
 
@@ -179,7 +184,7 @@ def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleto
     """`(подготовка, запись | None)`: `build()` под блоком бэкенда, скелет считается в нём.
 
     Заимствованный журнал принадлежит вызывающему: при нём возвращаемая запись — None, чтобы счёт не удвоился.
-    Запись — `BackendRecordV1` подготовки (скелет ОТДЕЛЬНО от покрытия и резки: в подготовке считается только он) либо `None`, когда обе стадии `PYTHON` (блок журнала
+    Запись — `BackendRecordV1` подготовки (скелет ОТДЕЛЬНО от покрытия и резки: в подготовке считается только он) либо `None`, когда все стадии `PYTHON` (блок журнала
     не заводит, путь побитово равен вызову без блока). Домен, которому нативное ядро отказало по имени, отказан `PreparationRefused`, как бы ни кончилась `build` (исключение могла
     проглотить промежуточная стадия: ответ после отказа недействителен). Память стадии резки здесь не трогается: подготовка резки не зовёт.
     """
@@ -218,7 +223,7 @@ def with_kernel_backend(produce):
     """Добавляет вычислению домена именованный параметр `backend` и кладёт в результат запись бэкенда.
 
     `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). Умолчание `backend` —
-    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON, skeleton_backend=PYTHON` результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
+    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON, skeleton_backend=PYTHON, embedding_backend=PYTHON` результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
     завершился бы; `NATIVE_PARTIAL_EFFECTS_REFUSED`: пояс, состояние сдвинулось), ответ домена недействителен, каким бы он ни вернулся (исключение могла
     проглотить промежуточная стадия): домен отказан этим именем.
 
@@ -276,7 +281,9 @@ class BackendSummaryV1:
     skeleton_mixed: int = 0
     #: Как `outcomes`, для скелета.
     skeleton_outcomes: tuple = ()
-    embedding_requested: str = DEFAULT_EMBEDDING_BACKEND
+    #: Стадия сертификата вложения заказана на `NATIVE`, только если об этом говорит запись домена: сводка не знает заказа прогона, поэтому «ничего не видно» - `PYTHON`, а не умолчание стадии
+    #: (иначе прогон с явным `PYTHON` печатал бы строку о сертификате, которого не заказывал).
+    embedding_requested: str = KERNEL_BACKEND_PYTHON
     embedding_native: int = 0
     embedding_python: int = 0
     embedding_cache_hits: int = 0
@@ -303,7 +310,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_B
     cached = 0
     patches: dict = {}
     skeleton_patches: dict = {}
-    embedding_name, embedding_native, embedding_python, embedding_hits = DEFAULT_EMBEDDING_BACKEND, 0, 0, 0
+    embedding_name, embedding_native, embedding_python, embedding_hits = KERNEL_BACKEND_PYTHON, 0, 0, 0  # заказ стадии видят записи доменов, а не умолчание
     embedding_patches: dict = {}
     for item in results:
         record = getattr(item, "backend_record", None)
@@ -381,7 +388,7 @@ def backend_text(summary: BackendSummaryV1) -> str:
 
 
 def backend_console_lines(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> list:
-    """Одна строка журнала прогона; пусто, пока обе стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE` для покрытия и резки, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
+    """Одна строка журнала прогона; пусто, пока все стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE` для покрытия и резки, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
 
     summary = backend_summary(results, kernel_backend, skeleton_backend)
     if KERNEL_BACKEND_NATIVE not in (summary.requested, summary.skeleton_requested, summary.embedding_requested):
