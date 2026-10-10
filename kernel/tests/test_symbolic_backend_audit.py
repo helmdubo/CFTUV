@@ -72,8 +72,10 @@ SYMPY_AUDIT = {
     ),
     "reference/adaptive_density_band.py": (
         "B_KEEP",
-        'полоса веера плотности: значения q=5 вложенные радикалы',
+        'полоса веера плотности: значения q=5 вложенные радикалы; squared — квадрат суммы без Add._eval_power',
         (
+            "sp.Add",
+            "sp.Pow",
             "sp.Rational",
         ),
     ),
@@ -176,6 +178,18 @@ SYMPY_AUDIT = {
         (
             "sp.cancel",
             "sp.expand",
+        ),
+    ),
+    "reference/density_residual.py": (
+        "B_KEEP",
+        'знак остатка подшага: интервальный фильтр (iv) до выражения, sqrt(5) при q=5 — точный путь как был',
+        (
+            "mp.iv",
+            "mp.iv.mpf",
+            "mp.iv.prec",
+            "mp.iv.sqrt",
+            "sp.Add",
+            "sp.sqrt",
         ),
     ),
     "reference/direction_binding.py": (

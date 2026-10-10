@@ -63,6 +63,23 @@ def _double_band_trig():
     )
 
 
+def squared(value):
+    """`value * value` — тот же объект, что даёт умножение, без обхода `Add._eval_power`.
+
+    Квадрат суммы `Mul.flatten` собирает в `Pow(сумма, 2)`, и `Pow.__new__` зовёт `Add._eval_power`, который у суммы
+    из двух членов спрашивает `is_infinite` каждого члена: цепочка вывода допущений по новому тригонометрическому
+    произведению стоила в профиле `building` около 4 мс за вызов (17% компиляции плана) и ничего не меняет в
+    значении. Конечность членов здесь по построению (рациональные, корни из рациональных, `sin`/`cos`/`atan`
+    рациональных); бесконечное число среди членов отсекается охраной и идёт прежним путём умножения.
+    """
+
+    if type(value) is sp.Add and not any(
+        term.is_Number and not term.is_Rational for term in value.args
+    ):
+        return sp.Pow(value, 2, evaluate=False)
+    return value * value
+
+
 def _neighbour_is_inside_the_double_band(metric, vector, neighbour) -> bool:
     """Настоящий сосед идеала ближе `2*omega`: `cos(angle) >= cos(2*omega)`, ТОЧНО.
 
@@ -76,7 +93,7 @@ def _neighbour_is_inside_the_double_band(metric, vector, neighbour) -> bool:
         return False
     cosine, _ = _double_band_trig()
     norms = _dual_dot(metric, vector, vector) * _dual_dot(metric, neighbour, neighbour)
-    return _sign(dot * dot - cosine * cosine * norms, metric) >= 0
+    return _sign(squared(dot) - cosine * cosine * norms, metric) >= 0
 
 
 def _rotated_by_double_band(metric, vector, sign: int, orientation: int):
