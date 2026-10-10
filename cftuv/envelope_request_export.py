@@ -542,16 +542,13 @@ def _normalize_physical_seam_partitions(
         for name, value in zip(SEAM_PARTITION_COUNTERS, measured, strict=True):
             profile.set_counter(name, value)
 
+    loops: dict[tuple[int, int], list[_HostChainRecord]] = {}
+    for record in expanded:
+        loops.setdefault((record.patch_id, record.loop_index), []).append(record)
     normalized = []
-    for patch_loop in sorted(
-        {(record.patch_id, record.loop_index) for record in expanded}
-    ):
+    for patch_loop in sorted(loops):
         loop_records = sorted(
-            (
-                record
-                for record in expanded
-                if (record.patch_id, record.loop_index) == patch_loop
-            ),
+            loops[patch_loop],
             key=lambda record: (
                 record.source_chain_index,
                 record.source_segment_index,

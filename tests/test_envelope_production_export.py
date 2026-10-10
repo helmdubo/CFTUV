@@ -360,9 +360,42 @@ def test_the_snapshot_issues_memory_is_bounded_and_evicts_the_oldest(monkeypatch
     controller = EnvelopeDebugSessionController()
     bundle = quad_row_bundle(ROW)
     _production(bundle, controller)
-    assert len(controller._snapshot_issues) <= 3
+    # Предел растёт до числа записей кэша метрик (те же снапшоты держит он), а не ниже: меш крупнее предела не проверял бы
+    # каждый снапшот заново на каждом шаге ширины.
+    assert len(controller._snapshot_issues) <= max(3, len(controller._patch_metric_cache))
     held = [item[0] for item in controller._snapshot_issues.values()]
     assert len(held) == len({id(item) for item in held})
+    # Тот же сеанс без кэша метрик: предел строгий, вытесняется давнее.
+    controller._patch_metric_cache.clear()
+    snapshots = [item[0] for item in controller._snapshot_issues.values()]
+    controller._snapshot_issues.clear()
+    for snapshot in snapshots:
+        controller.snapshot_issues(snapshot)
+    assert len(controller._snapshot_issues) == 3
+    assert [item[0] for item in controller._snapshot_issues.values()] == snapshots[-3:]
+
+
+def test_a_mesh_larger_than_the_snapshot_issues_limit_validates_each_snapshot_once(monkeypatch):
+    """`cover.008` (1051 домен > 512): тёплый шаг ширины не проверяет снапшоты заново, пока их держит кэш метрик."""
+
+    import cftuv_envelope as kernel
+    from cftuv import envelope_debug_session as session_module
+
+    monkeypatch.setattr(session_module, "SNAPSHOT_ISSUES_CACHE_LIMIT", 2)
+    seen = []
+    real = kernel.validate_analysis_snapshot
+    monkeypatch.setattr(
+        kernel,
+        "validate_analysis_snapshot",
+        lambda item, **kwargs: seen.append(id(item)) or real(item, **kwargs),
+    )
+    controller = EnvelopeDebugSessionController()
+    bundle = quad_row_bundle(ROW)
+    _production(bundle, controller, alpha=0.25)
+    after_cold = len(seen)
+    _production(bundle, controller, alpha=0.5)
+    assert len(seen) == after_cold
+    assert len(controller._snapshot_issues) >= ROW
 
 
 # --------------------------------------------------------------------------

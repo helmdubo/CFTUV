@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Mapping
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_request_policy import DEFAULT_ENVELOPE_STRETCH_BUDGET
+from .surface_index import graph_index_of, surface_index_of
 
 if TYPE_CHECKING:
     from .surface_ir import AnalysisBundle
@@ -85,6 +86,9 @@ class EnvelopeTopologyExportV1:
     #: (сертификат решётки в снапшоте) строится из этого экспорта, поэтому закон входит в ключи кэшей метрики, геометрии, подготовки и результата
     #: (`metric_law_key`): подготовка, построенная повторной попыткой, никогда не ложится под ключ обычной.
     grid_scale_law: str | None = None
+    #: Производные от `host_chains`: цепочки и рёбра по патчу, строятся при первом обращении ОДИН раз на объект. Не часть значения
+    #: экспорта (не сравнивается, не печатается); копия через `replace` получает свою пустую запись, и ключ не может пережить свои цепочки.
+    _derived: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -96,6 +100,29 @@ class EnvelopeTopologyExportV1:
         # и геометрии сессии расщепились бы на два одинаковых.
         if self.developable_stretch_budget == DEFAULT_ENVELOPE_STRETCH_BUDGET:
             object.__setattr__(self, "developable_stretch_budget", None)
+
+    def patch_chains(self, patch_id: int) -> tuple[object, ...]:
+        """Цепочки хоста ОДНОГО патча в порядке `host_chains` (пусто, если у патча их нет): индекс вместо прохода по всем цепочкам на патч."""
+
+        groups = self._derived.get("chains")
+        if groups is None:
+            built: dict = {}
+            for record in self.host_chains:
+                built.setdefault(record.patch_id, []).append(record)
+            groups = self._derived["chains"] = {key: tuple(value) for key, value in built.items()}
+        return groups.get(int(patch_id), ())
+
+    def patch_edge_ids(self, patch_id: int) -> frozenset[int]:
+        """Физические рёбра цепочек ОДНОГО патча: то, что `band_key_of` пересекает с выделением."""
+
+        found = self._derived.setdefault("edges", {})
+        key = int(patch_id)
+        own = found.get(key)
+        if own is None:
+            own = found[key] = frozenset(
+                int(edge) for record in self.patch_chains(key) for edge in record.canonical_edge_ids
+            )
+        return own
 
     def with_developable_stretch_budget(self, budget: Fraction | None):
         """Тот же экспорт под допуском запроса `budget`; тяжёлые части общие, копии нет."""
@@ -206,6 +233,23 @@ class _PatchSurfaceIdView:
         )
 
 
+def _neighbour_face(index, position: int) -> NeighbourFaceV1:
+    """Грань кольца по позиции в поверхности; запись неизменяема и общая для всех срезов этой поверхности (память индекса)."""
+
+    found = index.memo.get(position)
+    if found is None:
+        item = index.faces[position]
+        position_of = index.position_of()
+        found = NeighbourFaceV1(
+            int(item.face_id),
+            int(item.patch_id),
+            tuple(int(vertex_id) for vertex_id in item.vertex_cycle),
+            tuple(tuple(float(axis) for axis in position_of[int(vertex_id)]) for vertex_id in item.vertex_cycle),
+        )
+        index.memo[position] = found
+    return found
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisBundleIdView:
     """Immutable patch-ID view over a full AnalysisBundle.
@@ -220,10 +264,10 @@ class AnalysisBundleIdView:
     _patch_surface: _PatchSurfaceIdView = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        available = frozenset(
-            int(value) for value in self.analysis_bundle.patch_graph.nodes
-        )
-        unknown = self.included_patch_ids - available
+        graph = self.analysis_bundle.patch_graph
+        surface = self.analysis_bundle.patch_surface
+        graph_index = graph_index_of(graph)
+        unknown = self.included_patch_ids - graph_index.node_ids
         if not self.included_patch_ids or unknown:
             from .envelope_request_export import (
                 EnvelopeDebugHostOutcome,
@@ -235,26 +279,13 @@ class AnalysisBundleIdView:
                 "request-scoped PatchDomain set is empty or unknown: "
                 f"{sorted(self.included_patch_ids)}",
             )
-        graph = self.analysis_bundle.patch_graph
-        surface = self.analysis_bundle.patch_surface
-        nodes = {
-            int(patch_id): node
-            for patch_id, node in graph.nodes.items()
-            if int(patch_id) in self.included_patch_ids
-        }
-        edges = {
-            key: edge
-            for key, edge in graph.edges.items()
-            if (
-                int(edge.patch_a_id) in self.included_patch_ids
-                and int(edge.patch_b_id) in self.included_patch_ids
-            )
-        }
-        faces = tuple(
-            item
-            for item in surface.faces
-            if int(item.patch_id) in self.included_patch_ids
-        )
+        included = self.included_patch_ids
+        # Срез по ИНДЕКСУ поверхности и графа (`surface_index`), а не фильтром по всей поверхности на каждый домен: содержимое и
+        # порядок те же, что давал фильтр (`tests/test_surface_index.py`), цена - домена, а не меша.
+        index = surface_index_of(surface)
+        nodes = graph_index.nodes_of(graph, included)
+        edges = graph_index.edges_of(graph, included)
+        faces = tuple(index.faces[position] for position in index.face_positions(included))
         face_ids = frozenset(int(item.face_id) for item in faces)
         edge_ids = frozenset(
             int(edge_id) for face in faces for edge_id in face.edge_cycle
@@ -262,18 +293,9 @@ class AnalysisBundleIdView:
         vertex_ids = frozenset(
             int(vertex_id) for face in faces for vertex_id in face.vertex_cycle
         )
-        position_of = {int(item.vertex_id): item.position for item in surface.vertices}
         # Вид вида (лёгкий вход воркера) уже несёт кольцо: его граней среди `surface.faces` нет, и оно переходит как есть.
-        neighbours = tuple(getattr(surface, "neighbour_faces", ())) + tuple(
-            NeighbourFaceV1(
-                int(item.face_id),
-                int(item.patch_id),
-                tuple(int(vertex_id) for vertex_id in item.vertex_cycle),
-                tuple(tuple(float(axis) for axis in position_of[int(vertex_id)]) for vertex_id in item.vertex_cycle),
-            )
-            for item in surface.faces
-            if int(item.patch_id) not in self.included_patch_ids
-            and not vertex_ids.isdisjoint(int(vertex_id) for vertex_id in item.vertex_cycle)
+        neighbours = tuple(index.ring) + tuple(
+            _neighbour_face(index, position) for position in index.ring_positions(vertex_ids, included)
         )
         object.__setattr__(
             self,
@@ -285,22 +307,10 @@ class AnalysisBundleIdView:
             "_patch_surface",
             _PatchSurfaceIdView(
                 self.source_revision,
-                tuple(
-                    item
-                    for item in surface.vertices
-                    if int(item.vertex_id) in vertex_ids
-                ),
-                tuple(
-                    item
-                    for item in surface.edges
-                    if int(item.edge_id) in edge_ids
-                ),
+                tuple(index.vertices[position] for position in index.vertex_item_positions(vertex_ids)),
+                tuple(index.edges[position] for position in index.edge_item_positions(edge_ids)),
                 faces,
-                tuple(
-                    item
-                    for item in surface.triangles
-                    if int(item.source_face_id) in face_ids
-                ),
+                tuple(index.triangles[position] for position in index.triangle_item_positions(face_ids)),
                 neighbours,
             ),
         )

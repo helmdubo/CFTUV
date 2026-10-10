@@ -152,11 +152,7 @@ def build_host_export_input(
         topology_export.analysis_bundle, frozenset({patch_id})
     )
     graph = view.patch_graph
-    chains = tuple(
-        record
-        for record in topology_export.host_chains
-        if record.patch_id == patch_id
-    )
+    chains = topology_export.patch_chains(patch_id)
     bundle = _LightBundleV1(
         view.source_revision,
         _LightGraphV1(
