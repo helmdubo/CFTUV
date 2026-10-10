@@ -1,8 +1,9 @@
 """Прогрев пула: воркеры стартуют заранее, безопасно и только там, где это заказано (хост без Blender).
 
-Утверждений четыре: (1) прогрев поднимает ТОТ ЖЕ пул, что берёт кнопка, и кнопка находит воркеров готовыми; (2) в фоновом Blender, без
+Утверждений пять: (1) прогрев поднимает ТОТ ЖЕ пул, что берёт кнопка, и кнопка находит воркеров готовыми; (2) в фоновом Blender, без
 заказа и при выключателе окружения он не делает ничего; (3) таймер читает настройки на главном потоке, а старт отдаёт потоку и не
-стартует пул из меньше чем двух воркеров; (4) отказ прогрева — строка с именем, а не падение регистрации.
+стартует пул из меньше чем двух воркеров; (4) отказ прогрева — строка с именем, а не падение регистрации; (5) тот же поток считает отпечаток
+кода процесса, который иначе платило бы первое нажатие (результат тот же, отказ - строка с именем).
 """
 
 from __future__ import annotations
@@ -61,6 +62,44 @@ def test_the_prewarm_starts_the_very_pool_the_button_takes_and_the_button_finds_
     first = list(pool._workers)  # noqa: SLF001 - воркеры прогрева
     assert pool.warm() < 1.0 and list(pool._workers) == first  # второй прогрев ничего не стартует
     assert get_domain_pool(2, "") is pool, "the press takes the same pool"
+
+
+def test_the_prewarm_computes_the_code_identity_that_the_press_would_compute():
+    from cftuv import envelope_content_key as key
+
+    key._fingerprint_once.cache_clear()  # noqa: SLF001
+    assert key._fingerprint_once.cache_info().currsize == 0  # noqa: SLF001
+
+    prewarm.prewarm_pool(2, "")
+
+    assert key._fingerprint_once.cache_info().currsize == 2, "the kernel package and the host package are fingerprinted"  # noqa: SLF001
+    hits_before = key._fingerprint_once.cache_info().hits  # noqa: SLF001
+    expected = key.code_identity()
+    assert key._fingerprint_once.cache_info().hits == hits_before + 2, "the press takes the fingerprints from the cache"  # noqa: SLF001
+    key._fingerprint_once.cache_clear()  # noqa: SLF001
+    assert key.code_identity() == expected, "the same fingerprint however it is reached"
+
+
+def test_a_code_identity_that_cannot_be_computed_is_a_named_line_and_the_prewarm_still_returns(monkeypatch, capsys):
+    from cftuv import envelope_content_key as key
+
+    def broken():
+        raise key.ContentKeyUnsupported("the kernel is not importable")
+
+    monkeypatch.setattr(key, "code_identity", broken)
+
+    seconds = prewarm.prewarm_pool(2, "")
+
+    assert seconds > 0.0 and get_domain_pool(2, "").worker_count == 2
+    assert prewarm.IDENTITY_PREWARM_UNAVAILABLE in capsys.readouterr().out
+
+
+def test_a_pool_that_did_not_start_computes_no_identity(monkeypatch):
+    pool = get_domain_pool(2, "")
+    monkeypatch.setattr(pool, "ensure_started", lambda: (_ for _ in ()).throw(DomainPoolUnavailable("no interpreter")))
+    monkeypatch.setattr(prewarm, "warm_code_identity", lambda: pytest.fail("a failed prewarm is not followed by the identity"))
+
+    assert prewarm.prewarm_pool(2, "") == 0.0
 
 
 def test_a_pool_of_fewer_than_two_workers_is_never_started():
