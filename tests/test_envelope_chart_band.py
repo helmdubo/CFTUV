@@ -641,7 +641,6 @@ def test_a_new_preparation_on_another_tightened_map_replaces_the_stored_one_and_
     result = SimpleNamespace(labels=object(), outcome="MATERIALIZED")
     old, new, same = prepared(Fraction(3, 10)), prepared(Fraction(12, 25)), prepared(Fraction(12, 25))
     store.register_preparation("content-key", old, object())
-    # как кнопка: подготовка лежит под идентичностью скелета ПРОГОНА (без неё ключ берёт умолчание стадии: NATIVE при установленном колесе, PYTHON без него)
     controller.get_conveyor_preparation("rev", "domain0", frozenset({2}), request, lambda: new, skeleton_id=run.skeleton_id)
     production._register_content(run, entry, request, result)
     assert store.find("content-key").prepared is new  # запись лежала на карте другой досягаемости: заменена

@@ -1,0 +1,80 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "canon_v2_interface_representation_shift",
+  "tool": "sweep",
+  "law": "EXACT_SCALAR_TEXT_CANON_V2 + CANON_V2_INTERFACE_REPRESENTATION_SHIFT_V1",
+  "about": "Материализация (`sweep.py`) на building при d1, d2 и d4 меняет ровно `content_digest` и `semantic_digest` на 8 патчах (0, 1, 6, 7, 17, 105, 106, 109), 24 строки на каждый закон топологии; ни один счётчик, поле ответа, исход и диагностика не меняются (DECISIONS 2026-10-08, квитанция `artifacts/sympy_off_hot_path/exact_scalar_text_canon_v2_receipt.json`). Причина — канон V2: новые идентификаторы полос (`strip_envelope_instance_id`) нумеруют отсортированные регионы Layout по-другому. Группа `interface_chains_reversed` — 15 строк, где выбор меньшей стороны (`CANON_V2_INTERFACE_REPRESENTATION_SHIFT_V1`) разворачивает 27 интерфейсных цепей: направленный дайджест меняется ЯВНО, физические рёбра, владельцы UV, позиции и якоря прежние. Группа `names_only` — остальные 9 строк: меняются только имена (идентификаторы), развёрнутых цепей нет. Остальные 114 доменов на каждой плотности совпадают побитово.",
+  "groups": [
+    {
+      "name": "interface_chains_reversed",
+      "domains": {
+        "by_density": {
+          "1": [
+            7,
+            17,
+            106
+          ],
+          "2": [
+            0,
+            1,
+            7,
+            17,
+            105,
+            106
+          ],
+          "4": [
+            0,
+            1,
+            7,
+            17,
+            105,
+            106
+          ]
+        }
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": [
+          "content_digest",
+          "semantic_digest"
+        ]
+      }
+    },
+    {
+      "name": "names_only",
+      "domains": {
+        "by_density": {
+          "1": [
+            0,
+            1,
+            6,
+            105,
+            109
+          ],
+          "2": [
+            6,
+            109
+          ],
+          "4": [
+            6,
+            109
+          ]
+        }
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": [
+          "content_digest",
+          "semantic_digest"
+        ]
+      }
+    }
+  ],
+  "require": {
+    "changed_any_of": [
+      "content_digest",
+      "semantic_digest"
+    ],
+    "no_refusal": true
+  }
+}

@@ -61,6 +61,9 @@ class MaterializationOutcome(str, Enum):
     COVERAGE_FACE_LOST = "COVERAGE_FACE_LOST"
     BATCH_DID_NOT_VALIDATE = "BATCH_DID_NOT_VALIDATE"
     EXACT_WORK_BUDGET_EXHAUSTED = "EXACT_WORK_BUDGET_EXHAUSTED"
+    # У точной величины нет канонической строки V2 (больше одного члена либо вне родного поля,
+    # `ExactScalarTextCanonUnsupported`): домен отказывает под именем исключения, а не «исключением домена».
+    EXACT_SCALAR_TEXT_CANON_UNSUPPORTED = "EXACT_SCALAR_TEXT_CANON_UNSUPPORTED"
     # Укладка на треугольники источника запрошена, а у near-planar домена нет
     # сертификата искажения ширины: класть не на что, и считать ширину не из чего.
     SURFACE_LIFT_UNAVAILABLE = "SURFACE_LIFT_UNAVAILABLE"

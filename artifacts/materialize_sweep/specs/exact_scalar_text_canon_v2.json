@@ -1,0 +1,75 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "exact_scalar_text_canon_v2",
+  "tool": "gate",
+  "law": "EXACT_SCALAR_TEXT_CANON_V2",
+  "about": "Канон строки одночленного `c*sqrt(m)` — знак и `Sqrt(Rational(P, Q))`, `P/Q = c^2*m` (DECISIONS 2026-10-08, одобрено владельцем; квитанция `artifacts/sympy_off_hot_path/exact_scalar_text_canon_v2_receipt.json`). ANSWER `numeric_repr/gate.py` на building расходится ровно в отпечатках геометрии `fp_geometry` и `fp_geometry_value` на 8 патчах (0, 1, 6, 7, 17, 105, 106, 109) при d1, d2 и d4 (24 строки): текстовые имена событий и экземпляров сменились, значения, бюджет и знаки равны. Имена меняются ещё на патчах 23, 25, 108, 110, 120, 121 (всего 14 патчей building), но в ANSWER ворот они не видны: эти домены обязаны совпасть во ВСЁМ. Исход, деталь, масштаб решётки, число регионов/граней/отрезков, структурные и хостовые счётчики и ВСЕ глубокие отпечатки внутренностей подготовки (мост, скелет, разбиение, владельцы, сетка) остаются теми же. Остальные 114 доменов (на каждой плотности) совпадают побитово.",
+  "domains": {
+    "by_density": {
+      "1": [
+        0,
+        1,
+        6,
+        7,
+        17,
+        105,
+        106,
+        109
+      ],
+      "2": [
+        0,
+        1,
+        6,
+        7,
+        17,
+        105,
+        106,
+        109
+      ],
+      "4": [
+        0,
+        1,
+        6,
+        7,
+        17,
+        105,
+        106,
+        109
+      ]
+    }
+  },
+  "must_change": "each",
+  "allow": {
+    "digests": [
+      "fp_geometry",
+      "fp_geometry_value"
+    ]
+  },
+  "require": {
+    "changed_any_of": [
+      "fp_geometry",
+      "fp_geometry_value"
+    ],
+    "no_refusal": true,
+    "unchanged": [
+      "fp_deep_bridge",
+      "fp_deep_bridge_value",
+      "fp_deep_skeleton",
+      "fp_deep_skeleton_value",
+      "fp_deep_partition",
+      "fp_deep_partition_value",
+      "fp_deep_owners",
+      "fp_deep_owners_value",
+      "fp_deep_lattice",
+      "fp_structural_counters",
+      "fp_host_counters",
+      "fp_meta",
+      "outcome",
+      "detail",
+      "lattice_scale",
+      "n_regions",
+      "n_faces",
+      "n_segments"
+    ]
+  }
+}

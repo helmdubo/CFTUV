@@ -78,6 +78,8 @@ MATERIALIZED = "MATERIALIZED"
 OUTCOME_PREPARATION_UNAVAILABLE = "PREPARATION_UNAVAILABLE"
 OUTCOME_PRODUCTION_CANCELLED = "PRODUCTION_CANCELLED"
 OUTCOME_DOMAIN_RAISED = "PRODUCTION_DOMAIN_RAISED"
+#: Зеркало исхода ядра `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`; исключение, которое ядро не успело назвать само (подготовка), хост называет тем же словом.
+OUTCOME_CANON_UNSUPPORTED = "EXACT_SCALAR_TEXT_CANON_UNSUPPORTED"
 
 #: Стадия профиля продукта и числа, которые он называет.
 PRODUCTION_BUILD_KIND = "PRODUCTION"
@@ -518,14 +520,8 @@ def produce_domain(
         if defer:
             produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
         return produced
-    except Exception:  # noqa: BLE001 - исход называется, а не теряется
-        return _refusal(
-            patch_id,
-            domain_id,
-            OUTCOME_DOMAIN_RAISED,
-            _trace_tail(),
-            time.perf_counter() - started,
-        )
+    except Exception as exc:  # noqa: BLE001 - исход называется, а не теряется
+        return _raised(exc, patch_id, domain_id, time.perf_counter() - started)
 
 
 def prepare_for_production_recorded(
@@ -573,9 +569,15 @@ def prepare_for_production(
     return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend, embedding_backend=embedding_backend)[0]
 
 
-def _trace_tail() -> str:
-    tail = traceback.format_exc().strip().splitlines()[-3:]
-    return " | ".join(item.strip() for item in tail)
+def _raised(exc, patch_id, domain_id, seconds, placement=PLACEMENT_PARENT):
+    """Отказ домена по исключению: «нет канонической строки V2» называется своим словом, прочее - `PRODUCTION_DOMAIN_RAISED` с хвостом трассы."""
+
+    from cftuv_envelope.reference.native_exact import ExactScalarTextCanonUnsupported
+
+    if isinstance(exc, ExactScalarTextCanonUnsupported):
+        return _refusal(patch_id, domain_id, OUTCOME_CANON_UNSUPPORTED, str(exc), seconds, placement)
+    tail = " | ".join(item.strip() for item in traceback.format_exc().strip().splitlines()[-3:])
+    return _refusal(patch_id, domain_id, OUTCOME_DOMAIN_RAISED, tail, seconds, placement)
 
 
 def solve_cold_production_task(task):
@@ -1158,11 +1160,8 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
                 entry.patch_id, entry.domain_id, refused.outcome, refused.detail,
                 time.perf_counter() - started,
             ).with_changes(backend_record=ledger_record(ledger)), placement)
-        except Exception:  # noqa: BLE001 - исход и запись вычисления сохраняются
-            return _refusal(
-                entry.patch_id, entry.domain_id, OUTCOME_DOMAIN_RAISED, _trace_tail(),
-                time.perf_counter() - started, placement,
-            ).with_changes(backend_record=ledger_record(ledger))
+        except Exception as exc:  # noqa: BLE001 - исход (в том числе названный отказ канона) и запись вычисления сохраняются
+            return _raised(exc, entry.patch_id, entry.domain_id, time.perf_counter() - started, placement).with_changes(backend_record=ledger_record(ledger))
     produced = produce_domain(
         entry.patch_id,
         entry.domain_id,
@@ -1840,6 +1839,7 @@ def _content_timing_suffix(run: ProductionRunV1, content: int) -> str:
 __all__ = (
     "ColdProductionInputV1",
     "MATERIALIZED",
+    "OUTCOME_CANON_UNSUPPORTED",
     "OUTCOME_DOMAIN_RAISED",
     "OUTCOME_PREPARATION_UNAVAILABLE",
     "PLACEMENT_CACHED",
