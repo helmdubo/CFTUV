@@ -528,7 +528,7 @@ def _evaluate_reference_raw_coverage(
                     BoundaryResolvedEnvelopeV1(
                         envelope_instance=clipped,
                         requested_alpha=alpha_value,
-                        effective_alpha=ExactScalar.from_value(effective),
+                        effective_alpha=ExactScalar.canonical(effective),
                         reachability=reachability,
                         capacity_outcome=capacity_outcome,
                         diagnostics=diagnostics,

@@ -263,8 +263,15 @@ def _exact_float(expression: str, sympy) -> float:
     стоил 0.37 мс, а на `building` (Fan Density 2) из 10 336 координат
     различных строк всего 490: это 3.8 с из 4.6 с отрисовки. Функция чистая
     (строка -> число), поэтому ответ побитово тот же.
+
+    Строка канона V2 (`Sqrt(Rational(P, Q))`, знак впереди) — не `srepr`: `sympify` прочёл бы её как неопределённую функцию `Sqrt`,
+    и `float` упал бы. Её читает читатель ядра (`ExactScalar.as_expr`) — тот же, что её пишет.
     """
 
+    if "Sqrt(" in expression:
+        from cftuv_envelope.reference.planar_types import ExactScalar
+
+        return float(ExactScalar(expression).as_expr())
     return float(sympy.sympify(expression))
 
 

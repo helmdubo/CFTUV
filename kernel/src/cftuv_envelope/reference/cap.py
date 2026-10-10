@@ -43,7 +43,7 @@ def evaluate_cap_envelope(
     instance_id = stable_id(
         "envelope-instance",
         spec.envelope_spec_id,
-        ExactScalar.from_value(effective_alpha).expression,
+        ExactScalar.canonical(effective_alpha).expression,
     )
     provenance = merge_provenance(
         context.provenance_by_spec_id[spec.envelope_spec_id.value],
@@ -68,7 +68,7 @@ def evaluate_cap_envelope(
         envelope_spec_id=spec.envelope_spec_id.value,
         envelope_variant="CapEnvelope",
         requested_alpha=alpha_value,
-        effective_alpha=ExactScalar.from_value(effective_alpha),
+        effective_alpha=ExactScalar.canonical(effective_alpha),
         regions=(),
         exposed_segments=(segment,),
         provenance=provenance,
