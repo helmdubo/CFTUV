@@ -12,7 +12,6 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from fractions import Fraction
 from typing import Callable, Hashable, TYPE_CHECKING
 
 from .envelope_chart_band import band_facts_of, policy_alpha, tightened_export
@@ -21,6 +20,7 @@ from .envelope_lazy_preparation import LazyPreparationV1
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
 from .envelope_scan_memo import ScanMemoV1
+from .envelope_snapshot_check import SNAPSHOT_CHECK_COUNTERS, budget_key, refusal_reason
 from .envelope_export_input import (
     build_host_export_input,
     patch_metric_from_worker,
@@ -148,10 +148,14 @@ class _WorkerExportHooks:
         controller: EnvelopeDebugSessionController,
         topology_export: EnvelopeTopologyExportV1,
         profile: EnvelopeDebugProfileBuilderV1 | None,
+        adopt_checks: bool = False,
     ) -> None:
         self._controller = controller
         self._topology_export = topology_export
         self._profile = profile
+        #: Продуктовый путь читает память замечаний (`snapshot_issues`) и принимает чистую проверку воркера; отладочный не читает её,
+        #: и его профиль не получает счётчиков принятия (отпечаток отладки не зависит от размещения).
+        self._adopt_checks = adopt_checks
         self._adopted: dict[int, object] = {}
 
     def snapshot_provider(self, patch_id: int, _domain_id: str):
@@ -164,15 +168,29 @@ class _WorkerExportHooks:
             build=(
                 None
                 if worker_result is None
-                else lambda: patch_metric_from_worker(
-                    topology_export, patch_id, worker_result
-                )
+                else lambda: self._adopt_worker_metric(topology_export, patch_id, worker_result)
             ),
         )
         return self._controller.get_domain_geometry(
             metric,
             profile=self._profile,
         ).snapshot
+
+    def _adopt_worker_metric(self, topology_export, patch_id, worker_result):
+        """Метрика из ответа воркера; чистая проверка его снапшота принимается в память замечаний (исход - счётчик профиля)."""
+
+        metric = patch_metric_from_worker(topology_export, patch_id, worker_result)
+        if not self._adopt_checks:
+            return metric
+        reason = self._controller.adopt_snapshot_check(
+            metric.snapshot,
+            worker_result.snapshot_check,
+            revision=topology_export.source_revision_value,
+            domain_id=metric.patch_domain_id,
+        )
+        if self._profile is not None:
+            self._profile.add_counter(SNAPSHOT_CHECK_COUNTERS[reason], 1)
+        return metric
 
     def export_provider(self, patch_id, alpha, request_id, density):
         # Метрика в кэше — выгрузка домена попадание, и воркеру её не отдают:
@@ -367,21 +385,39 @@ class EnvelopeDebugSessionController:
         и допуск растяжения за сессию (замечания зависят от допуска, как и сам запрос; `stretch_budget` —
         любое число с `numerator`/`denominator`, `None` — допуск самого снапшота)."""
 
-        budget = None if stretch_budget is None else Fraction(stretch_budget.numerator, stretch_budget.denominator)
+        budget = budget_key(stretch_budget)
         key = (id(snapshot), budget)
         known = self._snapshot_issues.get(key)
         if known is None or known[0] is not snapshot:
             from .envelope_request_export import _load_kernel
 
             kernel, _ = _load_kernel()
-            known = (snapshot, tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget)))
-            self._snapshot_issues[key] = known
-            limit = max(SNAPSHOT_ISSUES_CACHE_LIMIT, len(self._patch_metric_cache))
-            while len(self._snapshot_issues) > limit:
-                self._snapshot_issues.popitem(last=False)
+            known = self._remember_snapshot_issues(
+                key, snapshot, tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget))
+            )
         else:
             self._snapshot_issues.move_to_end(key)
         return known[1]
+
+    def _remember_snapshot_issues(self, key, snapshot, issues) -> tuple:
+        known = (snapshot, issues)
+        self._snapshot_issues[key] = known
+        limit = max(SNAPSHOT_ISSUES_CACHE_LIMIT, len(self._patch_metric_cache))
+        while len(self._snapshot_issues) > limit:
+            self._snapshot_issues.popitem(last=False)
+        return known
+
+    def adopt_snapshot_check(self, snapshot, clean, *, revision: str, domain_id: str) -> str:
+        """Чистая проверка, которую воркер сделал снапшоту, - в память замечаний вместо второй такой же (`envelope_snapshot_check`).
+
+        `""` - принята: запись `(снапшот, допуск воркера) -> ()` ложится туда, куда легла бы проверка родителя, и ровно тем же
+        значением (`snapshot_issues` читает её как свою). Иначе имя причины, и снапшот проверяется как раньше.
+        """
+
+        reason = refusal_reason(snapshot, clean, revision=revision, domain_id=domain_id)
+        if not reason:
+            self._remember_snapshot_issues((id(snapshot), clean.budget), snapshot, ())
+        return reason
 
     def slider_coverage_pool(self, workers: int, profile):
         """Пул покрытия для ползунка alpha либо `None`: тогда считает родитель.
@@ -1058,9 +1094,9 @@ class EnvelopeDebugSessionController:
         topology_export: EnvelopeTopologyExportV1,
         profile: EnvelopeDebugProfileBuilderV1 | None,
     ) -> _WorkerExportHooks:
-        """Выгрузка домена в воркерах пула сквозь кэш метрики этой сессии."""
+        """Выгрузка домена в воркерах пула сквозь кэш метрики этой сессии (продуктовый путь: принимает и чистую проверку снапшота воркером)."""
 
-        return _WorkerExportHooks(self, topology_export, profile)
+        return _WorkerExportHooks(self, topology_export, profile, adopt_checks=True)
 
     def production_result_key(
         self,

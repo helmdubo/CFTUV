@@ -265,6 +265,8 @@ class DomainTaskResultV1:
     stored: tuple = ()
     #: Запись экспорта, если он завершился до production (отказ либо ошибка).
     backend_record: object | None = None
+    #: `SnapshotCleanV1` (`envelope_snapshot_check`): воркер проверил `snapshot` и замечаний нет. Едет ТОЛЬКО со снапшотом, который выгрузил воркер.
+    snapshot_check: object | None = None
 
     @property
     def ok(self) -> bool:

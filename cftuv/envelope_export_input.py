@@ -34,6 +34,7 @@ from .envelope_host_labels import record_host_tokens
 from .envelope_metric_export import EnvelopePatchMetricExportV1
 from .envelope_request_policy import topology_chart_reach_cap
 from .envelope_seam_neighbours import narrowed_surface
+from .envelope_snapshot_check import WorkerSnapshotCheck
 from .envelope_topology_export import (
     EnvelopeTopologyExportV1,
     build_analysis_bundle_id_view,
@@ -251,11 +252,14 @@ class TaskInputsV1:
     #: Записанные токены идентичностей хоста домена (`DomainLabelingV1`), когда снапшот и запрос выгрузил
     #: воркер: по ним результат переносится на другую ревизию. Нет выгрузки в воркере — нет и записи.
     labeling: object | None = None
+    #: `SnapshotCleanV1`: воркер проверил выгруженный снапшот под допуском запроса, замечаний нет (`envelope_snapshot_check`); ответ несёт её со снапшотом.
+    check: object | None = None
 
     def result(self, **fields):
         from .envelope_domain_pool import DomainTaskResultV1
 
         recorded = self.profile.snapshot()
+        fields.setdefault("snapshot_check", self.check)
         return DomainTaskResultV1(
             self.task_id,
             export_timings=recorded.timings,
@@ -294,6 +298,7 @@ def task_inputs(task):
         grid_scale_law=export.grid_scale_law,
     )
     inputs = TaskInputsV1(None, None, profile, task.task_id, True)
+    checked = WorkerSnapshotCheck()
     with record_host_tokens() as log:
         try:
             snapshot = build_envelope_patch_metric_export(
@@ -311,14 +316,16 @@ def task_inputs(task):
                 developable_stretch_budget=export.developable_stretch_budget,
                 chart_reach_cap=export.chart_reach_cap,
                 silhouette_uv_slide=export.silhouette_uv_slide,
+                snapshot_issues_of=checked,
             )
         except EnvelopeHostAdapterError as error:
-            return inputs.result(snapshot=snapshot, refusal=_refusal(error))
+            return inputs.result(snapshot=snapshot, refusal=_refusal(error), snapshot_check=checked.clean)
     return replace(
         inputs,
         snapshot=snapshot,
         request=request,
         labeling=log.labeling(export.source_revision_value, export.request_id, task.patch_id),
+        check=checked.clean,
     )
 
 
