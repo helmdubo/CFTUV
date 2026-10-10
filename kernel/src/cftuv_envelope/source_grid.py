@@ -46,6 +46,7 @@ from ._embedding import (
     build_source_snap_embedding_certificate,
     source_snap_violation,
 )
+from .embedding_refusal import source_snap_refusal
 from .reference.angle_measure import (
     CertifiedAngleUnavailable,
     angular_fraction_of_pi,
@@ -433,7 +434,7 @@ def _source_grid_result(
     )
     outcome = source_snap_violation(embedding)
     if enforce_embedding and outcome is not None:
-        raise _embedding_refusal(outcome, embedding)
+        raise _embedding_refusal(outcome, embedding, before, after, faces, corner_facts.intended, certificate.source_scale)
     return SourceGridFactsV1(
         positions=after,
         certificate=certificate,
@@ -441,13 +442,14 @@ def _source_grid_result(
     )
 
 
-def _embedding_refusal(outcome, certificate):
+def _embedding_refusal(outcome, certificate, before, after, faces, corners, scale):
+    """Отказ привязки: первая строка - исход, счёт и первая находка (`embedding_refusal`), дальше полная запись сертификата."""
+
     from .planar_metric import PlanarMetricAdmissionError
 
     return PlanarMetricAdmissionError(
         outcome,
-        "source snap did not preserve the embedding: "
-        f"{certificate!r}",
+        source_snap_refusal(outcome, certificate, before=before, after=after, faces=faces, corners=corners, scale=scale),
     )
 
 
