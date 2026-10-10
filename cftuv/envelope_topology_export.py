@@ -549,10 +549,14 @@ def build_envelope_topology_debug_scene(
 STAGE_INPUTS_MEMO_LIMIT = 4
 STAGE_INPUTS_HIT = "HIT"
 STAGE_INPUTS_MISS = "MISS"
+#: Счётчик профиля: облегчённый пролог кнопки отказался, и пролог посчитал полный путь (`_lean_prologue`). В обычном прогоне его нет вовсе.
+STAGE_INPUTS_LEAN_DECLINED = "STAGE_INPUTS_LEAN_DECLINED"
 
 
 class StageInputsMemoV1:
-    """Пролог постадийного прогона (`stage_domain_inputs`) по `(ревизия, выделение)`: от alpha, плотности и допусков не зависит.
+    """Пролог постадийного прогона (`stage_domain_inputs`, `stage_production_inputs`) по `(ревизия, выделение, вид пролога)`: от alpha, плотности и допусков не зависит.
+
+    Видов два: полный (со сценой топологии, её читает отладка) и облегчённый кнопки (без сцены, `lean`); записи разных видов не смешиваются.
 
     Сцена топологии, перечень доменов, `DecalRequestId` и выделенные рёбра доменов — функция пакета анализа, цепочек хоста
     экспорта и выделения; полоса (`chart_band`), допуски и alpha экспорта в неё не входят (`stage_domain_inputs` читает у
@@ -578,17 +582,18 @@ class StageInputsMemoV1:
     def clear(self) -> None:
         self._entries.clear()
 
-    def stage(self, analysis_bundle, selected, *, profile, topology_export):
+    def stage(self, analysis_bundle, selected, *, profile, topology_export, lean: bool = False):
         from .envelope_content_key import ContentKeyUnsupported, code_identity
 
+        build = _lean_prologue if lean else _stage_domain_inputs
         try:
             code = code_identity() if self.enabled else None
         except ContentKeyUnsupported:
             code = None
         if code is None:
             self.last = "OFF"
-            return _stage_domain_inputs(analysis_bundle, selected, profile=profile, topology_export=topology_export)
-        key = (code, str(topology_export.source_revision_value), frozenset(int(item) for item in selected))
+            return build(analysis_bundle, selected, profile=profile, topology_export=topology_export)
+        key = (code, str(topology_export.source_revision_value), frozenset(int(item) for item in selected), lean)
         entry = self._entries.get(key)
         if entry is not None and entry[0] is analysis_bundle and entry[1] is topology_export.host_chains:
             self._entries[key] = self._entries.pop(key)  # давность
@@ -596,7 +601,7 @@ class StageInputsMemoV1:
             self.last = STAGE_INPUTS_HIT
             return self._replayed(entry[2], entry[3], profile)
         private = None if profile is None else EnvelopeDebugProfileBuilderV1(profile.source_name, profile.build_kind)
-        built = _stage_domain_inputs(analysis_bundle, selected, profile=private, topology_export=topology_export)
+        built = build(analysis_bundle, selected, profile=private, topology_export=topology_export)
         recorded = None if private is None else private.snapshot()
         self._entries.pop(key, None)
         self._entries[key] = (analysis_bundle, topology_export.host_chains, built, recorded)
@@ -618,8 +623,8 @@ class StageInputsMemoV1:
                 profile.set_counter(item.name, item.value, item.patch_domain_id)
             for receipt in recorded.receipts:
                 profile.set_receipt(receipt)
-        scene, revision, patch_ids, request_id, by_domain = built
-        return scene, revision, patch_ids, request_id, {name: set(edges) for name, edges in by_domain.items()}
+        *head, by_domain = built
+        return (*head, {name: set(edges) for name, edges in by_domain.items()})
 
 
 def stage_domain_inputs(
@@ -717,6 +722,191 @@ def _stage_domain_inputs(
     )
 
 
+def stage_production_inputs(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    topology_export: EnvelopeTopologyExportV1,
+    memo: StageInputsMemoV1 | None = None,
+):
+    """Пролог кнопки: `(ревизия, патчи, id запроса, выделенные рёбра по доменам)` БЕЗ сцены топологии.
+
+    Кнопка читает из пролога ровно эти четыре величины (сцену `stage_domain_inputs` она отбрасывала), а сцена - это объект на каждую петлю,
+    цепочку и сторону шва со всеми их точками и идентичностями: на `cover.008` (1051 домен) около половины секунды родителя до первой задачи
+    пула и десятки тысяч живых объектов, которые потом обходит сборщик мусора. Ответ тот же (`_lean_prologue`, оракул - полный пролог в
+    `tests/test_envelope_stage_inputs_lean.py`), записи профиля те же, память по `(ревизия, выделение)` та же.
+    """
+
+    if memo is None:
+        return _lean_prologue(analysis_bundle, selected_physical_edge_ids, profile=profile, topology_export=topology_export)
+    return memo.stage(analysis_bundle, selected_physical_edge_ids, profile=profile, topology_export=topology_export, lean=True)
+
+
+def _lean_prologue(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None,
+    topology_export: EnvelopeTopologyExportV1,
+):
+    """Четыре величины пролога, посчитанные без сцены; всё, в чём они могут разойтись с полным прологом, считается ИМ.
+
+    Облегчённый счёт идёт в черновой профиль. Он либо отдаёт ответ, который полный пролог дал бы побитово (проверки, при которых полный
+    пролог бросил бы исключение, облегчённый счёт делает сам, не строя объектов), либо отказывается любым исключением - и тогда пролог
+    считает полный путь заново на настоящем профиле: исключение (его тип и текст), записи профиля и ответ при отказе облегчённого счёта
+    те же, что были до него. Облегчённый счёт никогда не бросает исключение вместо полного пролога.
+    """
+
+    scratch = None if profile is None else EnvelopeDebugProfileBuilderV1(profile.source_name, profile.build_kind)
+    try:
+        built = _production_inputs(analysis_bundle, selected_physical_edge_ids, profile=scratch, topology_export=topology_export)
+    except Exception:  # noqa: BLE001 - любой отказ облегчённого счёта: ответ и исключение даёт полный пролог
+        if profile is not None:
+            profile.set_counter(STAGE_INPUTS_LEAN_DECLINED, 1)  # отказ называется, а не молчит: полный путь стоит дороже
+        return _stage_domain_inputs(
+            analysis_bundle, selected_physical_edge_ids, profile=profile, topology_export=topology_export
+        )[1:]
+    if profile is not None:
+        recorded = scratch.snapshot()
+        for item in recorded.timings:
+            profile.add_timing(item.stage, item.elapsed_seconds, item.patch_domain_id)
+        for item in recorded.counters:
+            profile.set_counter(item.name, item.value, item.patch_domain_id)
+        for receipt in recorded.receipts:
+            profile.set_receipt(receipt)
+    return built
+
+
+class _PointsChecked:
+    """Точки петель и цепочек, которые сцена проверяла бы на каждом пути: каждая вершина проверяется ОДИН раз тем же `_host_local_points`."""
+
+    __slots__ = ("vertices", "checked", "_check")
+
+    def __init__(self, vertices, check) -> None:
+        self.vertices = vertices
+        self.checked: set[int] = set()
+        self._check = check
+
+    def __call__(self, vertex_ids) -> None:
+        checked = self.checked
+        for vertex_id in vertex_ids:
+            if vertex_id not in checked:
+                self._check((vertex_id,), self.vertices)
+                checked.add(vertex_id)
+
+
+def _path_is_consistent(vertex_count: int, edge_count: int) -> bool:
+    """Условие, при котором сцена принимает путь: две точки и больше, рёбер столько же или на одно меньше (`EnvelopeTopologyDebugSceneV1`)."""
+
+    return vertex_count >= 2 and edge_count in {vertex_count, vertex_count - 1}
+
+
+def _production_inputs(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None,
+    topology_export: EnvelopeTopologyExportV1,
+):
+    """`(ревизия, патчи, id запроса, выделенные рёбра по доменам)` тем же обходом, что сцена топологии, без её объектов.
+
+    Обход, записи профиля и порядок записей те же, что у `build_envelope_topology_debug_scene` (петли выбранных патчей, группы цепочек,
+    пары сторон шва). Что сцена проверяла, строя пути и принимая себя (`EnvelopeTopologyDebugSceneV1.__post_init__`), проверяется здесь без
+    объектов: вершина есть и конечна, нормаль конечна, у пути не меньше двух точек и столько рёбер, сколько допускает сцена. Число доменов у
+    пары сторон шва сцена тоже проверяла, но недостижимо: пара есть у группы из двух записей, а `resolve_selection_scope` уже отказал на каждой
+    группе выделенных патчей, где вид соседа, число записей или число патчей не те (`_validate_chain_group_topology`). Любое нарушение -
+    исключение: `_lean_prologue` в этом случае отдаёт слово полному прологу.
+    """
+
+    from .envelope_debug_profile import EnvelopeDomainStage, EnvelopeDomainStageReceiptV1
+    from .envelope_request_export import (
+        _group_host_chains,
+        _host_local_points,
+        _measure,
+        _revision_value,
+        _typed_value,
+        _vector3,
+    )
+
+    revision = topology_export.source_revision_value
+    if _revision_value(analysis_bundle.source_revision) != revision:
+        raise ValueError("topology export SourceRevision does not match bundle")
+    host_chains = topology_export.host_chains
+    with _measure(profile, "SELECTION_SCOPE"):
+        scope = resolve_selection_scope(analysis_bundle, selected_physical_edge_ids, host_chains, profile=profile)
+    selected_keys = scope.chain_keys
+    selected_patch_ids = scope.patch_ids
+    nodes = analysis_bundle.patch_graph.nodes
+    domain_of_patch = {int(patch_id): _typed_value("patch-domain", revision, int(patch_id)) for patch_id in nodes}
+    domain_by_patch = {patch_id: domain_of_patch[patch_id] for patch_id in sorted(selected_patch_ids)}
+    surface = analysis_bundle.patch_surface
+    chain_groups = _group_host_chains(host_chains)
+    if profile is not None:
+        profile.set_counter("MESH_FACES", len(surface.faces))
+        profile.set_counter("MESH_EDGES", len(surface.edges))
+        profile.set_counter("PATCH_COUNT", len(analysis_bundle.patch_graph.nodes))
+        profile.set_counter("SELECTED_CHAINS", len(selected_keys))
+        profile.set_counter("SELECTED_DOMAINS", len(selected_patch_ids))
+    if not domain_by_patch:
+        raise ValueError("topology debug scene requires PatchDomains")
+    check_points = _PointsChecked(surface.vertex_by_id, _host_local_points)
+    selected_edges_by_domain: dict[str, set[int]] = {domain_id: set() for domain_id in domain_by_patch.values()}
+    physical_chain_ids: list[str] = []
+    with _measure(profile, "TOPOLOGY_SCENE"):
+        for patch_id in sorted(selected_patch_ids):
+            patch = nodes[patch_id]
+            domain_id = domain_by_patch[patch_id]
+            _vector3(patch.normal)
+            patch_faces = surface.patch_faces(patch_id)
+            patch_edge_ids = {int(edge_id) for face in patch_faces for edge_id in face.edge_cycle}
+            if profile is not None:
+                profile.set_counter("FACES_PER_DOMAIN", len(patch_faces), domain_id)
+                profile.set_counter("PHYSICAL_EDGES_PER_DOMAIN", len(patch_edge_ids), domain_id)
+                profile.set_receipt(
+                    EnvelopeDomainStageReceiptV1(
+                        patch_id,
+                        domain_id,
+                        EnvelopeDomainStage.TOPOLOGY_READY,
+                        EnvelopeDomainStage.TOPOLOGY_READY.value,
+                        "Topology built from AnalysisBundle host facts",
+                    )
+                )
+            for loop in patch.boundary_loops:
+                vertex_ids = tuple(int(item) for item in loop.vert_indices)
+                if len(vertex_ids) > 1 and vertex_ids[0] == vertex_ids[-1]:
+                    vertex_ids = vertex_ids[:-1]
+                check_points(vertex_ids)
+                if not _path_is_consistent(len(vertex_ids), len(loop.edge_indices)):
+                    raise ValueError("a patch loop is not a topology path")
+        for key, records in chain_groups.items():
+            visible_records = [record for record in records if record.patch_id in selected_patch_ids]
+            if not visible_records:
+                continue
+            is_closed, canonical_edges, canonical_vertices = key
+            check_points(canonical_vertices)
+            if not _path_is_consistent(len(canonical_vertices), len(canonical_edges)):
+                raise ValueError("a physical chain is not a topology path")
+            selected = key in selected_keys
+            if selected:
+                physical_chain_ids.append(
+                    _typed_value("physical-chain", revision, is_closed, canonical_edges, canonical_vertices)
+                )
+            for record in visible_records:
+                vertex_ids = tuple(int(item) for item in record.chain.vert_indices)
+                if len(vertex_ids) > 1 and vertex_ids[0] == vertex_ids[-1]:
+                    vertex_ids = vertex_ids[:-1]
+                check_points(vertex_ids)
+                if not _path_is_consistent(len(vertex_ids), len(record.chain.edge_indices)):
+                    raise ValueError("a chain use is not a topology path")
+                if selected:
+                    selected_edges_by_domain[domain_by_patch[record.patch_id]].update(int(item) for item in record.chain.edge_indices)
+    selected_domain_ids = frozenset(domain_by_patch.values())
+    patch_ids = tuple(sorted(patch_id for patch_id, domain_id in domain_of_patch.items() if domain_id in selected_domain_ids))
+    request_id = _typed_value("decal-request", revision, tuple(sorted(physical_chain_ids)))
+    return revision, patch_ids, request_id, selected_edges_by_domain
+
+
 __all__ = (
     "ChartBandPolicyV1",
     "SELECTION_COMPLETED_DIAGNOSTIC_CODE",
@@ -726,6 +916,7 @@ __all__ = (
     "EnvelopeTopologyExportV1",
     "HostChainKey",
     "STAGE_INPUTS_HIT",
+    "STAGE_INPUTS_LEAN_DECLINED",
     "STAGE_INPUTS_MISS",
     "STAGE_INPUTS_MEMO_LIMIT",
     "StageInputsMemoV1",
@@ -734,4 +925,5 @@ __all__ = (
     "build_envelope_topology_export",
     "resolve_selection_scope",
     "stage_domain_inputs",
+    "stage_production_inputs",
 )
