@@ -46,7 +46,9 @@ WINDOW_MANAGER_SESSION_ATTRIBUTE = "_cftuv_envelope_debug_session"
 #: четыре прогона при разных alpha.
 PRODUCTION_RESULT_CACHE_LIMIT = 512
 #: Предел памяти замечаний к снапшотам доменов (по давности): домены одной ревизии (сотни на `building`) в него
-#: входят с запасом, а сессия с несколькими мешами не копит снапшоты без счёта.
+#: входят с запасом, а сессия с несколькими мешами не копит снапшоты без счёта. Меш крупнее предела (`cover.008`, 1051 домен)
+#: растит память до числа записей кэша метрик (`_patch_metric_cache` держит те же снапшоты, и памяти сверх неё запись не стоит):
+#: при пределе в 512 каждый шаг ширины проверял заново ВСЕ снапшоты, а это 1.1 с родителя до первой задачи пула.
 SNAPSHOT_ISSUES_CACHE_LIMIT = 512
 
 
@@ -358,7 +360,8 @@ class EnvelopeDebugSessionController:
             kernel, _ = _load_kernel()
             known = (snapshot, tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget)))
             self._snapshot_issues[key] = known
-            while len(self._snapshot_issues) > SNAPSHOT_ISSUES_CACHE_LIMIT:
+            limit = max(SNAPSHOT_ISSUES_CACHE_LIMIT, len(self._patch_metric_cache))
+            while len(self._snapshot_issues) > limit:
                 self._snapshot_issues.popitem(last=False)
         else:
             self._snapshot_issues.move_to_end(key)

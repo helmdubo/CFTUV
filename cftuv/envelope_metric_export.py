@@ -60,12 +60,9 @@ def band_key_of(topology_export: EnvelopeTopologyExportV1, patch_id: int) -> tup
     policy = topology_export.chart_band
     if policy is None:
         return None
-    own = {
-        int(edge)
-        for record in topology_export.host_chains
-        if record.patch_id == int(patch_id)
-        for edge in record.canonical_edge_ids
-    }
+    # Рёбра патча - из индекса экспорта (один проход по цепочкам на экспорт), а не из прохода по всем цепочкам на каждый вызов:
+    # ключ зависит ровно от политики полосы и цепочек экспорта, а обе части неизменяемы у одного объекта.
+    own = topology_export.patch_edge_ids(patch_id)
     key = (policy.reach_cap, frozenset(policy.selected_physical_edge_ids) & own)
     return key if policy.tightened_reach_cap is None else key + (("tightened", policy.tightened_reach_cap),)
 
