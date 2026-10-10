@@ -803,7 +803,8 @@ def test_batch_wrapper_keeps_density_argument_visible():
 # --------------------------------------------------------------------------
 
 
-HOST_EXPORT = ROOT / "cftuv" / "envelope_request_export.py"
+# Множество ступени метрики и перечисление исходов хоста живут в листе `envelope_host_outcomes.py` (экспорт переэкспортирует оба имени).
+HOST_EXPORT = ROOT / "cftuv" / "envelope_host_outcomes.py"
 
 
 def _frozenset_members(module: ast.Module, name: str) -> set[str]:
@@ -863,10 +864,11 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
     ]
     assert literals == [], ast.dump(literals[0]) if literals else ""
 
-    # И потребляемая власть — та самая, у которой все двадцать три имени (четыре —
+    # И потребляемая власть — та самая, у которой все сорок три имени (четыре —
     # исходы сертификата искажения ширины NEAR_PLANAR V2, десять — исходы развёртки
     # S1 DEVELOPABLE: лестница кривизны живёт внутри построителя метрики; три — отказы
-    # полосовой карты: ступень полосы живёт там же).
+    # полосовой карты: ступень полосы живёт там же; восемнадцать — отказы привязки источника и
+    # проекции, прежде сводившиеся к общему имени (COVER008-A); два — предполёт источника).
     members = _frozenset_members(_module(HOST_EXPORT), "METRIC_STAGE_OUTCOMES")
     assert members == {
         "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
@@ -895,6 +897,26 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
         "PERIODIC_CUT_PATH_UNAVAILABLE",
         "PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED",
         "PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED",
+        "NEAR_PLANAR_REDUCED_FRAME_REQUIRES_SOURCE_SNAP",
+        "SOURCE_SNAP_VERTEX_INJECTIVITY_VIOLATED",
+        "SOURCE_SNAP_NONZERO_EDGE_COLLAPSED",
+        "SOURCE_SNAP_NEW_NONADJACENT_EDGE_INTERSECTION",
+        "SOURCE_SNAP_INTENDED_RIGHT_CORNER_DEGENERATED",
+        "NEAR_PLANAR_PROJECTION_BOUNDARY_INJECTIVITY_VIOLATED",
+        "NEAR_PLANAR_PROJECTION_NONZERO_BOUNDARY_EDGE_COLLAPSED",
+        "NEAR_PLANAR_PROJECTION_NEW_NONADJACENT_EDGE_INTERSECTION",
+        "NEAR_PLANAR_PROJECTION_NEW_COLLINEAR_EDGE_OVERLAP",
+        "NEAR_PLANAR_PROJECTION_LOOP_ORIENTATION_CHANGED",
+        "NEAR_PLANAR_PROJECTION_BOUNDARY_COMPONENT_COUNT_CHANGED",
+        "NEAR_PLANAR_PROJECTION_OUTER_HOLE_NESTING_CHANGED",
+        "NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED",
+        "NEAR_PLANAR_PROJECTION_RESOLVED_PLANE_BASIS_UNAVAILABLE",
+        "NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED",
+        "NEAR_PLANAR_PROJECTION_VERTEX_INJECTIVITY_VIOLATED",
+        "NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE",
+        "NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP",
+        "SOURCE_T_VERTEX",
+        "SOURCE_FACE_SELF_INTERSECTION",
     }
 
 

@@ -24,6 +24,7 @@ from .envelope_angular_sites import angular_sites
 from .envelope_chart_band import BeyondChartReach, chart_band_request, chart_edge_ends, chart_face_points, chart_points, cut_path_vertices, refuse_alpha_beyond_reach
 from .envelope_host_labels import stable_token, typed_id
 from .envelope_seam_neighbours import seam_neighbour_faces
+from .envelope_source_contacts import source_contact_refusal
 from .envelope_request_policy import (
     build_envelope_request_contract,
     envelope_angular_policy,
@@ -43,6 +44,12 @@ from .envelope_debug_profile import (
     EnvelopeDomainStage,
     EnvelopeDomainStageReceiptV1,
 )
+from .envelope_host_outcomes import (  # noqa: F401 - переэкспорт: имена прежние
+    METRIC_STAGE_OUTCOMES,
+    EnvelopeDebugHostOutcome,
+    host_outcome_for as _host_outcome_for,
+    refusal_text as _refusal_text,
+)
 from .envelope_topology_debug import (
     ENVELOPE_TOPOLOGY_DEBUG_SCENE_SCHEMA_V1,
     EnvelopeTopologyDebugPairV1,
@@ -57,78 +64,6 @@ if TYPE_CHECKING:
     import cftuv_envelope as envelope_kernel
 
     from .surface_ir import AnalysisBundle
-
-
-class EnvelopeDebugHostOutcome(str, Enum):
-    EXACT = "EXACT"
-    ENVELOPE_DEBUG_KERNEL_UNAVAILABLE = "ENVELOPE_DEBUG_KERNEL_UNAVAILABLE"
-    ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED = "ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED"
-    ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID = "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID"
-    ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE"
-    RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
-    # Отказы метрики выходят каждый под СВОИМ именем. Прежде хост сводил их все
-    # к `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`, и поле читало «нужна
-    # near-planar политика» ровно тогда, когда она уже была включена, а отказал
-    # бюджет. Имя не на ту причину дороже отсутствующего.
-    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
-    NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED = "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
-    NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE = "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE"
-    NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED = "NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED"
-    NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE = "NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE"
-    GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
-    NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
-    NO_GRID_SCALE_RESTORES_RELATIONS = "NO_GRID_SCALE_RESTORES_RELATIONS"
-    DEVELOPABLE_ADJACENCY_UNAVAILABLE = "DEVELOPABLE_ADJACENCY_UNAVAILABLE"
-    DEVELOPABLE_SUPPORT_NOT_A_DISK = "DEVELOPABLE_SUPPORT_NOT_A_DISK"
-    PERIODIC_CUT_REQUIRED = "PERIODIC_CUT_REQUIRED"
-    DEVELOPABLE_SOURCE_TRIANGLE_DEGENERATE = "DEVELOPABLE_SOURCE_TRIANGLE_DEGENERATE"
-    DEVELOPABLE_REQUIRES_SOURCE_SNAP = "DEVELOPABLE_REQUIRES_SOURCE_SNAP"
-    DEVELOPABLE_STRETCH_BUDGET_EXCEEDED = "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED"
-    DEVELOPABLE_CHART_TRIANGLE_FLIPPED = "DEVELOPABLE_CHART_TRIANGLE_FLIPPED"
-    DEVELOPABLE_CHART_SELF_OVERLAP = "DEVELOPABLE_CHART_SELF_OVERLAP"
-    DEVELOPABLE_CHART_LATTICE_TOO_COARSE = "DEVELOPABLE_CHART_LATTICE_TOO_COARSE"
-    DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT = "DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT"
-    DEVELOPABLE_BAND_SUPPORT_DISCONNECTED = "DEVELOPABLE_BAND_SUPPORT_DISCONNECTED"
-    CHART_REACH_SHORT_OF_CAP = "CHART_REACH_SHORT_OF_CAP"
-    DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED = "DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED"
-    REQUEST_ALPHA_EXCEEDS_CHART_REACH = "REQUEST_ALPHA_EXCEEDS_CHART_REACH"
-    PERIODIC_CUT_PATH_UNAVAILABLE = "PERIODIC_CUT_PATH_UNAVAILABLE"
-    PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED = "PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED"
-    PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED = "PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED"
-    ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
-    ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED = "ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED"
-    ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID = "ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID"
-    ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE = "ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE"
-    ENVELOPE_DEBUG_SELF_SEAM_USE_PAIR_UNAVAILABLE = "ENVELOPE_DEBUG_SELF_SEAM_USE_PAIR_UNAVAILABLE"
-    ENVELOPE_DEBUG_EMPTY_SELECTION = "ENVELOPE_DEBUG_EMPTY_SELECTION"
-    ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN = "ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN"
-    ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED = "ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED"
-    ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN = "ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN"
-    ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED = "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
-
-
-# Отказы, случившиеся НА СТУПЕНИ МЕТРИКИ (все — из
-# `PlanarMetricAdmissionError`). Ступень домена определяется тем, ГДЕ отказ
-# произошёл, а не тем, как он назван, поэтому разведение схлопнутого имени не
-# должно молча переносить домен на другую ступень. Исходы развёртки (S1) — тоже ступень
-# метрики: лестница кривизны живёт внутри построителя метрики.
-METRIC_STAGE_OUTCOMES = frozenset(
-    {
-        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE, EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED, EnvelopeDebugHostOutcome.NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED,
-        EnvelopeDebugHostOutcome.NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE, EnvelopeDebugHostOutcome.NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED,
-        EnvelopeDebugHostOutcome.NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE, EnvelopeDebugHostOutcome.GRID_WINDOW_CLOSED,
-        EnvelopeDebugHostOutcome.NO_POWER_OF_TWO_STEP_IN_WINDOW, EnvelopeDebugHostOutcome.NO_GRID_SCALE_RESTORES_RELATIONS,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_ADJACENCY_UNAVAILABLE, EnvelopeDebugHostOutcome.DEVELOPABLE_SUPPORT_NOT_A_DISK,
-        EnvelopeDebugHostOutcome.PERIODIC_CUT_REQUIRED, EnvelopeDebugHostOutcome.DEVELOPABLE_SOURCE_TRIANGLE_DEGENERATE,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_REQUIRES_SOURCE_SNAP, EnvelopeDebugHostOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_TRIANGLE_FLIPPED, EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE, EnvelopeDebugHostOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_SUPPORT_DISCONNECTED, EnvelopeDebugHostOutcome.CHART_REACH_SHORT_OF_CAP,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED, EnvelopeDebugHostOutcome.PERIODIC_CUT_PATH_UNAVAILABLE,
-        EnvelopeDebugHostOutcome.PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED, EnvelopeDebugHostOutcome.PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED,
-    }
-)
 
 
 class EnvelopeDebugHostSeverity(str, Enum):
@@ -1578,20 +1513,6 @@ def _build_angular_relations(
     )
 
 
-def _host_outcome_for(outcome):
-    """Исход ядра — в исход хоста, ПО ИМЕНИ, а не таблицей соответствий.
-
-    Имя ядра и имя хоста обязаны совпадать: расхождение означало бы, что поле
-    читает одно, а лог ядра говорит другое. Неизвестное имя не подменяется
-    ближайшим — иначе новый исход ядра молча выходил бы под чужим.
-    """
-
-    try:
-        return EnvelopeDebugHostOutcome(outcome.value)
-    except ValueError:
-        return EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED
-
-
 def _rational_affine_metric(
     kernel, *, source_revision, patch_domain_id, owner_patch_id, source_vertices, surface_ir, chains, budget,
     chart_band=None,
@@ -1634,9 +1555,10 @@ def _rational_affine_metric(
         # различает «политика проекции не запрошена», «источник вне бюджета»,
         # «снап вывел источник из плоскости» и три исхода окна решётки; хост,
         # схлопывая их, оставлял в поле причину, которой не было.
+        host_outcome = _host_outcome_for(exc.outcome)
         raise EnvelopeHostAdapterError(
-            _host_outcome_for(exc.outcome),
-            str(exc),
+            host_outcome,
+            _refusal_text(host_outcome, exc.outcome, str(exc)),
             patch_domain_id=patch_domain_id.value,
         ) from exc
     except ValueError as exc:
@@ -1681,6 +1603,15 @@ def build_envelope_analysis_snapshot(
                 )
             analysis_bundle = analysis_view
     analysis_bundle.capabilities.require_supported()
+    if request_scoped:
+        with _measure(profile, "SOURCE_CONTACT_PREFLIGHT", profile_domain_id):
+            contact_refusal = source_contact_refusal(analysis_bundle.patch_surface, included_patch_ids)
+        if contact_refusal is not None:
+            raise EnvelopeHostAdapterError(
+                contact_refusal.outcome,
+                contact_refusal.message,
+                patch_domain_id=_typed_value("patch-domain", source_revision_value, contact_refusal.patch_id),
+            )
     revision = source_revision_value
     source_revision = kernel.SourceRevision(revision)
     (

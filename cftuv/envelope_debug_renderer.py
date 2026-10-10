@@ -15,6 +15,7 @@ from .debug import (
     GreasePencilDebugWriter,
 )
 from .envelope_debug_profile import EnvelopeDomainStage
+from .envelope_production_report import console_detail
 from .envelope_queue_export import (
     QUEUE_LAYER_STYLES,
     QUEUE_OWNER_LAYERS,
@@ -985,7 +986,7 @@ def _print_profile(profile) -> None:
             f"  {verdict} {_domain_text(receipt.patch_domain_id)} "
             f"{receipt.stage.value}: {receipt.outcome}"
         )
-        print(f"    {receipt.message}")
+        print(f"    {console_detail(receipt.message, receipt.outcome)}")  # консоль - первая строка отказа; текст целиком в JSON-sidecar
     cache_parts = []
     for layer in (
         "ANALYSIS_BUNDLE",

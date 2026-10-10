@@ -106,7 +106,8 @@
             "DEVELOPABLE_PROPOSAL_TARGET",
             "SURFACE_OFFSET_NORMAL_OPPOSITION",
             "BAND_CHART_ADMISSION",
-            "SILHOUETTE_VERTEX_DISSOLVE"
+            "SILHOUETTE_VERTEX_DISSOLVE",
+            "SOURCE_DEFECT_PREFLIGHT"
           ],
           "type": "string"
         },
@@ -189,7 +190,8 @@
             "CHART_REACH_CAP_V1",
             "CORNER_FOLD_SIN2_BUDGET_V1",
             "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1",
-            "SILHOUETTE_UV_SLIDE_V1"
+            "SILHOUETTE_UV_SLIDE_V1",
+            "SOURCE_CONTACT_GAP_V1"
           ],
           "type": "string"
         },
@@ -210,6 +212,7 @@
           "enum": [
             "ABSOLUTE_INDEPENDENT_OF_EXTENT",
             "RELATIVE_TO_PATCH_EXTENT_WITH_FLOOR",
+            "RELATIVE_TO_PATCH_EXTENT",
             "DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL",
             "NOT_SCALED",
             "RELATIVE_TO_DECAL_ALPHA"
