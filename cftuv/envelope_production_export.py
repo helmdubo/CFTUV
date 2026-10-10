@@ -817,7 +817,7 @@ class _RunInputsV1:
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
-    #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет)}`; повтор лотереи привязки заводит свои.
+    #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет), "key_memo": тексты общих записей для ключей содержимого этого прогона}`; повтор лотереи привязки заводит свои.
     scan_records: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -999,7 +999,7 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
 
     cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
     try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend)
+        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend, run.scan_records.setdefault("key_memo", {}))
     except ContentKeyUnsupported:
         return cold
     controller = run.controller
@@ -1760,7 +1760,7 @@ def run_production(
 
     from .envelope_chart_band import policy_alpha
     from .envelope_domain_pool import get_domain_pool
-    from .envelope_topology_export import STAGE_INPUTS_HIT, stage_domain_inputs
+    from .envelope_topology_export import STAGE_INPUTS_HIT, stage_production_inputs
     from .envelope_worker_python import read_worker_python
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
@@ -1783,7 +1783,7 @@ def run_production(
         silhouette_uv_slide
     ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha))
     stage_memo = controller.stage_inputs_memo
-    _scene, revision, patch_ids, request_id, selected_by_domain = stage_domain_inputs(
+    revision, patch_ids, request_id, selected_by_domain = stage_production_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export, memo=stage_memo
     )
     profile.set_counter(PRODUCTION_STAGE_INPUTS_MEMO_HIT, int(stage_memo.last == STAGE_INPUTS_HIT))

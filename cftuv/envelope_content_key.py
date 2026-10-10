@@ -80,6 +80,9 @@ _FIELDS_OF: dict[type, tuple[str, ...]] = {}
 #: Поля входа, в которых целое — номер патча (кодируется рангом, см. модуль), и поле со словарём патчей.
 _PATCH_FIELDS = frozenset({"patch_id", "neighbor_patch_id"})
 _PATCH_MAP_FIELD = "nodes"
+_SOURCE_REVISION = "SourceRevision"
+_REVISION_RECORD = "\x00SRC;"
+_PLAIN, _PATCH, _PATCH_MAP = 0, 1, 2
 
 
 class ContentKeyUnsupported(TypeError):
@@ -95,13 +98,21 @@ def _fields(cls: type) -> tuple[str, ...]:
 
 
 class _Encoder:
-    """Детерминированная запись значения: тип и значение каждого узла, множества — по порядку записи."""
+    """Детерминированная запись значения: тип и значение каждого узла, множества — по порядку записи.
 
-    __slots__ = ("revision", "patches")
+    Запись побитово та же, что у прямого рекурсивного обхода с цепочкой проверок типа (его хранит тест `tests/content_key_legacy.py` как
+    оракул): запись выбирается по ТОЧНОМУ типу значения (`type(value)`) таблицей `_HANDLERS`, однородные кортежи целых и вещественных пишутся
+    одним `join` без вызова на элемент, а запись датакласса - обработчиком, собранным на класс из его полей (по ИМЕНИ поля: номер патча либо словарь
+    патчей, остальное как есть). Тип вне таблицы идёт прежней цепочкой (`_other`): перечисление, датакласс (его обработчик ложится в таблицу), отказ.
+    """
 
-    def __init__(self, revision: str, patches: dict[int, int]) -> None:
+    __slots__ = ("revision", "patches", "memo")
+
+    def __init__(self, revision: str, patches: dict[int, int], memo: dict | None = None) -> None:
         self.revision = revision
         self.patches = patches
+        #: Память текстов общих записей одного прогона (`_shared_handler`); `None` - без памяти.
+        self.memo = memo
 
     def patch(self, number) -> str:
         """Номер патча как ранг: свой — 0, соседи — по порядку номеров, отрицательный — как есть."""
@@ -116,47 +127,155 @@ class _Encoder:
         return f"p{rank};"
 
     def encode(self, value) -> str:
+        handler = _HANDLERS.get(type(value))
+        if handler is not None:
+            return handler(self, value)
+        return self._other(value)
+
+    def _other(self, value) -> str:
+        """Тип вне таблицы: перечисление, датакласс (обработчик класса ложится в таблицу) либо отказ - в том же порядке проверок, что у прежнего обхода."""
+
         kind = type(value)
-        if kind is int:
-            return f"i{value};"
-        if kind is float:
-            return f"f{value.hex()};"
-        if kind is str:
-            if self.revision in value:
-                value = value.replace(self.revision, _REVISION_MARK)
-            return f"s{len(value)}:{value};"
-        if kind is bool:
-            return "T;" if value else "F;"
-        if value is None:
-            return "N;"
-        if kind is tuple or kind is list:
-            return "(" + "".join(self.encode(item) for item in value) + ")"
-        if kind is frozenset or kind is set:
-            return "{" + "".join(sorted(self.encode(item) for item in value)) + "}"
-        if kind is dict:
-            pairs = sorted((self.encode(key), self.encode(item)) for key, item in value.items())
-            return "<" + "".join(key + item for key, item in pairs) + ">"
-        if kind is Fraction:
-            return f"q{value.numerator}/{value.denominator};"
         if isinstance(value, Enum):
-            return f"e{kind.__qualname__}.{value.name};"
+            _HANDLERS[kind] = _enum_text
+            return _enum_text(self, value)
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
-            return self._record(value, kind)
+            handler = _HANDLERS[kind] = _record_handler(kind)
+            return handler(self, value)
         raise ContentKeyUnsupported(f"{kind.__qualname__} is not encodable in a content key")
 
-    def _record(self, value, kind: type) -> str:
-        if kind.__qualname__ == "SourceRevision":
-            return "\x00SRC;"
-        return f"D{kind.__qualname__}[{''.join(self._field(value, name) for name in _fields(kind))}]"
+    def _string(self, value: str) -> str:
+        if self.revision in value:
+            value = value.replace(self.revision, _REVISION_MARK)
+        return f"s{len(value)}:{value};"
 
-    def _field(self, owner, name: str) -> str:
-        item = getattr(owner, name)
-        if name in _PATCH_FIELDS:
-            return f"{name}={self.patch(item)}"
-        if name == _PATCH_MAP_FIELD and type(item) is dict:
-            pairs = sorted((self.patch(key), self.encode(entry)) for key, entry in item.items())
-            return f"{name}=<" + "".join(key + entry for key, entry in pairs) + ">"
-        return f"{name}={self.encode(item)}"
+    def _sequence(self, value) -> str:
+        if not value:
+            return "()"
+        kinds = set(map(type, value))
+        get = _HANDLERS.get
+        if len(kinds) == 1:
+            kind = kinds.pop()
+            if kind is int:
+                return "(i" + ";i".join(map(str, value)) + ";)"
+            if kind is float:
+                return "(f" + ";f".join(map(float.hex, value)) + ";)"
+            handler = get(kind)
+            if handler is not None:
+                return "(" + "".join([handler(self, item) for item in value]) + ")"
+        other = self._other
+        parts = []
+        for item in value:
+            handler = get(type(item))
+            parts.append(handler(self, item) if handler is not None else other(item))
+        return "(" + "".join(parts) + ")"
+
+    def _unordered(self, value) -> str:
+        encode = self.encode
+        return "{" + "".join(sorted([encode(item) for item in value])) + "}"
+
+    def _mapping(self, value) -> str:
+        encode = self.encode
+        pairs = sorted([(encode(key), encode(item)) for key, item in value.items()])
+        return "<" + "".join([key + item for key, item in pairs]) + ">"
+
+
+def _enum_text(self, value) -> str:
+    return f"e{type(value).__qualname__}.{value.name};"
+
+
+def _record_handler(kind: type):
+    """Запись датакласса, собранная на класс: голова `D<имя>[`, поля в порядке `dataclasses.fields`, режим поля - по его ИМЕНИ."""
+
+    if kind.__qualname__ == _SOURCE_REVISION:
+        return lambda self, value: _REVISION_RECORD
+    names = _fields(kind)
+    head = f"D{kind.__qualname__}["
+    modes = tuple(_PATCH if name in _PATCH_FIELDS else _PATCH_MAP if name == _PATCH_MAP_FIELD else _PLAIN for name in names)
+    fields = tuple((f"{name}=", name, mode) for name, mode in zip(names, modes))
+
+    def write(self, value) -> str:
+        get = _HANDLERS.get
+        other = self._other
+        parts = [head]
+        for prefix, name, mode in fields:
+            item = getattr(value, name)
+            if mode == _PLAIN:
+                handler = get(type(item))
+                parts.append(prefix + (handler(self, item) if handler is not None else other(item)))
+            elif mode == _PATCH:
+                parts.append(prefix + self.patch(item))
+            elif type(item) is dict:
+                pairs = sorted([(self.patch(key), self.encode(entry)) for key, entry in item.items()])
+                parts.append(prefix + "<" + "".join([key + entry for key, entry in pairs]) + ">")
+            else:
+                parts.append(prefix + self.encode(item))
+        parts.append("]")
+        return "".join(parts)
+
+    ranked = _shared_kinds().get(kind)
+    return write if ranked is None else _shared_handler(write, ranked)
+
+
+def _shared_kinds() -> dict[type, bool]:
+    """Общие неизменяемые записи, которые входят во входы МНОГИХ доменов одного прогона: `{класс: пишется ли номер патча рангом}`.
+
+    Вершина и ребро поверхности - в срезах всех патчей, которые они касаются; грань кольца соседей (`NeighbourFaceV1`) - в срезах всех доменов вокруг
+    неё. Записаны числами и кортежами чисел, поэтому текст записи - функция ТОЛЬКО самой записи, ревизии кодировщика и (у грани кольца, единственного
+    поля-номера патча `patch_id`) ранга её патча среди номеров этого домена. Тест держит перечень полей этих классов.
+    """
+
+    from .envelope_topology_export import NeighbourFaceV1
+    from .surface_ir import SourceEdge, SourceVertex
+
+    return {SourceVertex: False, SourceEdge: False, NeighbourFaceV1: True}
+
+
+def _shared_handler(write, ranked: bool):
+    """Запись общей записи с памятью прогона: текст, написанный для одного домена, берёт следующий домен, у которого та же запись.
+
+    Ключ памяти - `(ревизия, id записи, ранг её патча или None)`; значение держит САМУ запись, поэтому `id` не может достаться другому объекту,
+    пока память жива (память живёт один прогон). Запись неизменяема, текст - функция записи, ревизии и ранга (см. `_shared_kinds`), поэтому взятый
+    из памяти текст побитово равен тому, что написал бы `write`. Номер патча не `int` либо отказ записи (патч не домен и не сосед) - не из памяти:
+    `write` бросит тот же отказ, и отказ в память не кладётся.
+    """
+
+    def shared(self, value):
+        memo = self.memo
+        if memo is None:
+            return write(self, value)
+        rank = None
+        if ranked:
+            number = value.patch_id
+            if type(number) is not int:
+                return write(self, value)
+            rank = self.patches.get(number) if number >= 0 else None
+        key = (self.revision, id(value), rank)
+        found = memo.get(key)
+        if found is None:
+            text = write(self, value)
+            memo[key] = (value, text)
+            return text
+        return found[1]
+
+    return shared
+
+
+#: Кодировщик по ТОЧНОМУ типу значения: подкласс `int`/`float`/`str`/`tuple` (в том числе `bool`, `IntEnum`, `numpy.float64`, именованный кортеж) таблицы не находит.
+#: Классы перечислений и датаклассов ложатся сюда при первой встрече (`_Encoder._other`).
+_HANDLERS = {
+    int: lambda self, value: f"i{value};",
+    float: lambda self, value: f"f{value.hex()};",
+    str: _Encoder._string,
+    bool: lambda self, value: "T;" if value else "F;",
+    type(None): lambda self, value: "N;",
+    tuple: _Encoder._sequence,
+    list: _Encoder._sequence,
+    frozenset: _Encoder._unordered,
+    set: _Encoder._unordered,
+    dict: _Encoder._mapping,
+    Fraction: lambda self, value: f"q{value.numerator}/{value.denominator};",
+}
 
 
 def _patch_ranks(export) -> dict[int, int]:
@@ -278,7 +397,7 @@ def _normalized_budget(budget):
     return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
-def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> str:
+def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, memo=None) -> str:
     """Ключ содержимого домена: sha256 от входа воркера без ревизии, выделения домена и политик.
 
     `export` — `HostExportInputV1` ЭТОГО домена, `selected_edge_ids` — выделенные рёбра домена, `band_key` —
@@ -286,11 +405,14 @@ def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT
     Ключ не зависит от ревизии источника, `alpha` и id запроса; от всего остального — зависит. `backend` — имя бэкенда ядра, которым
     считают (`PYTHON` либо `NATIVE`: главный переключатель), `skeleton_backend` и `embedding_backend` — постадийный порядок (`None` - как `backend`; подготовка, лежащая в хранилище под ключом,
     построена ими): идентичность стадий (`execution_identity`) входит в ключ, и подготовка Python не читается как подготовка Rust.
+
+    `memo` - словарь ОДНОГО прогона для текстов общих записей (`_shared_kinds`: вершины, рёбра и грани кольца соседей входят во входы многих
+    доменов); ключ от него не зависит ни в одном байте (тест сверяет его с кодировщиком без памяти и с прежним), `None` - без памяти.
     """
 
     from .envelope_request_policy import normalize_envelope_fan_density
 
-    encoder = _Encoder(export.source_revision_value, _patch_ranks(export))
+    encoder = _Encoder(export.source_revision_value, _patch_ranks(export), memo)
     parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants(backend, skeleton_backend, embedding_backend))]
     for name in _fields(type(export)):
         if name in EXCLUDED_FIELDS:

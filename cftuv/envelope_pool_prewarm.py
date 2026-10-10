@@ -13,6 +13,10 @@
 * В фоновом Blender (`-b`: смоки, полевые прогоны, тесты) не делает ничего, если не заказано явно (`force`).
 * Отказ старта - не ошибка аддона: строка консоли с именем, а кнопка на первом нажатии назовёт тот же отказ сама (`ENVELOPE_DOMAIN_POOL_UNAVAILABLE`).
 * Выключатель на машине: переменная окружения `CFTUV_POOL_PREWARM=0` (бездействующие воркеры держат около 100 МБ каждый).
+
+ОТПЕЧАТОК КОДА. Тот же поток после старта воркеров считает отпечаток кода процесса (`envelope_content_key.code_identity`: sha256 по ~290 файлам ядра и
+хоста, 0.1-0.2 с родителя): ключ содержимого домена и память пролога несут его, и первое нажатие сеанса иначе платило бы им до первой задачи пула. Это
+кэш на процесс (`lru_cache`), результат тот же, что считало бы нажатие; отказ - строка с именем, нажатие посчитает отпечаток само.
 """
 
 from __future__ import annotations
@@ -24,6 +28,18 @@ import threading
 PREWARM_DELAY_SECONDS = 2.0
 PREWARM_SWITCH = "CFTUV_POOL_PREWARM"
 PREWARM_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_PREWARM_UNAVAILABLE"
+IDENTITY_PREWARM_UNAVAILABLE = "ENVELOPE_CODE_IDENTITY_PREWARM_UNAVAILABLE"
+
+
+def warm_code_identity() -> None:
+    """Считает отпечаток кода процесса заранее (кэш на процесс): нажатие кнопки берёт готовое. Отказ - строка с именем, не падение."""
+
+    try:
+        from .envelope_content_key import code_identity
+
+        code_identity()
+    except Exception as exc:  # noqa: BLE001 - прогрев не ломает регистрацию: нажатие посчитает отпечаток само
+        print(f"[CFTUV][EnvelopeDomainPool] {IDENTITY_PREWARM_UNAVAILABLE}: {type(exc).__name__}: {exc}; the first press computes it", flush=True)
 
 
 def prewarm_pool(workers: int, external_python: str = "") -> float:
@@ -35,10 +51,12 @@ def prewarm_pool(workers: int, external_python: str = "") -> float:
     if pool is None:
         return 0.0
     try:
-        return pool.warm()
+        seconds = pool.warm()
     except DomainPoolUnavailable as exc:
         print(f"[CFTUV][EnvelopeDomainPool] {PREWARM_UNAVAILABLE}: {exc}; the first press starts the workers", flush=True)
         return 0.0
+    warm_code_identity()
+    return seconds
 
 
 def _timer():
@@ -82,4 +100,13 @@ def cancel_pool_prewarm() -> None:
         bpy.app.timers.unregister(_timer)
 
 
-__all__ = ("PREWARM_DELAY_SECONDS", "PREWARM_SWITCH", "PREWARM_UNAVAILABLE", "cancel_pool_prewarm", "prewarm_pool", "schedule_pool_prewarm")
+__all__ = (
+    "IDENTITY_PREWARM_UNAVAILABLE",
+    "PREWARM_DELAY_SECONDS",
+    "PREWARM_SWITCH",
+    "PREWARM_UNAVAILABLE",
+    "cancel_pool_prewarm",
+    "prewarm_pool",
+    "schedule_pool_prewarm",
+    "warm_code_identity",
+)

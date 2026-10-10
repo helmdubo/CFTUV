@@ -592,6 +592,7 @@ def _content_run(controller, alpha):
         skeleton_id="PYTHON",
         embedding_backend="PYTHON",
         registered=[],
+        scan_records={},
     )
 
 
