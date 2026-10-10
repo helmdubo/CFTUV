@@ -22,6 +22,12 @@ if TYPE_CHECKING:
 #: Ключ канонической PhysicalChain: замкнутость плюс рёбра и вершины.
 HostChainKey = tuple[bool, tuple[int, ...], tuple[int, ...]]
 
+#: Закон выбора масштаба привязки источника, который заказывает ТОЛЬКО повторная попытка после названного отказа лотереи привязки
+#: (`envelope_snap_retry`, `SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1`). Строка равна `GridScaleLawV1.PLANE_PRESERVING_V1.value` ядра (сверка тестом:
+#: хост не импортирует ядро на импорте модуля). `None` в экспорте — умолчание ядра («первый масштаб, восстановивший углы»), и тогда
+#: ни один ключ кэша не меняется ни в одном байте.
+GRID_SCALE_LAW_PLANE_PRESERVING = "PLANE_PRESERVING_V1"
+
 #: Счётчики дополнения выделения. Объявлены перечнем и пишутся ВСЕГДА, даже
 #: нулями: иначе «выделение не дополнялось» неотличимо от «дополнение не
 #: измерялось» — тот же дефект, который уже лечили счётчиками стадии углов.
@@ -75,6 +81,10 @@ class EnvelopeTopologyExportV1:
     developable_stretch_budget: Fraction | None = None
     chart_band: ChartBandPolicyV1 | None = None
     silhouette_uv_slide: Fraction | None = None
+    #: Закон выбора масштаба привязки источника метрики (`GRID_SCALE_LAW_PLANE_PRESERVING` либо `None` - умолчание ядра). Метрика домена
+    #: (сертификат решётки в снапшоте) строится из этого экспорта, поэтому закон входит в ключи кэшей метрики, геометрии, подготовки и результата
+    #: (`metric_law_key`): подготовка, построенная повторной попыткой, никогда не ложится под ключ обычной.
+    grid_scale_law: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -104,6 +114,11 @@ class EnvelopeTopologyExportV1:
         slide = envelope_silhouette_uv_slide(slide)
         return self if slide == self.silhouette_uv_slide else replace(self, silhouette_uv_slide=slide)
 
+    def with_grid_scale_retry(self):
+        """Тот же экспорт под законом `PLANE_PRESERVING_V1` (повторная попытка после отказа лотереи привязки); тяжёлые части общие."""
+
+        return self if self.grid_scale_law == GRID_SCALE_LAW_PLANE_PRESERVING else replace(self, grid_scale_law=GRID_SCALE_LAW_PLANE_PRESERVING)
+
     def with_chart_band(self, reach_cap: Fraction | None, selected_physical_edge_ids, alpha: Fraction | None = None):
         """Тот же экспорт с политикой полосы запроса: `reach_cap=None` - умолчание ядра (полметра); `alpha` - метры или `None`."""
 
@@ -132,6 +147,17 @@ class EnvelopeTopologyExportV1:
         """Тот же экспорт без полосы: метрика ЦЕЛОГО патча, как она кэшируется независимо от выделения."""
 
         return self if self.chart_band is None else replace(self, chart_band=None)
+
+
+def metric_law_key(source) -> tuple:
+    """Хвост ключа кэша метрики, геометрии, подготовки и результата: закон выбора масштаба решётки, если он заказан; иначе пусто.
+
+    `source` — экспорт топологии либо запись метрики с полем `grid_scale_law`. Пустой хвост у умолчания — ключи прежних прогонов
+    побитово те же; непустой делает метрику и подготовку повторной попытки отдельными записями.
+    """
+
+    law = getattr(source, "grid_scale_law", None)
+    return () if law is None else (("grid_scale_law", law),)
 
 
 @dataclass(frozen=True, slots=True)

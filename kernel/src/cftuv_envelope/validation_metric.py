@@ -743,6 +743,7 @@ def _recompute_embedding_inputs(issues, path, record, faces, required_ids, posit
         faces=faces,
         snapping_law=metric.grid_certificate.snapping_law,
         enforce_embedding=False,
+        scale_law=metric.grid_certificate.scale_law,
     )
     if grid.certificate != metric.grid_certificate:
         add_issue(
@@ -1141,6 +1142,7 @@ def _validate_developable_embedding_record(
         faces=faces,
         snapping_law=metric.grid_certificate.snapping_law,
         enforce_embedding=False,
+        scale_law=metric.grid_certificate.scale_law,
     )
     if grid.certificate != metric.grid_certificate:
         add_issue(

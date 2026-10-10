@@ -33,6 +33,7 @@ from .envelope_topology_export import (
     EnvelopeTopologyExportV1,
     StageInputsMemoV1,
     build_envelope_topology_export,
+    metric_law_key,
 )
 
 if TYPE_CHECKING:
@@ -601,7 +602,7 @@ class EnvelopeDebugSessionController:
         """Есть ли метрика патча в кэше. Счётчиков не пишет: это вопрос, не сборка."""
 
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
-        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget)
+        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget) + metric_law_key(topology_export)
         return key in self._patch_metric_cache
 
     def get_patch_metric(
@@ -676,7 +677,7 @@ class EnvelopeDebugSessionController:
 
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
         band_key = band_key_of(topology_export, patch_id)
-        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget, band_key)
+        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget, band_key) + metric_law_key(topology_export)
         cached = self._patch_metric_cache.get(key)
         if cached is None:
             try:
@@ -701,7 +702,7 @@ class EnvelopeDebugSessionController:
 
         revision = topology_export.source_revision_value
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
-        key = (revision, domain_id, topology_export.developable_stretch_budget, band_key_of(topology_export, patch_id))
+        key = (revision, domain_id, topology_export.developable_stretch_budget, band_key_of(topology_export, patch_id)) + metric_law_key(topology_export)
         known = self._band_chart_cap.get(key, cap)
         self._band_chart_cap[key] = cap
         if known == cap:
@@ -728,7 +729,7 @@ class EnvelopeDebugSessionController:
         """
 
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
-        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget)
+        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget) + metric_law_key(topology_export)
         cached = self._patch_metric_cache.get(key)
         if cached is not None:
             self._record_cache(
@@ -800,7 +801,7 @@ class EnvelopeDebugSessionController:
             metric_export.source_revision_value,
             metric_export.patch_domain_id,
             metric_export.developable_stretch_budget,
-        ) + (() if metric_export.band_key is None else (metric_export.band_key,))
+        ) + (() if metric_export.band_key is None else (metric_export.band_key,)) + metric_law_key(metric_export)
         cached = self._domain_geometry_cache.get(key)
         if cached is not None:
             self._record_cache(
@@ -836,8 +837,13 @@ class EnvelopeDebugSessionController:
         selected_edge_ids: frozenset[int],
         request,
         skeleton_id: str | None = None,
+        grid_scale_law: str | None = None,
     ):
         """Ключ подготовки: ревизия, домен, выделение, подпись политики запроса и ИДЕНТИЧНОСТЬ СТАДИИ СКЕЛЕТА.
+
+        `grid_scale_law` - закон выбора масштаба решётки, под которым построен снапшот подготовки (`None`: умолчание ядра, ключ прежний). Подготовка
+        повторной попытки после отказа лотереи привязки (`SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1`) строится на ДРУГОМ снапшоте при том же запросе, и
+        без этого элемента легла бы под ключ обычной (а обычная - под её ключ): кэш отдал бы не ту.
 
         Скелет считается в подготовке, и подготовка, построенная Python, не читается как построенная Rust (и наоборот; пересобранное колесо — другая идентичность):
         пятый элемент ключа — `skeleton_identity_of` (`PYTHON` | `NATIVE:<native_build_id()>`). Без `skeleton_id` берётся идентичность умолчания стадии
@@ -853,7 +859,7 @@ class EnvelopeDebugSessionController:
             frozenset(int(item) for item in selected_edge_ids),
             envelope_request_policy_signature(request),
             skeleton_identity_of() if skeleton_id is None else str(skeleton_id),
-        )
+        ) + (() if grid_scale_law is None else (("grid_scale_law", str(grid_scale_law)),))
 
     def peek_conveyor_preparation_by_key(self, key: tuple):
         """Подготовка из кэша по готовому ключу (`_preparation_key`) либо `None`: вопрос, счётчиков не пишет."""
@@ -868,6 +874,7 @@ class EnvelopeDebugSessionController:
         request,
         *,
         skeleton_id: str | None = None,
+        grid_scale_law: str | None = None,
     ):
         """Подготовка из кэша либо `None`. Счётчиков не пишет: это вопрос.
 
@@ -881,6 +888,7 @@ class EnvelopeDebugSessionController:
                 selected_edge_ids,
                 request,
                 skeleton_id,
+                grid_scale_law,
             )
         )
 
@@ -894,6 +902,7 @@ class EnvelopeDebugSessionController:
         *,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
         skeleton_id: str | None = None,
+        grid_scale_law: str | None = None,
     ):
         """Подготовка очереди из кэша либо построенная и запомненная.
 
@@ -908,6 +917,7 @@ class EnvelopeDebugSessionController:
             selected_edge_ids,
             request,
             skeleton_id,
+            grid_scale_law,
         )
         cached = self._conveyor_preparation_cache.get(key)
         if cached is not None:
@@ -951,6 +961,7 @@ class EnvelopeDebugSessionController:
         request,
         *laws: Hashable,
         skeleton_id: str | None = None,
+        grid_scale_law: str | None = None,
     ) -> tuple:
         """Ключ результата продуктового пути: ключ подготовки и всё, что вне её.
 
@@ -967,6 +978,7 @@ class EnvelopeDebugSessionController:
                 selected_edge_ids,
                 request,
                 skeleton_id,
+                grid_scale_law,
             ),
             *laws,
         )

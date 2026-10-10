@@ -98,6 +98,9 @@ class HostExportInputV1:
     chart_reach_cap: Fraction | None = None
     #: Допуск UV закона силуэта запроса (`None`: умолчание ядра): идентичность запроса воркера обязана совпасть с родительской.
     silhouette_uv_slide: Fraction | None = None
+    #: Закон выбора масштаба привязки источника (`None`: умолчание ядра). Воркер строит метрику домена тем же законом, что заказал родитель
+    #: (повторная попытка после отказа лотереи привязки); ключ содержимого домена несёт его, и подготовка повторной попытки не ложится под обычный.
+    grid_scale_law: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +180,7 @@ def build_host_export_input(
         topology_export.developable_stretch_budget,
         topology_chart_reach_cap(topology_export),
         topology_export.silhouette_uv_slide,
+        topology_export.grid_scale_law,
     )
 
 
@@ -208,6 +212,7 @@ def patch_metric_from_worker(
         ),
         result.snapshot,
         topology_export.developable_stretch_budget,
+        grid_scale_law=getattr(topology_export, "grid_scale_law", None),
     )
 
 
@@ -290,6 +295,7 @@ def task_inputs(task):
         export.host_chains,
         {int(task.patch_id): task.domain_id},
         export.developable_stretch_budget,
+        grid_scale_law=export.grid_scale_law,
     )
     inputs = TaskInputsV1(None, None, profile, task.task_id, True)
     with record_host_tokens() as log:

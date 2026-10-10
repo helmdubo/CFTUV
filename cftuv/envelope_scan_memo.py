@@ -103,6 +103,7 @@ def scan_key(run) -> tuple | None:
 
     from .envelope_content_key import ContentKeyUnsupported, code_identity
     from .envelope_request_policy import normalize_envelope_fan_density, topology_chart_reach_cap
+    from .envelope_topology_export import metric_law_key
 
     try:
         density = normalize_envelope_fan_density(run.density)
@@ -120,4 +121,6 @@ def scan_key(run) -> tuple | None:
         topology_chart_reach_cap(export),
         # запись несёт ключ подготовки, а он — идентичность стадии скелета: запись, снятая под другим скелетом, не принимается
         getattr(run, "skeleton_id", ""),
+        # запись несёт снапшот, а он - закон выбора масштаба решётки (повтор после отказа лотереи привязки): записи обычного прогона повтору не отдаются
+        *metric_law_key(export),
     )

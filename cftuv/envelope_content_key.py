@@ -296,6 +296,8 @@ def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT
         if name in EXCLUDED_FIELDS:
             continue
         value = getattr(export, name)
+        if name == "grid_scale_law" and value is None:
+            continue  # умолчание ядра: ключ прежних прогонов побитово тот же; закон повторной попытки делает ключ другим
         if name == "density":
             try:
                 value = normalize_envelope_fan_density(value)

@@ -125,11 +125,33 @@ class GridScaleSearchOrderV1(str, Enum):
     COARSEST_ADMISSIBLE_FIRST_V1 = "COARSEST_ADMISSIBLE_FIRST_V1"
 
 
+class GridScaleLawV1(str, Enum):
+    """Каким законом из окна выбирается масштаб привязки источника.
+
+    Закон не пишется в сертификат отдельным полем: он выводится из записанного перебора
+    (`IntegerGridCertificateV1.scale_law`), потому что запись, которую можно сделать отдельно от перебора, могла бы с ним
+    разойтись. Умолчание продукта — первый закон; второй заказывается ТОЛЬКО повторной попыткой хоста после названного
+    отказа (`SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1`), и ни один принятый сегодня домен им не пересчитывается.
+    """
+
+    # Первый масштаб окна (в объявленном порядке), на котором задуманно прямые углы восстановлены. Так считает ядро всегда.
+    FIRST_ANGLE_RESTORING_V1 = "FIRST_ANGLE_RESTORING_V1"
+    # Первый масштаб окна, на котором углы восстановлены И привязанный патч лежит ТОЧНО в своей плоскости Ньюэлла (тот же предикат,
+    # что `planar_metric._resolve_patch_plane`). Если такого масштаба в окне нет, выбор тот же, что у первого закона.
+    PLANE_PRESERVING_V1 = "PLANE_PRESERVING_V1"
+
+
 class GridScaleTrialOutcomeV1(str, Enum):
-    """Чем кончилась проба одного масштаба. Третьего исхода нет."""
+    """Чем кончилась проба одного масштаба. Исходов три, и они взаимоисключающие.
+
+    `RELATIONS_RESTORED_PLANE_TORN` бывает только у проб закона `PLANE_PRESERVING_V1`: все задуманно прямые углы восстановлены, но привязанные
+    вершины патча не лежат точно в одной плоскости (плоскость Ньюэлла привязанных позиций). Счётчик восстановленных углов у такой
+    пробы полный, и именно поэтому она называется иначе, чем отказ по углам: масштаб ПРОПУЩЕН законом и записан в перебор.
+    """
 
     RELATIONS_RESTORED = "RELATIONS_RESTORED"
     RELATIONS_NOT_RESTORED = "RELATIONS_NOT_RESTORED"
+    RELATIONS_RESTORED_PLANE_TORN = "RELATIONS_RESTORED_PLANE_TORN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +236,7 @@ class IntegerGridCertificateV1:
                 trial.restored_right_corners == self.intended_right_corners
             )
             if restored is not (
-                trial.outcome is GridScaleTrialOutcomeV1.RELATIONS_RESTORED
+                trial.outcome is not GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED
             ):
                 raise ValueError(
                     "исход пробы расходится с её же числом восстановленных"
@@ -247,12 +269,42 @@ class IntegerGridCertificateV1:
             )
         self._check_trials()
 
+    @property
+    def scales_skipped_for_plane(self) -> int:
+        """Сколько масштабов закон `PLANE_PRESERVING_V1` пропустил из-за порванной плоскости.
+
+        Считается по записанным пробам, а не хранится отдельным полем. Ноль — выбор тот же, что у закона «первый масштаб, восстановивший
+        углы»; ненулевое число — закон СДВИНУЛ выбранный масштаб, и позиции привязанного источника другие.
+        """
+
+        return sum(
+            1
+            for trial in self.scale_trials
+            if trial.outcome is GridScaleTrialOutcomeV1.RELATIONS_RESTORED_PLANE_TORN
+        )
+
+    @property
+    def scale_law(self) -> GridScaleLawV1:
+        """Закон, которым выбран масштаб: `PLANE_PRESERVING_V1`, если он сдвинул выбор, иначе `FIRST_ANGLE_RESTORING_V1`.
+
+        Перепроверка сертификата (`validation_metric`) зовёт привязку источника тем же законом, поэтому сертификат, записанный
+        повторной попыткой, воспроизводится, а сертификат обычного прогона — тем же умолчанием, что и был.
+        """
+
+        return (
+            GridScaleLawV1.PLANE_PRESERVING_V1
+            if self.scales_skipped_for_plane
+            else GridScaleLawV1.FIRST_ANGLE_RESTORING_V1
+        )
+
     def _check_trials(self) -> None:
         """Перебор обязан быть тем самым, который объявлен законом.
 
         Проверяется не «что-то записано», а четыре свойства объявленного
-        закона: перебор непуст, победил ПЕРВЫЙ прошедший, победитель — это и
-        есть выбранный шаг, и все пробы шли объявленным порядком внутри окна.
+        закона: перебор непуст, победил ПЕРВЫЙ принятый масштаб (углы
+        восстановлены, а у закона `PLANE_PRESERVING_V1` и плоскость патча
+        сохранена), победитель — это и есть выбранный шаг, и все пробы шли
+        объявленным порядком внутри окна.
         Без этих проверок запись перебора была бы украшением, а не
         доказательством выбора.
         """

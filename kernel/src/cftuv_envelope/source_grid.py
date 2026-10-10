@@ -36,6 +36,7 @@ import sympy as sp
 from ._authoring_intent import AUTHOR_ANGULAR_ERROR, DECAL_DETAIL
 from .contracts.metric import (
     ExactRationalV1,
+    GridScaleLawV1,
     GridScaleSearchOrderV1,
     GridSnappingLawV1,
     GridWindowOutcomeV1,
@@ -44,8 +45,10 @@ from .contracts.metric import (
 )
 from ._embedding import (
     build_source_snap_embedding_certificate,
+    patch_plane_normal,
     source_snap_violation,
 )
+from .numeric import PlaneNormalUndefinedError
 from .reference.angle_measure import (
     CertifiedAngleUnavailable,
     angular_fraction_of_pi,
@@ -261,7 +264,69 @@ def chart_grid_for(gram, step: Fraction) -> GridSpecV1:
     return GridSpecV1(scale=scale)
 
 
-def select_grid_scale(*, positions, intended, window, search_order):
+def snapped_plane_is_exact(positions, faces) -> bool:
+    """Лежат ли привязанные вершины патча ТОЧНО в плоскости Ньюэлла его граней.
+
+    Тот же вопрос, который ниже задаёт `planar_metric._resolve_patch_plane` (нормаль — точный Ньюэлл по всем граням, опора — вершина
+    с наименьшим именем, отклонилась та вершина, у которой `(p − опора)·n ≠ 0` в дробях), чтобы выбрать между точной плоскостью источника
+    и near-planar проекцией. Допуска нет и быть не должно: вопрос «рвёт ли привязка плоскость» имеет точный ответ, а допуск near-planar
+    судит, принять ли проекцию, и это другой вопрос. Нормаль не определена (патч вырожден до линии) — плоскости нет, ответ «нет».
+    """
+
+    try:
+        normal = patch_plane_normal(positions, faces)
+    except PlaneNormalUndefinedError:
+        return False
+    ids = sorted({vertex for face in faces for vertex in face.vertex_cycle}, key=lambda item: item.value)
+    if not ids:
+        return False
+    anchor = positions[ids[0]]
+    return all(_dot(_sub(positions[vertex], anchor), normal) == 0 for vertex in ids[1:])
+
+
+def _grid_trial(scale, restored, outcome):
+    from .contracts.metric import GridScaleTrialV1
+
+    return GridScaleTrialV1(scale=scale, step=_rational(Fraction(1, scale)), restored_right_corners=restored, outcome=outcome)
+
+
+def _first_plane_preserving_scale(positions, intended, faces, candidates, first, trials):
+    """Закон `PLANE_PRESERVING_V1` после того, как первый масштаб, восстановивший углы, порвал плоскость патча.
+
+    Дальше по объявленному порядку берётся первый масштаб, который восстанавливает те же углы И сохраняет плоскость; пропущенные масштабы
+    записываются пробами `RELATIONS_RESTORED_PLANE_TORN` (первая из них — масштаб, который взял бы первый закон). Нет такого масштаба в
+    окне — ответ прежний (сертификат побитово тот же, что у первого закона): патч, у которого точной плоскости в окне нет (кривая крыша,
+    изгиб), плоскость и не обещал. Углы считаются лениво: масштаб с порванной плоскостью принят быть не может, и тяжёлую проверку
+    углов на нём нужно считать, только если принят будет более поздний масштаб и пробу потребуется записать.
+    """
+
+    from .contracts.metric import GridScaleTrialOutcomeV1 as Outcome
+
+    scanned = []
+    for scale in candidates[first + 1 :]:
+        snapped = snap_positions(positions, GridSpecV1(scale=scale))
+        intact = snapped_plane_is_exact(snapped, faces)
+        restored = restored_right_corners(snapped, intended) if intact else None
+        scanned.append((scale, snapped, intact, restored))
+        if intact and restored == len(intended):
+            break
+    else:
+        return GridSpecV1(scale=candidates[first]), trials
+    recorded = [*trials[:-1], _grid_trial(candidates[first], trials[-1].restored_right_corners, Outcome.RELATIONS_RESTORED_PLANE_TORN)]
+    for scale, snapped, intact, restored in scanned:
+        if restored is None:
+            restored = restored_right_corners(snapped, intended)
+        if restored != len(intended):
+            outcome = Outcome.RELATIONS_NOT_RESTORED
+        else:
+            outcome = Outcome.RELATIONS_RESTORED if intact else Outcome.RELATIONS_RESTORED_PLANE_TORN
+        recorded.append(_grid_trial(scale, restored, outcome))
+    return GridSpecV1(scale=scanned[-1][0]), tuple(recorded)
+
+
+def select_grid_scale(
+    *, positions, intended, window, search_order, faces=None, scale_law=GridScaleLawV1.FIRST_ANGLE_RESTORING_V1
+):
     """Первый масштаб окна, на котором проверка 2 проходит, и весь перебор.
 
     ЭТО НЕ ПОДГОНКА, и различие принципиально. Подгонка — это свободный
@@ -292,36 +357,40 @@ def select_grid_scale(*, positions, intended, window, search_order):
     м: в 16 раз больше при том же результате проверки 2. Во столько же раз
     поднимается и минимальная допустимая alpha (3.13e-02 против 1.95e-03 м),
     то есть крупный конец сужает множество принимаемых запросов декали.
+
+    `scale_law=PLANE_PRESERVING_V1` (требует `faces`) заказывает ТОЛЬКО повторная попытка хоста после названного отказа из
+    класса лотереи привязки (`SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1`): первый масштаб, восстановивший углы, на почти осевой плоскости
+    может рвать плоскость патча (координаты, отличающиеся на 1 ulp float32, садятся в разные узлы), и тогда берётся первый масштаб,
+    который восстанавливает те же углы и плоскость сохраняет (`_first_plane_preserving_scale`). Умолчание — прежний закон «только
+    углы», и его ответ этим параметром не меняется ни в одном байте: принятый сегодня домен не пересчитывается.
     """
 
-    from .contracts.metric import (
-        GridScaleTrialOutcomeV1,
-        GridScaleTrialV1,
-    )
+    from .contracts.metric import GridScaleTrialOutcomeV1
     from .contracts.metric import GridScaleSearchOrderV1 as _Order
     from .robust.snapping import admissible_scales
 
+    plane_law = scale_law is GridScaleLawV1.PLANE_PRESERVING_V1
+    if plane_law and faces is None:
+        raise ValueError("the plane-preserving scale law needs the patch faces")
     candidates = admissible_scales(window)
     if search_order is _Order.FINEST_ADMISSIBLE_FIRST_V1:
         candidates = tuple(reversed(candidates))
     trials = []
-    for scale in candidates:
+    for index, scale in enumerate(candidates):
         grid = GridSpecV1(scale=scale)
-        restored = restored_right_corners(snap_positions(positions, grid), intended)
+        snapped = snap_positions(positions, grid)
+        restored = restored_right_corners(snapped, intended)
         passed = restored == len(intended)
         trials.append(
-            GridScaleTrialV1(
-                scale=scale,
-                step=_rational(Fraction(1, scale)),
-                restored_right_corners=restored,
-                outcome=(
-                    GridScaleTrialOutcomeV1.RELATIONS_RESTORED
-                    if passed
-                    else GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED
-                ),
+            _grid_trial(
+                scale,
+                restored,
+                GridScaleTrialOutcomeV1.RELATIONS_RESTORED if passed else GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED,
             )
         )
         if passed:
+            if plane_law and not snapped_plane_is_exact(snapped, faces):
+                return _first_plane_preserving_scale(positions, intended, faces, candidates, index, tuple(trials))
             return grid, tuple(trials)
     raise _no_scale_refusal(len(intended), tuple(trials))
 
@@ -333,6 +402,7 @@ def resolve_source_grid(
     snapping_law: GridSnappingLawV1,
     search_order: GridScaleSearchOrderV1 = GRID_SCALE_SEARCH_ORDER,
     enforce_embedding: bool = True,
+    scale_law: GridScaleLawV1 = GridScaleLawV1.FIRST_ANGLE_RESTORING_V1,
 ):
     """Окно шага, выбор масштаба законом, привязка и сертификат — или отказ.
 
@@ -398,6 +468,8 @@ def resolve_source_grid(
         intended=intended,
         window=window,
         search_order=search_order,
+        faces=faces,
+        scale_law=scale_law,
     )
     snapped = snap_positions(positions, grid)
     facts["window_step"] = _rational(Fraction(1, grid.scale))

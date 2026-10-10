@@ -16,6 +16,9 @@
 `--source installed`: что установлено и включено. Выход 0 — новых отказов нет; 1 — файл/выделение/политика не те
 (`FIELD_CASE_*_MISMATCH`), число доменов иное, появился отказ вне базы либо вершин с `ADAPTER_WELD_MITER_FALLBACK`
 стало больше базы (`FIELD_CASE_REGRESSED`). Восстановленные домены базы называются в выводе: это улучшение, а не сбой.
+
+Повтор `SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1` (`cftuv/envelope_snap_retry.py`): домены `CASE["snap_retry_domains"]` обязаны быть построены именно
+повтором (диагностика исхода с именем первоначального отказа), и ни один другой домен повтор нести не вправе; расхождение - `FIELD_CASE_SNAP_RETRY_MISMATCH`.
 """
 
 from __future__ import annotations
@@ -46,7 +49,11 @@ CASE = {
         1002: "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE", 1007: "NO_GRID_SCALE_RESTORES_RELATIONS",
     },
     "baseline_weld_miter_fallbacks": 3,
+    # Домены, которые строит повтор с масштабом решётки, сохраняющим плоскость патча (лотерея привязки на 6a46ec0d: отказы 118, 629, 630 -
+    # DENSITY_RATIONAL_AUTHORITY_EXHAUSTED, 1005 - PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED, 1002 - SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE).
+    "snap_retry_domains": (118, 629, 630, 1002, 1005),
 }
+RETRY_OUTCOME = "SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1"
 
 
 class FieldCaseError(RuntimeError):
@@ -148,7 +155,11 @@ def _verdict(run, receipt) -> dict:
     refused = {item.patch_id: item.outcome for item in run.results if not item.is_materialized}
     base = CASE["baseline_refused"]
     fallbacks = sum(int(detail.split()[0]) for _patch, name, detail in receipt.warnings if name == "ADAPTER_WELD_MITER_FALLBACK")
+    retried = sorted(
+        item.patch_id for item in run.results if any(line.startswith(RETRY_OUTCOME + ":") for line in item.diagnostics)
+    )
     return {
+        "snap_retry": retried,
         "domains": len(run.results), "refused": dict(sorted(refused.items())),
         "new_refusals": {p: o for p, o in sorted(refused.items()) if p not in base},
         "changed_outcome": {p: [base[p], o] for p, o in sorted(refused.items()) if p in base and base[p] != o},
@@ -224,8 +235,11 @@ def main() -> int:
     print(f"recovered vs baseline: {verdict['recovered']}; new refusals: {verdict['new_refusals']}; outcome changes: {verdict['changed_outcome']}")
     more_weld = verdict["weld_miter_fallback_vertices"] > CASE["baseline_weld_miter_fallbacks"]
     regressed = verdict["domains"] != CASE["domains"] or bool(verdict["new_refusals"]) or more_weld
+    retry_mismatch = verdict["snap_retry"] != sorted(CASE["snap_retry_domains"])
+    if retry_mismatch:
+        print(f"FIELD_CASE_SNAP_RETRY_MISMATCH: built by the retry {verdict['snap_retry']}, the case records {sorted(CASE['snap_retry_domains'])}")
     print("FIELD_CASE_REGRESSED" if regressed else "FIELD_CASE_OK")
-    return 1 if regressed else 0
+    return 1 if regressed or retry_mismatch else 0
 
 
 if __name__ == "__main__":

@@ -131,7 +131,7 @@ def test_the_order_of_neighbour_numbers_is_part_of_the_key(row):
 
 
 def test_every_field_of_the_worker_input_is_keyed_or_named_excluded():
-    keyed = {"bundle", "host_chains", "density", "developable_stretch_budget", "chart_reach_cap", "silhouette_uv_slide"}
+    keyed = {"bundle", "host_chains", "density", "developable_stretch_budget", "chart_reach_cap", "silhouette_uv_slide", "grid_scale_law"}
     names = {item.name for item in dataclasses.fields(HostExportInputV1)}
 
     assert names == keyed | set(EXCLUDED_FIELDS)
@@ -235,6 +235,7 @@ PERTURBATIONS = {
     "chart reach cap": lambda e: dataclasses.replace(e, chart_reach_cap=Fraction(3, 4)),
     "chart reach cap, another": lambda e: dataclasses.replace(e, chart_reach_cap=Fraction(2)),
     "silhouette UV tolerance": lambda e: dataclasses.replace(e, silhouette_uv_slide=Fraction(1, 64)),
+    "grid scale law of the snap retry": lambda e: dataclasses.replace(e, grid_scale_law="PLANE_PRESERVING_V1"),
     "silhouette UV tolerance, zero": lambda e: dataclasses.replace(e, silhouette_uv_slide=Fraction(0)),
     "capabilities": lambda e: dataclasses.replace(e, bundle=dataclasses.replace(e.bundle, capabilities=dataclasses.replace(e.bundle.capabilities, geometry_batch_schema=2))),
 }

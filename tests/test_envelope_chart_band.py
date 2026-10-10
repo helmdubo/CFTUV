@@ -587,6 +587,7 @@ def _content_run(controller, alpha):
         topology_law=PRODUCTION_TOPOLOGY_LAW,
         backend="PYTHON",
         backend_id="PYTHON",
+        grid_scale_law=None,
         skeleton_backend="PYTHON",
         skeleton_id="PYTHON",
         embedding_backend="PYTHON",

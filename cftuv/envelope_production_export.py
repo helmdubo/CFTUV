@@ -46,6 +46,8 @@ from .envelope_kernel_backend import (
     with_kernel_backend,
     with_preparation_record,
 )
+from .envelope_snap_retry import retry_snap_lottery, snap_scale_notes
+from .envelope_topology_export import metric_law_key
 from .envelope_production_report import (  # noqa: F401 - переэкспорт: имена прежние
     diagnostic_summary_lines,
     export_production_json,
@@ -504,7 +506,7 @@ def produce_domain(
             counters=tuple((str(name), value) for name, value in result.counters),
             normal=(normal.x, normal.y, normal.z),
             content_digest=result.content_digest,
-            diagnostics=tuple(result.diagnostics),
+            diagnostics=(*result.diagnostics, *snap_scale_notes(prepared)),
             source_normal=_source_normal(prepared),
             chart_orientation=str(prepared.context.frame.chart_orientation.value),
             vertex_normals=tuple(result.vertex_normals),
@@ -812,6 +814,12 @@ class _RunInputsV1:
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
 
+    @property
+    def grid_scale_law(self):
+        """Закон выбора масштаба решётки прогона (`None`: умолчание ядра; повтор после отказа лотереи привязки - `PLANE_PRESERVING_V1`): часть ключей кэшей."""
+
+        return getattr(self.topology_export, "grid_scale_law", None)
+
 
 def _check_cancel(run: _RunInputsV1) -> None:
     """Точки остановки: до работы родителя над доменом и сразу после возврата пула."""
@@ -850,6 +858,7 @@ def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
         run.backend_id,
         skeleton_id=run.skeleton_id,
+        grid_scale_law=run.grid_scale_law,
     )
 
 
@@ -864,7 +873,7 @@ def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs)
         domain_id,
         selected,
         prepared=controller.peek_conveyor_preparation(
-            run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id
+            run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
         ),
         inputs=inputs,
         result_key=key,
@@ -937,6 +946,7 @@ def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
         run.topology_export.silhouette_uv_slide,
         _band_key(run, patch_id),
         run.backend_id,
+        *metric_law_key(run.topology_export),
     )
 
 
@@ -1153,7 +1163,7 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
         try:
             prepared = run.controller.get_conveyor_preparation(
                 run.revision, entry.domain_id, entry.selected, request, build,
-                profile=run.profile, skeleton_id=run.skeleton_id,
+                profile=run.profile, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law,
             )
         except PreparationRefused as refused:
             return _placed(_refusal(
@@ -1225,6 +1235,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
                 lambda: prepared,
                 profile=run.profile,
                 skeleton_id=run.skeleton_id,
+                grid_scale_law=run.grid_scale_law,
             )
             if reply.prepared_blob is not None and cached is prepared:
                 run.controller.preparation_blobs.adopt(prepared, reply.prepared_blob, reply.prepared_key)
@@ -1259,7 +1270,7 @@ def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result)
     if entry.content_key is None or result.labels is None or result.outcome == OUTCOME_DOMAIN_RAISED:
         return
     prepared = controller.peek_conveyor_preparation(
-        run.revision, entry.domain_id, entry.selected, request, skeleton_id=run.skeleton_id
+        run.revision, entry.domain_id, entry.selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
     )
     if prepared is None:
         return
@@ -1771,7 +1782,7 @@ def run_production(
             [item for item in work if item.prepared is None and item.carried is None],
             pool,
         )
-    results = _domain_results(entries, done, refused)
+    results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
     _record_run_counters(profile, controller, builds_before, entries, results, cold)
     _record_content_counters(profile, run, entries)
     return ProductionRunV1(
