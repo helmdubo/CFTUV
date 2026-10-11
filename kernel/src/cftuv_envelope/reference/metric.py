@@ -64,15 +64,17 @@ def _native_pair(vector) -> tuple[RadicalSumV1, RadicalSumV1]:
 
 
 def _product(left: RadicalSumV1, right: RadicalSumV1) -> RadicalSumV1:
-    """`left * right`; рациональный левый множитель — `scaled`: те же члены с теми же представителями, без разбора классов.
+    """`left * right`; рациональный левый множитель — те же члены с теми же представителями, без разбора классов.
 
     Классы `right` различны по инварианту (`right` — результат `_freeze`), поэтому общий `__mul__` с левым радикандом 1 лишь
-    переписывает каждый член `right` на `left`-кратный; `scaled` делает ровно это, не вызывая `_accumulate` и `_class_ratio`.
+    переписывает каждый член `right` на `left`-кратный (как `RadicalSumV1.scaled`, без его проверок и копии дроби), не вызывая
+    `_accumulate` и `_class_ratio`. Нуль слева или справа — нуль, как в `__mul__`.
     """
 
     terms = left.terms
     if len(terms) == 1 and terms[0][0] == 1:
-        return right.scaled(terms[0][1])
+        factor = terms[0][1]
+        return RadicalSumV1(tuple((radicand, value * factor) for radicand, value in right.terms)) if right.terms else RadicalSumV1.zero()
     return left * right
 
 
