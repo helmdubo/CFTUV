@@ -1,7 +1,8 @@
 """Циклический сборщик стоит на паузе на время кнопки и возвращается в прежнее состояние (GC_PAUSED_DURING_BUTTON_V1).
 
 Пауза не меняет ответа (GC возвращает память циклов, значений не трогает): здесь доказывается другое - что состояние сборщика после блока
-ровно то, что было до него, при любом выходе, и что кнопка оператора действительно идёт под этим блоком.
+ровно то, что было до него, при любом выходе, и что кнопка оператора действительно идёт под этим блоком. Тот же блок стоит на работе тика ширины
+(GC_PAUSED_DURING_WIDTH_TICK_V1): блоки разных потоков считаются, а какие функции несут паузу, закреплено разбором дерева (поведение на живой ширине - `test_envelope_width_live.py`).
 """
 
 from __future__ import annotations
@@ -10,13 +11,14 @@ import ast
 import gc
 import inspect
 import io
+import threading
 from pathlib import Path
 
 import pytest
 
 from cftuv import envelope_domain_pool as pool_module
 from cftuv.envelope_domain_pool import DomainTaskResultV1, DomainTaskV1, read_frame, serve_task
-from cftuv.envelope_gc_pause import GC_PAUSE_OUTCOME, gc_paused, gc_paused_call
+from cftuv.envelope_gc_pause import GC_PAUSE_OUTCOME, GC_PAUSE_WIDTH_OUTCOME, gc_paused, gc_paused_call, gc_paused_function
 
 OPERATOR = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_production_operator.py"
 POOL = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_domain_pool.py"
@@ -177,6 +179,172 @@ def test_the_worker_loop_answers_through_serve_task_and_nowhere_else_pauses_the_
     assert "serve_task" in called and not {"solve_task", "_reply_frame", "_packed_cold_reply"} & called
     users = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and any(isinstance(item, ast.Name) and item.id == "gc_paused" for item in ast.walk(node))]
     assert users == ["serve_task"]
+
+
+# --------------------------------------------------------------------------
+# Тик ширины (GC_PAUSED_DURING_WIDTH_TICK_V1): блоки разных потоков считаются, пауза стоит на работе, а не на простое
+# --------------------------------------------------------------------------
+
+HOST = Path(__file__).resolve().parents[1] / "cftuv"
+
+
+class _Block(threading.Thread):
+    """Поток, который входит в `gc_paused`, ждёт приказа и выходит: события говорят, где он, а `was_enabled` - что он застал при входе."""
+
+    def __init__(self) -> None:
+        super().__init__(daemon=True)
+        self.entered, self.leave, self.left = threading.Event(), threading.Event(), threading.Event()
+        self.was_enabled = None
+
+    def run(self) -> None:
+        with gc_paused() as was_enabled:
+            self.was_enabled = was_enabled
+            self.entered.set()
+            assert self.leave.wait(10)
+        self.left.set()
+
+    def enter(self) -> None:
+        self.start()
+        assert self.entered.wait(10)
+
+    def exit(self) -> None:
+        self.leave.set()
+        assert self.left.wait(10)
+        self.join(10)
+
+
+@pytest.mark.parametrize("leaves_first", ["the one that entered first", "the one that entered second"])
+def test_blocks_of_two_threads_that_overlap_without_nesting_keep_the_collector_off_until_the_last_one_leaves(leaves_first):
+    """Счёт тика (поток) ещё летит, а кнопка уже вошла и ждёт его; либо применение входит, пока счёт выходит: порядок выходов любой, сборщик включает последний."""
+
+    gc.enable()
+    first, second = _Block(), _Block()
+    first.enter()
+    second.enter()
+    assert (first.was_enabled, second.was_enabled) == (True, False)  # второй застал его уже выключенным: он не хозяин состояния
+    assert not gc.isenabled()
+    early, late = (first, second) if leaves_first == "the one that entered first" else (second, first)
+    early.exit()
+    assert not gc.isenabled()  # под ещё открытым блоком сборщик не включён - ни тем, кто вошёл первым, ни тем, кто вошёл вторым
+    late.exit()
+    assert gc.isenabled()
+
+
+def test_a_collector_that_was_off_before_two_overlapping_blocks_stays_off_after_both():
+    gc.disable()
+    first, second = _Block(), _Block()
+    first.enter()
+    second.enter()
+    assert (first.was_enabled, second.was_enabled) == (False, False)
+    first.exit()
+    second.exit()
+    assert not gc.isenabled()
+
+
+def test_a_block_that_raises_in_a_thread_gives_the_collector_back_while_the_main_thread_block_holds_it():
+    gc.enable()
+    failure = []
+
+    def worker():
+        try:
+            with gc_paused():
+                raise RuntimeError("tick failed")
+        except RuntimeError as exc:
+            failure.append(exc)
+
+    with gc_paused():
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(10)
+        assert len(failure) == 1 and not gc.isenabled()  # блок потока вышел с исключением, блок главного потока всё ещё открыт
+    assert gc.isenabled()
+
+
+def test_the_pause_in_a_thread_is_the_pause_of_the_process_and_ends_with_the_thread_block():
+    """Сборщик общий на процесс: пока поток внутри блока, главный поток видит его выключенным; вышел поток - включён, без участия главного."""
+
+    gc.enable()
+    block = _Block()
+    block.enter()
+    assert not gc.isenabled()  # это читает ГЛАВНЫЙ поток
+    block.exit()
+    assert gc.isenabled()
+
+
+def test_the_function_decorator_passes_every_argument_and_the_value_and_keeps_the_name():
+    seen = []
+
+    @gc_paused_function
+    def apply(controller, request, job, live, *, extra=None):
+        seen.append((controller, request, job, live, extra, gc.isenabled()))
+        return "applied"
+
+    gc.enable()
+    assert apply("c", "r", "j", "l", extra=7) == "applied"
+    assert seen == [("c", "r", "j", "l", 7, False)]
+    assert apply.__name__ == "apply" and apply.__wrapped__ is not apply and gc.isenabled()
+
+
+def test_the_function_decorator_restores_the_collector_when_the_call_raises_and_leaves_a_disabled_one_disabled():
+    @gc_paused_function
+    def compute(cancel):
+        raise KeyError("lost")
+
+    gc.enable()
+    with pytest.raises(KeyError):
+        compute(None)
+    assert gc.isenabled()
+    gc.disable()
+    with pytest.raises(KeyError):
+        compute(None)
+    assert not gc.isenabled()
+
+
+def _imports_of_the_pause(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return sorted(
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == "envelope_gc_pause"
+        for alias in node.names
+    )
+
+
+def _decorated_with(path, decorator):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return sorted(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and any(getattr(item, "id", None) == decorator for item in node.decorator_list)
+    )
+
+
+def test_the_width_tick_pause_sits_on_the_compute_the_two_applies_and_the_confirm_and_on_nothing_else():
+    """Работа тика под паузой, простой между тиками - нет: планировщик, его опрос, заказ и проверка валидности не помечены."""
+
+    assert _decorated_with(HOST / "envelope_width_live.py", "gc_paused_function") == ["_apply", "_apply_prime", "compute"]
+    assert _decorated_with(HOST / "envelope_width_session.py", "gc_paused_function") == ["finish_adjust"]
+    tree = ast.parse((HOST / "envelope_width_live.py").read_text(encoding="utf-8"))
+    begin = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_begin")
+    assert [node.name for node in begin.body if isinstance(node, ast.FunctionDef)] == ["compute"]  # поток исполняет ровно эту функцию (ThreadedPreviewJob)
+
+
+def test_only_the_button_the_pool_worker_and_the_width_tick_pause_the_collector():
+    users = {
+        path.name: _imports_of_the_pause(path)
+        for path in sorted(HOST.glob("*.py"))
+        if path.name != "envelope_gc_pause.py" and _imports_of_the_pause(path)
+    }
+    assert users == {
+        "envelope_domain_pool.py": ["gc_paused"],
+        "envelope_production_operator.py": ["gc_paused_call"],
+        "envelope_width_live.py": ["gc_paused_function"],
+        "envelope_width_session.py": ["gc_paused_function"],
+    }  # планировщик (`envelope_alpha_preview`), его таймер и опрос сборщик не трогают: простой между событиями идёт при включённом
+
+
+def test_the_width_tick_outcome_is_named():
+    assert GC_PAUSE_WIDTH_OUTCOME == "GC_PAUSED_DURING_WIDTH_TICK_V1"
 
 
 def test_the_outcome_is_named():

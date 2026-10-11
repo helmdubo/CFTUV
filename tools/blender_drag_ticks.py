@@ -16,17 +16,27 @@ and its digest: they must be equal (a lean frame is the committed mesh, not an a
 REPORT. One JSON: per refresh the wall time, the main-thread begin and apply, the thread time, the laps of the parent stages that repeat per refresh (scan, order_by_cost, weld, the
 arrays, the digests, the model), p50 / p90 over the refreshes, the mesh digest and a hash of the final mesh arrays (two trees that give the same committed answer give the same hash).
 Last line: DRAG_TICKS_OK. The scene is never saved and no Blender but this one is touched.
+
+WHERE THE CYCLIC COLLECTOR WENT (GC_PAUSED_DURING_WIDTH_TICK_V1). `gc.callbacks` times every collection of the process: per refresh `gc_seconds` / `gc_collections` / `gc_gen2` inside its window (begin ->
+end of apply), `gc` for the whole drag (`in_windows` and `outside`: a collection that a pause only DEFERRED lands in the gap after the apply, so it is counted there and in `tick_cycle`, the time from
+the end of one refresh to the end of the next, not hidden), and `gc_enabled_after_step` (the idle between refreshes runs with the collector on: every value True). `rss_mb`: the working set of this (parent)
+process: `ticks_peak` is the highest value a 5 ms sampler saw while the refreshes and the confirms ran, `process_peak` the OS peak of the whole run (the cold button included); `rss_after_mb` per
+refresh is the same working set at the end of each (a leak of a long drag shows as a slope). `gc_slow` per refresh lists every collection above 20 ms as [generation, seconds, thread, offset from the
+start of the refresh]: who pays for a collection and when (a tree without the pause: a generation-2 collection of 0.35-0.45 s in one of several threads; with it: one young collection of ~0.1 s in the
+compute thread at the moment the pause ends).
 """
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import gc
 import hashlib
 import json
 import os
 import statistics
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -90,6 +100,91 @@ class Laps:
 
     def snapshot(self) -> dict:
         return {name: [self.calls[name], round(self.seconds[name], 6)] for name in sorted(self.seconds)}
+
+
+class GcTrace:
+    """Seconds and counts of the cyclic collector (`gc.callbacks`): cumulative, and since the last `window_reset` (one refresh)."""
+
+    def __init__(self) -> None:
+        self._started = 0.0
+        self.seconds, self.collections, self.gen2 = 0.0, 0, 0
+        self._mark = (0.0, 0, 0)
+        self.slow: list = []  # (start, seconds, generation, thread) of every collection above 20 ms: who pays, and when
+        self._slow_mark = 0
+
+    def __call__(self, phase: str, info: dict) -> None:
+        if phase == "start":
+            self._started = time.perf_counter()
+            return
+        spent = time.perf_counter() - self._started
+        self.seconds += spent
+        self.collections += 1
+        self.gen2 += 1 if info.get("generation") == 2 else 0
+        if spent > 0.02:
+            self.slow.append((self._started, spent, info.get("generation"), threading.current_thread().name))
+
+    def install(self) -> None:
+        gc.callbacks.append(self)
+
+    def window_reset(self) -> None:
+        self._mark = (self.seconds, self.collections, self.gen2)
+        self._slow_mark = len(self.slow)
+
+    def window(self, origin: float = 0.0) -> dict:
+        """The collections since `window_reset`; `gc_slow` lists those above 20 ms as `[generation, seconds, thread, start offset from `origin`]`."""
+
+        slow = [[generation, round(spent, 4), thread, round(start - origin, 4)] for start, spent, generation, thread in self.slow[self._slow_mark :]]
+        return {"gc_seconds": self.seconds - self._mark[0], "gc_collections": self.collections - self._mark[1], "gc_gen2": self.gen2 - self._mark[2], "gc_slow": slow}
+
+    def cumulative(self) -> tuple:
+        return (self.seconds, self.collections, self.gen2)
+
+
+def working_set_bytes() -> tuple:
+    """`(working set, peak working set)` of THIS process in bytes (Windows); `(0, 0)` where the tool cannot read it."""
+
+    if os.name != "nt":
+        return (0, 0)
+    import ctypes
+    from ctypes import wintypes
+
+    class Counters(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD), ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t), ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t), ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+
+    kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+    counters = Counters()
+    counters.cb = ctypes.sizeof(Counters)
+    if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+        return (0, 0)
+    return (int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize))
+
+
+class MemorySampler:
+    """The highest working set of this process seen by a sampler thread between `start` and `stop` (the OS peak cannot be reset, and the cold button's peak would hide the refreshes')."""
+
+    def __init__(self, interval: float = 0.005) -> None:
+        self.interval, self.peak, self.samples = interval, 0, 0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="drag-ticks-rss", daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            self.peak = max(self.peak, working_set_bytes()[0])
+            self.samples += 1
+
+    def start(self) -> None:
+        self.peak = working_set_bytes()[0]
+        self._thread.start()
+
+    def stop(self) -> int:
+        self._stop.set()
+        self._thread.join(5.0)
+        self.peak = max(self.peak, working_set_bytes()[0])
+        return self.peak
 
 
 def install_laps(laps: Laps) -> list:
@@ -191,6 +286,8 @@ class Session:
             setattr(bpy.context.window_manager, WINDOW_MANAGER_SESSION_ATTRIBUTE, controller)
         self.controller = controller
         self.index = 0
+        self.gc_trace = GcTrace()
+        self.gc_trace.install()
 
     def cold_press(self) -> float:
         from cftuv.envelope_domain_pool import get_domain_pool
@@ -226,6 +323,7 @@ class Session:
         self.index += 1
         laps.reset()
         request = self.request_type(self.index, float(alpha), self.target(lean), time.monotonic())
+        self.gc_trace.window_reset()
         started = time.perf_counter()
         job = self.live._begin(self.controller, request)
         begun = time.perf_counter()
@@ -243,6 +341,7 @@ class Session:
             outcome = str(exc)
         finished = time.perf_counter()
         return {
+            **self.gc_trace.window(started), "gc_enabled_after_step": gc.isenabled(), "started_at": started, "finished_at": finished, "rss_after_mb": round(working_set_bytes()[0] / 1048576, 1),
             "apply_outcome": outcome,
             "alpha": float(alpha), "lean": lean, "wall": finished - started, "begin_main": begun - started, "thread": float(job.seconds), "join_wait": joined - begun,
             "apply_main": finished - applying, "run_production": float(live_run.run.wall_seconds), "laps": laps.snapshot(),
@@ -327,10 +426,33 @@ def main() -> int:
         ticks, widths = [], [base + step * (index + 1) for index in range(args.ticks + args.confirms + 1)]
         if args.prove_lean:
             report["proofs"] = prove_lean(session, laps, [base * (1.0 + args.prove_rel * (index + 1)) for index in range(args.prove_lean)])
+        gc_before, rss_cold = session.gc_trace.cumulative(), working_set_bytes()
+        sampler = MemorySampler()
+        sampler.start()
+        phase_started = time.perf_counter()
         for width in widths[: args.ticks]:
             ticks.append(session.step(width, lean=args.grade == "lean", laps=laps))
+        ticks_finished = time.perf_counter()
+        gc_ticks = session.gc_trace.cumulative()
         session.controller.width_drag_active = False
         confirms = [session.step(width, lean=False, laps=laps) for width in widths[args.ticks : args.ticks + args.confirms]]
+        rss_peak = sampler.stop()
+        gc_after = session.gc_trace.cumulative()
+        previous_end = phase_started
+        for item in ticks:  # the cycle: from the end of the previous refresh (the start of the phase for the first) to the end of this one, so a collection a pause deferred past the apply is in it
+            item["cycle"] = item["finished_at"] - previous_end
+            previous_end = item["finished_at"]
+        report["tick_cycle"] = stats([item["cycle"] for item in ticks])
+        report["ticks_phase_seconds"] = ticks_finished - phase_started
+        report["gc"] = {
+            "ticks_total_seconds": gc_ticks[0] - gc_before[0], "ticks_in_windows_seconds": sum(item["gc_seconds"] for item in ticks), "ticks_collections": gc_ticks[1] - gc_before[1],
+            "ticks_gen2": gc_ticks[2] - gc_before[2], "drag_total_seconds": gc_after[0] - gc_before[0], "drag_collections": gc_after[1] - gc_before[1], "drag_gen2": gc_after[2] - gc_before[2],
+        }
+        report["gc"]["ticks_outside_windows_seconds"] = report["gc"]["ticks_total_seconds"] - report["gc"]["ticks_in_windows_seconds"]
+        report["gc_enabled_after_every_step"] = all(item["gc_enabled_after_step"] for item in [*ticks, *confirms]) and gc.isenabled()
+        report["gc_paused_in_tree"] = hasattr(session.live, "gc_paused_function")
+        report["rss_mb"] = {"cold_end": round(rss_cold[0] / 1048576, 1), "ticks_peak": round(rss_peak / 1048576, 1), "process_peak": round(working_set_bytes()[1] / 1048576, 1),
+                            "sampler_samples": sampler.samples}
         report["ticks"], report["confirms"] = ticks, confirms
         report["tick_wall"], report["confirm_wall"] = stats([item["wall"] for item in ticks]), stats([item["wall"] for item in confirms])
         report["tick_thread"] = stats([item["thread"] for item in ticks])

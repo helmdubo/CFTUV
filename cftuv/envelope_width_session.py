@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .envelope_gc_pause import gc_paused_function
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
 from .envelope_width_live import ensure_prime, preview_now, request_drag_tick, set_preview, width_event_preview, width_problem
 from .envelope_width_mesh_preview import begin_drag, finish_drag, moving_now
@@ -145,12 +146,16 @@ def apply_step(context, runtime: AdjustRuntimeV1, step: WidthStepV1) -> None:
     set_header(context, step.header)
 
 
+@gc_paused_function
 def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
     """Подтверждение либо отмена: `FINISHED` (ширина записана, заказан точный счёт) или `CANCELLED`.
 
     Подтверждение без перемены ширины — `CANCELLED` (шага отмены нет, нечего откатывать). Единственная запись
     в свойство ширины стоит здесь: её калбэк (`schedule_width_live`) пересчитает превью и закажет точный
     результат планировщиком.
+
+    GC_PAUSED_DURING_WIDTH_TICK_V1: тело (отмена: меш возвращается на базу; подтверждение: запись свойства и заказ) идёт при выключенном сборщике. Подтверждённый ответ - COMMIT-заказ
+    того же планировщика: его счёт в потоке и применение держат паузу сами (`envelope_width_live`), здесь она нужна только телу, и кончается она с возвратом: ожидание счёта - простой.
     """
 
     set_header(context, None)
