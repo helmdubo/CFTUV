@@ -149,7 +149,7 @@ def test_the_interpreter_the_platform_the_pins_and_the_kind_move_the_key(tree, m
     assert _key(tree, "clip", requirements=REQUIREMENTS + " numpy==1.26.4") != base
     assert _key(tree, "clip", native="b" * 64) != base, "the clip corpus is encoded by the shim of the native tree"
     assert _key(tree, "skeleton") != _key(tree, "clip")
-    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "platform", "darwin" if sys.platform != "darwin" else "linux")  # whichever platform this test runs on, another one
     assert _key(tree, "clip") != base
 
 
