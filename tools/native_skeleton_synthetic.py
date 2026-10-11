@@ -15,9 +15,14 @@
 режим, бюджет и память) пишутся один раз. `live_equal` сравнивает только ответ или исключение, увиденные тестом, с ответом или исключением чистого эталона;
 цену и эффекты памяти этот флаг не сравнивает. `False` возможен как при подмене ядра тестом, так и при нормализации прогретой памяти до холодной.
 
-    python tools/native_skeleton_synthetic.py build [--out DIR] [--files a.py,b.py | --ci]    # прогон тестов ядра с плагином (подпроцесс), индекс; `--ci` — подмножество `CI_FILES`
+    python tools/native_skeleton_synthetic.py build [--out DIR] [--files a.py,b.py | --ci] [--processes N]    # прогон тестов ядра с плагином (подпроцесс), индекс; `--ci` — подмножество `CI_FILES`
     python tools/native_skeleton_synthetic.py inventory [--out DIR]                    # опись корпуса
     python tools/native_skeleton_synthetic.py rewrite --src RAW [--out DIR]            # переписать построенный корпус с холодной памятью и без повторов
+
+`--processes N` (N > 1): тесты идут N процессами pytest одновременно (CI: 4 vCPU, один процесс занимал одно ядро), каждый на своём наборе ФАЙЛОВ (веса — `kernel/tools/shard_weights.json`,
+делит `kernel/tools/shard_tests.py`). Процесс не пишет корпус, а кладёт в файл то, что собрал (различные вызовы со своими ключами повтора); затем ОДИН процесс объединяет собранное в порядке файлов
+`files` (внутри файла — порядок прихода), оставляет первое вхождение каждого ключа и пишет корпус тем же `write_items`, что и однопроцессная сборка. Это тот же отбор, что делает один процесс
+(первое вхождение в порядке прогона), поэтому набор записей тот же; единственное, что может отличаться, — вызовы, которых однопроцессный прогон не сделал из-за кэша, прогретого соседним тестом.
 """
 
 from __future__ import annotations
@@ -26,10 +31,14 @@ import argparse
 import contextlib
 import dataclasses
 import hashlib
+import importlib.util
 import json
 import os
+import pickle
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
 from pathlib import Path
@@ -47,6 +56,8 @@ import native_skeleton_corpus as sc  # noqa: E402
 
 OUT_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_OUT"
 FILES_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_FILES"
+#: Если задан, плагин не пишет корпус, а кладёт собранное в этот файл (процесс параллельной сборки, `build --processes N`).
+ITEMS_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_ITEMS"
 COVERAGE_ENVIRONMENT = "CFTUV_SKELETON_COVERAGE"
 INDEX_SCHEMA = sc.SYNTHETIC_INDEX_SCHEMA
 
@@ -197,7 +208,7 @@ class _Collector:
             self.duplicates += 1
             return None
         self.seen.add(key)
-        return {"before": before, "blob": blob, "test": self.test}
+        return {"before": before, "blob": blob, "test": self.test, "key": key}
 
     def finish(self, entry: dict, result, error) -> None:
         """Что увидел тест, и запись в очередь."""
@@ -207,7 +218,7 @@ class _Collector:
         except Exception as exc:  # noqa: BLE001
             live = None
             self.skipped[f"live: {type(exc).__name__}"] += 1
-        self.pending.append({"test": entry["test"], "before": entry["before"], "blob": entry["blob"], "live": live})
+        self.pending.append({"test": entry["test"], "before": entry["before"], "blob": entry["blob"], "live": live, "key": entry["key"]})
 
 
 _COLLECTOR: _Collector | None = None
@@ -343,6 +354,12 @@ def write_items(out: Path, items: list, description: dict, extra: dict) -> dict:
 
 
 def write_corpus(collector: _Collector, exitstatus) -> None:
+    target = os.environ.get(ITEMS_ENVIRONMENT)
+    if target:  # one process of a parallel build: the corpus is written by the parent, from what all the processes collected
+        part = {"items": collector.pending, "calls": collector.calls, "duplicates": collector.duplicates, "skipped": dict(collector.skipped), "exit": int(exitstatus)}
+        Path(target).write_bytes(pickle.dumps(part, protocol=5))
+        print(f"synthetic skeleton part: {len(collector.pending)} distinct calls of {collector.calls} -> {target}")
+        return
     tests = [item for item in os.environ.get(FILES_ENVIRONMENT, "").split(",") if item] or list(TEST_FILES)
     description = nc.run_description({"corpus": "synthetic_skeleton", "tests": tests, "pytest_exit": int(exitstatus)})
     extra = {"test_calls_seen": collector.calls, "test_duplicates": collector.duplicates, "skipped": dict(collector.skipped)}
@@ -370,17 +387,99 @@ def rewrite(source: Path, out: Path) -> dict:
 # --------------------------------------------------------------------------
 
 
-def build(out: Path, files=TEST_FILES, extra_arguments=()) -> int:
+def _environment(out: Path, files) -> dict:
     environment = dict(os.environ)
     environment[OUT_ENVIRONMENT] = str(out)
     environment[FILES_ENVIRONMENT] = ",".join(files)
     existing = environment.get("PYTHONPATH", "")
     environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(TOOLS), str(ROOT / "kernel" / "src"), str(ROOT / "kernel" / "tests"), existing]))
     environment["PYTHONSAFEPATH"] = "1"
+    return environment
+
+
+def _command(files, extra_arguments=()) -> list:
     paths = [str(ROOT / "kernel" / "tests" / name) for name in files]
-    command = [sys.executable, "-m", "pytest", "-q", "-p", "native_skeleton_synthetic", "-p", "no:cacheprovider", *extra_arguments, *paths]
+    return [sys.executable, "-m", "pytest", "-q", "-p", "native_skeleton_synthetic", "-p", "no:cacheprovider", *extra_arguments, *paths]
+
+
+def split_files(files, processes: int) -> list:
+    """`processes` groups of `files` (each a tuple), balanced by the measured seconds of `kernel/tools/shard_weights.json` (`kernel/tools/shard_tests.py`, longest first); every file in exactly one group."""
+
+    tools = ROOT / "kernel" / "tools"
+    spec = importlib.util.spec_from_file_location("kernel_shard_tests_for_the_corpus", tools / "shard_tests.py")
+    shards = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shards)
+    default, weights = shards.load_weights(tools / "shard_weights.json")
+    groups = [tuple(group) for group in shards.assign(list(files), default, weights, min(processes, len(files)))]
+    assert sorted(name for group in groups for name in group) == sorted(files), "the groups must be exactly the files"
+    return groups
+
+
+def merge_parts(parts: list, files) -> tuple:
+    """`(items, calls, duplicates, skipped, exit)` of the parts of a parallel build, as ONE process running `files` in order would have collected them.
+
+    Items go by the position of their test file in `files` (a stable sort: within a file, the order they arrived in) and the FIRST item of each dedupe key stays: the same first-occurrence rule
+    `_Collector.begin` applies while the tests run."""
+
+    position = {name: number for number, name in enumerate(files)}
+    ordered = sorted((item for part in parts for item in part["items"]), key=lambda item: position[Path(item["test"].split("::")[0]).name])
+    seen: set = set()
+    items = []
+    for item in ordered:
+        if item["key"] not in seen:
+            seen.add(item["key"])
+            items.append(item)
+    calls = sum(part["calls"] for part in parts)
+    skipped: Counter = Counter()
+    for part in parts:
+        skipped.update(part["skipped"])
+    # a duplicate of the serial count is a call found already seen: inside its own process, or (here) in a file that comes earlier in `files`
+    duplicates = sum(part["duplicates"] for part in parts) + sum(len(part["items"]) for part in parts) - len(items)
+    return items, calls, duplicates, skipped, max(part["exit"] for part in parts)
+
+
+def build_parallel(out: Path, files, processes: int, extra_arguments=()) -> int:
+    """The tests in `processes` pytest processes at once, the corpus written once, from what they all collected (see the module docstring)."""
+
+    groups = split_files(files, processes)
+    folder = Path(tempfile.mkdtemp(prefix="skeleton-parts-"))
+    started = time.perf_counter()
+    running = []
+    for number, group in enumerate(groups, 1):
+        environment = _environment(out, group)
+        environment[ITEMS_ENVIRONMENT] = str(folder / f"part-{number}.pkl")
+        command = _command(group, extra_arguments)
+        print(f"+ part {number}/{len(groups)} ({len(group)} files):", " ".join(command[:6]), "...", flush=True)
+        running.append((number, subprocess.Popen(command, env=environment, cwd=str(ROOT / "kernel"), stdout=open(folder / f"part-{number}.log", "wb"), stderr=subprocess.STDOUT)))
+    codes = [process.wait() for _, process in running]
+    parts = []
+    for number, _ in running:
+        log = (folder / f"part-{number}.log").read_text(encoding="utf-8", errors="replace").splitlines()
+        print(f"part {number}: {log[-1] if log else '(no output)'}", flush=True)
+        part = folder / f"part-{number}.pkl"
+        if not part.is_file():
+            print(f"NATIVE_SKELETON_SYNTHETIC_PART_FAILED part {number} left no result; its log: {folder / f'part-{number}.log'}")
+            return 1
+        parts.append(pickle.loads(part.read_bytes()))
+    shutil.rmtree(folder, ignore_errors=True)  # the parts are in memory now; a part that failed returned above and kept its log
+    items, calls, duplicates, skipped, exit_code = merge_parts(parts, files)
+    print(f"parts done in {time.perf_counter() - started:.0f} s, exit codes {codes}; {len(items)} distinct calls of {calls}; writing the corpus", flush=True)
+    description = nc.run_description({"corpus": "synthetic_skeleton", "tests": list(files), "pytest_exit": int(exit_code)})
+    extra = {"test_calls_seen": calls, "test_duplicates": duplicates, "skipped": dict(skipped), "parallel_processes": len(groups)}
+    document = write_items(out, items, description, extra)
+    print(
+        f"synthetic skeleton corpus: {document['records_count']} records from tests ({calls} calls, {duplicates} duplicates, "
+        f"{document['test_live_differs']} differ from what the test saw) {document['total_bytes']} bytes -> {out}"
+    )
+    return max(codes + [exit_code])
+
+
+def build(out: Path, files=TEST_FILES, extra_arguments=(), processes: int = 1) -> int:
+    if processes > 1:
+        return build_parallel(out, files, processes, extra_arguments)
+    command = _command(files, extra_arguments)
     print("+", " ".join(command), flush=True)
-    return subprocess.run(command, env=environment, cwd=str(ROOT / "kernel")).returncode
+    return subprocess.run(command, env=_environment(out, files), cwd=str(ROOT / "kernel")).returncode
 
 
 def main(argv=None) -> int:
@@ -390,6 +489,7 @@ def main(argv=None) -> int:
     parser.add_argument("--src", type=Path, default=None)
     parser.add_argument("--files", default="")
     parser.add_argument("--ci", action="store_true", help="build from the subset CI uses (`CI_FILES`)")
+    parser.add_argument("--processes", type=int, default=1, help="run the tests in N pytest processes at once (see the module docstring)")
     arguments = parser.parse_args(argv)
     out = arguments.out or default_out()
     if arguments.command == "inventory":
@@ -402,7 +502,7 @@ def main(argv=None) -> int:
     if arguments.ci and arguments.files:
         parser.error("--ci and --files are two ways to name the files: pick one")
     files = CI_FILES if arguments.ci else tuple(item for item in arguments.files.split(",") if item) or TEST_FILES
-    return build(out, files)
+    return build(out, files, processes=arguments.processes)
 
 
 if __name__ == "__main__":
