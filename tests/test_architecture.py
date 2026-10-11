@@ -915,7 +915,10 @@ MODULE_LINE_ALLOWANCE = {
     # идут по фактам карт-полос (+4), входы холодных доменов пишутся в записи сборки (`_record_cold_inputs`, два поля и вызов: +17), счётчики копятся
     # по прогону (+2). Сами таблицы и счётчики разворота живут в `envelope_lazy_preparation.py`, запись сборки - в `envelope_scan_memo.py`.
     # Число поднято осознанно, до фактического.
-    "cftuv/envelope_production_export.py": 1952,
+    # 1952 -> 1954. +2 за ту же проверку снапшота внутри воркера (WORKER_REUSES_ITS_SNAPSHOT_CHECK_V1): параметр `checker` у
+    # `prepare_for_production_recorded` и его передача из `_solve_cold_production_task`. Решение «та же ли это проверка» принимает
+    # `WorkerSnapshotCheck.clean_issues_for` (`envelope_snapshot_check.py`), здесь только проводка; остальное втиснуто в существующие строки.
+    "cftuv/envelope_production_export.py": 1954,
 }
 
 
