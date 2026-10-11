@@ -7,6 +7,7 @@
 mod clip;
 mod clip_seams;
 mod coverage;
+mod effective_alpha;
 mod embedding;
 mod memlog;
 mod pyobj;
@@ -432,6 +433,8 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(skeleton::skeleton_oracle_statuses, module)?)?;
     module.add_class::<Session>()?;
     module.add_function(wrap_pyfunction!(embedding::snap_embedding, module)?)?;
+    module.add_class::<effective_alpha::AlphaFrame>()?;
+    module.add_function(wrap_pyfunction!(effective_alpha::alpha_frame, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;
     module.add_function(wrap_pyfunction!(skeleton_seams::skeleton_seam_run, module)?)?;

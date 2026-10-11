@@ -110,7 +110,19 @@ SKELETON_FILES = (
 #: dispatch the three calls of the leaf; the file is pinned whole, so a change anywhere in it asks for a new pin (`python -m cftuv_native.pin`).
 SNAP_EMBEDDING_FILES = ("_embedding.py",)
 
-OPERATION_FILES = {"coverage": COVERAGE_FILES, "clip": CLIP_FILES, "skeleton": SKELETON_FILES, "snap_embedding": SNAP_EMBEDDING_FILES}
+#: `reference.boundary._native_contacts`: the binary64 prefilter and the contact leaf of the effective-alpha resolver (`reference/boundary_native.py`: `SourceContactFrame`, `contact_candidates_native`), the
+#: algebra of `RadicalSumV1` and the text of a rational (`reference/native_exact.py`), the float measure and its constants (`float_filter.py`) and the CPython 3.11 sort of the contacts
+#: (`_cpython311.py`). The call site that applies the counts (`reference/boundary.py::_native_contacts`) and the products of `reference/metric.py` change for other reasons, so they are NOT pinned
+#: whole: `effective_alpha_op._bind` checks the digest of those three functions when the classes bind (`NativePortStale` naming the function).
+EFFECTIVE_ALPHA_FILES = ("_cpython311.py", "float_filter.py", "reference/boundary_native.py", "reference/native_exact.py")
+
+OPERATION_FILES = {
+    "coverage": COVERAGE_FILES,
+    "clip": CLIP_FILES,
+    "skeleton": SKELETON_FILES,
+    "snap_embedding": SNAP_EMBEDDING_FILES,
+    "effective_alpha": EFFECTIVE_ALPHA_FILES,
+}
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
 #: operations above overlap, a file has one digest). Regenerate by `python cftuv_native/pin.py <cftuv_envelope dir>` after a catch-up.
@@ -131,6 +143,8 @@ PINS: dict = {
     "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
+    "reference/boundary_native.py": "f9d16e0fea57a9c8c1d274c798fa903bb3ebfe2c35943bdcff5f54ed5db2f9b7",
+    "reference/native_exact.py": "f9c3b7b7132e5fb4463f94d577d18237c474e61d16d2357062d97ef776e6026d",
     "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
     "wavefront/candidate_law.py": "d8a84854151b170cc3543ad53d4b0db2eeafb7587cc68e45500e6e4df36fd4c0",
     "wavefront/candidate_refusal.py": "b1ca2217abbfe87286ef49ca1bb17c5121e1889b94700bcbeed9cf4e2aada787",

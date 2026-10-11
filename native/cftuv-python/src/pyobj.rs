@@ -386,7 +386,8 @@ pub fn int_round_trip<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyA
     int_of_ibig(value.py(), &ibig_from_int(value)?)
 }
 
-fn int_of_ibig<'py>(py: Python<'py>, value: &IBig) -> PyResult<Bound<'py, PyAny>> {
+/// A Python `int` from a signed integer.
+pub fn int_of_ibig<'py>(py: Python<'py>, value: &IBig) -> PyResult<Bound<'py, PyAny>> {
     if let Ok(small) = i64::try_from(value) {
         // SAFETY: a new reference or NULL.
         return unsafe { Bound::from_owned_ptr_or_err(py, ffi::PyLong_FromLongLong(small)) };
@@ -396,6 +397,11 @@ fn int_of_ibig<'py>(py: Python<'py>, value: &IBig) -> PyResult<Bound<'py, PyAny>
 }
 
 pub fn int_from_ubig<'py>(py: Python<'py>, _pool: &Pool, value: &UBig) -> PyResult<Bound<'py, PyAny>> {
+    int_of_ubig(py, value)
+}
+
+/// A Python `int` from an unsigned integer.
+pub fn int_of_ubig<'py>(py: Python<'py>, value: &UBig) -> PyResult<Bound<'py, PyAny>> {
     if let Ok(small) = u64::try_from(value) {
         // SAFETY: a new reference or NULL.
         return unsafe { Bound::from_owned_ptr_or_err(py, ffi::PyLong_FromUnsignedLongLong(small)) };

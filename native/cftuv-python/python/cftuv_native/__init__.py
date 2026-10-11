@@ -20,6 +20,10 @@
 Четвёртая целая операция — `snap_embedding_certificate` (`_embedding._compute_source_snap_embedding_certificate`: чистый лист без состояния, бюджета и памяти; контракт — `embedding_op.py`): отказ порта — `NativePortUnsupported` ДО вычисления,
 исключение эталона (`ValueError`) поднимается с его текстом.
 
+Пятая целая операция — `effective_alpha_contacts` (`reference.boundary._native_contacts`: предфильтр «контактов нет» и точный лист контактов ОДНОЙ пары опорный отрезок — отрезок границы; кадр источника
+переводится один раз, пара идёт по четырём текстам; чистый лист без состояния; контракт — `effective_alpha_op.py`): пару, которую порт не несёт, он отказывает по имени ДО вычисления (`NativePortUnsupported`),
+и её считает эталон со своими счётами и своим резервным путём через sympy.
+
 Отказ целой операции бывает двух видов (`NATIVE_REFUSALS`, `cost.ORACLE_STATUSES`). Исход ЭТАЛОНА (`MaterializationRefusal`, `ExactCanonicalizationWorkBudgetExhausted`,
 `OverflowError`, `ValueError`, `ZeroDivisionError`, `KeyError`, ...) оставляет частичные эффекты ровно так, как их оставляет исключение Python. Отказ ПОРТА
 (`NativePortStale`, `NativeUnsupportedPython`, `NativePortUnsupported` — в том числе поздний, посреди вычисления —, `NativeDivisionDiverged`) оставляет ВСЁ видимое из
@@ -36,7 +40,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, embedding_op, pin
+from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, pin
 
 __all__ = (
     "CostMirror",
@@ -53,6 +57,7 @@ __all__ = (
     "default_mirror",
     "divide_with_prime_universe",
     "divided_by",
+    "effective_alpha_contacts",
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
@@ -173,7 +178,7 @@ def tree_digest(native_root) -> str:
 
 
 def native_status() -> dict:
-    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`).
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`, `effective_alpha`).
 
     `unsupported_python` only below the floor (`pin.MINIMUM_PYTHON`, 3.11); the ports are tested on 3.11 and 3.13 (`pin.TESTED_PYTHON`) and nothing in their
     answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
@@ -261,6 +266,15 @@ def snap_embedding_certificate(before, after, faces, intended_corners, unclassif
     """
 
     return embedding_op.snap_embedding_certificate(_core.snap_embedding, before, after, faces, intended_corners, unclassifiable_corners, snapping_law)
+
+
+def effective_alpha_contacts(source, boundary, frame):
+    """`(prefilter rejected, prefilter passed, contacts)` пары, как их даёт `reference.boundary._native_contacts` (см. `effective_alpha_op.py`).
+
+    `contacts` — кортеж `(alpha, station, point)` эталона. Отказ порта (`NATIVE_REFUSALS`: устаревший пин, пара, которую порт не несёт) ничего не меняет, вызывающий считает эталон.
+    """
+
+    return effective_alpha_op.effective_alpha_contacts(_core, source, boundary, frame)
 
 
 def last_skeleton_timings() -> tuple:

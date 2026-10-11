@@ -195,7 +195,7 @@ class SourceContactFrame:
     арифметики на источнике (`refusal`) повторяется на каждой паре как тот же класс исхода, что дал бы пересчёт.
     """
 
-    __slots__ = ("_context", "_source", "_built", "refusal", "length", "tangent_covector", "normal_covector", "_floats")
+    __slots__ = ("_context", "_source", "_built", "refusal", "length", "tangent_covector", "normal_covector", "_floats", "native")
 
     def __init__(self, context, source) -> None:
         self._context = context
@@ -206,6 +206,8 @@ class SourceContactFrame:
         self.tangent_covector: tuple[RadicalSumV1, RadicalSumV1] | None = None
         self.normal_covector: tuple[RadicalSumV1, RadicalSumV1] | None = None
         self._floats = None
+        #: Копия кадра для нативного листа (`cftuv_native`, операция `effective_alpha`): строится при первой паре и живёт с кадром; эталон её не читает.
+        self.native = None
 
     def ready(self) -> "SourceContactFrame":
         """Строит точную часть при первом обращении; нулевой вектор источника (`ValueError`) всплывает как раньше."""
