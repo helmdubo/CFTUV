@@ -11,6 +11,7 @@
   "test_native_clip_parts.py": 98.9,
   "test_native_cost.py": 3.3,
   "test_native_coverage.py": 5.6,
+  "test_native_effective_alpha.py": 60.0,
   "test_native_numbers.py": 2.3,
   "test_native_pin.py": 2.0,
   "test_native_skeleton_builder.py": 300.6,

@@ -982,6 +982,7 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_receipts": _hash(sorted((str(item.patch_domain_id), str(item.stage)) for item in profile.receipts)),
         "profile_timing_stages": sorted({item.stage for item in profile.timings}),
+        "stage_seconds": {name: round(value, 6) for name, value in sorted(profile.stage_totals.items())},  # timing, not an answer: the seconds of every stage the profile timed (EFFECTIVE_ALPHA among them)
     }
 
 

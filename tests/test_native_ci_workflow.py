@@ -65,6 +65,7 @@ _shard_spec.loader.exec_module(shard_tests)
         ("tests/conftest.py", True),
         ("tests/test_architecture.py", True),
         ("tests/data/native_embedding_kernel_suite.recs.xz", True),
+        ("tests/data/native_effective_alpha_kernel_suite.recs.xz", True),
         ("tests/data/native_ci_shard_weights.json", True),
         ("kernel/tools/shard_tests.py", True),
         ("kernel/tools/shard_weights.json", False),
@@ -91,7 +92,7 @@ def test_the_native_path_set_is_the_old_workflow_filter(path, native):
 def test_the_path_set_is_exactly_the_filter_the_workflow_used_to_carry():
     assert changes.NATIVE_PATHS == (
         "native/**", "tools/native_*.py", "tests/test_native_*.py", "tests/native_gate.py", "tests/conftest.py", "tests/test_architecture.py",
-        "tests/data/native_embedding_kernel_suite.recs.xz",
+        "tests/data/native_embedding_kernel_suite.recs.xz", "tests/data/native_effective_alpha_kernel_suite.recs.xz",
         "tests/data/native_ci_shard_weights.json", "kernel/tools/shard_tests.py",
         "kernel/src/cftuv_envelope/**", "kernel/tests/**", "kernel/pyproject.toml", "pytest.ini", ".github/workflows/native.yml",
     )
@@ -161,6 +162,13 @@ def test_a_push_of_host_files_only_does_not_require_the_native_acceptance(repo):
 
 def test_an_embedding_corpus_only_push_requires_the_native_gate(repo):
     path = "tests/data/native_embedding_kernel_suite.recs.xz"
+    tip = repo.commit(path)
+    decision = push(repo, tip, before=repo.native)
+    assert decision.native is True and decision.files == decision.matched == [path]
+
+
+def test_an_effective_alpha_corpus_only_push_requires_the_native_gate(repo):
+    path = "tests/data/native_effective_alpha_kernel_suite.recs.xz"
     tip = repo.commit(path)
     decision = push(repo, tip, before=repo.native)
     assert decision.native is True and decision.files == decision.matched == [path]
@@ -410,6 +418,7 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     available = next(step for step in differential if step.get("name", "").startswith("All native operations are available"))
     assert '"skeleton": "available"' in available["run"] and "skeleton_raw_layouts" in available["run"]
     assert '"snap_embedding": "available"' in available["run"]
+    assert '"effective_alpha": "available"' in available["run"]
 
 
 def test_embedding_inline_and_tracked_kernel_checks_are_mandatory_in_the_strict_matrix(workflow):
@@ -428,6 +437,22 @@ def test_embedding_inline_and_tracked_kernel_checks_are_mandatory_in_the_strict_
     assert all(not node.decorator_list for node in found.values())
     seed = ROOT / "tests" / "data" / "native_embedding_kernel_suite.recs.xz"
     assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
+
+
+def test_effective_alpha_synthetic_and_tracked_kernel_seed_checks_are_mandatory_in_the_strict_matrix(workflow):
+    differential = workflow["jobs"]["differential"]
+    strict = next(step for step in differential["steps"] if step.get("name", "").startswith("Differential tests against the live oracle"))
+    assert strict["env"]["CFTUV_EFFECTIVE_ALPHA_SYNTHETIC"] == "0.3", "the scale of the generated pairs is pinned by the workflow, like the embedding's"
+    # the generated pairs and the tracked seed run in every strict leg: they are not the field tier and carry no marker that CI deselects
+    module = ast.parse((ROOT / "tests" / "test_native_effective_alpha.py").read_text(encoding="utf8"))
+    required = {"test_synthetic_pairs_equal_the_oracle_and_every_kind_of_pair_is_there", "test_the_kernel_suite_seed_equals_the_oracle", "test_the_outcomes_do_not_depend_on_the_hash_seed_of_the_process"}
+    found = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in required}
+    assert set(found) == required
+    assert all(not node.decorator_list for node in found.values())
+    seed = ROOT / "tests" / "data" / "native_effective_alpha_kernel_suite.recs.xz"
+    assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
+    default = next(node.value.args[0].args[1].value for node in ast.walk(module) if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SYNTHETIC_SCALE")
+    assert default == strict["env"]["CFTUV_EFFECTIVE_ALPHA_SYNTHETIC"], "the default of the test is the value the workflow pins"
 
 
 # --------------------------------------------------------------------------

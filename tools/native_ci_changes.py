@@ -35,6 +35,7 @@ NATIVE_PATHS = (
     "tests/conftest.py",
     "tests/test_architecture.py",
     "tests/data/native_embedding_kernel_suite.recs.xz",
+    "tests/data/native_effective_alpha_kernel_suite.recs.xz",
     # the shards of the differential matrix: which test files each leg runs (`.github/workflows/native.yml`)
     "tests/data/native_ci_shard_weights.json",
     "kernel/tools/shard_tests.py",
