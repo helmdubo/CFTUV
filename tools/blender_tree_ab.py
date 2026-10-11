@@ -16,6 +16,9 @@ INPUTS
   --presses          `cold,step,step`: `cold` is the first press (alpha), each `step` widens by `--step-width` (0.0022), as the width tool does.
   --native-path      a directory that holds the `cftuv_native` package, put ahead of everything in BOTH trees and in the pool workers; without it the extension is the one Blender can import.
   --env KEY=VALUE    environment for every Blender (e.g. `CFTUV_SNAPSHOT_BYTE_CHECK=all`), the same for both trees.
+  --keys-may-differ  the content keys of the two sides are not compared (listed in the notes): the identity of the executor of a stage is part of a key, so two settings of one tree differ in every key by construction.
+  --base-env, --branch-env KEY=VALUE   environment for the Blenders of ONE tree (after --env). With the same directory on both sides this is an A/B of two settings of one tree, e.g.
+                     `--base X --branch X --base-env CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON --branch-env CFTUV_EFFECTIVE_ALPHA_BACKEND=NATIVE`: the answers are compared and, with --timing, the cold press.
 
 WHAT IS COMPARED, per domain and press (any difference is a failure; the exit code is 1)
   outcome, detail, content and semantic digests, EVERY counter (the six `EXACT_WORK_*` included), diagnostics, normals (and their digests), topology law, orientation, structure digest;
@@ -295,14 +298,16 @@ def _counter_difference_domain(label: str, patch, a: dict, b: dict, allowed: tup
     _counter_difference(first, second, allowed, is_timing_counter, f"[{label}] patch {patch}", out, groups=False)
 
 
-def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison) -> None:
+def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison, compare_keys: bool = True) -> None:
     if a["mesh_hash"] != b["mesh_hash"]:
         out.differences.append(f"[{label}] MESH HASH differs: base {a['mesh_hash'][:16]} {a['mesh_counts']} vs branch {b['mesh_hash'][:16]} {b['mesh_counts']}")
     keys_a, keys_b = [tuple(item) for item in a["content_keys"]], [tuple(item) for item in b["content_keys"]]
     if sorted(keys_a) != sorted(keys_b):
-        out.differences.append(
-            f"[{label}] CONTENT KEYS differ: {len(set(keys_a) - set(keys_b))} only in base {sorted(set(keys_a) - set(keys_b))[:3]}, {len(set(keys_b) - set(keys_a))} only in branch {sorted(set(keys_b) - set(keys_a))[:3]}"
-        )
+        found = f"{len(set(keys_a) - set(keys_b))} only in base {sorted(set(keys_a) - set(keys_b))[:3]}, {len(set(keys_b) - set(keys_a))} only in branch {sorted(set(keys_b) - set(keys_a))[:3]}"
+        if compare_keys:
+            out.differences.append(f"[{label}] CONTENT KEYS differ: {found}")
+        else:
+            out.notes.append(f"[{label}] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): {found}")
     _compare_rows(label, a, b, allowed, out)
     if a.get("process_counters") is not None and b.get("process_counters") is not None:
         for name in sorted(set(a["process_counters"]) | set(b["process_counters"])):
@@ -320,7 +325,7 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
     out.presses[label] = {"domains": a["domains"], "materialized": a["materialized"], "outcomes": a["outcomes"], "mesh": a["mesh_hash"][:12], "mesh_counts": a["mesh_counts"], "keys": len(a["content_keys"])}
 
 
-def compare_runs(base: dict, branch: dict, allowed: tuple = ()) -> Comparison:
+def compare_runs(base: dict, branch: dict, allowed: tuple = (), compare_keys: bool = True) -> Comparison:
     """Two reports of the SAME case and worker count (`base`, `branch`): every difference of the product's answer, named."""
 
     out = Comparison()
@@ -338,7 +343,7 @@ def compare_runs(base: dict, branch: dict, allowed: tuple = ()) -> Comparison:
         out.differences.append(f"different presses: base {list(base['presses'])} vs branch {list(branch['presses'])}")
         return out
     for label in base["presses"]:
-        _compare_press(label, base["presses"][label], branch["presses"][label], tuple(allowed), out)
+        _compare_press(label, base["presses"][label], branch["presses"][label], tuple(allowed), out, compare_keys)
     for key in ("selection_sha256_16", "native_build_id"):
         if base.get(key) != branch.get(key):
             out.differences.append(f"{key}: base {base.get(key)} != branch {branch.get(key)} (the runs did not start from the same inputs)")
@@ -524,7 +529,10 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--prime-byte-check", action="store_true", help="the cold press counts as a LATER press of the session (the sampled snapshot byte check)")
     parser.add_argument("--origin-check", default="on", choices=("on", "off"))
     parser.add_argument("--env", action="append", default=[], help="KEY=VALUE for every Blender")
+    parser.add_argument("--base-env", action="append", default=[], help="KEY=VALUE for the Blenders of the BASE tree only (after --env): with the same tree on both sides, an A/B of two settings of one tree")
+    parser.add_argument("--branch-env", action="append", default=[], help="KEY=VALUE for the Blenders of the BRANCH tree only (after --env)")
     parser.add_argument("--allow-counter", action="append", default=[], help="a counter name prefix a change adds on purpose")
+    parser.add_argument("--keys-may-differ", action="store_true", help="the content keys are listed in the notes, not compared: for sides that order different executors (the identity of the executor is part of a key)")
     parser.add_argument("--timing", action="store_true")
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--max-attempts", type=int, default=3)
@@ -571,6 +579,25 @@ def _environment(values: list[str]) -> dict:
     return environment
 
 
+def tree_environment(environment: dict, options: argparse.Namespace, label: str) -> dict:
+    """The environment of the Blenders of one tree: the common one, then the `--base-env` / `--branch-env` of that tree."""
+
+    values = getattr(options, f"{label}_env", None) or []
+    if not values:
+        return environment
+    return _environment_over(environment, values)
+
+
+def _environment_over(environment: dict, values: list[str]) -> dict:
+    out = dict(environment)
+    for item in values:
+        key, separator, value = item.partition("=")
+        if not separator:
+            raise ValueError(f"--base-env/--branch-env {item!r}: KEY=VALUE")
+        out[key] = value
+    return out
+
+
 def run_pair(case: Case, workers: int, trees: dict, scenes: dict, blender: str, options: argparse.Namespace, work_dir: Path, environment: dict, ours: set, log=print) -> tuple[dict, dict]:
     """Equality runs plus, with `--timing`, the repetitions: `({tree label: first report}, {tree label: {press: [seconds]}})`."""
 
@@ -586,7 +613,7 @@ def run_pair(case: Case, workers: int, trees: dict, scenes: dict, blender: str, 
                 idle = wait_for_idle(ours, log=log) if options.timing else "not waited"
                 presses = parse_presses(options.presses, case.alpha, options.step_width)
                 command = worker_command(blender, scenes[case.scene], trees[label], case, workers, ",".join(kind for _, kind, _ in presses), out, options)
-                result = run_one(command, out, label, work_dir, environment, options.timeout, ours, options.timing, log)
+                result = run_one(command, out, label, work_dir, tree_environment(environment, options, label), options.timeout, ours, options.timing, log)
                 log(f"{datetime.now():%H:%M:%S} {case.name} w{workers} {label} rep{repetition}.{attempt} pid={result.pid} exit={result.exit_code} {result.seconds:.1f}s idle={idle} overlap={result.overlapped} {result.note}")
                 if result.report is None or result.exit_code != 0 or not result.overlapped:
                     break
@@ -657,7 +684,7 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
         for workers in workers_list:
             try:
                 reports, seconds = run_pair(case, workers, trees, scenes, blender, options, work_dir, environment, ours, log)
-                comparison = compare_runs(reports["base"], reports["branch"], tuple(options.allow_counter))
+                comparison = compare_runs(reports["base"], reports["branch"], tuple(options.allow_counter), not options.keys_may_differ)
             except Exception:  # noqa: BLE001 - a harness error is a named failure of the case, not a crash of the matrix
                 comparison = Comparison(differences=["HARNESS ERROR " + traceback.format_exc()[-600:]])
                 reports, seconds = {}, {}
@@ -675,7 +702,7 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
     document = {
         "schema": SCHEMA, "started": started, "seconds": time.time() - started, "blender": blender, "trees": {k: v.as_record() for k, v in trees.items()},
         "scenes": {key: str(path) for key, path in scenes.items()}, "scene_sha256": scene_report, "presses": options.presses, "timing": bool(options.timing),
-        "environment_overrides": options.env, "allow_counter": options.allow_counter, "results": results,
+        "environment_overrides": options.env, "tree_environment": {"base": options.base_env, "branch": options.branch_env}, "allow_counter": options.allow_counter, "results": results,
     }
     out = Path(options.out or work_dir / f"tree_ab_{datetime.now():%Y%m%d_%H%M%S}.json")
     out.write_text(json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")

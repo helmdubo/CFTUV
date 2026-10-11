@@ -542,3 +542,31 @@ def test_who_computed_the_effective_alpha_pairs_is_a_label_and_a_note_not_an_ans
     assert any("label-only field effective_alpha_ran: 3 domains differ" in line for line in comparison.notes)
     assert any("branch: effective-alpha pairs computed natively 3727, in Python after a named refusal 0" in line for line in comparison.notes)
     assert "effective_alpha_ran" in ab.LABEL_FIELDS and "effective_alpha_ran" not in ab.ANSWER_FIELDS
+
+
+def test_a_tree_gets_its_own_environment_after_the_common_one():
+    import types
+
+    common = {"X": "x", "A": "0"}
+    options = types.SimpleNamespace(base_env=["A=1"], branch_env=["A=2", "B=3"])
+    assert ab.tree_environment(common, options, "base") == {"X": "x", "A": "1"}
+    assert ab.tree_environment(common, options, "branch") == {"X": "x", "A": "2", "B": "3"}
+    assert common == {"X": "x", "A": "0"}, "the common environment is not changed"
+    assert ab.tree_environment(common, types.SimpleNamespace(base_env=[], branch_env=[]), "base") is common
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        ab.tree_environment(common, types.SimpleNamespace(base_env=["bad"], branch_env=[]), "base")
+    parsed = ab._arguments(["--base", "a", "--branch", "b", "--scene", "s.blend", "--case", "building", "--base-env", "K=1", "--branch-env", "K=2", "--branch-env", "L=3"])
+    assert (parsed.base_env, parsed.branch_env) == (["K=1"], ["K=2", "L=3"])
+
+
+def test_content_keys_of_sides_that_order_different_executors_are_listed_not_compared_when_asked():
+    base, branch = make_report(), make_report()
+    branch["presses"]["cold"]["content_keys"] = [[1, "x1"], [2, "x2"], [3, "x3"]]
+    strict = ab.compare_runs(base, branch)
+    assert not strict.identical and any("CONTENT KEYS differ" in line for line in strict.differences)
+    relaxed = ab.compare_runs(base, branch, compare_keys=False)
+    assert relaxed.identical and any("NOT compared (--keys-may-differ" in line for line in relaxed.notes)
+    # everything else is still compared
+    branch["presses"]["cold"]["mesh_hash"] = "cd" * 32
+    assert not ab.compare_runs(base, branch, compare_keys=False).identical
+    assert ab._arguments(["--base", "a", "--branch", "b", "--scene", "s.blend", "--case", "building", "--keys-may-differ"]).keys_may_differ is True
