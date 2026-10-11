@@ -617,12 +617,14 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     import dataclasses
     import inspect
 
-    assert host_backend.stage_orders("PYTHON").as_arguments() == ("PYTHON",) * 3
-    assert host_backend.stage_orders("NATIVE").as_arguments() == ("NATIVE",) * 3
-    assert host_backend.stage_orders().as_arguments() == (host_backend.DEFAULT_KERNEL_BACKEND,) * 3
+    held = host_backend.STAGE_HOLDS["effective_alpha"]  # the stage the owner has not released yet: the master switch does not order it
+    assert host_backend.stage_orders("PYTHON").as_arguments() == ("PYTHON",) * 4
+    assert host_backend.stage_orders("NATIVE").as_arguments() == ("NATIVE",) * 3 + (held,)
+    assert host_backend.stage_orders().as_arguments() == (host_backend.DEFAULT_KERNEL_BACKEND,) * 3 + (held,)
     # постадийный порядок - только явным именем (API и инструменты)
-    assert host_backend.stage_orders("PYTHON", skeleton_backend="NATIVE").as_arguments() == ("PYTHON", "NATIVE", "PYTHON")
-    assert host_backend.stage_orders("NATIVE", embedding_backend="PYTHON").as_arguments() == ("NATIVE", "NATIVE", "PYTHON")
+    assert host_backend.stage_orders("PYTHON", skeleton_backend="NATIVE").as_arguments() == ("PYTHON", "NATIVE", "PYTHON", "PYTHON")
+    assert host_backend.stage_orders("NATIVE", embedding_backend="PYTHON").as_arguments() == ("NATIVE", "NATIVE", "PYTHON", held)
+    assert host_backend.stage_orders("NATIVE", effective_alpha_backend="NATIVE").as_arguments() == ("NATIVE",) * 4
     with pytest.raises(ValueError, match="unknown kernel backend"):
         host_backend.stage_orders("NATIVE", skeleton_backend="RUST")
     # КАЖДАЯ стадия ядра принадлежит главному переключателю: новый аргумент `use_backend` без поля порядка, подписи и признака статуса красит этот тест
@@ -805,3 +807,66 @@ def test_a_choice_of_the_switch_beats_a_not_yet_folded_old_python_key():
     assert "skeleton_backend" not in group.store and host_backend.kernel_backend_of(group) == "NATIVE"
     assert host_backend.legacy_skeleton_choice(SimpleNamespace(skeleton_backend="RUST")) is None  # нечитаемый ключ не роняет чтение
     assert host_backend.legacy_skeleton_choice(_SceneGroup(skeleton_backend=7)) is None
+
+
+# --------------------------------------------------------------------------
+# 6. Удержанная стадия: лист контактов резолвера эффективной alpha
+# --------------------------------------------------------------------------
+
+ALPHA_ENVIRONMENT = host_backend.STAGE_ENVIRONMENT["effective_alpha"]
+
+
+def test_a_held_stage_is_not_ordered_by_the_master_switch_and_only_the_environment_orders_it(monkeypatch):
+    monkeypatch.delenv(ALPHA_ENVIRONMENT, raising=False)
+    assert host_backend.STAGE_HOLDS == {"effective_alpha": "PYTHON"} and ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND"
+    assert [host_backend.stage_orders(master).effective_alpha for master in ("PYTHON", "NATIVE")] == ["PYTHON", "PYTHON"]
+    monkeypatch.setenv(ALPHA_ENVIRONMENT, "NATIVE")
+    assert host_backend.stage_orders("NATIVE").effective_alpha == "NATIVE"
+    assert host_backend.stage_orders("PYTHON").effective_alpha == "PYTHON", "the master PYTHON keeps the frozen reference on every stage, a held one too"
+    assert host_backend.stage_orders("NATIVE", effective_alpha_backend="PYTHON").effective_alpha == "PYTHON", "an explicit order of the stage (API, tools) wins"
+    monkeypatch.setenv(ALPHA_ENVIRONMENT, " python ")
+    assert host_backend.stage_orders("NATIVE").effective_alpha == "PYTHON"
+    monkeypatch.setenv(ALPHA_ENVIRONMENT, "RUST")
+    with pytest.raises(ValueError, match="unknown kernel backend"):
+        host_backend.stage_orders("NATIVE")
+    monkeypatch.setenv(ALPHA_ENVIRONMENT, "")
+    assert host_backend.stage_orders("NATIVE").effective_alpha == "PYTHON", "an empty variable is no order"
+
+
+def test_an_ordered_held_stage_enters_the_kernel_block_and_the_identity_and_a_held_one_leaves_both_alone(monkeypatch):
+    monkeypatch.delenv(ALPHA_ENVIRONMENT, raising=False)
+    held = host_backend.backend_identity_of("NATIVE")
+    assert "effective_alpha" not in held and host_backend.backend_identity_of("NATIVE", effective_alpha_backend="PYTHON") == held
+    with host_backend.entered_backend("NATIVE") as ledger:
+        assert ledger.effective_alpha_requested == "PYTHON" and kernel_backend.active_effective_alpha_backend() is kernel_backend.KernelBackendV1.PYTHON
+    monkeypatch.setenv(ALPHA_ENVIRONMENT, "NATIVE")
+    ordered = host_backend.backend_identity_of("NATIVE")
+    assert ordered == f"{held}|effective_alpha={kernel_backend.stage_identity('NATIVE')}" and host_backend.backend_identity_of("PYTHON") == "PYTHON"
+    with host_backend.entered_backend("NATIVE") as ledger:
+        assert (ledger.requested, ledger.effective_alpha_requested) == ("NATIVE", "NATIVE")
+        assert kernel_backend.active_effective_alpha_backend() is kernel_backend.KernelBackendV1.NATIVE
+    with host_backend.entered_backend("PYTHON") as ledger:
+        assert ledger is None, "the master PYTHON opens no block even when the environment orders the held stage"
+
+
+def test_the_journal_names_a_held_stage_only_when_it_is_ordered_and_says_what_it_did():
+    from cftuv_envelope.backend import BackendRecordV1
+
+    def result(patch, **fields):
+        return SimpleNamespace(patch_id=patch, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 3, 0, **fields))
+
+    held = [result(1), result(2)]
+    assert host_backend.backend_text(host_backend.backend_summary(held, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding"
+    ordered = [
+        result(1, effective_alpha_requested="NATIVE", effective_alpha_native_calls=40),
+        result(2, effective_alpha_requested="NATIVE", effective_alpha_native_calls=38, effective_alpha_python_calls=2, effective_alpha_fallbacks=(("NATIVE_PORT_UNSUPPORTED", "effective_alpha", 2, "d"),)),
+    ]
+    summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
+    assert summary.stage("effective_alpha").native == 1 and summary.stage("effective_alpha").python == 1
+    assert host_backend.backend_text(summary) == (
+        "native: coverage/clip 2, effective alpha 1 | python: effective alpha 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding"
+    )
+    assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, effective alpha 1 | python: effective alpha 1"
+    # the panel line is the owner's switch: a held stage is not part of what it promises
+    absent = kernel_backend.NativeStatusV1("available", "available", "0.1.0", "", BUILD_ID, "available", "available", "unavailable")
+    assert host_backend.native_status_line("NATIVE", absent) == ("Native (Rust): coverage/clip, skeleton, embedding", "CHECKMARK")
