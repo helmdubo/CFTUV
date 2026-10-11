@@ -82,6 +82,7 @@ import traceback
 from collections import deque
 from dataclasses import dataclass, replace
 
+from .envelope_gc_pause import gc_paused
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
@@ -536,6 +537,18 @@ def _reply_frame(task_id: int, result: DomainTaskResultV1) -> bytes:
         )
 
 
+def serve_task(task: DomainTaskV1) -> bytes:
+    """Кадр ответа воркера на задачу: решение, упаковка подготовки и кадр идут под паузой циклического сборщика (GC_PAUSED_DURING_BUTTON_V1).
+
+    Воркер платил за сборщик ~16 процессорных секунд на холодной кнопке `cover.008` (восемь воркеров, ~2 с на воркер), хотя задача держит в памяти только то, что
+    ещё нужно ей самой. Пауза кончается вместе с кадром: сборка идёт между задачами, а не внутри них. Состояние сборщика после блока прежнее (`gc_paused`),
+    при любом выходе. Запись в трубу и ожидание следующей задачи - вне паузы. Ответ от паузы не зависит.
+    """
+
+    with gc_paused():
+        return _reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task)))
+
+
 # --------------------------------------------------------------------------
 # Тождество окружения: что сверяют родитель и воркер на внешнем интерпретаторе
 # --------------------------------------------------------------------------
@@ -687,7 +700,7 @@ def worker_main() -> None:
         task = read_frame(source)
         if task is None:
             return
-        channel.write(_reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task))))
+        channel.write(serve_task(task))
         channel.flush()
 
 

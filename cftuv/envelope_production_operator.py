@@ -42,6 +42,7 @@ from bpy.props import EnumProperty, FloatProperty, PointerProperty, StringProper
 
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
+from .envelope_gc_pause import gc_paused_call
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
     KERNEL_BACKEND_ITEMS,
@@ -163,6 +164,8 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             and bool(context.tool_settings.mesh_select_mode[1])
         )
 
+    # GC_PAUSED_DURING_BUTTON_V1: циклический сборщик стоит на паузе, пока идёт кнопка (прежнее состояние возвращается в `finally`).
+    @gc_paused_call
     def execute(self, context):
         from .envelope_production_export import (
             production_timing_text,
