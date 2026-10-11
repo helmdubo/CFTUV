@@ -1,6 +1,6 @@
 """Производные записи корпуса скелета: настоящие вызовы с урезанным потолком бюджета (исчерпание, называемое ядром, и частичное состояние).
 
-    python tools/native_skeleton_derive.py --corpus field|synthetic|<каталог> [--per-mesh 6] [--shares 0.02,0.05,...] [--min-spent 8] [--max-seconds 3]
+    python tools/native_skeleton_derive.py --corpus field|synthetic|<каталог> [--per-mesh 6] [--shares 0.02,0.05,...] [--min-spent 8] [--max-seconds 3] [--processes N]
 
 Исчерпание бюджета — не единичная ветка, а десяток разных моментов: во внутренностях `_prime_universe_from_q_values` (факторизация набора `q`), посреди марша мотоцикла,
 в куче (знак внутри `heappush`), в гидратации места, в сопряжении при знаке. Каждый момент оставляет своё состояние: частичную память канонизации, частичные статьи, `superlevel`,
@@ -108,10 +108,36 @@ def _spread(items: list, count: int) -> list:
     return [items[int(index * step)] for index in range(count)]
 
 
+def _trace_task(task: tuple) -> list:
+    """Потолки, при которых отказ падает ровно на выбранной трате записи (трассировка исполняет эталон: самая дорогая часть выбора)."""
+
+    root, row, occurrences = task
+    return targeted_caps(spend_trace(sc.read(Path(root), row)), occurrences)
+
+
+def _derive_task(task: tuple) -> dict:
+    root, row, cap, tag, number, preset = task
+    return _derive_one(Path(root), row, cap, tag, number, preset)
+
+
+def _map(function, tasks: list, processes: int, chunksize: int = 1) -> list:
+    """`list(map(function, tasks))` в `processes` рабочих процессах (порядок результатов — порядок задач; процесс — `spawn`, у каждого свои патчи и память эталона)."""
+
+    if processes <= 1 or len(tasks) < 2:
+        return [function(task) for task in tasks]
+    import multiprocessing
+
+    with multiprocessing.get_context("spawn").Pool(processes) as pool:
+        return list(pool.imap(function, tasks, chunksize=chunksize))
+
+
 def derive_records(
-    root: Path, *, per_mesh: int = 6, shares=DEFAULT_SHARES, min_spent: int = 8, max_seconds: float = 3.0, occurrences: int = 5, preset: int = nc.DEFAULT_PRESET
+    root: Path, *, per_mesh: int = 6, shares=DEFAULT_SHARES, min_spent: int = 8, max_seconds: float = 3.0, occurrences: int = 5, preset: int = nc.DEFAULT_PRESET, processes: int = 1
 ) -> list:
-    """Строит производные записи корпуса `root`, обновляет `index.json`; возвращает строки производных записей."""
+    """Строит производные записи корпуса `root`, обновляет `index.json`; возвращает строки производных записей.
+
+    `processes` > 1: трассировки и сами производные исполняют рабочие процессы. Номера производных (`d00001`, ...) родитель назначает заранее, в том же порядке обхода (группа, запись, доли, затем
+    потолки трассировки), поэтому набор, номера и содержимое записей те же, что у однопроцессного прогона (тест `test_native_skeleton_parallel_build.py`)."""
 
     index = sc.load_index(root)
     nc.require_index_schema(index, sc.SYNTHETIC_INDEX_SCHEMAS)
@@ -124,17 +150,19 @@ def derive_records(
         spent = spent_by(sc.read(root, row))
         if spent >= min_spent:
             groups.setdefault(row["mesh"], []).append((-spent, row["id"], row))
-    derived: list = []
+    selected: list = []  # (запись, потолки по долям) в порядке обхода однопроцессного прогона
     for _mesh, items in sorted(groups.items()):
         for _spent, _id, row in _spread(sorted(items, key=lambda item: item[:2]), per_mesh):
             record = sc.read(root, row)
             before = record.before()
             spent = spent_by(record)
-            for share in shares:
-                cap = sum(before.budget["articles"]) + int(spent * share)
-                derived.append(_derive_one(root, row, cap, {"share": share}, len(derived) + 1, preset))
-            for cap, tag in targeted_caps(spend_trace(record), occurrences):
-                derived.append(_derive_one(root, row, cap, {"share": None, **tag}, len(derived) + 1, preset))
+            selected.append((row, [(sum(before.budget["articles"]) + int(spent * share), {"share": share}) for share in shares]))
+    traced = _map(_trace_task, [(str(root), row, occurrences) for row, _ in selected], processes)
+    work = []
+    for (row, by_share), targeted in zip(selected, traced):
+        work.extend((row, cap, tag) for cap, tag in by_share)
+        work.extend((row, cap, {"share": None, **tag}) for cap, tag in targeted)
+    derived = _map(_derive_task, [(str(root), row, cap, tag, number, preset) for number, (row, cap, tag) in enumerate(work, 1)], processes, chunksize=8)
     index["records"] = base + derived
     if index.get("schema") != sc.SYNTHETIC_INDEX_SCHEMA:
         index["schema"] = nc.RECORD_SCHEMA
@@ -164,13 +192,14 @@ def main(argv=None) -> int:
     parser.add_argument("--min-spent", type=int, default=8)
     parser.add_argument("--max-seconds", type=float, default=3.0)
     parser.add_argument("--occurrences", type=int, default=5)
+    parser.add_argument("--processes", type=int, default=1, help="trace and derive in N worker processes (the records, their numbers and contents are the same)")
     arguments = parser.parse_args(argv)
     root = sc.matching(arguments.corpus) if arguments.corpus in sc.KINDS else Path(arguments.corpus)
     if root is None:
         raise SystemExit(f"NATIVE_SKELETON_DERIVE_FAILED {sc.describe_missing(arguments.corpus)}")
     derived = derive_records(
         root, per_mesh=arguments.per_mesh, shares=[float(item) for item in arguments.shares.split(",")], min_spent=arguments.min_spent,
-        max_seconds=arguments.max_seconds, occurrences=arguments.occurrences,
+        max_seconds=arguments.max_seconds, occurrences=arguments.occurrences, processes=arguments.processes,
     )
     raised = sum(1 for row in derived if row["outcome"].startswith("raised:"))
     print(json.dumps({"exhaustion_operations": exhaustion_operations(derived), "outcomes": dict(Counter(row["outcome"] for row in derived))}))

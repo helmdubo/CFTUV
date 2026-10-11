@@ -20,9 +20,11 @@
     python tools/native_skeleton_synthetic.py rewrite --src RAW [--out DIR]            # переписать построенный корпус с холодной памятью и без повторов
 
 `--processes N` (N > 1): тесты идут N процессами pytest одновременно (CI: 4 vCPU, один процесс занимал одно ядро), каждый на своём наборе ФАЙЛОВ (веса — `kernel/tools/shard_weights.json`,
-делит `kernel/tools/shard_tests.py`). Процесс не пишет корпус, а кладёт в файл то, что собрал (различные вызовы со своими ключами повтора); затем ОДИН процесс объединяет собранное в порядке файлов
-`files` (внутри файла — порядок прихода), оставляет первое вхождение каждого ключа и пишет корпус тем же `write_items`, что и однопроцессная сборка. Это тот же отбор, что делает один процесс
-(первое вхождение в порядке прогона), поэтому набор записей тот же; единственное, что может отличаться, — вызовы, которых однопроцессный прогон не сделал из-за кэша, прогретого соседним тестом.
+делит `kernel/tools/shard_tests.py`). Процесс не пишет корпус, а кладёт в файл то, что собрал (различные вызовы со своими ключами повтора); затем родитель объединяет собранное в порядке файлов
+`files` (внутри файла — порядок прихода), оставляет первое вхождение каждого ключа, отбрасывает повторы после нормализации и назначает уцелевшим номера 1..N, как это делает один процесс; исход
+каждой записи (самая дорогая часть записи корпуса: повторное исполнение эталона) считают те же N рабочих процессов и пишут файл записи под назначенным номером (`write_items(processes=N)`).
+Это тот же отбор, нумерация и содержимое, что у однопроцессной сборки (тесты `test_native_skeleton_parallel_build.py`; на подмножестве CI 1532 записи совпали по идентификатору, вызову, состоянию и
+исходу); единственное, что может отличаться, — вызовы, которых однопроцессный прогон не сделал из-за кэша, прогретого соседним тестом.
 """
 
 from __future__ import annotations
@@ -321,33 +323,97 @@ def _replay(call: nc.Call):
     return result, error, time.perf_counter() - started
 
 
-def write_items(out: Path, items: list, description: dict, extra: dict) -> dict:
-    """Пишет корпус `out` из `items` (`test`, холодное `before`, `blob`, `live`): чистый эталон считает исход каждой различной записи; возвращает индекс."""
+def _normalized_key(item: dict, call: nc.Call) -> tuple:
+    return _dedupe_key(item["blob"], item["before"]) + (json.dumps(sorted(call.kwargs.items(), key=lambda pair: pair[0]), default=str).encode(),)
 
-    out.mkdir(parents=True, exist_ok=True)
+
+def _record_one(recorder: nc.Recorder, item: dict, call: nc.Call) -> bool:
+    """Чистый эталон на вызове, запись, пометки строки; `live_equal` (или `True`, когда тест ничего не видел)."""
+
+    result, error, seconds = _replay(call)
+    recorder._write(call, item["before"], item["blob"], result, error, seconds)
+    row = recorder.rows[-1]
+    row.update(label="test", test=item["test"], **item.get("row", {}))
+    if item.get("live") is None:
+        return True
+    row["live_equal"] = item["live"] == _live_view(result, error)
+    return row["live_equal"]
+
+
+_REPLAY: dict = {}
+
+
+def _replay_start(out: str, description: dict) -> None:
+    """Инициализатор рабочего процесса: свой рекордер (он пишет файлы записей в тот же каталог под номерами, которые назначил родитель)."""
+
+    _REPLAY["recorder"] = nc.Recorder(Path(out), description, preset=3, max_bytes=nc.DEFAULT_MAX_BYTES, operations=nc.SKELETON_OPERATIONS)
+
+
+def _replay_task(task: tuple) -> tuple:
+    """Одна запись рабочим процессом: `(строка индекса, live_equal)`; номер записи (`seq`, он же `op_seq`) назначен родителем, поэтому файл и строка те же, что у однопроцессной записи."""
+
+    sequence, item = task
+    recorder = _REPLAY["recorder"]
+    recorder.rows, recorder.bytes, recorder.sequence = [], 0, sequence - 1
+    recorder._op_count[nc.OP_SKELETON] = sequence - 1
+    recorder.context.update(mesh=_group_of(item["test"]), mesh_digest="", alpha=None, patch_id=None, domain_id=None)
+    live = _record_one(recorder, item, nc.prepare_call(nc.OP_SKELETON, item["blob"], item["before"]))
+    return recorder.rows[-1], live
+
+
+def _records_in_one_process(out: Path, items: list, description: dict) -> tuple:
     recorder = nc.Recorder(out, description, preset=3, max_bytes=nc.DEFAULT_MAX_BYTES, operations=nc.SKELETON_OPERATIONS)
     seen: set = set()
     differs = duplicates = 0
     for item in items:
-        before = item["before"]
         recorder.context.update(mesh=_group_of(item["test"]), mesh_digest="", alpha=None, patch_id=None, domain_id=None)
-        call = nc.prepare_call(nc.OP_SKELETON, item["blob"], before)
-        key = _dedupe_key(item["blob"], before) + (json.dumps(sorted(call.kwargs.items(), key=lambda pair: pair[0]), default=str).encode(),)
+        call = nc.prepare_call(nc.OP_SKELETON, item["blob"], item["before"])
+        key = _normalized_key(item, call)
         if key in seen:
             duplicates += 1
             continue
         seen.add(key)
-        result, error, seconds = _replay(call)
-        recorder._write(call, before, item["blob"], result, error, seconds)
-        row = recorder.rows[-1]
-        row.update(label="test", test=item["test"], **item.get("row", {}))
-        if item.get("live") is not None:
-            row["live_equal"] = item["live"] == _live_view(result, error)
-            differs += int(not row["live_equal"])
+        differs += int(not _record_one(recorder, item, call))
+    return recorder.rows, recorder.bytes, differs, duplicates
+
+
+def _records_in_processes(out: Path, items: list, description: dict, processes: int) -> tuple:
+    """Те же записи, что `_records_in_one_process`, но исход считают `processes` рабочих процессов.
+
+    Родитель делает то, что определяет НАБОР и НУМЕРАЦИЮ: отбрасывает повторы после нормализации в порядке `items` и назначает уцелевшим номера 1..N. Рабочий считает исход эталоном от записанного состояния
+    (состояние восстанавливает `prepare_call`: исход записи от процесса не зависит) и пишет файл записи под назначенным номером; строки приходят в порядке номеров."""
+
+    import multiprocessing
+
+    survivors, seen, duplicates = [], set(), 0
+    for item in items:
+        key = _normalized_key(item, nc.prepare_call(nc.OP_SKELETON, item["blob"], item["before"]))
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        survivors.append(item)
+    rows, differs = [], 0
+    with multiprocessing.get_context("spawn").Pool(processes, initializer=_replay_start, initargs=(str(out), description)) as pool:
+        for row, live in pool.imap(_replay_task, list(enumerate(survivors, 1)), chunksize=1):
+            rows.append(row)
+            differs += int(not live)
+    return rows, sum(row["bytes"] for row in rows), differs, duplicates
+
+
+def write_items(out: Path, items: list, description: dict, extra: dict, processes: int = 1) -> dict:
+    """Пишет корпус `out` из `items` (`test`, холодное `before`, `blob`, `live`): чистый эталон считает исход каждой различной записи; возвращает индекс.
+
+    `processes` > 1 — исход считают рабочие процессы (на раннере в CI это 4 ядра вместо одного); набор, нумерация и содержимое записей те же (тест `test_native_skeleton_parallel_build.py`)."""
+
+    out.mkdir(parents=True, exist_ok=True)
+    rows, total_bytes, differs, duplicates = (
+        _records_in_processes(out, items, description, processes) if processes > 1 else _records_in_one_process(out, items, description)
+    )
     document = {
-        "schema": INDEX_SCHEMA, **description, "records_count": len(recorder.rows), "total_bytes": recorder.bytes, "labels": {"test": len(recorder.rows)},
-        "outcomes": dict(Counter(row["outcome"] for row in recorder.rows)), "test_live_differs": differs, "test_duplicates_after_normalization": duplicates,
-        "records": recorder.rows, "domains": [], **extra,
+        "schema": INDEX_SCHEMA, **description, "records_count": len(rows), "total_bytes": total_bytes, "labels": {"test": len(rows)},
+        "outcomes": dict(Counter(row["outcome"] for row in rows)), "test_live_differs": differs, "test_duplicates_after_normalization": duplicates,
+        "records": rows, "domains": [], **extra,
     }
     (out / "index.json").write_text(json.dumps(document, ensure_ascii=False, indent=0, sort_keys=True) + "\n", encoding="utf-8")
     return document
@@ -463,10 +529,10 @@ def build_parallel(out: Path, files, processes: int, extra_arguments=()) -> int:
         parts.append(pickle.loads(part.read_bytes()))
     shutil.rmtree(folder, ignore_errors=True)  # the parts are in memory now; a part that failed returned above and kept its log
     items, calls, duplicates, skipped, exit_code = merge_parts(parts, files)
-    print(f"parts done in {time.perf_counter() - started:.0f} s, exit codes {codes}; {len(items)} distinct calls of {calls}; writing the corpus", flush=True)
     description = nc.run_description({"corpus": "synthetic_skeleton", "tests": list(files), "pytest_exit": int(exit_code)})
     extra = {"test_calls_seen": calls, "test_duplicates": duplicates, "skipped": dict(skipped), "parallel_processes": len(groups)}
-    document = write_items(out, items, description, extra)
+    print(f"parts done in {time.perf_counter() - started:.0f} s, exit codes {codes}; {len(items)} distinct calls of {calls}; writing the corpus in {processes} processes", flush=True)
+    document = write_items(out, items, description, extra, processes=processes)
     print(
         f"synthetic skeleton corpus: {document['records_count']} records from tests ({calls} calls, {duplicates} duplicates, "
         f"{document['test_live_differs']} differ from what the test saw) {document['total_bytes']} bytes -> {out}"

@@ -224,4 +224,4 @@ def test_the_recipe_is_the_one_the_workflow_ran_inline_before_the_cache_existed(
     assert tests[1:] == [str(ROOT / "tools" / "native_skeleton_synthetic.py"), "build", "--out", where, "--ci", "--processes", str(corpus.SKELETON_PROCESSES)]
     assert 2 <= corpus.SKELETON_PROCESSES <= 4, "a windows-latest runner has 4 vCPUs"
     assert generate[1:] == [str(ROOT / "tools" / "native_skeleton_generated.py"), "generate", "--corpus", where]
-    assert derive[1:] == [str(ROOT / "tools" / "native_skeleton_derive.py"), "--corpus", where]
+    assert derive[1:] == [str(ROOT / "tools" / "native_skeleton_derive.py"), "--corpus", where, "--processes", str(corpus.SKELETON_PROCESSES)]

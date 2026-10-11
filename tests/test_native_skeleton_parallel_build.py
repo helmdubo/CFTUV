@@ -138,6 +138,38 @@ def _records_from_tests(root: Path) -> dict:
     return found
 
 
+def test_the_derived_records_of_two_processes_are_the_derived_records_of_one(tmp_path):
+    """The derivation (`native_skeleton_derive.py --processes N`) traces and re-executes records under a cut ceiling; the parent numbers the derived records beforehand, in the order a single
+    process walks, so the set, the numbers and the contents are the same."""
+
+    import shutil
+
+    import native_skeleton_derive as derive
+
+    base = tmp_path / "base"
+    assert synthetic.build(base, SMALL) == 0
+    serial, parallel = tmp_path / "serial", tmp_path / "parallel"
+    shutil.copytree(base, serial)
+    shutil.copytree(base, parallel)
+    first = derive.derive_records(serial, shares=(0.2, 0.6), occurrences=2, processes=1)
+    second = derive.derive_records(parallel, shares=(0.2, 0.6), occurrences=2, processes=2)
+    assert len(first) >= 20, "the base corpus gives enough derived records to be a comparison"
+
+    def stable(root: Path) -> dict:
+        found = {}
+        for row in sc.load_index(root)["records"]:
+            if row.get("derived") is None:
+                continue
+            record = sc.read(root, row)
+            volatile = {key: value for key, value in row.items() if key not in ("seconds", "bytes", "git_head", "python")}
+            found[row["id"]] = (json.dumps(volatile, sort_keys=True, default=str), hashlib.sha256(record.call_blob).hexdigest(), nc.outcome_digest(record.op, record.before(), record.expected()))
+        return found
+
+    assert [row["id"] for row in first] == [row["id"] for row in second] == [f"d{number:05d}-build_skeleton" for number in range(1, len(first) + 1)], "the numbers are the order of the walk"
+    assert stable(serial) == stable(parallel)
+    assert sc.load_index(serial)["derived_count"] == sc.load_index(parallel)["derived_count"] == len(first)
+
+
 def test_two_processes_record_the_same_records_from_the_tests_as_one(tmp_path):
     serial, parallel = tmp_path / "serial", tmp_path / "parallel"
     assert synthetic.build(serial, SMALL) == 0

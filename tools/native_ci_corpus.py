@@ -43,9 +43,9 @@ ENTRY_SCRIPTS = {
 NOISE_DIRECTORIES = frozenset({"__pycache__", ".pytest_cache", "dist", "build", ".git"})
 TEXT_SUFFIXES = frozenset({".py", ".json", ".toml", ".txt", ".yml", ".yaml", ".cfg", ".ini", ".md", ".rs", ".csv"})
 SKELETON_SUBDIRECTORY = ("ci", "synthetic_skeleton")
-#: The kernel tests behind the skeleton corpus run in this many pytest processes at once (a windows-latest runner has 4 vCPUs; one process used one). Three processes on the first CI run:
-#: the Python 3.11 job waited 282 s for its slowest part while the other two were done at 177 s; the parent only waits and merges meanwhile, so all four cores can work.
-SKELETON_PROCESSES = 4
+#: The stages of the skeleton corpus (the kernel tests, the replay of the oracle over their calls, the derivation) run in this many processes at once. A windows-latest runner has 4 vCPUs, but
+#: they do not deliver four cores of throughput: measured on CI, 3 processes took 105 s per part and 4 processes 143 s (the same work per second), so 3 it is.
+SKELETON_PROCESSES = 3
 
 
 def _content(path: Path) -> bytes:
@@ -177,7 +177,7 @@ def build_commands(kind: str, out: Path) -> list[list[str]]:
     return [
         [sys.executable, str(Path(tools, "native_skeleton_synthetic.py")), "build", "--out", str(corpus), "--ci", "--processes", str(SKELETON_PROCESSES)],
         [sys.executable, str(Path(tools, "native_skeleton_generated.py")), "generate", "--corpus", str(corpus)],
-        [sys.executable, str(Path(tools, "native_skeleton_derive.py")), "--corpus", str(corpus)],
+        [sys.executable, str(Path(tools, "native_skeleton_derive.py")), "--corpus", str(corpus), "--processes", str(SKELETON_PROCESSES)],
     ]
 
 
