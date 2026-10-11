@@ -11,6 +11,13 @@ name: Envelope kernel contracts and reference evaluator
 # пол, 3.11 — то, что исполняется у владельца. Проверку матрицы держит tests/test_architecture.py
 # (`test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter`). Нативную сборку (колесо Rust, cargo test,
 # дифференциальные тесты без пропусков) этот workflow НЕ проверяет: она живёт в .github/workflows/native.yml.
+#
+# Шарды. Набор ядра (~190 файлов) гонялся одним процессом: 20-40 минут на каждой из трёх задач, и это была самая длинная нога CI. Теперь каждая из задач `kernel-hermetic`
+# (Python 3.10 и 3.11) и `kernel-extraction-readiness` (3.10) идёт четырьмя параллельными ножками; ножка гонит свой ШАРД — набор ФАЙЛОВ `kernel/tests/test_*.py`, выбранный
+# `kernel/tools/shard_tests.py` как чистая функция имён файлов и весов (`kernel/tools/shard_weights.json`, секунды на файл: балансирует, но потерять тест не может). Шарды вместе — ровно
+# файлы набора: это проверяется в КАЖДОЙ ножке до тестов (`check`: без пересечений, ни одного пустого, объединение = все файлы) и тестами (`kernel/tests/test_ci_shards.py`,
+# `tests/test_ci_shards_workflow.py`). Покрытие то же, что у неразбитого прогона: каждый тест идёт на каждом интерпретаторе, на котором шёл прежде, и в обеих сборках (колесо вне
+# репозитория; извлечённая копия). Шард — одно значение `index/total`, чтобы число ножек и номер не разошлись; полный список `1..N` держит тест.
 
 on:
   push:
@@ -42,13 +49,14 @@ on:
 
 jobs:
   kernel-hermetic:
-    name: kernel-hermetic (py${{ matrix.python-version }})
+    name: kernel-hermetic (py${{ matrix.python-version }}, shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11"]
+        shard: ["1/4", "2/4", "3/4", "4/4"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,6 +70,8 @@ jobs:
           python -m build --wheel kernel
       - name: Test wheel outside checkout
         shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
           VENV="$RUNNER_TEMP/kernel-wheel-venv"
@@ -71,11 +81,21 @@ jobs:
           mkdir -p "$STANDALONE"
           cp -R kernel/tests kernel/fixtures kernel/schema kernel/artifacts kernel/tools "$STANDALONE/"
           cd "$STANDALONE"
-          env -u PYTHONPATH CFTUV_TEST_REQUIRE_WHEEL=1 "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
+          # the shards are exactly the suite (proved here, in every leg, before the tests); a failing `list` fails the step, an empty one never reaches pytest
+          "$VENV/bin/python" -I tools/shard_tests.py check --root tests --weights tools/shard_weights.json --shards "${SHARD#*/}"
+          "$VENV/bin/python" -I tools/shard_tests.py list --root tests --weights tools/shard_weights.json --shard "$SHARD" > "$RUNNER_TEMP/shard-files.txt"
+          cat "$RUNNER_TEMP/shard-files.txt"
+          mapfile -t FILES < "$RUNNER_TEMP/shard-files.txt"
+          env -u PYTHONPATH CFTUV_TEST_REQUIRE_WHEEL=1 "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider "${FILES[@]}"
 
   kernel-extraction-readiness:
+    name: kernel-extraction-readiness (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,6 +118,8 @@ jobs:
           git commit -m "extracted kernel"
       - name: Build and test extracted package
         shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
           EXTRACTED="$RUNNER_TEMP/extracted-kernel"
@@ -107,7 +129,12 @@ jobs:
           python -m venv "$VENV"
           "$VENV/bin/python" -m pip install --disable-pip-version-check "$EXTRACTED"/dist/*.whl pytest
           cd "$EXTRACTED"
-          env -u PYTHONPATH CFTUV_TEST_REQUIRE_WHEEL=1 "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
+          # the shards are exactly the suite (proved here, in every leg, before the tests); a failing `list` fails the step, an empty one never reaches pytest
+          "$VENV/bin/python" -I tools/shard_tests.py check --root tests --weights tools/shard_weights.json --shards "${SHARD#*/}"
+          "$VENV/bin/python" -I tools/shard_tests.py list --root tests --weights tools/shard_weights.json --shard "$SHARD" > "$RUNNER_TEMP/shard-files.txt"
+          cat "$RUNNER_TEMP/shard-files.txt"
+          mapfile -t FILES < "$RUNNER_TEMP/shard-files.txt"
+          env -u PYTHONPATH CFTUV_TEST_REQUIRE_WHEEL=1 "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider "${FILES[@]}"
           env -u PYTHONPATH "$VENV/bin/python" -I tools/check_forbidden_imports.py src/cftuv_envelope
           env -u PYTHONPATH "$VENV/bin/python" -I tools/sync_session_a_fixtures.py --check --fixture-root fixtures/session_a_v5
           test -z "$(git status --porcelain)"
