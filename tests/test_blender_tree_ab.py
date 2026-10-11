@@ -412,7 +412,7 @@ def _publish(folder: Path, label: str, report: dict, case: str = "building", wor
 
 
 def _arguments(tmp_path: Path, launcher: Path, repository: Path, *extra: str) -> list[str]:
-    scene = tmp_path / "scene.blend"
+    scene = tmp_path / "scene.fake"
     scene.write_bytes(b"BLENDER-scene")
     return [
         "--base", str(repository), "--branch", str(repository), "--scene", str(scene), "--case", "building", "--workers", "8", "--blender", str(launcher),
