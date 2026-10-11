@@ -470,9 +470,10 @@ def test_only_the_cargo_build_caches_fall_back_to_a_prefix_match(workflow):
     for name, job in workflow["jobs"].items():
         for step in job["steps"]:
             if "restore-keys" in step.get("with", {}):
-                assert name in ("rust", "wheel") and step["with"]["key"].startswith("cargo-"), f"{name}: a prefix match is the same mistake as a key that is too narrow"
+                assert name == "rust" and step["with"]["key"].startswith("cargo-"), f"{name}: a prefix match is the same mistake as a key that is too narrow"
                 assert "native/target" in step["with"]["path"] and "Cargo.lock" in step["with"]["key"], "the build cache is keyed by the lock file"
-    assert any("restore-keys" in step.get("with", {}) for step in workflow["jobs"]["wheel"]["steps"]), "the release build keeps its dependencies"
+    assert any("restore-keys" in step.get("with", {}) for step in workflow["jobs"]["rust"]["steps"]), "the test build keeps its dependencies (175 s -> 25 s measured)"
+    assert not any(str(step.get("uses", "")).startswith("actions/cache") for step in workflow["jobs"]["wheel"]["steps"]), "the release build was slower with a restored target (167-187 s against 133 s)"
 
 
 def test_the_matrix_shards_are_all_of_one_to_n_and_are_exactly_the_native_test_files(workflow):

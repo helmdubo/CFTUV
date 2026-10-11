@@ -133,18 +133,8 @@ jobs:
           python -VV
       - name: Install maturin (the range of native/cftuv-python/pyproject.toml)
         run: python -m pip install "maturin>=1.15,<2"
-      # The same reasoning as in `rust`: only the dependencies are worth keeping, and cargo decides what to rebuild.
-      - name: Cache the dependencies built for the release profile
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            native/target
-          key: cargo-release-${{ runner.os }}-${{ hashFiles('native/Cargo.lock') }}
-          restore-keys: |
-            cargo-release-${{ runner.os }}-
+      # No cargo cache here, on purpose: measured on three runs, the release build takes 167-187 s WITH a restored `native/target` and 133 s without one (the dependencies are small, the workspace
+      # crates are what compile, and they are rebuilt whenever they change). The `rust` job's test-profile cache is worth it (175 s -> 25 s).
       - name: Build the release wheel
         working-directory: native/cftuv-python
         run: python -m maturin build --release --locked -o "$GITHUB_WORKSPACE/dist"
