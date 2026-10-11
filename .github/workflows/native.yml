@@ -3,19 +3,24 @@ name: Native accelerator
 # Приёмка Rust не может пройти без самого Rust (аудит F3). Прежде ни один workflow не собирал колесо и не гонял `cargo test`, а нативные сверки при отсутствии
 # расширения ПРОПУСКАЛИСЬ: зелёный CI не говорил, что ускоритель вообще существует. Здесь:
 #
-#   rust          cargo test --workspace --locked (ядро, канонизация, резка, скелет; Rust-векторы);
-#   wheel         release-колесо maturin ОДНО (abi3, cp311-abi3: то же колесо ставится и под 3.11, и под 3.13) + личность ДЕРЕВА (`tools/native_build_id.py`);
-#   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python; колесо нужно и здесь: отвечает эталон,
-#                 но вызовы швов кодирует шим (`tools/native_clip_seams.py` импортирует `cftuv_native.clip_seams`), а пакет шима импортирует скомпилированное расширение;
-#                 там же, отдельным шагом с потолком времени, — синтетический корпус СКЕЛЕТА (`build_skeleton` целиком): вызовы из подмножества тестов ядра (`native_skeleton_synthetic.CI_FILES`),
-#                 замороженные случаи генератора и производные записи с урезанным потолком бюджета. Полевого корпуса скелета (пять мешей сцены Blender) в CI нет; всё, что не требует именно поля,
-#                 сверяется на синтетическом, а то, что требует, — уровень `native_field`;
-#   differential  матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr): колесо ставится в ЧИСТЫЙ venv, личность установленного
-#                 равна личности дерева, все операции (покрытие, резка, скелет, snap_embedding) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
-#                 пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте;
-#   changes       какие пути трогает коммит (`tools/native_ci_changes.py`, обычный git, без чужих действий): `native=true|false`; любая ошибка = `true`;
-#   native-gate   единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет); отчитывается на КАЖДОМ коммите
-#                 (`tools/native_ci_gate.py`): проходит, только если `changes` отработала И (нативных путей нет ИЛИ все тяжёлые задачи `success`).
+#   rust             cargo test --workspace --locked (ядро, канонизация, резка, скелет; Rust-векторы);
+#   wheel            release-колесо maturin ОДНО (abi3, cp311-abi3: то же колесо ставится и под 3.11, и под 3.13) + личность ДЕРЕВА (`tools/native_build_id.py`);
+#   corpus-clip      синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python; колесо нужно и здесь: отвечает эталон,
+#                    но вызовы швов кодирует шим (`tools/native_clip_seams.py` импортирует `cftuv_native.clip_seams`), а пакет шима импортирует скомпилированное расширение;
+#   corpus-skeleton  синтетический корпус СКЕЛЕТА (`build_skeleton` целиком): вызовы из подмножества тестов ядра (`native_skeleton_synthetic.CI_FILES`), замороженные случаи генератора
+#                    и производные записи с урезанным потолком бюджета. Колесо ему не нужно (вызовы записывает и на них отвечает один эталон): задача идёт сразу за `changes`, параллельно колесу.
+#                    Полевого корпуса скелета (пять мешей сцены Blender) в CI нет; всё, что не требует именно поля, сверяется на синтетическом, а то, что требует, — уровень `native_field`;
+#   КЭШ КОРПУСОВ     корпус пишется заново, только когда изменился ВХОД записи: код ядра и всё под `kernel/`, инструменты записи и их рецепт, точная версия Python, закреплённые зависимости,
+#                    для резки — личность нативного дерева (`tools/native_ci_corpus.py`). Ключ считается из файлов и доказан тестом (`tests/test_native_ci_corpus.py`); `restore-keys` нет:
+#                    префиксное совпадение вернуло бы корпус другого ядра. Сверка строгая и после восстановления: корпус с чужим `kernel_identity` она не принимает;
+#   differential     матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr) x ШАРД: колесо ставится в ЧИСТЫЙ venv, личность установленного
+#                    равна личности дерева, все операции (покрытие, резка, скелет, snap_embedding) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
+#                    пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте.
+#                    Шард — набор ФАЙЛОВ `tests/test_native_*.py` (`kernel/tools/shard_tests.py`, детерминированно, по весам `tests/data/native_ci_shard_weights.json`); шарды вместе — ровно эти файлы,
+#                    и это проверяется в каждой ножке (`check`) и тестом (`tests/test_native_ci_workflow.py`): каждый тест идёт на каждой ножке Python x слоты, как до шардирования;
+#   changes          какие пути трогает коммит (`tools/native_ci_changes.py`, обычный git, без чужих действий): `native=true|false`; любая ошибка = `true`;
+#   native-gate      единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет); отчитывается на КАЖДОМ коммите
+#                    (`tools/native_ci_gate.py`): проходит, только если `changes` отработала И (нативных путей нет ИЛИ все тяжёлые задачи `success`).
 #
 # ФИЛЬТРОВ ПУТЕЙ НА УРОВНЕ WORKFLOW НЕТ: у защищённой ветки проверка, чей workflow не запустился, висит «ожидается» вечно. Workflow идёт на каждом пуше и PR, а нужны ли тяжёлые задачи,
 # решает `changes` по тому же набору путей (`NATIVE_PATHS` в `tools/native_ci_changes.py`, раньше — `paths:` здесь). Хост-коммит: тяжёлые задачи пропущены, `native-gate` зелёный.
@@ -41,9 +46,9 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
-  # exact test dependencies of the native job (the kernel's own pin is `sympy==1.14.0`, `kernel/pyproject.toml`)
+  # exact test dependencies of the native job (the kernel's own pin is `sympy==1.14.0`, `kernel/pyproject.toml`; mpmath is pinned too: its version is part of the answer and of the corpus cache key)
   # (pyyaml: the test of this workflow's own structure, tests/test_native_ci_workflow.py)
-  TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0 pyyaml==6.0.3
+  TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0 mpmath==1.3.0 pyyaml==6.0.3
   # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: CI проверяет круг кодека над снапшотом каждого домена (на кнопке продукта по умолчанию выборка).
   CFTUV_SNAPSHOT_BYTE_CHECK: all
 
@@ -93,6 +98,18 @@ jobs:
           cargo --version
           rustup show
           echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}"
+      # Dependencies change with Cargo.lock only; cargo's own fingerprints (toolchain, flags, sources) decide what is rebuilt, so a prefix match of this build cache is safe (unlike a corpus).
+      - name: Cache the dependencies built for the test profile
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            native/target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('native/Cargo.lock') }}
+          restore-keys: |
+            cargo-test-${{ runner.os }}-
       - name: cargo test --workspace --locked
         working-directory: native
         run: cargo test --workspace --locked
@@ -116,6 +133,18 @@ jobs:
           python -VV
       - name: Install maturin (the range of native/cftuv-python/pyproject.toml)
         run: python -m pip install "maturin>=1.15,<2"
+      # The same reasoning as in `rust`: only the dependencies are worth keeping, and cargo decides what to rebuild.
+      - name: Cache the dependencies built for the release profile
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            native/target
+          key: cargo-release-${{ runner.os }}-${{ hashFiles('native/Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ runner.os }}-
       - name: Build the release wheel
         working-directory: native/cftuv-python
         run: python -m maturin build --release --locked -o "$GITHUB_WORKSPACE/dist"
@@ -130,10 +159,11 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  corpus:
-    name: synthetic corpora, clip and skeleton (py${{ matrix.python }})
-    # the recorder encodes the seam calls with the SHIM's wire format (`tools/native_clip_seams.py` imports `cftuv_native.clip_seams`), and the shim package imports the
-    # compiled extension: the wheel is a dependency of this job, not only of the differential one
+  # The records are the kernel tests' own calls: the ORACLE answers every one of them (tools/native_clip_synthetic.py), the extension only ENCODES the seam calls; nothing is committed.
+  # The recorder encodes the seam calls with the SHIM's wire format (`tools/native_clip_seams.py` imports `cftuv_native.clip_seams`), and the shim package imports the compiled
+  # extension: the wheel is a dependency of this job, but only when the corpus has to be (re)built; a cache hit installs nothing.
+  corpus-clip:
+    name: synthetic clip corpus (py${{ matrix.python }})
     needs: [changes, wheel]
     if: needs.changes.outputs.native == 'true'
     runs-on: windows-latest
@@ -147,21 +177,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: The inputs of the recording (the cache key, computed from the files)
+        id: key
+        run: python tools/native_ci_corpus.py key --kind clip
+      - name: Restore the corpus recorded under exactly these inputs
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/synthetic-clip
+          key: ${{ steps.key.outputs.key }}
       - uses: actions/download-artifact@v4
+        if: steps.cache.outputs.cache-hit != 'true'
         with:
           name: native-wheel
           path: ${{ runner.temp }}/wheel
       - name: Install the kernel's test dependencies and the wheel (the recorder's seam encoders)
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           python -m pip install $TEST_REQUIREMENTS
           python -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
-      # the records are the kernel tests' own calls: the ORACLE answers every one of them (tools/native_clip_synthetic.py), the extension only ENCODES the seam calls; nothing is committed
       - name: Build the synthetic corpus from the kernel tests
-        env:
-          PYTHONSAFEPATH: "1"
-        run: python tools/native_clip_synthetic.py build --out "$RUNNER_TEMP/synthetic-clip"
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python tools/native_ci_corpus.py build --kind clip --out "$RUNNER_TEMP/synthetic-clip"
+      - name: Keep the corpus for the next run with the same inputs
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/synthetic-clip
+          key: ${{ steps.key.outputs.key }}
       - name: Size of the corpus
         run: |
+          echo "cache hit: ${{ steps.cache.outputs.cache-hit }}"
           du -sh "$RUNNER_TEMP/synthetic-clip" || true
           find "$RUNNER_TEMP/synthetic-clip" -type f | wc -l
       - uses: actions/upload-artifact@v4
@@ -170,20 +216,51 @@ jobs:
           path: ${{ runner.temp }}/synthetic-clip
           if-no-files-found: error
           retention-days: 1
-      # The corpus of the skeleton is `<base>/<name>/synthetic_skeleton` (tools/native_skeleton_corpus.py finds it by the kernel's code identity under `CFTUV_NATIVE_CORPUS`); the ORACLE answers
-      # every record, no extension is involved, nothing is committed. A time-bounded subset: the kernel tests that give most of the distinct calls (`--ci`: 19 of the 49 files of the full build, which
-      # takes over half an hour), the frozen cases of the generator (every branch the tests do not reach) and the derived records with a ceiling cut under the spend (the named exhaustion).
+
+  # The corpus of the skeleton is `<base>/<name>/synthetic_skeleton` (tools/native_skeleton_corpus.py finds it by the kernel's code identity under `CFTUV_NATIVE_CORPUS`); the ORACLE answers
+  # every record, no extension is involved (so no wheel: the job starts with `changes`), nothing is committed. A time-bounded subset: the kernel tests that give most of the distinct calls
+  # (`--ci`: 19 of the 49 files of the full build, which takes over half an hour), the frozen cases of the generator (every branch the tests do not reach) and the derived records with a ceiling
+  # cut under the spend (the named exhaustion). The recipe is `tools/native_ci_corpus.py build --kind skeleton`.
+  corpus-skeleton:
+    name: synthetic skeleton corpus (py${{ matrix.python }})
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: The inputs of the recording (the cache key, computed from the files)
+        id: key
+        run: python tools/native_ci_corpus.py key --kind skeleton
+      - name: Restore the corpus recorded under exactly these inputs
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/skeleton-corpus
+          key: ${{ steps.key.outputs.key }}
+      - name: Install the kernel's test dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python -m pip install $TEST_REQUIREMENTS
       - name: Build the synthetic skeleton corpus (kernel-test subset, generator, derivation)
+        if: steps.cache.outputs.cache-hit != 'true'
         timeout-minutes: 25
-        env:
-          PYTHONSAFEPATH: "1"
-        run: |
-          OUT="$RUNNER_TEMP/skeleton-corpus/ci/synthetic_skeleton"
-          python tools/native_skeleton_synthetic.py build --out "$OUT" --ci
-          python tools/native_skeleton_generated.py generate --corpus "$OUT"
-          python tools/native_skeleton_derive.py --corpus "$OUT"
+        run: python tools/native_ci_corpus.py build --kind skeleton --out "$RUNNER_TEMP/skeleton-corpus"
+      - name: Keep the corpus for the next run with the same inputs
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/skeleton-corpus
+          key: ${{ steps.key.outputs.key }}
       - name: Size of the skeleton corpus
         run: |
+          echo "cache hit: ${{ steps.cache.outputs.cache-hit }}"
           du -sh "$RUNNER_TEMP/skeleton-corpus" || true
           find "$RUNNER_TEMP/skeleton-corpus" -type f | wc -l
       - uses: actions/upload-artifact@v4
@@ -194,8 +271,8 @@ jobs:
           retention-days: 1
 
   differential:
-    name: differential (py${{ matrix.python }}, slots ${{ matrix.slots }})
-    needs: [changes, wheel, corpus]
+    name: differential (py${{ matrix.python }}, slots ${{ matrix.slots }}, shard ${{ matrix.shard }})
+    needs: [changes, wheel, corpus-clip, corpus-skeleton]
     if: needs.changes.outputs.native == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
@@ -205,8 +282,11 @@ jobs:
         python: ["3.11", "3.13"]
         # `auto` is what the product runs; `raw` and `attr` FORCE one path of native/cftuv-python/src/pyobj.rs (raw: a layout the probe does not confirm is a named refusal)
         slots: [auto, raw, attr]
+        # `index/total`: the two numbers in ONE value, so they cannot disagree; the list of values must be all of 1..total (tests/test_native_ci_workflow.py)
+        shard: ["1/3", "2/3", "3/3"]
     env:
       PYTHONSAFEPATH: "1"
+      SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -272,8 +352,15 @@ jobs:
               if all(found.values()) is not (mode != "attr"):
                   raise SystemExit(f"NATIVE_SLOT_MODE_NOT_HONOURED mode {mode}: {found}")
           PYCODE
+      # The files of THIS shard of tests/test_native_*.py. `check` proves, here and in every other leg, that the shards are disjoint, none is empty and together they are exactly the files the glob finds:
+      # a test that no leg runs cannot hide behind a wrong shard count. `list` exits nonzero (and the step fails) on any defect, so an empty argument list never reaches pytest.
+      - name: The shard of the differential tests (the shards are exactly the suite)
+        run: |
+          "$PY" kernel/tools/shard_tests.py check --root tests --glob "test_native_*.py" --weights tests/data/native_ci_shard_weights.json --shards "${SHARD#*/}"
+          "$PY" kernel/tools/shard_tests.py list --root tests --glob "test_native_*.py" --weights tests/data/native_ci_shard_weights.json --shard "$SHARD" > "$RUNNER_TEMP/shard-files.txt"
+          cat "$RUNNER_TEMP/shard-files.txt"
       # STRICT: a missing extension, a stale pin, a moved build id, a missing synthetic corpus or any other skip FAILS. The field tier (`native_field`) needs the owner's
-      # corpus recorded from the Blender scene: it is deselected BY NAME and reported (the step summary lists every deselected test).
+      # corpus recorded from the Blender scene: it is deselected BY NAME and reported (the step summary lists every deselected test of the shard).
       - name: Differential tests against the live oracle (strict)
         env:
           CFTUV_NATIVE_STRICT: "1"
@@ -284,11 +371,11 @@ jobs:
           # NO field corpus here, and the job says so (the default is the owner's drive): the base holds only the synthetic skeleton corpus built above (`<base>/ci/synthetic_skeleton`); the field
           # corpora of coverage and clip (`<base>/<name>/index.json`), of the skeleton (`<base>/<name>/skeleton`) and the field polygons (`<base>/skeleton_polygons`) are not there
           CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/skeleton-corpus
-        run: >-
-          "$PY" -m pytest tests/test_native_*.py -m "not native_field"
-          -p no:cacheprovider -q -rsfE --durations=25
+        run: |
+          mapfile -t FILES < "$RUNNER_TEMP/shard-files.txt"
+          "$PY" -m pytest "${FILES[@]}" -m "not native_field" -p no:cacheprovider -q -rsfE --durations=25
       - name: Architecture rules of the native port (the shim is the only importer, the Rust-only stages stay at their pin)
-        if: matrix.slots == 'auto'
+        if: matrix.slots == 'auto' && startsWith(matrix.shard, '1/')
         env:
           PYTHONPATH: kernel/src
         run: >-
@@ -337,12 +424,12 @@ jobs:
           -p no:cacheprovider -q -rsfE
 
   # THE required check. `if: always()`: it reports on every commit, whatever happened before it. The verdict is `tools/native_ci_gate.py` (the truth table is tested,
-  # tests/test_native_ci_workflow.py): `changes` succeeded AND (native == false OR rust, wheel, corpus and differential all `success`); a failed, cancelled or SKIPPED heavy job
-  # on a native-relevant change fails it. `interpreters-advisory` is deliberately not among the `needs`: a red leg there is information, not a block.
+  # tests/test_native_ci_workflow.py): `changes` succeeded AND (native == false OR rust, wheel, corpus-clip, corpus-skeleton and differential all `success`); a failed, cancelled or SKIPPED
+  # heavy job on a native-relevant change fails it. `interpreters-advisory` is deliberately not among the `needs`: a red leg there is information, not a block.
   native-gate:
     name: native-gate
     if: always()
-    needs: [changes, rust, wheel, corpus, differential]
+    needs: [changes, rust, wheel, corpus-clip, corpus-skeleton, differential]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -356,6 +443,7 @@ jobs:
           NATIVE: ${{ needs.changes.outputs.native }}
           RUST_RESULT: ${{ needs.rust.result }}
           WHEEL_RESULT: ${{ needs.wheel.result }}
-          CORPUS_RESULT: ${{ needs.corpus.result }}
+          CORPUS_CLIP_RESULT: ${{ needs.corpus-clip.result }}
+          CORPUS_SKELETON_RESULT: ${{ needs.corpus-skeleton.result }}
           DIFFERENTIAL_RESULT: ${{ needs.differential.result }}
         run: python3 tools/native_ci_gate.py

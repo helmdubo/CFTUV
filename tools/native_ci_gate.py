@@ -1,11 +1,12 @@
 """Вердикт `native-gate` — единственной проверки `native.yml`, которую можно сделать обязательной (задача `native-gate`).
 
-Проходит ТОЛЬКО если `changes` отработала И (нативных путей коммит не трогал ИЛИ каждая тяжёлая задача (`rust`, `wheel`, `corpus`, `differential`) закончилась `success`). Всё остальное — провал
+Проходит ТОЛЬКО если `changes` отработала И (нативных путей коммит не трогал ИЛИ каждая тяжёлая задача (`rust`, `wheel`, `corpus-clip`, `corpus-skeleton`, `differential`) закончилась `success`). Всё остальное — провал
 с названной причиной: `changes` упала либо отменена, её выход не `true`/`false`, тяжёлая задача упала, отменена либо ПРОПУЩЕНА при `native=true` (пропущенная задача не доказывает ничего).
 
-    python tools/native_ci_gate.py     # среда: CHANGES_RESULT, NATIVE, RUST_RESULT, WHEEL_RESULT, CORPUS_RESULT, DIFFERENTIAL_RESULT (`needs.<задача>.result`, `needs.changes.outputs.native`)
+    python tools/native_ci_gate.py     # среда: CHANGES_RESULT, NATIVE, <ЗАДАЧА>_RESULT на каждую тяжёлую задачу (`needs.<задача>.result`; дефис имени — подчёркивание: `CORPUS_CLIP_RESULT`), `needs.changes.outputs.native`
 
 Тяжёлые задачи в вердикт входят по именам `HEAVY_JOBS`; совещательная `interpreters-advisory` не входит намеренно (красная ножка там — сведение, не блок).
+Корпус разделён на две задачи (`corpus-clip` ждёт колесо, `corpus-skeleton` — нет), и обе в вердикте. Результат задачи с матрицей — `success` только если успешна каждая её ножка.
 """
 
 from __future__ import annotations
@@ -13,7 +14,13 @@ from __future__ import annotations
 import os
 import sys
 
-HEAVY_JOBS = ("rust", "wheel", "corpus", "differential")
+HEAVY_JOBS = ("rust", "wheel", "corpus-clip", "corpus-skeleton", "differential")
+
+
+def result_variable(job: str) -> str:
+    """Имя переменной среды с результатом задачи: `corpus-clip` -> `CORPUS_CLIP_RESULT` (дефиса в имени переменной оболочки не бывает)."""
+
+    return f"{job.upper().replace('-', '_')}_RESULT"
 
 
 def decide(changes: str, native: str, results: dict) -> tuple:
@@ -33,7 +40,7 @@ def decide(changes: str, native: str, results: dict) -> tuple:
 
 def main(environment: dict | None = None) -> int:
     environment = dict(os.environ if environment is None else environment)
-    results = {name: environment.get(f"{name.upper()}_RESULT", "") for name in HEAVY_JOBS}
+    results = {name: environment.get(result_variable(name), "") for name in HEAVY_JOBS}
     changes, native = environment.get("CHANGES_RESULT", ""), environment.get("NATIVE", "")
     passed, why = decide(changes, native, results)
     print(f"changes={changes or 'missing'} native={native or 'missing'} " + " ".join(f"{name}={result or 'missing'}" for name, result in results.items()))

@@ -35,6 +35,9 @@ NATIVE_PATHS = (
     "tests/conftest.py",
     "tests/test_architecture.py",
     "tests/data/native_embedding_kernel_suite.recs.xz",
+    # the shards of the differential matrix: which test files each leg runs (`.github/workflows/native.yml`)
+    "tests/data/native_ci_shard_weights.json",
+    "kernel/tools/shard_tests.py",
     # every oracle file pinned in `cftuv_native/pin.py` lives here, and the tests import the kernel's own test helpers
     "kernel/src/cftuv_envelope/**",
     "kernel/tests/**",
