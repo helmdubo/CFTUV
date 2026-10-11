@@ -1390,8 +1390,11 @@ def prepare_conveyor(
     patch_domain_id: PatchDomainId | None = None,
     work_budget: ExactWorkBudgetV1 | None = None,
     dense_hydration: bool = False,
+    snapshot_issues: tuple | None = None,
 ) -> ConveyorPreparationV1:
     """Alpha-независимая подготовка очереди для домена плана.
+
+    `snapshot_issues` - готовая проверка ЭТОГО снапшота под допуском ЭТОГО запроса (как у `compile_reference_envelopes`); `None` - считается там.
 
     `dense_hydration` — эталонная сторона теневой сверки ленивой гидратации.
     Он не меняет ни одного ответа по построению (см. `PositionMemoV1`), и
@@ -1413,7 +1416,7 @@ def prepare_conveyor(
     """
 
     clock = _Clock()
-    inputs, refusal = _prepare_inputs(snapshot, request, patch_domain_id, clock)
+    inputs, refusal = _prepare_inputs(snapshot, request, patch_domain_id, clock, snapshot_issues)
     if inputs is None:
         return refusal
     compilation, context, domain, reading, lattice, binding_residual = inputs
@@ -1502,7 +1505,7 @@ def _density_transaction_memo(request):
     )
 
 
-def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
+def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock, snapshot_issues=None):
     """Всё, что нужно очереди до первого региона: план, домен, законы, решётка.
 
     Вынесено из `prepare_conveyor` не ради красоты, а потому что ступеней тут
@@ -1517,7 +1520,7 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
 
     density_exact_memo = _density_transaction_memo(request)
     started = time.perf_counter()
-    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id, _density_exact_memo=density_exact_memo)
+    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id, _density_exact_memo=density_exact_memo, snapshot_issues=snapshot_issues)
     clock.add("PLAN_COMPILE", started)
     compilation = compiled.compilation
     if compilation is None:

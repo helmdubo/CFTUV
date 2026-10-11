@@ -127,6 +127,7 @@ from ..ids import (
 from ..numeric import ExactRatioV1, IntervalEndpointKind, LocalLengthV1
 from ..validation import (
     ValidationCode,
+    ValidationIssue,
     validate_snapshot_request_references,
 )
 from .contracts import (
@@ -1463,12 +1464,13 @@ def compile_reference_envelopes(
     request: DecalRequestV1,
     patch_domain_id: PatchDomainId | None = None,
     *, _density_exact_memo: _DensityExactMemo | None = None,
+    snapshot_issues: tuple[ValidationIssue, ...] | None = None,
 ) -> ReferenceCompileResultV1:
-    """Compile immutable seeds/specs for exactly one request/domain plan."""
+    """Compile immutable seeds/specs for exactly one request/domain plan; `snapshot_issues` — как у `validate_snapshot_request_references` (готовая проверка ЭТОГО снапшота под допуском ЭТОГО запроса), `None` — считается здесь."""
 
     density_exact_memo = _compile_density_memo(request, _density_exact_memo)
 
-    input_issues = validate_snapshot_request_references(snapshot, request)
+    input_issues = validate_snapshot_request_references(snapshot, request, snapshot_issues)
     if input_issues:
         if all(item.code is ValidationCode.ROUTE_TOPOLOGY for item in input_issues):
             return _failure(

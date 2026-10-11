@@ -535,8 +535,9 @@ def prepare_for_production_recorded(
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
     borrowed_ledger=None,
+    checker=None,
 ):
-    """`(подготовка, запись бэкенда | None)`: подготовка очереди с холодной памятью разложений под блоком бэкенда.
+    """`(подготовка, запись бэкенда | None)`: подготовка очереди с холодной памятью разложений под блоком бэкенда; `checker` - `WorkerSnapshotCheck` задачи воркера (ту же проверку снапшота отдаёт он, `clean_issues_for`).
 
     Память разложений и счётчик внебюджетной работы обнуляются ПЕРЕД подготовкой
     (`run_queue_domain` делает ровно это): статьи бюджета не зависят от того, какие
@@ -556,7 +557,7 @@ def prepare_for_production_recorded(
 
     reset_factorization_memory()
     reset_unbudgeted_work()
-    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request), backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger)
+    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request, snapshot_issues=checker and checker.clean_issues_for(snapshot, request.developable_stretch_budget)), backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger)
 
 
 def prepare_for_production(
@@ -623,6 +624,7 @@ def _solve_cold_production_task(task, ledger):
             skeleton_backend=task.skeleton_backend,
             embedding_backend=task.embedding_backend,
             borrowed_ledger=ledger,
+            checker=inputs.checker,
         )
     except PreparationRefused as refused:
         # Нативное ядро отказало скелету по имени: домен отказан этим именем (эталону он не отдаётся), подготовки у него нет.

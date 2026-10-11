@@ -24,6 +24,13 @@
 
 Любое иное - проверка как раньше, а исход назван счётчиком профиля (`SNAPSHOT_CHECK_COUNTERS`): принятая и отвергнутая с причиной.
 Принимает только продуктовый путь (`worker_export_hooks`): память замечаний читает он, а профиль отладки от размещения не зависит.
+
+ТА ЖЕ ПРОВЕРКА ВНУТРИ ВОРКЕРА (WORKER_REUSES_ITS_SNAPSHOT_CHECK_V1). Проверку `validate_analysis_snapshot(снапшот, допуск запроса)` воркер делал дважды: в
+`build_envelope_decal_request` (`WorkerSnapshotCheck`) и снова в `compile_reference_envelopes` подготовки, на том же объекте. Второй вызов получает
+готовые замечания (`WorkerSnapshotCheck.clean_issues_for` -> `snapshot_issues=` подготовки) только когда это ТА ЖЕ проверка: тот же ОБЪЕКТ снапшота (`is`),
+тот же допуск (`budget_key` запроса), замечаний не было, и идентичность исполнения (`active_execution`) в точке подготовки равна той, под которой шла проверка.
+Иначе `None`, и подготовка проверяет сама, как раньше. Проверка снапшота без допуска (`validate_exported_snapshot`) и проверка ДЕКОДИРОВАННОГО объекта - другие проверки
+и здесь не участвуют.
 """
 
 from __future__ import annotations
@@ -103,10 +110,11 @@ class WorkerSnapshotCheck:
     Считает РОВНО ОДИН раз (вместо внутреннего вызова) и отдаёт замечания запросу как есть; `clean` - запись, если их нет.
     """
 
-    __slots__ = ("clean",)
+    __slots__ = ("clean", "_snapshot")
 
     def __init__(self) -> None:
         self.clean: SnapshotCleanV1 | None = None
+        self._snapshot = None
 
     def __call__(self, snapshot, stretch_budget) -> tuple:
         from .envelope_request_export import _load_kernel
@@ -116,7 +124,16 @@ class WorkerSnapshotCheck:
         issues = tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget))
         execution = None if issues else active_execution()
         self.clean = None if execution is None else SnapshotCleanV1(budget, execution, snapshot_witness(snapshot))
+        self._snapshot = snapshot
         return issues
+
+    def clean_issues_for(self, snapshot, stretch_budget) -> tuple | None:
+        """`()` - ЭТА проверка (этот объект снапшота, этот допуск, это исполнение) уже сделана и замечаний не дала; `None` - не доказано, проверять заново."""
+
+        clean = self.clean
+        if clean is None or snapshot is not self._snapshot or budget_key(stretch_budget) != clean.budget:
+            return None
+        return () if clean.execution == active_execution() else None
 
 
 def refusal_reason(snapshot, clean: SnapshotCleanV1 | None, *, revision: str, domain_id: str) -> str:

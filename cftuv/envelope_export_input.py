@@ -254,6 +254,8 @@ class TaskInputsV1:
     labeling: object | None = None
     #: `SnapshotCleanV1`: воркер проверил выгруженный снапшот под допуском запроса, замечаний нет (`envelope_snapshot_check`); ответ несёт её со снапшотом.
     check: object | None = None
+    #: `WorkerSnapshotCheck` этой задачи: живая проверка, из которой подготовка берёт ту же проверку вместо второй (`clean_issues_for`). В ответ не едет.
+    checker: object | None = None
 
     def result(self, **fields):
         from .envelope_domain_pool import DomainTaskResultV1
@@ -326,6 +328,7 @@ def task_inputs(task):
         request=request,
         labeling=log.labeling(export.source_revision_value, export.request_id, task.patch_id),
         check=checked.clean,
+        checker=checked,
     )
 
 
