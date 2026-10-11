@@ -7,7 +7,7 @@
   "test_native_ci_workflow.py": 14.0,
   "test_native_clip_dropin.py": 33.4,
   "test_native_clip_geometry.py": 38.5,
-  "test_native_clip_parallel_build.py": 45.0,
+  "test_native_clip_parallel_build.py": 44.0,
   "test_native_clip_parts.py": 98.9,
   "test_native_cost.py": 3.3,
   "test_native_coverage.py": 5.6,
