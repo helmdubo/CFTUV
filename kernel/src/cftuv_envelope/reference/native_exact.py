@@ -349,6 +349,29 @@ _ZERO = RadicalSumV1(())
 _ONE = RadicalSumV1(((1, Fraction(1)),))
 
 
+def terms_wire(value: RadicalSumV1) -> tuple[int, ...]:
+    """Члены величины плоским кортежем целых `(r, числитель, знаменатель, ...)` в порядке `terms`: проволока памяти подготовки.
+
+    Это те же члены с теми же представителями, а не значение: `value_of_wire(terms_wire(x)).terms == x.terms`. Пикл несёт целые,
+    а не объекты (`Fraction` пиклится строкой, `RadicalSumV1` — вызовом Python-кода на каждый объект).
+    """
+
+    flat: list[int] = []
+    for radicand, coefficient in value.terms:
+        flat += (radicand, coefficient.numerator, coefficient.denominator)
+    return tuple(flat)
+
+
+def value_of_wire(wire: tuple[int, ...]) -> RadicalSumV1:
+    """Обратное к `terms_wire`: те же члены, пустая проволока — нуль."""
+
+    if not wire:
+        return _ZERO
+    return RadicalSumV1(
+        tuple((wire[at], Fraction(wire[at + 1], wire[at + 2])) for at in range(0, len(wire), 3))
+    )
+
+
 def _integer_form(
     terms: tuple[tuple[int, Fraction], ...],
 ) -> tuple[int, list[tuple[int, int]]]:

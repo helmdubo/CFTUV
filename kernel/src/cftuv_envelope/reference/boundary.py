@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from fractions import Fraction
 
 import sympy as sp
 
@@ -10,8 +11,14 @@ from .._cpython311 import sorted_as_cpython311
 from ..contracts.envelopes import StripEnvelopeSpec
 from ..numeric import LocalLengthV1
 from . import symbolic_backend as _backend
-from .boundary_native import SourceContactFrame, compare_contacts, contact_candidates_native
-from .native_exact import NativeExactError, NativeSignUndecided
+from .boundary_native import (
+    ContactCountsV1,
+    SourceContactFrame,
+    compare_contacts,
+    contact_candidates_native,
+    points_difference,
+)
+from .native_exact import NativeExactError, NativeSignUndecided, RadicalSumV1, terms_wire, value_of_wire
 from .symbolic_backend import SymbolicBackendV1
 from .common import (
     GeometryContext,
@@ -78,8 +85,14 @@ class ContactCandidatesMemoV1:
     Здесь контакты считаются один раз на подготовку, на первом покрытии, и ездят вместе с
     ней: память НЕ обнуляется при пересылке (в отличие от `_DensityExactMemo`, чьи
     интервалы `mpmath` не пиклятся), потому что воркер, получивший пикл подготовки, иначе
-    начинал бы с пустой памяти на каждое нажатие. Значения — те же выражения `sympy` и
+    начинал бы с пустой памяти на каждое нажатие. Значения — те же величины и
     точки, что вернула бы функция, поэтому ответ побитово прежний.
+
+    В ПИКЛЕ память — целые и строки (`_entries_wire`): члены `RadicalSumV1` плоскими кортежами `(r, числитель, знаменатель, ...)`,
+    оболочки `(числитель, знаменатель, числитель, знаменатель)`, точка — двумя строками координат. Те же значения с теми же
+    представителями классов, а не их объекты: проволока одна и для питоновского, и для родного листа (память — граница между ними). После
+    пикла записи лежат в `entries` как `_Wire` и разбираются при первом обращении (`_remembered`). Старый пикл (объекты в `entries`)
+    читается как раньше: `__init__` принимает объекты.
 
     Ключ несёт геометрию обоих отрезков, а не только имена: отрезок границы и его
     `reversed()` носят одно `segment_id`.
@@ -95,7 +108,81 @@ class ContactCandidatesMemoV1:
         self.reused = 0
 
     def __reduce__(self):
-        return (type(self), (self.entries,))
+        return (_restore_memo, (_entries_wire(self.entries),))
+
+
+def _contact_wire(contact):
+    alpha, station, point = contact
+    if type(alpha) is RadicalSumV1 and type(station) is RadicalSumV1:
+        return (terms_wire(alpha), terms_wire(station), point.x.expression, point.y.expression)
+    return contact
+
+
+def _contact_of_wire(item):
+    if len(item) != 4:
+        return item
+    alpha, station, x, y = item
+    return (value_of_wire(alpha), value_of_wire(station), ExactPlanarPoint(ExactScalar(x), ExactScalar(y)))
+
+
+def _bounds_wire(bounds):
+    if bounds is None:
+        return None
+    (low, high) = bounds
+    return (low.numerator, low.denominator, high.numerator, high.denominator)
+
+
+def _bounds_of_wire(wire):
+    return None if wire is None else (Fraction(wire[0], wire[1]), Fraction(wire[2], wire[3]))
+
+
+class _Wire:
+    """Запись памяти после пикла, ещё не разобранная: целые и строки до первого обращения (`_remembered` разбирает и подменяет её в `entries`).
+
+    Воркер, получивший подготовку, обычно не зовёт резолвер (попадание сертификата шага), и разбор всех записей на разворот пикла был бы
+    платой за то, что не понадобилось: разворот дорожает ровно настолько, насколько разбор (`Fraction` и `RadicalSumV1` на каждый член).
+    """
+
+    __slots__ = ("kind", "payload")
+
+    def __init__(self, kind: str, payload) -> None:
+        self.kind = kind
+        self.payload = payload
+
+    def decode(self):
+        if self.kind == "contacts":
+            return tuple(_contact_of_wire(item) for item in self.payload)
+        if self.kind == "bounds":
+            return tuple(_bounds_of_wire(item) for item in self.payload)
+        return value_of_wire(self.payload)
+
+
+def _entries_wire(entries: dict) -> dict:
+    """`entries` для пикла: контакты, оболочки и длины — целые и строки; остальное (границы домена, вселенная простых) как есть."""
+
+    wire = {}
+    for key, value in entries.items():
+        kind = key[0] if type(key) is tuple and key else None
+        if type(value) is _Wire:
+            value = value.payload
+        elif kind == "contacts":
+            value = tuple(_contact_wire(item) for item in value)
+        elif kind == "bounds":
+            value = tuple(_bounds_wire(item) for item in value)
+        elif kind == "length" and type(value) is RadicalSumV1:
+            value = terms_wire(value)
+        wire[key] = value
+    return wire
+
+
+def _restore_memo(wire: dict) -> ContactCandidatesMemoV1:
+    entries = {}
+    for key, value in wire.items():
+        kind = key[0] if type(key) is tuple and key else None
+        if kind in ("contacts", "bounds") or (kind == "length" and type(value) is tuple):
+            value = _Wire(kind, value)
+        entries[key] = value
+    return ContactCandidatesMemoV1(entries)
 
 
 def _remembered(memo: ContactCandidatesMemoV1 | None, key: tuple, compute):
@@ -106,6 +193,8 @@ def _remembered(memo: ContactCandidatesMemoV1 | None, key: tuple, compute):
         found = memo.entries[key] = compute()
         memo.computed += 1
     else:
+        if type(found) is _Wire:
+            found = memo.entries[key] = found.decode()
         memo.reused += 1
     return found
 
@@ -158,14 +247,15 @@ def _source_length(context, source, memo):
     return _remembered(
         memo,
         ("length", source.support_id, point_key(source.start), point_key(source.end)),
-        lambda: _length_of(context, point_sub(source.end, source.start)),
+        lambda: _length_of(context, source),
     )
 
 
-def _length_of(context, direction):
-    """Длина отрезка в метрике контекста; в `NATIVE_EXACT` — родная, с названной уступкой sympy."""
+def _length_of(context, source):
+    """Длина опорного отрезка в метрике контекста; в `NATIVE_EXACT` — родная (разность концов без текста), с названной уступкой sympy."""
 
     if _backend.backend_mode() is SymbolicBackendV1.NATIVE_EXACT:
+        direction = points_difference(source.end, source.start)
         try:
             return context.metric.length_g_native(direction)
         except NativeExactError as refusal:
@@ -173,6 +263,10 @@ def _length_of(context, direction):
                 "source_length",
                 "sign_undecided" if isinstance(refusal, NativeSignUndecided) else "outside_field",
             )
+        if type(direction) is tuple:
+            direction = point_sub(source.end, source.start)
+    else:
+        direction = point_sub(source.end, source.start)
     return context.metric.length_g(direction)
 
 
@@ -184,20 +278,21 @@ def build_domain_geometry(
     return build_sparse_patch_domain_geometry(context)
 
 
-def _native_contacts(context, source, boundary, frame) -> tuple:
+def _native_contacts(context, source, boundary, frame, counts: ContactCountsV1) -> tuple:
     """Родные контакты пары: сначала предфильтр «контактов нет» (`SourceContactFrame.excludes`), иначе точный путь.
 
     Предфильтр может лишь доказать пустоту (строгая сторона прямой у обоих концов отрезка в binary64 с границей ошибки),
     поэтому ответ не меняется; исход назван и посчитан: `prefilter_rejected` (пуст доказанно) и `prefilter_passed`
-    (не доказано, считано точно). Без `frame` (прямой вызов) предфильтра нет.
+    (не доказано, считано точно). Без `frame` (прямой вызов) предфильтра нет. Счета ложатся в `counts` (приращение пары), а не в
+    `BACKEND_COUNTS`: их применяет вызывающий (`ContactCountsV1`).
     """
 
     if frame is None:
         return contact_candidates_native(context, source, boundary)
     if frame.excludes(boundary):
-        _backend.count("contact_candidates", "prefilter_rejected")
+        counts.rejected += 1
         return ()
-    _backend.count("contact_candidates", "prefilter_passed")
+    counts.passed += 1
     return contact_candidates_native(context, source, boundary, frame)
 
 
@@ -216,14 +311,17 @@ def _contact_candidates(
     mode = _backend.backend_mode()
     if mode is SymbolicBackendV1.SYMPY:
         return _contact_candidates_sympy(context, source, boundary)
+    counts = ContactCountsV1()
     try:
-        native = _native_contacts(context, source, boundary, frame)
+        native = _native_contacts(context, source, boundary, frame, counts)
     except NativeExactError as refusal:
-        _backend.count(
-            "contact_candidates",
-            "sign_undecided" if isinstance(refusal, NativeSignUndecided) else "outside_field",
-        )
+        counts.refused(refusal)
+        counts.apply()
         return _contact_candidates_sympy(context, source, boundary)
+    finally:
+        # Приращение пары применяется и при успехе, и при прерывании исключением вне `NativeExactError`: счёт предфильтра в прежнем
+        # коде уже стоял в `BACKEND_COUNTS`, когда лист падал. После отказа оно уже применено (до sympy-пути): повтор пуст.
+        counts.apply()
     if mode is SymbolicBackendV1.NATIVE_EXACT:
         _backend.count("contact_candidates", "native")
         return native
@@ -249,12 +347,14 @@ def _contact_candidates_sympy(
         point_sub(barrier.start, source.start), source.owner_normal
     )
     da = context.metric.dot_g(barrier_direction, source.owner_normal)
-    candidates = {sp.Integer(0), sp.Integer(1)}
+    # Кандидаты параметра — упорядоченный по вставке словарь, а не множество: порядок обхода множества `sympy` задаёт хэш имени типа
+    # (зависит от `PYTHONHASHSEED`), и равные по alpha контакты шли в зависимом от процесса порядке. Дубликаты те же (по структуре).
+    candidates = dict.fromkeys((sp.Integer(0), sp.Integer(1)))
     if exact_sign(ds) != 0:
-        candidates.add(exact_normalize(-s0 / ds))
-        candidates.add(exact_normalize((length - s0) / ds))
+        candidates[exact_normalize(-s0 / ds)] = None
+        candidates[exact_normalize((length - s0) / ds)] = None
     if exact_sign(da) != 0:
-        candidates.add(exact_normalize(-a0 / da))
+        candidates[exact_normalize(-a0 / da)] = None
     result = []
     for parameter in candidates:
         if exact_sign(parameter) < 0 or exact_sign(parameter - 1) > 0:
@@ -333,6 +433,21 @@ def _continuous_support_intervals(
             )
         )
     return tuple(result)
+
+
+def _not_above(alpha, effective: ExactScalar) -> bool:
+    """`alpha <= effective`: разность считается в родной арифметике без разбора текста в sympy (`sp.sqrt(Rational)` раскладывал радикант).
+
+    Знак — функция значений, поэтому ответ тот же, что у `exact_sign(alpha - effective.as_expr())`; значение вне родного поля (в текст
+    эффективной alpha такое не попадает) и alpha в виде выражения sympy идут прежним путём.
+    """
+
+    if type(alpha) is RadicalSumV1:
+        try:
+            return exact_sign(alpha - effective.native()) <= 0
+        except NativeExactError:
+            pass
+    return exact_sign(alpha - effective.as_expr()) <= 0
 
 
 def _sign_traced(alpha, bounds, requested, trace) -> int:
@@ -460,7 +575,7 @@ def resolve_component_alphas(
                 )
                 diagnostics.append(diagnostic)
                 current = resolutions[source.front_component_id]
-                if exact_sign(alpha - current.effective_alpha.as_expr()) <= 0:
+                if _not_above(alpha, current.effective_alpha):
                     resolutions[source.front_component_id] = ComponentResolution(
                         source.front_component_id,
                         requested_alpha,
@@ -483,7 +598,7 @@ def resolve_component_alphas(
                 )
                 diagnostics.append(diagnostic)
                 current = resolutions[source.front_component_id]
-                if exact_sign(alpha - current.effective_alpha.as_expr()) <= 0:
+                if _not_above(alpha, current.effective_alpha):
                     resolutions[source.front_component_id] = ComponentResolution(
                         source.front_component_id,
                         requested_alpha,
