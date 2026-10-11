@@ -496,3 +496,49 @@ def test_timing_repeats_alternates_the_order_and_reports_medians(stand_in, repos
     timing = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))["results"][0]["timing"]
     assert timing["cold"]["base"] == 1.0 and timing["cold"]["branch"] == 0.5 and timing["cold"]["change"] == pytest.approx(-50.0)
     assert timing["step2"]["base_all"]["n"] == 3
+
+
+# --------------------------------------------------------------------------
+# the process counters of the symbolic backend and the stage that computed the pairs
+# --------------------------------------------------------------------------
+
+
+def with_process_counters(report, backend_counts=None, fallback=None, press="cold"):
+    report["presses"][press]["process_counters"] = {"backend_counts": dict(backend_counts or {"contact_candidates.prefilter_passed": 7, "contact_candidates.native": 9}), "symbolic_fallback": dict(fallback or {"canonical": 2})}
+    return report
+
+
+def test_the_process_counters_of_a_press_computed_in_process_are_compared_and_pool_runs_have_none_to_compare():
+    base, branch = with_process_counters(make_report(workers=0)), with_process_counters(make_report(workers=0))
+    assert ab.compare_runs(base, branch).identical
+    moved = with_process_counters(make_report(workers=0), backend_counts={"contact_candidates.prefilter_passed": 8, "contact_candidates.native": 9})
+    comparison = ab.compare_runs(base, moved)
+    assert comparison.differences == ["[cold] process counter backend_counts.contact_candidates.prefilter_passed: base 7 != branch 8"]
+    only_one_side = with_process_counters(make_report(workers=0), backend_counts={"contact_candidates.native": 9})
+    assert ab.compare_runs(base, only_one_side).differences == ["[cold] process counter backend_counts.contact_candidates.prefilter_passed: base 7 != branch 0"]
+    fallback = with_process_counters(make_report(workers=0), fallback={"canonical": 3})
+    assert ab.compare_runs(base, fallback).differences == ["[cold] process counter symbolic_fallback.canonical: base 2 != branch 3"]
+    # a tree whose reports carry no counters (an older tool, a pool run) is compared on the rest only
+    assert ab.compare_runs(make_report(workers=0), moved).identical and ab.compare_runs(moved, make_report(workers=0)).identical
+    # named on purpose: listed, not a failure
+    assert ab.compare_runs(base, moved, allowed=("contact_candidates.prefilter",)).identical
+
+
+def test_the_counters_delta_of_a_press_is_what_the_press_added():
+    before = {"backend_counts": {"a": 1, "b": 5}, "symbolic_fallback": {"canonical": 2}}
+    after = {"backend_counts": {"a": 4, "b": 5, "c": 2}, "symbolic_fallback": {"canonical": 2}}
+    assert ab.counters_delta(before, after) == {"backend_counts": {"a": 3, "c": 2}, "symbolic_fallback": {}}
+    assert ab.counters_delta({}, after) == {"backend_counts": {"a": 4, "b": 5, "c": 2}, "symbolic_fallback": {"canonical": 2}}
+
+
+def test_who_computed_the_effective_alpha_pairs_is_a_label_and_a_note_not_an_answer():
+    def ordered(branch):
+        branch["presses"]["cold"]["effective_alpha_calls"] = [3727, 0]
+        for row in branch["presses"]["cold"]["rows"]:
+            row["effective_alpha_ran"] = "native"
+
+    comparison = pair(ordered)
+    assert comparison.identical
+    assert any("label-only field effective_alpha_ran: 3 domains differ" in line for line in comparison.notes)
+    assert any("branch: effective-alpha pairs computed natively 3727, in Python after a named refusal 0" in line for line in comparison.notes)
+    assert "effective_alpha_ran" in ab.LABEL_FIELDS and "effective_alpha_ran" not in ab.ANSWER_FIELDS

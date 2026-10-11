@@ -23,7 +23,9 @@ WHAT IS COMPARED, per domain and press (any difference is a failure; the exit co
   to the same constants in both trees, otherwise two different sources would differ in every key by construction); the counters of the run and of its domains, profile receipts and stages.
   Counters that depend on WHICH pool worker took a domain (the worker-local interval memo, the blob store, the clip memo) are compared by the SUM of their group; timing counters (`*_US`, `*_SECONDS`,
   `*_MS`) and byte counters of the run are not answers. `--allow-counter PREFIX` names counters a change adds on purpose: they are listed, never silently ignored.
-  Label-only fields (step path, placement, clip memo, who ran) are counted and listed, not failures. A run that failed, or a pool worker that imported another tree, another native build
+  The process counters of the kernel's symbolic backend (`symbolic_backend.BACKEND_COUNTS`, `planar_types.SYMBOLIC_FALLBACK_COUNTS`) are compared too, per press, when the press was computed in this
+  process (`--workers 0`; a pool worker keeps counters of its own, which the parent does not see). Label-only fields (step path, placement, clip memo, who ran, who ran the effective-alpha stage) are counted
+  and listed, not failures; `--env CFTUV_EFFECTIVE_ALPHA_BACKEND=NATIVE` orders that stage in a tree that has it (the other tree ignores the variable), and the notes name how many of its pairs each tree computed natively. A run that failed, or a pool worker that imported another tree, another native build
   or another sympy than the parent (the origin check), is a failure of the run.
 
 TIMING (`--timing --reps N`)  alternating base/branch, order flipped every repetition; before each run the tool waits while a FOREIGN blender.exe is busy (it never stops one) and re-runs a
@@ -65,7 +67,7 @@ ANSWER_FIELDS = (
     "decal_topology_law", "chart_orientation", "structure_digest",
 )
 #: Fields that say HOW the answer was reached (counted and listed, never a failure).
-LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran")
+LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran")
 #: Counters whose value depends on which worker a domain landed on; each group is compared by its sum.
 SCHEDULING_GROUPS = {
     "interval path": lambda name: name == "PRODUCTION_INTERVAL_FAST_HITS" or name.startswith("PRODUCTION_INTERVAL_FALLBACK_"),
@@ -302,6 +304,15 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
             f"[{label}] CONTENT KEYS differ: {len(set(keys_a) - set(keys_b))} only in base {sorted(set(keys_a) - set(keys_b))[:3]}, {len(set(keys_b) - set(keys_a))} only in branch {sorted(set(keys_b) - set(keys_a))[:3]}"
         )
     _compare_rows(label, a, b, allowed, out)
+    if a.get("process_counters") is not None and b.get("process_counters") is not None:
+        for name in sorted(set(a["process_counters"]) | set(b["process_counters"])):
+            first, second = a["process_counters"].get(name, {}), b["process_counters"].get(name, {})
+            for key in sorted(set(first) | set(second)):
+                if first.get(key, 0) != second.get(key, 0) and not any(key.startswith(prefix) for prefix in allowed):
+                    out.differences.append(f"[{label}] process counter {name}.{key}: base {first.get(key, 0)} != branch {second.get(key, 0)}")
+    for side, press in (("base", a), ("branch", b)):
+        if press.get("effective_alpha_calls") and any(press["effective_alpha_calls"]):
+            out.notes.append(f"[{label}] {side}: effective-alpha pairs computed natively {press['effective_alpha_calls'][0]}, in Python after a named refusal {press['effective_alpha_calls'][1]}")
     _counter_difference(a["profile_counters"], b["profile_counters"], allowed, is_volatile_run_counter, f"[{label}] run profile", out)
     for name in ("profile_domain_counters", "profile_receipts", "profile_timing_stages"):
         if a.get(name) != b.get(name):
@@ -895,6 +906,8 @@ def domain_rows(run) -> list:
             "offset_normals_digest": item.offset_normals_digest, "vertex_normals_hash": _hash(item.vertex_normals), "decal_topology_law": item.decal_topology_law,
             "chart_orientation": item.chart_orientation, "step_path": getattr(item, "step_path", ABSENT), "placement": str(item.placement),
             "structure_digest": item.structure_digest, "clip_memo": getattr(item, "clip_memo", ABSENT), "ran": None if record is None else record.ran,
+            "effective_alpha_ran": None if record is None else (getattr(record, "effective_alpha_ran", None) or None),
+            "effective_alpha_calls": None if record is None else [getattr(record, "effective_alpha_native_calls", 0), getattr(record, "effective_alpha_python_calls", 0)],
         })
     return sorted(rows, key=lambda row: row["patch"])
 
@@ -908,15 +921,36 @@ def mesh_digest(run, mesh_module, offset: float) -> tuple[str, dict]:
     return hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest(), {"vertices": len(arrays.positions), "faces": len(arrays.faces), "seams": len(arrays.seam_edges)}
 
 
-def press_report(run, mesh_module, offset: float, seconds: float, keys: list) -> dict:
+def process_counters() -> dict:
+    """The counters of the kernel's symbolic backend in this process (a tree that lacks them has none)."""
+
+    try:
+        from cftuv_envelope.reference import planar_types, symbolic_backend
+    except ImportError:
+        return {}
+    return {"backend_counts": dict(symbolic_backend.BACKEND_COUNTS), "symbolic_fallback": dict(planar_types.SYMBOLIC_FALLBACK_COUNTS)}
+
+
+def counters_delta(before: dict, after: dict) -> dict:
+    """What a press added to the process counters, per dict, in key order of first appearance sorted (a dict is compared whole)."""
+
+    return {
+        name: {key: after[name].get(key, 0) - before.get(name, {}).get(key, 0) for key in sorted(after[name]) if after[name].get(key, 0) != before.get(name, {}).get(key, 0)}
+        for name in after
+    }
+
+
+def press_report(run, mesh_module, offset: float, seconds: float, keys: list, counters: dict | None = None) -> dict:
     rows = domain_rows(run)
     mesh_hash, mesh_counts = mesh_digest(run, mesh_module, offset)
     outcomes: dict = {}
     for row in rows:
         outcomes[row["outcome"]] = outcomes.get(row["outcome"], 0) + 1
     profile = run.profile
+    alpha_calls = [sum(row["effective_alpha_calls"][index] for row in rows if row.get("effective_alpha_calls")) for index in (0, 1)]
     return {
         "run_seconds": seconds, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
+        "process_counters": counters, "effective_alpha_calls": alpha_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_receipts": _hash(sorted((str(item.patch_domain_id), str(item.stage)) for item in profile.receipts)),
@@ -989,6 +1023,7 @@ def run_presses(args, report: dict, state: dict) -> None:
         alpha = state["alphas"][label]
         before = len(state["keys"])
         pause = gc_paused() if (kind == "cold" and gc_paused is not None and args.gc_pause != "off") else nullcontext()
+        counters_before = process_counters()
         started = time.perf_counter()
         with pause:
             run = export_module.run_production(
@@ -997,7 +1032,8 @@ def run_presses(args, report: dict, state: dict) -> None:
                 workers=args.workers if args.workers >= 2 else 0, kernel_backend=kernel_backend_of(mesh_settings),
             )
         seconds = time.perf_counter() - started
-        report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:])
+        counters = counters_delta(counters_before, process_counters()) if args.workers < 2 else None  # a pool worker keeps its own counters
+        report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:], counters)
         item = report["presses"][label]
         print(f"TREEAB press={label} alpha={alpha} domains={item['domains']} materialized={item['materialized']} keys={len(item['content_keys'])} run={seconds:.2f}s", flush=True)
 
