@@ -299,7 +299,7 @@ def _main():
     )
 
     assert settings.envelope_debug_workers == DEFAULT_POOL_WORKERS
-    assert 1 <= DEFAULT_POOL_WORKERS <= 8
+    assert 1 <= DEFAULT_POOL_WORKERS <= 12  # POOL_DEFAULT_12_V1
 
     # В Blender 2.92+ `sys.executable` — интерпретатор, иначе пул не стартует.
     print("pool interpreter:", resolve_python_executable())

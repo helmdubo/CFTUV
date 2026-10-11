@@ -21,7 +21,8 @@
 попадание в неё возможно, только если домен снова попал к тому же воркеру. Задачи идут тяжёлыми первыми, и первые `N` из них
 стартуют вместе на `N` воркерах в любом порядке, поэтому раздача этих `N` между воркерами длину прогона не меняет: задача с
 `DomainTaskV1.affinity` идёт к воркеру, который считал её в прошлый раз (если он жив и не занят другой задачей первого круга).
-Остальные задачи берут воркеры по очереди, как прежде. Это подсказка размещения: ответ от неё не зависит.
+Остальные задачи берут воркеры по очереди, как прежде. Это подсказка размещения: ответ от неё не зависит. Куда легла каждая задача с ключом привязки
+относительно прошлого прогона (тому же воркеру, без живого владельца, чужому - кража), называет `PoolStatsV1` (`tasks_to_owner`, `tasks_unowned`, `tasks_stolen`).
 
 ПАМЯТЬ ПОДГОТОВОК ВОРКЕРА (`envelope_worker_store`). Подготовка домена alpha-независима, а шаг ширины раньше слал воркерам пиклы всех подготовок
 (8.65 МБ на `building`) и воркеры их разворачивали. Теперь воркер держит развёрнутые подготовки под ключом пикла (хеш байтов и кода), а
@@ -89,9 +90,9 @@ from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
 MIN_POOL_WORKERS = 2
 
-#: Умолчание настройки: около 100 МБ на воркер и ни одного воркера сверх числа
-#: логических ядер (считается при импорте). Предел 8 — плато спайка.
-DEFAULT_POOL_WORKERS = min(8, os.cpu_count() or 1)
+#: Умолчание настройки: ни одного воркера сверх числа логических ядер (считается при импорте). Предел 12 (POOL_DEFAULT_12_V1) - число физических ядер
+#: машины владельца; около 280 МБ пика на воркер. Настройка сцены `envelope_debug_workers` остаётся за владельцем: умолчание действует, где она не записана.
+DEFAULT_POOL_WORKERS = min(12, os.cpu_count() or 1)
 
 #: Сколько ждать готовности воркера (импорт ядра и sympy на холодном диске).
 READY_TIMEOUT_SECONDS = 60.0
@@ -325,6 +326,11 @@ class PoolStatsV1:
     blob_misses: int = 0
     unpickle_cpu_seconds: float = 0.0
     unpickle_wall_seconds: float = 0.0
+    #: Куда легли задачи с ключом привязки относительно ПРОШЛОГО прогона: к воркеру, считавшему их в прошлый раз; без живого владельца (новый домен,
+    #: воркер умер); к другому воркеру (кража в хвосте прогона: подготовки у вора может не быть, и тогда полный путь `NO_CERTIFICATE`).
+    tasks_to_owner: int = 0
+    tasks_unowned: int = 0
+    tasks_stolen: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -945,7 +951,7 @@ class _PoolCounter:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0}
+        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0, "owner": 0, "unowned": 0, "stolen": 0}
 
     def add(self, **amounts) -> None:
         with self._lock:
@@ -963,6 +969,9 @@ class _PoolCounter:
             values["misses"],
             cpu,
             wall,
+            values["owner"],
+            values["unowned"],
+            values["stolen"],
         )
 
 
@@ -1209,7 +1218,9 @@ class DomainPool:
         self.ensure_started()
         ordered = order_by_cost(tasks)
         participants = list(self._workers)
-        first = plan_first_round(ordered, [item.index for item in participants], self._last_worker)
+        indices = [item.index for item in participants]
+        owners = dict(self._last_worker)  # воркеры ПРОШЛЫХ прогонов: снимок, потоки воркеров дописывают новых по ходу
+        first = plan_first_round(ordered, indices, owners)
         started = {worker: ordered[position] for worker, position in first.items()}
         taken = set(first.values())
         pending = _PendingTasks(
@@ -1251,6 +1262,9 @@ class DomainPool:
                     return
                 results[task.task_id] = reply
                 if task.affinity:
+                    owner = owners.get(task.affinity)
+                    kind = "owner" if owner == worker.index else ("stolen" if owner in indices else "unowned")
+                    counted.add(**{kind: 1})
                     self._last_worker[task.affinity] = worker.index
 
         threads = [
