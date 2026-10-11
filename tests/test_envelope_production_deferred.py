@@ -210,7 +210,7 @@ def test_host_code_never_calls_dataclasses_replace_on_a_production_result():
 
     names = {"result", "produced", "based", "moved", "cached", "payload"}
     offenders = []
-    for name in ("envelope_production_export.py", "envelope_production_mesh.py", "envelope_width_live.py"):
+    for name in ("envelope_production_export.py", "envelope_production_result.py", "envelope_production_task.py", "envelope_production_scan.py", "envelope_production_mesh.py", "envelope_width_live.py"):
         path = ROOT / "cftuv" / name
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=name)):
             if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "replace" and node.args:
@@ -251,8 +251,8 @@ def test_the_evidence_json_of_a_deferred_run_is_the_json_of_an_eager_run(tmp_pat
 DIGEST_READERS = {
     # (файл, имя поля): что читает
     ("cftuv/envelope_content_store.py", "content_digest"): "relabel_result: дайджест переписанного результата (результат развёрнут `materialized`)",
-    ("cftuv/envelope_production_export.py", "content_digest"): "produce_domain (дайджест ядра)",
-    ("cftuv/envelope_production_export.py", "semantic_digest"): "запечатывание батча при первом чтении",
+    ("cftuv/envelope_production_task.py", "content_digest"): "produce_domain (дайджест ядра)",
+    ("cftuv/envelope_production_result.py", "semantic_digest"): "запечатывание батча при первом чтении",
     ("cftuv/envelope_production_report.py", "content_digest"): "export_production_json: дайджест содержимого в строке свидетельства",
     ("cftuv/envelope_production_report.py", "semantic_digest"): "export_production_json: семантический дайджест батча в строке свидетельства",
 }

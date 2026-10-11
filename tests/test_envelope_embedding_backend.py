@@ -9,6 +9,8 @@ from cftuv import envelope_domain_pool as pool_module
 from cftuv import envelope_export_input as export_input
 from cftuv import envelope_kernel_backend as host
 from cftuv import envelope_production_export as production
+from cftuv import envelope_production_scan as scan_module
+from cftuv import envelope_production_task as task_module
 from cftuv.envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from cftuv.envelope_debug_session import EnvelopeDebugSessionController
 from cftuv.envelope_production_mesh import DEFAULT_DECAL_OFFSET, build_mesh_arrays
@@ -68,8 +70,8 @@ def test_worker_cold_export_preparation_and_materialization_are_recorded_once(mo
         backend.embedding_compute(*ARGS)
         return _produced()
     monkeypatch.setattr(export_input, "task_inputs", inputs)
-    monkeypatch.setattr(production, "prepare_for_production_recorded", prepare)
-    monkeypatch.setattr(production, "produce_domain", produce)
+    monkeypatch.setattr(task_module, "prepare_for_production_recorded", prepare)  # воркерная сторона: PRODUCTION_EXPORT_SPLIT_V1
+    monkeypatch.setattr(task_module, "produce_domain", produce)
     reply = production.solve_cold_production_task(_task())
     assert reply.ok and not reply.backend_record
     assert reply.production.backend_record.embedding_native_calls == len(calls) == 3
@@ -111,13 +113,13 @@ def test_parent_scan_metric_and_inputs_share_one_record(monkeypatch):
         selected_by_domain={_typed_value("patch-domain", "r", 7): frozenset()},
         hooks=SimpleNamespace(export_provider=lambda *a: None))
     monkeypatch.setattr(envelope_scan_memo, "scan_key", lambda run: None)
-    monkeypatch.setattr(production, "_bound_entry", lambda *a: None)
+    monkeypatch.setattr(scan_module, "_bound_entry", lambda *a: None)  # сканирование: PRODUCTION_EXPORT_SPLIT_V1
     def inputs(run, key, provider):
         assert provider(7, "domain") is snapshot
         backend.embedding_compute(*ARGS)
         return snapshot, object()
-    monkeypatch.setattr(production, "_inputs_of", inputs)
-    monkeypatch.setattr(production, "_entry_with_inputs", lambda run, patch, domain, selected, inputs:
+    monkeypatch.setattr(scan_module, "_inputs_of", inputs)
+    monkeypatch.setattr(scan_module, "_entry_with_inputs", lambda run, patch, domain, selected, inputs:
         production._DomainEntryV1(patch, domain, selected, inputs=inputs))
     entries = production._scan(run)
     assert entries[0].export_record.embedding_native_calls == len(calls) == 2

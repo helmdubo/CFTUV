@@ -942,7 +942,15 @@ MODULE_LINE_ALLOWANCE = {
     # 1954 -> 1957. +3 за выборку круга кодека над снапшотом (SNAPSHOT_BYTE_CHECK_SAMPLED_V1): импорт плана, поле плана в `ColdProductionInputV1` (воркер кладёт его в
     # экспорт топологии задачи) и запись итогов решений в конце нажатия (`finish_press` в `_record_content_counters`); `run_production` получает план одной вставкой в цепочку
     # экспорта топологии (его длина не выросла). Сам план, выборка и счётчики живут в `envelope_snapshot_byte_check.py`. Число поднято осознанно, до фактического.
-    "cftuv/envelope_production_export.py": 1957,
+    # 1957 -> 1000. -957: PRODUCTION_EXPORT_SPLIT_V1, ПЕРЕНОС без изменения поведения. Потолок 1957 стоял на 43 строки под общим пределом и был тормозом:
+    # каждое полезное изменение (быстрый путь шага ширины, кэши между тиками) упиралось не в смысл, а в число, а вынести кусок, не трогая десяток имён,
+    # которые импортируют тесты и инструменты, было нечем. Теперь тип результата и имена (`envelope_production_result`), воркерная сторона
+    # (`envelope_production_task`) и сканирование (`envelope_production_scan`) лежат в своих модулях, а все прежние имена по-прежнему доступны из
+    # `envelope_production_export` (переэкспорт). Потолки новых модулей названы ниже: это не общий предел 2000, а размер модуля с запасом на рост.
+    "cftuv/envelope_production_export.py": 1000,
+    "cftuv/envelope_production_result.py": 420,
+    "cftuv/envelope_production_task.py": 420,
+    "cftuv/envelope_production_scan.py": 500,
 }
 
 
@@ -1848,7 +1856,7 @@ def _call_sites(tree: ast.AST, name: str) -> list[tuple[str, ...]]:
 #: `prepare_for_production_recorded` и `run_queue_domain` ставят блок сами (`prepared_under_backend`); провайдер подготовки отладочной сессии
 #: (`evaluate_staged` -> `preparation_provider`) вызывается ИЗНУТРИ блока `run_queue_domain`, поэтому своего блока не ставит (второй заслонил бы запись первого).
 _PREPARATION_SITES = {
-    "envelope_production_export.py": {"prepare_for_production_recorded"},
+    "envelope_production_task.py": {"prepare_for_production_recorded"},
     "envelope_queue_export.py": {"run_queue_domain"},
     "envelope_debug_session.py": {"evaluate_staged"},
 }
@@ -1865,15 +1873,17 @@ def test_every_host_preparation_stands_under_the_backend_block():
         f"подготовка строится в {sites}, а блок бэкенда стоит в {_PREPARATION_SITES}: новому пути нужен `prepared_under_backend` "
         "(`envelope_kernel_backend`) либо он идёт изнутри блока `run_queue_domain`, и тогда его место называется здесь"
     )
-    for name in ("envelope_production_export.py", "envelope_queue_export.py"):
+    for name in ("envelope_production_task.py", "envelope_queue_export.py"):
         scoped = {stack[0] for stack in _call_sites(_parse(HOST_PACKAGE / name), "prepared_under_backend")}
         assert scoped == _PREPARATION_SITES[name], name
     # холодная задача воркера и родитель строят подготовку одной функцией, блок которой несёт запись скелета;
     # задача воркера открывает журнал в `solve_cold_production_task`, а подготовку зовёт `_solve_cold_production_task`, заимствуя его
+    # (воркерная сторона - `envelope_production_task`, родитель - `envelope_production_export`: PRODUCTION_EXPORT_SPLIT_V1)
+    task = _parse(HOST_PACKAGE / "envelope_production_task.py")
     export = _parse(HOST_PACKAGE / "envelope_production_export.py")
-    for function in ("_solve_cold_production_task", "_produce_cold_in_parent"):
-        assert any(stack[0] == function for stack in _call_sites(export, "prepare_for_production_recorded")), function
-    assert any(stack[0] == "solve_cold_production_task" for stack in _call_sites(export, "_solve_cold_production_task")), "solve_cold_production_task"
+    assert any(stack[0] == "_solve_cold_production_task" for stack in _call_sites(task, "prepare_for_production_recorded")), "_solve_cold_production_task"
+    assert any(stack[0] == "_produce_cold_in_parent" for stack in _call_sites(export, "prepare_for_production_recorded")), "_produce_cold_in_parent"
+    assert any(stack[0] == "solve_cold_production_task" for stack in _call_sites(task, "_solve_cold_production_task")), "solve_cold_production_task"
 
 
 def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
@@ -2170,7 +2180,8 @@ def _backend_violations(tree: ast.Module, file: str) -> list:
 _BACKEND_WIRING_SITES = (
     ("envelope_kernel_backend.py", "backend"),
     ("envelope_production_export.py", "kernel_backend"),
-    ("envelope_production_export.py", "backend"),
+    ("envelope_production_scan.py", "backend"),  # `_RunInputsV1.backend` (PRODUCTION_EXPORT_SPLIT_V1)
+    ("envelope_production_task.py", "backend"),  # `produce_domain`, `prepare_for_production_recorded`
     ("envelope_domain_pool.py", "backend"),
     ("envelope_width_live.py", "kernel_backend"),
     ("envelope_production_operator.py", "kernel_backend"),

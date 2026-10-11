@@ -16,40 +16,32 @@
 Законы UV/топологии передаются материализатору явно. Результат и подготовка
 кэшируются раздельно; перенос между ревизиями проверяет identity/labeling.
 Отказ входа, отказ ядра, исключение и пропажа ответа всегда именованы.
+
+Модуль держит сторону РОДИТЕЛЯ после сканирования: досчёт холодных доменов, пересылку воркерам, доведение результата до прогона и сам
+`run_production`. Остальное вынесено ПЕРЕНОСОМ без изменения поведения (PRODUCTION_EXPORT_SPLIT_V1) и переэкспортируется отсюда: тип
+результата и имена (`envelope_production_result`), воркер (`envelope_production_task`), сканирование (`envelope_production_scan`).
 """
 
 from __future__ import annotations
 
-import pickle
 import time
-import traceback
-import zlib
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, replace
 
-from .envelope_chart_band import tightened_cap_of_facts, tightening_is_current_facts
-from .envelope_lazy_preparation import PRODUCTION_PREPARATION_UNPICKLE_CPU_US, PRODUCTION_PREPARATIONS_UNPICKLED, LazyPreparationV1, record_unpickled
-from .envelope_scan_memo import remember_inputs
-from .envelope_content_key import result_slot
+from .envelope_chart_band import tightened_cap_of_facts
+from .envelope_content_key import result_slot  # noqa: F401 - переэкспорт: имя прежнее
 from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_host_labels import record_host_tokens
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
+    PreparationRefused,
+    backend_timing_suffix,
     entered_backend,
     ledger_record,
-    merge_backend_records,
-    PreparationRefused,
-    backend_identity_of,
-    backend_timing_suffix,
-    prepared_under_backend,
     settle_stage_orders,
-    skeleton_identity_of,
-    with_kernel_backend,
     with_preparation_record,
 )
-from .envelope_snap_retry import retry_snap_lottery, snap_scale_notes
-from .envelope_snapshot_byte_check import finish_press, resolve_plan
-from .envelope_topology_export import metric_law_key
+from .envelope_lazy_preparation import PRODUCTION_PREPARATION_UNPICKLE_CPU_US, PRODUCTION_PREPARATIONS_UNPICKLED, LazyPreparationV1, record_unpickled  # noqa: F401
 from .envelope_production_report import (  # noqa: F401 - переэкспорт: имена прежние
     diagnostic_summary_lines,
     export_production_json,
@@ -60,1091 +52,102 @@ from .envelope_production_report import (  # noqa: F401 - переэкспорт
     receipt_status_text,
     refused_outcome_counts,
 )
-from .envelope_request_policy import (
-    ENVELOPE_UV_POLICIES,
-    ENVELOPE_UV_POLICY_DIRECT_STRIP,
+from .envelope_production_result import (  # noqa: F401 - переэкспорт: имена прежние
+    ColdProductionInputV1,
+    HEAVY_COMPRESSION_LEVEL,
+    MATERIALIZED,
+    OUTCOME_CANON_UNSUPPORTED,
+    OUTCOME_DOMAIN_RAISED,
+    OUTCOME_PREPARATION_UNAVAILABLE,
+    OUTCOME_PRODUCTION_CANCELLED,
+    PICKLE_PROTOCOL,
+    PLACEMENT_CACHED,
+    PLACEMENT_FALLBACK,
+    PLACEMENT_PARENT,
+    PLACEMENT_UNAVAILABLE,
+    PLACEMENT_WORKER,
+    PRODUCTION_ALPHA_INTERVALS_AT_EVENT,
+    PRODUCTION_ALPHA_INTERVALS_CERTIFIED,
+    PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED,
+    PRODUCTION_BUILD_KIND,
+    PRODUCTION_CLIP_MEMO_HITS,
+    PRODUCTION_CLIP_MEMO_MISSES,
+    PRODUCTION_COLD_FILL,
+    PRODUCTION_CONTENT_KEYED,
+    PRODUCTION_CONTENT_PREPARATION_REUSED,
+    PRODUCTION_CONTENT_REGISTERED,
+    PRODUCTION_CONTENT_RELABELED,
+    PRODUCTION_CONTENT_RELABEL_FAILED,
+    PRODUCTION_CONTENT_RESULT_REUSED,
+    PRODUCTION_CONTENT_UNKEYED,
+    PRODUCTION_DOMAINS,
+    PRODUCTION_DOMAIN_GEOMETRY_BUILDS,
+    PRODUCTION_INTERVAL_FALLBACK_PREFIX,
+    PRODUCTION_INTERVAL_FAST_HITS,
+    PRODUCTION_INTERVAL_VERIFY_MISMATCH,
+    PRODUCTION_MATERIALIZED,
+    PRODUCTION_PATCH_METRIC_BUILDS,
+    PRODUCTION_POOL_BLOBS_SHIPPED,
+    PRODUCTION_POOL_BLOB_BYTES_SHIPPED,
+    PRODUCTION_POOL_BLOB_HITS,
+    PRODUCTION_POOL_BLOB_MISSES,
+    PRODUCTION_POOL_BYTES_RECEIVED,
+    PRODUCTION_POOL_BYTES_SENT,
+    PRODUCTION_POOL_UNPICKLE_CPU_US,
+    PRODUCTION_POOL_UNPICKLE_WALL_US,
+    PRODUCTION_PREPARATION_BUILDS,
+    PRODUCTION_PREPARATION_REUSED,
+    PRODUCTION_REFUSED,
+    PRODUCTION_RESULT_CACHE_HIT,
+    PRODUCTION_RESULT_CACHE_MISS,
+    PRODUCTION_SCAN_RECORDS_REUSED,
+    PRODUCTION_STAGE_INPUTS_MEMO_HIT,
+    PRODUCTION_TOPOLOGY_LAW,
+    PRODUCTION_TOPOLOGY_LAWS,
+    PRODUCTION_UV_POLICY,
+    ProductionCancelled,
+    ProductionDomainResultV1,
+    ProductionInputV1,
+    deferred_result,
+    _LAZY_FIELDS,
+    _VIEW_INPUT_FIELDS,
+    _placed,
+    _raised,
+    _refusal,
 )
-from .envelope_stretch_lines import developable_stretch_lines
-from .envelope_worker_store import prepared_of
-from .surface_ir import (
-    HOST_DECAL_TOPOLOGY_POLICY,
-    HOST_NEAR_PLANAR_LIFT_POLICY,
-    HostDecalTopologyPolicy,
+from .envelope_production_scan import (  # noqa: F401 - переэкспорт: имена прежние
+    _NO_BINDING,
+    _DomainEntryV1,
+    _RunInputsV1,
+    _alpha_refusal,
+    _band_key,
+    _binding,
+    _bound_entry,
+    _check_cancel,
+    _content_entry,
+    _entry_from_record,
+    _entry_with_inputs,
+    _inputs_of,
+    _note_relabel_failure,
+    _result_key,
+    _scan,
+    _slot,
 )
-
-#: Закон UV продукта. Реестр законов — `envelope_request_policy`.
-PRODUCTION_UV_POLICY = ENVELOPE_UV_POLICY_DIRECT_STRIP
-#: Закон топологии продукта и допустимые имена (политика хоста, не выбор ядра).
-PRODUCTION_TOPOLOGY_LAW = HOST_DECAL_TOPOLOGY_POLICY.value
-PRODUCTION_TOPOLOGY_LAWS = frozenset(item.value for item in HostDecalTopologyPolicy)
-
-MATERIALIZED = "MATERIALIZED"
-OUTCOME_PREPARATION_UNAVAILABLE = "PREPARATION_UNAVAILABLE"
-OUTCOME_PRODUCTION_CANCELLED = "PRODUCTION_CANCELLED"
-OUTCOME_DOMAIN_RAISED = "PRODUCTION_DOMAIN_RAISED"
-#: Зеркало исхода ядра `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`; исключение, которое ядро не успело назвать само (подготовка), хост называет тем же словом.
-OUTCOME_CANON_UNSUPPORTED = "EXACT_SCALAR_TEXT_CANON_UNSUPPORTED"
-
-#: Стадия профиля продукта и числа, которые он называет.
-PRODUCTION_BUILD_KIND = "PRODUCTION"
-#: 1, если хоть один домен был холодным (без подготовки в кэше сессии): считались подготовки.
-PRODUCTION_COLD_FILL = "PRODUCTION_COLD_FILL"
-PRODUCTION_PREPARATION_REUSED = "PRODUCTION_PREPARATION_REUSED"
-PRODUCTION_PREPARATION_BUILDS = "PRODUCTION_PREPARATION_BUILDS"
-PRODUCTION_PATCH_METRIC_BUILDS = "PRODUCTION_PATCH_METRIC_BUILDS"
-PRODUCTION_DOMAIN_GEOMETRY_BUILDS = "PRODUCTION_DOMAIN_GEOMETRY_BUILDS"
-PRODUCTION_DOMAINS = "PRODUCTION_DOMAINS"
-PRODUCTION_MATERIALIZED = "PRODUCTION_MATERIALIZED"
-PRODUCTION_REFUSED = "PRODUCTION_REFUSED"
-#: Домены, чей результат лежал в кэше сессии, и домены, которые пришлось считать.
-PRODUCTION_RESULT_CACHE_HIT = "PRODUCTION_RESULT_CACHE_HIT"
-PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
-#: Из посчитанных в этом прогоне доменов: чья резка взята из памяти стадии (`cftuv_envelope.materialize.clip_memo`, у
-#: воркера своя) и чья посчитана и записана в неё. Остальные — без резки либо память выключена.
-PRODUCTION_CLIP_MEMO_HITS = "PRODUCTION_CLIP_MEMO_HITS"
-PRODUCTION_CLIP_MEMO_MISSES = "PRODUCTION_CLIP_MEMO_MISSES"
-#: Хранилище по содержимому домена (`envelope_content_store`): домены с ключом содержимого, домены, чей
-#: результат либо подготовка взяты оттуда при другой ревизии, результаты, перенесённые на ревизию прогона,
-#: и переносы, которых не вышло (домен тогда считается заново, причина названа строкой консоли).
-PRODUCTION_CONTENT_KEYED = "PRODUCTION_CONTENT_KEYED"
-#: Из ключённых: сколько доменов этого прогона легло в хранилище. Меньше `KEYED` — домен, чей снапшот строили не
-#: под записью токенов (он взят из кэша ревизии), и результат с исключением: переносить их потом нечем.
-PRODUCTION_CONTENT_REGISTERED = "PRODUCTION_CONTENT_REGISTERED"
-PRODUCTION_CONTENT_RESULT_REUSED = "PRODUCTION_CONTENT_RESULT_REUSED"
-PRODUCTION_CONTENT_PREPARATION_REUSED = "PRODUCTION_CONTENT_PREPARATION_REUSED"
-PRODUCTION_CONTENT_RELABELED = "PRODUCTION_CONTENT_RELABELED"
-PRODUCTION_CONTENT_RELABEL_FAILED = "PRODUCTION_CONTENT_RELABEL_FAILED"
-PRODUCTION_CONTENT_UNKEYED = "PRODUCTION_CONTENT_UNKEYED"
-#: Пролог прогона (`StageInputsMemoV1`) взят из памяти (1) либо посчитан (0); сколько доменов взяли вход из записей сборки
-#: (`envelope_scan_memo`, ширина подставлена в запрос) вместо сборки заново. Это память, а не ответ: тот же ответ без неё.
-PRODUCTION_STAGE_INPUTS_MEMO_HIT = "PRODUCTION_STAGE_INPUTS_MEMO_HIT"
-PRODUCTION_SCAN_RECORDS_REUSED = "PRODUCTION_SCAN_RECORDS_REUSED"
-#: Записанные факты шага ширины (`ProductionDomainResultV1.alpha_interval`): сколько материализованных доменов получили заверенный
-#: интервал, сколько стоят на самом событии (окрестности нет) и у скольких событий посчитать нельзя (причина - в записи домена).
-PRODUCTION_ALPHA_INTERVALS_CERTIFIED = "PRODUCTION_ALPHA_INTERVALS_CERTIFIED"
-PRODUCTION_ALPHA_INTERVALS_AT_EVENT = "PRODUCTION_ALPHA_INTERVALS_AT_EVENT"
-PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED = "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED"
-#: Шаг ширины домена (`cftuv_envelope.materialize.step`): домены прогона, покрытие которых воспроизведено из шаблона внутри заверенного
-#: интервала (`FAST_HITS`), и домены, считанные полным путём под именем причины (`FALLBACK_<ПРИЧИНА>`: `NO_CERTIFICATE`, `OUTSIDE_BELOW`,
-#: `OUTSIDE_ABOVE`, `TEMPLATE_UNAVAILABLE`, `DISABLED`, `PARTIAL_TEMPLATE`). `VERIFY_MISMATCH` - расхождения сверки быстрого пути с полным
-#: (`CFTUV_INTERVAL_VERIFY=1`): ноль всегда, иначе ответ - полный, а число - тревога. Метки запуска, не ответ.
-PRODUCTION_INTERVAL_FAST_HITS = "PRODUCTION_INTERVAL_FAST_HITS"
-PRODUCTION_INTERVAL_FALLBACK_PREFIX = "PRODUCTION_INTERVAL_FALLBACK_"
-PRODUCTION_INTERVAL_VERIFY_MISMATCH = "PRODUCTION_INTERVAL_VERIFY_MISMATCH"
-
-#: Что стоил пулу прогон по трубам (`PoolStatsV1`): байты туда и обратно, подготовки ключом и пиклом, промахи памяти воркера и
-#: разбор ответов в родителе (микросекунды: CPU потоков-читателей и стена с ожиданием GIL). Пишутся, когда пул работал.
-PRODUCTION_POOL_BYTES_SENT = "PRODUCTION_POOL_BYTES_SENT"
-PRODUCTION_POOL_BYTES_RECEIVED = "PRODUCTION_POOL_BYTES_RECEIVED"
-PRODUCTION_POOL_BLOB_HITS = "PRODUCTION_POOL_BLOB_HITS"
-PRODUCTION_POOL_BLOBS_SHIPPED = "PRODUCTION_POOL_BLOBS_SHIPPED"
-PRODUCTION_POOL_BLOB_BYTES_SHIPPED = "PRODUCTION_POOL_BLOB_BYTES_SHIPPED"
-PRODUCTION_POOL_BLOB_MISSES = "PRODUCTION_POOL_BLOB_MISSES"
-PRODUCTION_POOL_UNPICKLE_CPU_US = "PRODUCTION_POOL_UNPICKLE_CPU_US"
-PRODUCTION_POOL_UNPICKLE_WALL_US = "PRODUCTION_POOL_UNPICKLE_WALL_US"
-
-PLACEMENT_WORKER = "worker"
-PLACEMENT_PARENT = "parent"
-#: Домен не считался: результат взят из кэша сессии.
-PLACEMENT_CACHED = "cache"
-#: Домен считал родитель, и причина названа: те же имена, что у отладки.
-PLACEMENT_UNAVAILABLE = "parent:ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
-PLACEMENT_FALLBACK = "parent:ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
-
-
-class ProductionCancelled(RuntimeError):
-    """Прогон остановлен по заказу (`cancel`): результата нет и не будет, кэши сессии целы.
-
-    Это НЕ отказ домена: ни один домен не назван отказавшим и ничего не посчитано родителем
-    взамен недоделанного пулом. Бросается только когда вызывающий передал `cancel`.
-    """
-
-
-@dataclass(frozen=True, slots=True)
-class ProductionInputV1:
-    """Вход задачи пула: пикл готовой подготовки, закон UV и закон топологии.
-
-    Остальное воркер берёт из самой задачи (`DomainTaskV1.alpha_text`,
-    `patch_id`, `domain_id`). Снапшот и запрос не пересылаются: запрос подготовки
-    лежит в ней самой, а законы — по одному параметру. Закон топологии — поле со
-    значением по умолчанию, поэтому задача без него (прежняя форма) читается.
-    """
-
-    blob: bytes | None
-    uv_policy_id: str = PRODUCTION_UV_POLICY
-    topology_law: str = PRODUCTION_TOPOLOGY_LAW
-    #: Перенос результата на ревизию и запрос прогона (`RelabelV1`) делает воркер, параллельно; `None` — без
-    #: переноса (подготовка этой ревизии). `carried` — `blob` это не подготовка, а готовый результат из
-    #: хранилища по содержимому: воркер только переносит его.
-    relabel: object | None = None
-    carried: bool = False
-    #: Ключ пикла в памяти подготовок воркера (`envelope_worker_store.blob_key`); пусто - подготовка не запоминается. Пул шлёт
-    #: задачу без `blob` (одним ключом) воркеру, который подготовку держит, и с `blob` - остальным.
-    key: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class ColdProductionInputV1:
-    """Вход задачи «холодный домен»: два закона; сами входы идут в самой задаче.
-
-    Снапшот и запрос домена воркер берёт у задачи (`DomainTaskV1.snapshot`, `request`) либо
-    выгружает сам (`DomainTaskV1.export`) — как у задачи отладочного вычислителя.
-    """
-
-    uv_policy_id: str = PRODUCTION_UV_POLICY
-    topology_law: str = PRODUCTION_TOPOLOGY_LAW
-    snapshot_byte_check: object | None = None  # `SnapshotByteCheckPlanV1` нажатия (`None` - проверка байтов на каждом домене); воркер кладёт его в экспорт топологии задачи
-
-
-#: Поля результата, которых у ОТЛОЖЕННОГО результата нет в `__dict__` до первого чтения: они лежат в `heavy` (`batch` и нормали
-#: вершин) либо считаются из батча (`content_digest`), и `__getattr__` отдаёт их по требованию. У них нет значения по
-#: умолчанию на уровне класса (`default_factory`), иначе чтение не дошло бы до `__getattr__`.
-_LAZY_FIELDS = frozenset({"batch", "vertex_normals", "content_digest"})
-#: Поля, от которых зависит вид домена (`view`): их смена делает присланный вид чужим.
-_VIEW_INPUT_FIELDS = frozenset({"patch_id", "normal", "source_normal"})
-PICKLE_PROTOCOL = 5
-#: Пикл батча сжимается zlib (уровень 1): он повторяет одни и те же строки ключей, и на `building` 2.35 МБ идут как 0.53 МБ за 17 мс на все
-#: домены (разжатие - 5 мс). Это байты трубы и память кэшей результатов, а не секунды критического пути.
-HEAVY_COMPRESSION_LEVEL = 1
-
-
-@dataclass(frozen=True)
-class ProductionDomainResultV1:
-    """Исход продуктового пути по ОДНОМУ домену: батч либо названный отказ.
-
-    `outcome` — `MATERIALIZED` либо имя отказа (исход ядра, исход хоста либо
-    одно из двух имён этого модуля). `normal` — единичная нормаль плоскости
-    домена, лицевая сторона сетки (направление смещения над поверхностью —
-    политика писателя меша). `counters` — числа материализатора, всё это ответ.
-
-    ОТЛОЖЕННЫЙ РЕЗУЛЬТАТ (`deferred_result`, так отвечает воркер пула). Родитель читает из батча домена немногое (`view`: вершины,
-    грани, UV, владельцы, швы, цепи шва - плоские кортежи, их разбор стоит копейки), а разворот графа записей батча - около
-    0.4 с под GIL на `building` на каждом шаге ширины. Поэтому воркер присылает вид и всё тяжёлое одним куском байтов
-    (`heavy`: батч и нормали вершин, пикл под zlib), а `batch`, `vertex_normals` и `content_digest` читаются как прежде, но разворачиваются и
-    считаются при ПЕРВОМ чтении. Что прочитано, то равно eager-результату: батч запечатывается настоящим семантическим
-    дайджестом, `content_digest` — sha256 канонических байтов того же батча (оба - чистые функции батча). Тихо не пропадает
-    ничего: полей нет в `__dict__`, но чтение их достаёт, пикл несёт `heavy`, сравнение сравнивает прочитанное.
-    `dataclasses.replace` на отложенном результате честно разворачивает его (и сбрасывает `view` и `heavy`: у нового результата
-    они не наследуются); сохраняет отложенность только `with_changes`.
-
-    Не входят в сравнение: секунды и `placement` — где посчитан домен. Размещение
-    — свойство запуска, а не ответа (так же, как счётчики пула отладки).
-    """
-
-    patch_id: int
-    domain_id: str
-    outcome: str
-    batch: object | None
-    detail: str = ""
-    counters: tuple[tuple[str, int], ...] = ()
-    normal: tuple[float, float, float] | None = None
-    content_digest: str = field(default_factory=str)
-    diagnostics: tuple[str, ...] = ()
-    #: Нормаль первой исходной грани владельца (то, что видит источник) —
-    #: свидетельство для именованной проверки хоста `normal . source_normal > 0`.
-    source_normal: tuple[float, float, float] | None = None
-    #: Ориентация карты домена (`AffineChartOrientationV1.value`): от неё зависят
-    #: обход треугольников и знак нормали, поэтому она идёт в сводку зонда.
-    chart_orientation: str = ""
-    #: Нормаль смещения КАЖДОЙ вершины батча (`vert_key`, единичная) у домена-развёртки
-    #: и закон, который её дал (`SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`): у развёртки нет
-    #: плоскости источника, смещение декали идёт по нормали вершины, а `normal` выше —
-    #: лишь сводка (нормированное среднее). У плоского и near-planar домена пусто.
-    vertex_normals: tuple = field(default_factory=tuple)
-    offset_normal_law: str = ""
-    #: Побитовый sha256 этих нормалей (`offset_normals_digest` ядра): они сдвигают вершины
-    #: меша, но в дайджест батча не входят, и только этот дайджест виден воротам и свипу.
-    offset_normals_digest: str = ""
-    #: Закон топологии, по которому собрана сетка (`DecalTopologyLawV1.value`): пусто у отказа.
-    decal_topology_law: str = ""
-    seconds: float = field(default=0.0, compare=False)
-    placement: str = field(default=PLACEMENT_PARENT, compare=False)
-    #: Как получена резка домена (`clip_memo.HIT/MISS/OFF/BYPASS`, пусто — резки нет): метка запуска, не ответ.
-    clip_memo: str = field(default="", compare=False)
-    #: ЗАПИСАННЫЕ факты шага ширины (`MaterializationV1.interval` и `.structure`), не ответ: заверенный интервал ширины, внутри
-    #: которого структура покрытия и резки домена та же (`cftuv_envelope.materialize.interval.AlphaIntervalV1`), и подпись структуры
-    #: батча по содержанию (`structure.StructureSignatureV1.digest`; ключи вершин несут идентичности ревизии, поэтому перенос на
-    #: другую ревизию пересчитывает её). Пусто у отказа.
-    alpha_interval: object | None = field(default=None, compare=False)
-    structure_digest: str = field(default="", compare=False)
-    #: Как получен домен на шаге ширины (`cftuv_envelope.materialize.step.StepV1.path`): `FAST_HIT` (покрытие из шаблона внутри
-    #: заверенного интервала), `FALLBACK:<причина>` (полный счёт, причина названа) либо `VERIFY_MISMATCH:<части>`. Метка запуска, не ответ.
-    step_path: str = field(default="", compare=False)
-    #: Запись идентичностей хоста, при которых посчитан результат (`DomainLabelingV1`), либо `None`: по ней
-    #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
-    #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
-    labels: object | None = field(default=None, compare=False, repr=False)
-    #: Что нативный бэкенд сделал с доменом (`BackendRecordV1`: кто посчитал, названный откат на Python) либо `None` (`PYTHON`).
-    backend_record: object | None = field(default=None, compare=False, repr=False)
-    #: `DomainViewV1` (`envelope_production_view`), посчитанный воркером, и пикл `(батч, нормали вершин)` отложенного результата.
-    #: Не аргументы конструктора: у результата, собранного заново, их нет (чужой вид к новому батчу не прикладывается).
-    view: object | None = field(default=None, init=False, compare=False, repr=False)
-    heavy: bytes | None = field(default=None, init=False, compare=False, repr=False)
-
-    @property
-    def is_materialized(self) -> bool:
-        state = self.__dict__
-        return self.outcome == MATERIALIZED and (
-            state.get("heavy") is not None or state.get("batch") is not None
-        )
-
-    def __getattr__(self, name):
-        if name in _LAZY_FIELDS and self.__dict__.get("heavy") is not None:
-            if name == "content_digest":
-                object.__setattr__(self, name, self._content_digest_of(self.batch))
-            else:
-                self._thaw()
-            return self.__dict__[name]
-        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
-
-    def _thaw(self) -> None:
-        """Разворачивает `heavy` в `batch` и `vertex_normals`; батч без дайджеста запечатывается настоящим."""
-
-        batch, vertex_normals = pickle.loads(zlib.decompress(self.__dict__["heavy"]))
-        if batch is not None:
-            from cftuv_envelope.canonical import PENDING_SEMANTIC_DIGEST, sealed_geometry_batch
-
-            if batch.semantic_digest.value == PENDING_SEMANTIC_DIGEST:
-                batch = sealed_geometry_batch(batch)
-        object.__setattr__(self, "vertex_normals", vertex_normals)
-        object.__setattr__(self, "batch", batch)
-
-    @staticmethod
-    def _content_digest_of(batch) -> str:
-        from hashlib import sha256
-
-        from cftuv_envelope.codec import canonical_json_bytes
-
-        return "" if batch is None else sha256(canonical_json_bytes(batch)).hexdigest()
-
-    def __getstate__(self) -> dict:
-        state = dict(self.__dict__)
-        if state.get("heavy") is not None:
-            # Развёрнутое лежит и в `heavy`: дважды его не пикляют (отложенность переживает пересылку).
-            state.pop("batch", None)
-            state.pop("vertex_normals", None)
-        return state
-
-    def materialized(self, with_digest: bool = True) -> "ProductionDomainResultV1":
-        """Тот же результат без отложенности: поля развёрнуты, `view` и `heavy` нет (новый батч не наследует чужой вид)."""
-
-        if self.__dict__.get("heavy") is None:
-            return self
-        state = dict(self.__dict__)
-        state["batch"], state["vertex_normals"] = self.batch, self.vertex_normals
-        if "content_digest" not in state:
-            state["content_digest"] = self._content_digest_of(state["batch"]) if with_digest else ""
-        state.pop("heavy")
-        state.pop("view", None)
-        copy = object.__new__(type(self))
-        copy.__dict__.update(state)
-        return copy
-
-    def with_changes(self, **changes) -> "ProductionDomainResultV1":
-        """`dataclasses.replace`, не разворачивающий отложенный результат (метки запуска, запись идентичностей, секунды).
-
-        Смена поля, от которого зависит вид (`patch_id`, нормали), сбрасывает присланный вид; смена `batch`, нормалей вершин
-        и дайджеста разворачивает результат целиком (новый батч - новый результат, без чужого `heavy`).
-        """
-
-        names = {item.name for item in fields(self) if item.init}
-        unknown = set(changes) - names
-        if unknown:
-            raise TypeError(f"unexpected fields {sorted(unknown)}")
-        if _LAZY_FIELDS & changes.keys():
-            return replace(self.materialized(), **changes)
-        state = dict(self.__dict__)
-        state.update(changes)
-        if _VIEW_INPUT_FIELDS & changes.keys():
-            state.pop("view", None)
-        copy = object.__new__(type(self))
-        copy.__dict__.update(state)
-        return copy
-
-
-def deferred_result(result: ProductionDomainResultV1) -> ProductionDomainResultV1:
-    """Отложенная копия материализованного результата: вид посчитан, батч и нормали вершин упакованы в `heavy`.
-
-    Отказ (без батча) и уже отложенный результат возвращаются как есть. Батч может быть без дайджеста
-    (`materialize_domain(digests=False)`): его запечатывает первое чтение. Известный `content_digest` остаётся в поле.
-    """
-
-    if result.__dict__.get("heavy") is not None or result.batch is None:
-        return result
-    from .envelope_production_view import build_domain_view
-
-    state = dict(result.__dict__)
-    state["view"] = build_domain_view(result)
-    packed = pickle.dumps((state.pop("batch"), state.pop("vertex_normals")), protocol=PICKLE_PROTOCOL)
-    state["heavy"] = zlib.compress(packed, HEAVY_COMPRESSION_LEVEL)
-    if not state.get("content_digest"):
-        state.pop("content_digest", None)
-    copy = object.__new__(type(result))
-    copy.__dict__.update(state)
-    return copy
-
-
-def _refusal(patch_id, domain_id, outcome, detail, seconds=0.0, placement=PLACEMENT_PARENT):
-    return ProductionDomainResultV1(
-        patch_id=int(patch_id),
-        domain_id=str(domain_id),
-        outcome=str(outcome),
-        batch=None,
-        detail=str(detail),
-        seconds=seconds,
-        placement=placement,
-    )
-
-
-def _source_normal(prepared):
-    """Нормаль первой (по имени) исходной грани патча-владельца либо `None`."""
-
-    owner = prepared.compilation.owner_patch_id
-    faces = sorted(
-        (
-            item
-            for item in prepared.context.snapshot.surface_ir.source_faces
-            if item.patch_id == owner
-        ),
-        key=lambda item: item.face_id.value,
-    )
-    normal = faces[0].polygon_normal if faces else None
-    return None if normal is None else (normal.x, normal.y, normal.z)
-
-
-def _summary_normal(vertex_normals):
-    """Нормированное среднее нормалей вершин развёртки либо `None` (у плоского домена их нет)."""
-
-    if not vertex_normals:
-        return None
-    total = [sum(item[1][axis] for item in vertex_normals) for axis in range(3)]
-    length = sum(axis * axis for axis in total) ** 0.5
-    if not length:
-        return None
-    from cftuv_envelope.numeric import LocalVector3V1
-
-    return LocalVector3V1(*(axis / length for axis in total))
-
-
-@with_kernel_backend
-def produce_domain(
-    patch_id: int,
-    domain_id: str,
-    prepared,
-    alpha_text: str,
-    *,
-    uv_policy_id: str = PRODUCTION_UV_POLICY,
-    topology_law: str = PRODUCTION_TOPOLOGY_LAW,
-    defer: bool = False,
-) -> ProductionDomainResultV1:
-    """Покрытие на готовой подготовке и материализация: общий код всех путей.
-
-    Его зовут воркер пула (`solve_production_task`) и родитель (малая партия,
-    пул недоступен, задача упала, ноль воркеров) — размещение не меняет ответ,
-    потому что код один. Память разложений сбрасывается перед доменом: статьи
-    бюджета материализации не зависят от истории процесса (как у кнопки отладки).
-    Исключение внутри домена не роняет пул и не теряется: оно называется.
-
-    `defer=True` (так считает воркер) — отложенный результат (`deferred_result`): дайджесты не считаются (ядро `digests=False`),
-    вид домена посчитан, батч упакован в байты. Прочитанное из него равно результату `defer=False`.
-    """
-
-    if uv_policy_id not in ENVELOPE_UV_POLICIES:
-        raise ValueError(f"unknown UV policy {uv_policy_id!r}")
-    if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
-        raise ValueError(f"unknown decal topology law {topology_law!r}")
-    started = time.perf_counter()
-    try:
-        from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
-        from cftuv_envelope.exact_sqrt_sum import (
-            reset_factorization_memory,
-            reset_unbudgeted_work,
-        )
-        from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
-        from cftuv_envelope.materialize.admit import (
-            admit_domain,
-            materialization_request,
-        )
-        from cftuv_envelope.materialize.lift import plane_normal_binary64
-        from cftuv_envelope.materialize.step import step_domain
-
-        reset_factorization_memory()
-        reset_unbudgeted_work()
-        if prepared.outcome.value != "EXACT":
-            # Ядро называет это само: подготовка без компиляции запроса не
-            # имеет, и отказ приходит из `admit` до любой работы.
-            refused = admit_domain(prepared, None, None)
-            return _refusal(
-                patch_id,
-                domain_id,
-                refused.outcome.value,
-                refused.detail,
-                time.perf_counter() - started,
-            )
-        # Покрытие из шаблона внутри заверенного интервала ширины, иначе полный путь с записью шаблона; ответ в обоих случаях один.
-        stepped = step_domain(
-            prepared,
-            alpha_text,
-            request=materialization_request(prepared, uv_policy_id=uv_policy_id),
-            near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
-            decal_topology_law=DecalTopologyLawV1(topology_law),
-            digests=not defer,
-        )
-        result = stepped.result
-        if not result.is_materialized:
-            return _refusal(
-                patch_id,
-                domain_id,
-                result.outcome.value,
-                result.detail,
-                time.perf_counter() - started,
-            )
-        normal = _summary_normal(result.vertex_normals) or plane_normal_binary64(prepared.context.frame)
-        produced = ProductionDomainResultV1(
-            patch_id=int(patch_id),
-            domain_id=str(domain_id),
-            outcome=MATERIALIZED,
-            batch=result.batch,
-            detail="",
-            counters=tuple((str(name), value) for name, value in result.counters),
-            normal=(normal.x, normal.y, normal.z),
-            content_digest=result.content_digest,
-            diagnostics=(*result.diagnostics, *snap_scale_notes(prepared)),
-            source_normal=_source_normal(prepared),
-            chart_orientation=str(prepared.context.frame.chart_orientation.value),
-            vertex_normals=tuple(result.vertex_normals),
-            offset_normal_law=result.offset_normal_law,
-            offset_normals_digest=result.offset_normals_digest,
-            decal_topology_law=result.decal_topology_law.value,
-            seconds=time.perf_counter() - started,
-            clip_memo=result.clip_memo,
-            alpha_interval=result.interval,
-            structure_digest="" if result.structure is None else result.structure.digest,
-            step_path=stepped.path,
-        )
-        if defer:
-            produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
-        return produced
-    except Exception as exc:  # noqa: BLE001 - исход называется, а не теряется
-        return _raised(exc, patch_id, domain_id, time.perf_counter() - started)
-
-
-def prepare_for_production_recorded(
-    snapshot,
-    request,
-    *,
-    backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str | None = None,
-    embedding_backend: str | None = None,
-    borrowed_ledger=None,
-    checker=None,
-):
-    """`(подготовка, запись бэкенда | None)`: подготовка очереди с холодной памятью разложений под блоком бэкенда; `checker` - `WorkerSnapshotCheck` задачи воркера (ту же проверку снапшота отдаёт он, `clean_issues_for`).
-
-    Память разложений и счётчик внебюджетной работы обнуляются ПЕРЕД подготовкой
-    (`run_queue_domain` делает ровно это): статьи бюджета не зависят от того, какие
-    домены процесс уже видел, а в пуле — от того, как задачи легли на воркеры.
-
-    Скелет считается ЗДЕСЬ (`prepare_conveyor` -> `_prepare_region` -> `backend.skeleton_compute`), а не в `produce_domain`, поэтому блок бэкенда стоит
-    вокруг подготовки (`prepared_under_backend`) и в родителе, и в воркере пула; запись подготовки (скелет отдельно) идёт к записи материализации
-    (`with_preparation_record`). Обе стадии `PYTHON` — записи нет, путь побитово равен вызову без блока. Домен, которому нативное ядро отказало по имени, отказан
-    `PreparationRefused`: подготовки у него нет.
-    """
-
-    from cftuv_envelope.exact_sqrt_sum import (
-        reset_factorization_memory,
-        reset_unbudgeted_work,
-    )
-    from cftuv_envelope.wavefront import prepare_conveyor
-
-    reset_factorization_memory()
-    reset_unbudgeted_work()
-    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request, snapshot_issues=checker and checker.clean_issues_for(snapshot, request.developable_stretch_budget)), backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger)
-
-
-def prepare_for_production(
-    snapshot,
-    request,
-    *,
-    backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str | None = None,
-    embedding_backend: str | None = None,
-):
-    """Подготовка очереди с холодной памятью разложений (то, что делала кнопка отладки) без записи бэкенда: `prepare_for_production_recorded(...)[0]`."""
-
-    return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend, embedding_backend=embedding_backend)[0]
-
-
-def _raised(exc, patch_id, domain_id, seconds, placement=PLACEMENT_PARENT):
-    """Отказ домена по исключению: «нет канонической строки V2» называется своим словом, прочее - `PRODUCTION_DOMAIN_RAISED` с хвостом трассы."""
-
-    from cftuv_envelope.reference.native_exact import ExactScalarTextCanonUnsupported
-
-    if isinstance(exc, ExactScalarTextCanonUnsupported):
-        return _refusal(patch_id, domain_id, OUTCOME_CANON_UNSUPPORTED, str(exc), seconds, placement)
-    tail = " | ".join(item.strip() for item in traceback.format_exc().strip().splitlines()[-3:])
-    return _refusal(patch_id, domain_id, OUTCOME_DOMAIN_RAISED, tail, seconds, placement)
-
-
-def solve_cold_production_task(task):
-    """Один журнал экспорта и подготовки, включая ранний отказ; вложенная подготовка его заимствует."""
-
-    from .envelope_domain_pool import DomainTaskResultV1
-
-    with entered_backend(task.backend, task.skeleton_backend, task.embedding_backend) as ledger:
-        try:
-            reply = _solve_cold_production_task(task, ledger)
-        except Exception:  # тот же ответ ошибки пула, но запись экспорта не теряется
-            reply = DomainTaskResultV1(task.task_id, error=traceback.format_exc())
-    record = ledger_record(ledger)
-    if reply.production is not None:
-        return replace(reply, production=with_preparation_record(reply.production, record))
-    return replace(reply, backend_record=record)
-
-
-def _solve_cold_production_task(task, ledger):
-    """Воркер пула: холодный домен целиком — выгрузка (если нужна), подготовка, материализация.
-
-    Подготовка и материализация идут подряд тем же кодом, что и порознь (`prepare_for_production`
-    и `produce_domain`, который сам обнуляет память перед покрытием), поэтому ответ тот же, что
-    у домена на подготовке из кэша. Ответ несёт и подготовку: у родителя её ещё нет, и в кэш
-    сессии она входит так же, как подготовка отладочного вычислителя. Отказ выгрузки приходит
-    ответом-отказом (`refusal`) и разбирается родителем, как разобрал бы он сам.
-    """
-
-    from .envelope_export_input import TaskInputsV1, task_inputs
-
-    inputs = task_inputs(task)
-    if not isinstance(inputs, TaskInputsV1):
-        return inputs
-    started = time.perf_counter()
-    try:
-        prepared, preparation_record = prepare_for_production_recorded(
-            inputs.snapshot,
-            inputs.request,
-            backend=task.backend,
-            skeleton_backend=task.skeleton_backend,
-            embedding_backend=task.embedding_backend,
-            borrowed_ledger=ledger,
-            checker=inputs.checker,
-        )
-    except PreparationRefused as refused:
-        # Нативное ядро отказало скелету по имени: домен отказан этим именем (эталону он не отдаётся), подготовки у него нет.
-        prepare_seconds = time.perf_counter() - started
-        inputs.profile.add_timing("QUEUE_PREPARE", prepare_seconds, task.domain_id)
-        return inputs.result(
-            prepared=None,
-            production=_placed(
-                _refusal(task.patch_id, task.domain_id, refused.outcome, refused.detail, prepare_seconds).with_changes(
-                    backend_record=refused.record, labels=inputs.labeling
-                ),
-                PLACEMENT_WORKER,
-            ),
-            snapshot=inputs.snapshot if inputs.exported else None,
-        )
-    prepare_seconds = time.perf_counter() - started
-    inputs.profile.add_timing("QUEUE_PREPARE", prepare_seconds, task.domain_id)
-    produced = produce_domain(
-        task.patch_id,
-        task.domain_id,
-        prepared,
-        task.alpha_text,
-        uv_policy_id=task.cold.uv_policy_id,
-        topology_law=task.cold.topology_law,
-        defer=True,
-        backend=task.backend,
-        skeleton_backend=task.skeleton_backend,
-        embedding_backend=task.embedding_backend,
-    )
-    return inputs.result(
-        prepared=prepared,
-        production=_placed(
-            with_preparation_record(produced, preparation_record).with_changes(
-                seconds=produced.seconds + prepare_seconds,
-                labels=inputs.labeling,
-            ),
-            PLACEMENT_WORKER,
-        ),
-        snapshot=inputs.snapshot if inputs.exported else None,
-    )
-
-
-def solve_production_task(task):
-    """Воркер пула: домен продуктового пути на присланной подготовке.
-
-    Ответ — `DomainTaskResultV1` с полем `production`; подготовку обратно не
-    шлют, она у родителя уже есть.
-    """
-
-    from .envelope_domain_pool import DomainTaskResultV1
-
-    production = task.production
-    payload = prepared_of(production, retain=not production.carried)
-    result = (
-        payload
-        if production.carried
-        else produce_domain(
-            task.patch_id,
-            _domain_of_preparation(task.domain_id, production.relabel),
-            payload,
-            task.alpha_text,
-            uv_policy_id=production.uv_policy_id,
-            topology_law=production.topology_law,
-            defer=True,
-            backend=task.backend,
-            skeleton_backend=task.skeleton_backend,
-            embedding_backend=task.embedding_backend,
-        )
-    )
-    if production.relabel is not None:
-        try:
-            result = carried_to_run(result, production.relabel)
-        except ContentRelabelFailed:
-            # Родитель повторит перенос, получит тот же отказ, назовёт его и посчитает домен заново.
-            pass
-    return DomainTaskResultV1(
-        task.task_id,
-        production=_placed(deferred_result(result), PLACEMENT_WORKER),
-    )
-
-
-def _domain_of_preparation(domain_id: str, relabel) -> str:
-    """Домен, на подготовке которого считают: подготовка из хранилища несёт идентичности СВОЕЙ ревизии.
-
-    Результат получает id домена той ревизии, при которой подготовка посчитана, и переносится целиком
-    (`relabel_result`); id домена текущей ревизии, подставленный в него до переноса, был бы единственной
-    строкой результата, которой нет в записи подготовки.
-    """
-
-    if relabel is None or relabel.base is None:
-        return domain_id
-    return relabel.base.domain_id()
-
-
-def _placed(result: ProductionDomainResultV1, placement: str):
-    return result.with_changes(placement=placement)
-
-
-# --------------------------------------------------------------------------
-# Родитель: что есть в сессии, что досчитать, куда отдать
-# --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class _DomainEntryV1:
-    """Что сессия знает о домене: отказ входа, готовый результат, подготовка либо ничего.
-
-    `inputs` — `(snapshot, request)`, когда метрика домена лежит в кэше сессии; `export` —
-    лёгкий вход выгрузки, когда её там нет (снапшот тогда выгрузит воркер, вместе с
-    подготовкой). `result_key` и `cached` — ключ кэша результатов и результат под ним.
-    """
-
-    patch_id: int
-    domain_id: str
-    selected: frozenset
-    failure: object | None = None
-    prepared: object | None = None
-    inputs: tuple | None = None
-    export: object | None = None
-    result_key: tuple | None = None
-    cached: object | None = None
-    #: Ключ содержимого домена (`None`: не адресуется по содержимому), запись идентичностей подготовки из
-    #: хранилища и что оттуда взято: `result` либо `preparation` (пусто: ничего).
-    content_key: str | None = None
-    labeling: object | None = None
-    reuse: str = ""
-    #: Готовый результат из хранилища по содержимому, ещё НЕ перенесённый на ревизию прогона: перенос — работа
-    #: (воркера либо родителя), поэтому домен остаётся в `needs_work`, но не считается и не холоден.
-    carried: object | None = None
-    #: Журнал экспорта только этого прогона; сливается с подготовкой/материализацией один раз.
-    export_records: list = field(default_factory=list, compare=False, repr=False)
-    #: Вход `(снапшот, запрос)`, который родитель построил для холодного домена после ответа воркера (`_adopt_cold`): `_dispatch` пишет его в записи сборки.
-    built_inputs: list = field(default_factory=list, compare=False, repr=False)
-
-    @property
-    def export_record(self):
-        record = None
-        for part in self.export_records:
-            record = merge_backend_records(record, part)
-        return record
-
-    @property
-    def is_cold(self) -> bool:
-        return (
-            self.failure is None
-            and self.prepared is None
-            and self.cached is None
-            and self.carried is None
-        )
-
-    @property
-    def needs_work(self) -> bool:
-        return self.failure is None and self.cached is None
-
-    @property
-    def computes(self) -> bool:
-        """Домену нужно ПОСЧИТАТЬ ответ (а не взять готовый из кэша ревизии или из хранилища)."""
-
-        return self.needs_work and self.carried is None
-
-
-@dataclass(frozen=True, slots=True)
-class _RunInputsV1:
-    """Всё, что одному прогону известно о выделении, сессии и законах."""
-
-    controller: object
-    analysis_bundle: object
-    topology_export: object
-    revision: str
-    patch_ids: tuple
-    selected_by_domain: dict
-    alpha: float
-    alpha_text: str
-    request_id: str
-    density: object
-    uv_policy_id: str
-    topology_law: str
-    hooks: object
-    profile: object
-    #: Что хранилище по содержимому сделало в ЭТОМ прогоне: патчи, чей результат перенесён на ревизию
-    #: прогона, и переносы, которых не вышло (`(патч, причина)`).
-    #: `threading.Event` заказа остановки либо `None` (кнопка не отменяется).
-    cancel: object = None
-    #: Главный переключатель ядра и его идентичность в ключах кэшей: результат одного бэкенда не подменяет результат другого.
-    backend: str = DEFAULT_KERNEL_BACKEND
-    #: Идентичности (`None` — их выводит `__post_init__` из порядков): `backend_id` несёт идентичность всех стадий (результат), `skeleton_id` — только скелета (ключ кэша подготовки сессии).
-    backend_id: str | None = None
-    #: Постадийные порядки (`None` — как `backend`; `__post_init__` приводит поля к именам).
-    skeleton_backend: str | None = None
-    skeleton_id: str | None = None
-    embedding_backend: str | None = None
-    relabeled: list = field(default_factory=list)
-    relabel_failures: list = field(default_factory=list)
-    registered: list = field(default_factory=list)
-    #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет), "key_memo": тексты общих записей для ключей содержимого этого прогона}`; повтор лотереи привязки заводит свои.
-    scan_records: dict = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        settle_stage_orders(self)
-        if self.backend_id is None:
-            object.__setattr__(self, "backend_id", backend_identity_of(self.backend, self.skeleton_backend, self.embedding_backend))
-        if self.skeleton_id is None:
-            object.__setattr__(self, "skeleton_id", skeleton_identity_of(self.skeleton_backend))
-
-    @property
-    def grid_scale_law(self):
-        """Закон выбора масштаба решётки прогона (`None`: умолчание ядра; повтор после отказа лотереи привязки - `PLANE_PRESERVING_V1`): часть ключей кэшей."""
-
-        return getattr(self.topology_export, "grid_scale_law", None)
-
-
-def _check_cancel(run: _RunInputsV1) -> None:
-    """Точки остановки: до работы родителя над доменом и сразу после возврата пула."""
-
-    if run.cancel is not None and run.cancel.is_set():
-        raise ProductionCancelled(f"{OUTCOME_PRODUCTION_CANCELLED}: the order was superseded")
-
-
-def _inputs_of(run: _RunInputsV1, entry_key, provider):
-    from .envelope_queue_export import _queue_snapshot_and_request
-
-    patch_id, domain_id, selected = entry_key
-    return _queue_snapshot_and_request(
-        run.analysis_bundle,
-        patch_id,
-        domain_id,
-        selected,
-        run.alpha,
-        run.request_id,
-        density=run.density,
-        topology_export=run.topology_export,
-        domain_snapshot_provider=provider,
-        snapshot_issues_of=run.controller.snapshot_issues,
-    )
-
-
-def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
-    return run.controller.production_result_key(
-        run.revision,
-        domain_id,
-        selected,
-        request,
-        run.alpha_text,
-        run.uv_policy_id,
-        run.topology_law,
-        HOST_NEAR_PLANAR_LIFT_POLICY.value,
-        run.backend_id,
-        skeleton_id=run.skeleton_id,
-        grid_scale_law=run.grid_scale_law,
-    )
-
-
-def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs):
-    """Домен с выгруженным входом: подготовка и результат из кэшей сессии, если они там есть."""
-
-    controller = run.controller
-    request = inputs[1]
-    key = _result_key(run, domain_id, selected, request)
-    return _DomainEntryV1(
-        patch_id,
-        domain_id,
-        selected,
-        prepared=controller.peek_conveyor_item(
-            run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
-        ),
-        inputs=inputs,
-        result_key=key,
-        cached=controller.peek_production_result(key),
-    )
-
-
-def _slot(run: _RunInputsV1) -> tuple:
-    """Слот результата в хранилище содержимого: alpha и законы материализации прогона."""
-
-    return result_slot(
-        run.alpha_text,
-        run.uv_policy_id,
-        run.topology_law,
-        HOST_NEAR_PLANAR_LIFT_POLICY.value,
-        run.backend_id,
-    )
-
-
-_NO_BINDING = object()
-
-
-def _bound_entry(run: _RunInputsV1, patch_id, domain_id, selected, binding=_NO_BINDING):
-    """Домен, чей ключ содержимого уже известен при этой ревизии и чей результат лежит в кэше ревизии.
-
-    Ключ — функция входа домена, а вход при ревизии, выделении, плотности, допуске и полосе один: по привязке
-    `(ревизия, домен, выделение, плотность, допуск, ключ полосы)` повторное нажатие не строит ни вход воркера, ни ключ.
-    `binding` — привязка из записи сборки (`envelope_scan_memo`), когда она есть: считать её заново незачем.
-    """
-
-    if binding is _NO_BINDING:
-        binding = _binding(run, patch_id, domain_id, selected)
-    key = None if binding is None else run.controller.content_binding(binding)
-    if key is None:
-        return None
-    cached = run.controller.peek_production_result(("content", key, run.revision, _slot(run)))
-    if cached is None:
-        return None
-    return _DomainEntryV1(
-        patch_id, domain_id, selected, cached=cached, content_key=key, reuse="result"
-    )
-
-
-def _band_key(run: _RunInputsV1, patch_id):
-    """Ключ полосы домена: досягаемость запроса и выбранные рёбра патча (`None`: политики полосы нет).
-
-    Полосу строит родитель после отказа целого патча, и она зависит ровно от этого: привязка и ключ содержимого
-    несут его, поэтому смена досягаемости или выбора цепей домена при той же ревизии и тех же рёбрах домена не
-    отдаёт прежний ответ.
-    """
-
-    from .envelope_metric_export import band_key_of
-
-    return band_key_of(run.topology_export, patch_id)
-
-
-def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
-    from .envelope_request_policy import normalize_envelope_fan_density
-
-    try:
-        density = normalize_envelope_fan_density(run.density)
-    except (TypeError, ValueError):
-        return None
-    return (
-        run.revision,
-        domain_id,
-        selected,
-        density,
-        run.topology_export.developable_stretch_budget,
-        run.topology_export.silhouette_uv_slide,
-        _band_key(run, patch_id),
-        run.backend_id,
-        *metric_law_key(run.topology_export),
-    )
-
-
-def _alpha_refusal(run: _RunInputsV1, facts):
-    """Отказ ЗАПРОСА по alpha у домена на подготовке из хранилища: карта-полоса короче alpha прогона, либо `None`.
-
-    Подготовка alpha-независима, но полоса действует лишь до своей досягаемости, и этот отказ строитель запроса
-    даёт на КАЖДОМ нажатии (`refuse_alpha_beyond_reach`). Домен на подготовке из хранилища запроса не строит,
-    поэтому тот же отказ берётся тут, по фактам карт-полос снапшота подготовки (`preparation_facts`): без него alpha выше
-    досягаемости дошла бы до материализации и ответила другим, не хостовым исходом. Недопустимую alpha называет сам строитель запроса.
-    """
-
-    from .envelope_chart_band import refuse_alpha_beyond_reach_facts
-    from .envelope_request_export import EnvelopeHostAdapterError
-    from .envelope_request_policy import request_alpha_decimal
-
-    try:
-        refuse_alpha_beyond_reach_facts(facts, request_alpha_decimal(run.alpha))
-    except EnvelopeHostAdapterError as exc:
-        return exc
-    except (ArithmeticError, TypeError, ValueError):
-        return None
-    return None
-
-
-def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> _DomainEntryV1:
-    """Домен без метрики в кэше ревизии: из хранилища по содержимому, либо холодный с ключом.
-
-    Правка меша меняет ревизию и сбрасывает кэши ревизии, но домен, чьё содержимое то же, имеет тот же
-    ключ: готовый результат из хранилища идёт на перенос к ревизии прогона (`carried`), а готовая
-    подготовка идёт воркеру как подготовка из кэша. Домен, которого в хранилище нет, считается как
-    раньше — с ключом, чтобы по окончании лечь в хранилище. Домен, чей вход ключ не умеет кодировать,
-    считается как раньше без ключа (счётчик `PRODUCTION_CONTENT_UNKEYED`).
-    """
-
-    from .envelope_content_key import ContentKeyUnsupported, domain_content_key
-
-    cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
-    try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend, run.scan_records.setdefault("key_memo", {}))
-    except ContentKeyUnsupported:
-        return cold
-    controller = run.controller
-    binding = _binding(run, patch_id, domain_id, selected)
-    if binding is not None:
-        controller.bind_content_key(binding, key)
-    slot = _slot(run)
-    cold = replace(cold, content_key=key)
-    result_key = ("content", key, run.revision, slot)
-    cached = controller.peek_production_result(result_key)
-    if cached is not None:
-        return replace(cold, export=None, cached=cached, reuse="result")
-    found = controller.content_store.find(key)
-    if found is None:
-        return cold
-    stored = controller.content_store.result(key, slot)
-    if stored is not None:
-        labels = stored.labels
-        if labels.revision == run.revision and labels.patch_id == patch_id:
-            controller.remember_production_result(result_key, stored)
-            return replace(cold, export=None, cached=stored, reuse="result")
-        return replace(
-            cold, carried=stored, result_key=result_key, labeling=found.labeling, reuse="result"
-        )
-    facts = controller.preparation_facts(found.prepared)
-    if not tightening_is_current_facts(run.topology_export, facts):
-        # Карта подготовки сужена под ДРУГУЮ alpha: подготовка устарела (ключ содержимого от alpha не зависит), её убирают,
-        # и домен считается заново с тем же ключом - новая подготовка ляжет под него по окончании.
-        controller.content_store.forget(key)
-        return cold
-    refusal = _alpha_refusal(run, facts)
-    if refusal is not None:
-        return replace(cold, export=None, failure=refusal)
-    return replace(
-        cold,
-        prepared=found.prepared,
-        labeling=found.labeling,
-        result_key=result_key,
-        reuse="preparation",
-    )
-
-
-def _note_relabel_failure(run: _RunInputsV1, patch_id, exc) -> None:
-    """Перенос не вышел: счётчик и строка консоли; домен при этом считается заново, а не пропадает."""
-
-    run.relabel_failures.append((patch_id, str(exc)))
-    print(
-        f"[CFTUV][Production] {PRODUCTION_CONTENT_RELABEL_FAILED}: patch {patch_id}: {exc}; "
-        "the domain is computed anew",
-        flush=True,
-    )
-
-
-def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record, alpha):
-    """Домен по записи сборки: запрос с шириной прогона, подготовка и результат из кэшей сессии (то же, что `_entry_with_inputs`)."""
-
-    from .envelope_scan_memo import request_at
-
-    controller = run.controller
-    key = (
-        record.prep_key,
-        run.alpha_text,
-        run.uv_policy_id,
-        run.topology_law,
-        HOST_NEAR_PLANAR_LIFT_POLICY.value,
-        run.backend_id,
-    )
-    return _DomainEntryV1(
-        patch_id,
-        domain_id,
-        selected,
-        prepared=controller.peek_conveyor_item_by_key(record.prep_key),
-        inputs=(record.snapshot, request_at(record, alpha)),
-        result_key=key,
-        cached=controller.peek_production_result(key),
-    )
-
-
-def _scan(run: _RunInputsV1):
-    """Домены по кэшам сессии, БЕЗ сборки: чего нет в кэше, то холодно.
-
-    Метрика, снапшот, подготовка и результат читаются из кэшей контроллера; промах метрики
-    называется холодным доменом с лёгким входом выгрузки, а не собирается здесь в родителе
-    (сборка метрик — работа воркеров пула в холодной задаче). Вход домена с готовой записью сборки
-    (`envelope_scan_memo`: тот же снапшот, то же выделение и политика) берёт из неё всё, что не зависит
-    от ширины, а ширину подставляет в запрос; ширина, которой запрос не строится, идёт прежним путём.
-    """
-
-    from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
-    from .envelope_scan_memo import request_alpha, scan_key
-
-    controller = run.controller
-    alpha = request_alpha(run.alpha)
-    key = None if alpha is None else scan_key(run)
-    records = run.scan_records["records"] = None if key is None else controller.scan_memo.records_of(key)
-    reused = 0
-
-    def snapshots(patch_id, _domain_id):
-        metric = controller.get_patch_metric(run.topology_export, patch_id)
-        return controller.get_domain_geometry(metric).snapshot
-
-    entries = []
-    for patch_id in run.patch_ids:
-        domain_id = _typed_value("patch-domain", run.revision, patch_id)
-        selected = frozenset(run.selected_by_domain[domain_id])
-        record = None if records is None else records.get(patch_id)
-        if record is not None and record.selected != selected:
-            record = None
-        bound = _bound_entry(
-            run, patch_id, domain_id, selected, _NO_BINDING if record is None else record.binding
-        )
-        if bound is not None:
-            entries.append(bound)
-            continue
-        export = run.hooks.export_provider(
-            patch_id, run.alpha, run.request_id, run.density
-        )
-        if export is not None:
-            entries.append(_content_entry(run, patch_id, domain_id, selected, export))
-            continue
-        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger:
-            try:
-                snapshot = snapshots(patch_id, domain_id)
-                if record is not None and record.snapshot is snapshot:
-                    entry = _entry_from_record(run, patch_id, domain_id, selected, record, alpha)
-                    entry.export_records.append(ledger_record(ledger))
-                    entries.append(entry)
-                    reused += 1
-                    continue
-                inputs = _inputs_of(run, (patch_id, domain_id, selected), lambda _patch, _domain: snapshot)
-            except EnvelopeHostAdapterError as exc:
-                entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=exc, export_records=[ledger_record(ledger)]))
-                continue
-        entry = _entry_with_inputs(run, patch_id, domain_id, selected, inputs)
-        entry.export_records.append(ledger_record(ledger))
-        entries.append(entry)
-        if records is not None:
-            remember_inputs(records, patch_id, selected, inputs, entry.result_key[0], _binding(run, patch_id, domain_id, selected))
-    # Повтор лотереи привязки идёт тем же `_scan` в тот же профиль: счётчик копится, а не затирается числом повтора.
-    run.profile.add_counter(PRODUCTION_SCAN_RECORDS_REUSED, reused)
-    return entries
+from .envelope_production_task import (  # noqa: F401 - переэкспорт: имена прежние
+    _domain_of_preparation,
+    _solve_cold_production_task,
+    prepare_for_production,
+    prepare_for_production_recorded,
+    produce_domain,
+    solve_cold_production_task,
+    solve_production_task,
+)
+from .envelope_snap_retry import retry_snap_lottery
+from .envelope_snapshot_byte_check import finish_press, resolve_plan
+from .envelope_scan_memo import remember_inputs
+from .envelope_stretch_lines import developable_stretch_lines  # noqa: F401 - переэкспорт: имя прежнее
+from .envelope_request_policy import ENVELOPE_UV_POLICIES
+from .surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY  # noqa: F401 - переэкспорт: тесты подменяют закон подъёма на этом модуле
 
 
 def _host_refusal(entry: _DomainEntryV1, failure=None) -> ProductionDomainResultV1:

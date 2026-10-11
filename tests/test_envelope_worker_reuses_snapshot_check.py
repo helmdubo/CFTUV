@@ -36,6 +36,7 @@ import cftuv_envelope as kernel  # noqa: E402
 import cftuv_envelope.validation as kernel_validation  # noqa: E402
 from cftuv import envelope_domain_pool as pool_module  # noqa: E402
 from cftuv import envelope_production_export as production  # noqa: E402
+from cftuv import envelope_production_task as task_module  # noqa: E402
 from cftuv import envelope_snapshot_check as check_module  # noqa: E402
 from cftuv.envelope_debug_session import EnvelopeDebugSessionController  # noqa: E402
 from cftuv.envelope_domain_pool import DomainPoolRunV1, order_by_cost, shutdown_domain_pool, solve_task  # noqa: E402
@@ -191,7 +192,7 @@ def _worker_inputs(monkeypatch, lifted_corner=1.0):
         captured.append((snapshot, request, kwargs.get("checker")))
         return real(snapshot, request, **kwargs)
 
-    monkeypatch.setattr(production, "prepare_for_production_recorded", spy)
+    monkeypatch.setattr(task_module, "prepare_for_production_recorded", spy)  # воркерная сторона: PRODUCTION_EXPORT_SPLIT_V1
     _pool_session(monkeypatch)
     _press(quad_row_bundle(ROW, lifted_corner=lifted_corner))
     assert len(captured) == ROW
@@ -344,7 +345,7 @@ def test_precomputed_snapshot_issues_enter_the_preparation_only_from_the_provabl
         for callee in ("prepare_conveyor", "compile_reference_envelopes"):
             sites += [(path.name, callee, *item) for item in _calls_with_keyword(tree, callee, "snapshot_issues")]
     asked = "checker and checker.clean_issues_for(snapshot, request.developable_stretch_budget)"
-    assert sites == [("envelope_production_export.py", "prepare_conveyor", "prepare_for_production_recorded", asked)], sites
+    assert sites == [("envelope_production_task.py", "prepare_conveyor", "prepare_for_production_recorded", asked)], sites
     # Проверку воркера пишет один класс, и запись описывает ПОСЛЕДНИЙ его вызов (объект и допуск записываются вместе с ней).
     check_source = (HOST / "envelope_snapshot_check.py").read_text(encoding="utf-8")
     call = check_source.split("    def __call__", 1)[1].split("    def clean_issues_for", 1)[0]

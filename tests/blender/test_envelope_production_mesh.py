@@ -1218,7 +1218,7 @@ def _fold_decal(*, lift_policy=None):
 
     from mathutils.bvhtree import BVHTree
 
-    from cftuv import envelope_production_export, envelope_request_export
+    from cftuv import envelope_production_export, envelope_production_scan, envelope_production_task, envelope_request_export
 
     controller = _controller()
     if controller is not None:
@@ -1230,18 +1230,17 @@ def _fold_decal(*, lift_policy=None):
     settings.envelope_debug_alpha = 1.3
     settings.envelope_debug_workers = 0
     _decal_settings().offset = 0.02
-    saved = (
-        envelope_production_export.HOST_NEAR_PLANAR_LIFT_POLICY,
-        envelope_request_export.HOST_NEAR_PLANAR_LIFT_POLICY,
-    )
+    # закон подъёма читают ключи сканирования, воркерная сторона и построитель запроса (PRODUCTION_EXPORT_SPLIT_V1): подмена - на каждом
+    holders = (envelope_production_export, envelope_production_scan, envelope_production_task, envelope_request_export)
+    saved = tuple(module.HOST_NEAR_PLANAR_LIFT_POLICY for module in holders)
     if lift_policy is not None:
-        envelope_production_export.HOST_NEAR_PLANAR_LIFT_POLICY = lift_policy
-        envelope_request_export.HOST_NEAR_PLANAR_LIFT_POLICY = lift_policy
+        for module in holders:
+            module.HOST_NEAR_PLANAR_LIFT_POLICY = lift_policy
     try:
         decal = _press()
     finally:
-        envelope_production_export.HOST_NEAR_PLANAR_LIFT_POLICY = saved[0]
-        envelope_request_export.HOST_NEAR_PLANAR_LIFT_POLICY = saved[1]
+        for module, value in zip(holders, saved):
+            module.HOST_NEAR_PLANAR_LIFT_POLICY = value
     assert _decal_settings().status == "MATERIALIZED 1 / refused 0", _decal_settings().status
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
