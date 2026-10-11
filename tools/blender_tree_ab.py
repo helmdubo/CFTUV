@@ -3,7 +3,7 @@
     python tools/blender_tree_ab.py --base origin/main --branch my-branch --scene path/to/scene.blend --case building --case rounded \
         [--workers 0,8] [--presses cold,step,step] [--timing --reps 3] [--native-path DIR] [--blender EXE] [--work-dir DIR] [--out report.json]
 
-Typical use: a performance change that must not move the answer. The scene is opened by a fresh headless Blender for every (tree, case, worker count, repetition); the
+Typical use: a performance change that must not move the answer. The scene is opened by a fresh HEADLESS Blender (`blender -b`, never a window: `require_headless` refuses anything else) for every (tree, case, worker count, repetition); the
 button is replayed call for call (`run_production` + `build_mesh_arrays`, the cold press under `gc_paused()` when the tree has it, as the operator does) and then the width
 steps the live width tool takes, on ONE controller, the way a session does. The scene is never saved.
 
@@ -461,9 +461,17 @@ def worker_command(blender: str, scene: Path, tree: Tree, case: Case, workers: i
     return command
 
 
+def require_headless(command: list[str]) -> None:
+    """Only a background Blender (`blender -b ...`) is ever started: a Blender with a window overwrites the owner's last-session recovery file when it exits normally."""
+
+    if len(command) < 3 or command[1] not in ("-b", "--background"):
+        raise ValueError(f"refusing to start a Blender that is not headless (-b): {command[:3]}")
+
+
 def run_one(command: list[str], out: Path, tree_label: str, work_dir: Path, environment: dict, timeout: float, ours: set, guard: bool, log=print) -> RunResult:
     """One fresh Blender. Its PID goes to pids.log before anything else; on a timeout only THAT PID (and its own children) is stopped."""
 
+    require_headless(command)
     log_path = out.with_suffix(".log")
     before = blender_cpu() if guard else {}
     started = time.perf_counter()

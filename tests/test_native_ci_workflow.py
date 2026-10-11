@@ -500,7 +500,7 @@ def test_every_leg_proves_its_shard_and_runs_only_the_files_of_that_shard(workfl
     assert f'kernel/tools/shard_tests.py check {default} --shards "${{SHARD#*/}}"' in run
     assert f'kernel/tools/shard_tests.py list {default} --shard "$SHARD" > "$RUNNER_TEMP/shard-files.txt"' in run, "the list goes to a file: a failing `list` fails the step, an empty one never reaches pytest"
     strict = _step(job, "Differential tests against the live oracle")
-    assert strict["run"].index('mapfile -t FILES < "$RUNNER_TEMP/shard-files.txt"') < strict["run"].index('"${FILES[@]}"')
+    assert strict["run"].index("""mapfile -t FILES < <(tr -d '\\r' < "$RUNNER_TEMP/shard-files.txt")""") < strict["run"].index('"${FILES[@]}"'), "the list is read without a CR (a Windows text stream ends its lines with CR LF)"
     steps = job["steps"]
     assert steps.index(step) < steps.index(strict), "the shard is proved before the tests run"
     architecture = _step(job, "Architecture rules of the native port")

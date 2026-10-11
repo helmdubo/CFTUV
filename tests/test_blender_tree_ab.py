@@ -267,6 +267,38 @@ def test_the_idle_guard_waits_while_a_foreign_blender_is_busy_and_stops_nothing(
     assert ab.wait_for_idle(set(), seconds_limit=0.0, window=0.01) == "TIMEOUT waiting for an idle machine"
 
 
+def test_only_a_headless_blender_is_ever_started_and_no_blend_file_is_ever_written():
+    """A Blender with a window overwrites the owner's last-session recovery file when it exits normally; this tool starts `blender -b` only and writes no .blend."""
+
+    options = ab._arguments(["--base", "a", "--branch", "b", "--scene", "s.blend", "--case", "building"])
+    tree = ab.Tree("base", "a", Path("root"))
+    command = ab.worker_command("blender", Path("s.blend"), tree, ab.parse_case("building"), 8, "cold,step", Path("out.json"), options)
+    assert command[:3] == ["blender", "-b", "s.blend"] and "--python-exit-code" in command and "--factory-startup" not in command
+    ab.require_headless(command)
+    for windowed in (["blender", "s.blend", "--python", "x.py"], ["blender"], ["blender", "--python", "x.py", "-b"]):
+        with pytest.raises(ValueError, match="not headless"):
+            ab.require_headless(windowed)
+    with pytest.raises(ValueError, match="not headless"):
+        ab.run_one(["blender", "s.blend"], Path("out.json"), "base", Path("."), {}, 1.0, set(), False)
+    import ast
+
+    tree_of_source = ast.parse((TOOLS / "blender_tree_ab.py").read_text(encoding="utf-8"))
+    names = {node.attr for node in ast.walk(tree_of_source) if isinstance(node, ast.Attribute)} | {node.value for node in ast.walk(tree_of_source) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    for forbidden in ("save_mainfile", "save_as_mainfile", "save_userpref", "quit.blend", "autosave"):
+        assert not any(forbidden in str(name) for name in names if len(str(name)) < 80), f"the tool must not write blend files: {forbidden}"
+
+
+def test_the_stand_in_blender_is_started_headless_by_the_driver(stand_in, repository, tmp_path):
+    folder, launcher = stand_in
+    marker = folder / "argv.txt"
+    script = folder / "stand_in.py"
+    script.write_text(STAND_IN.replace('arguments = sys.argv', f'(Path(r"{marker}")).write_text(" ".join(sys.argv[1:3]), encoding="utf-8")\narguments = sys.argv', 1), encoding="utf-8")
+    for label in ("base", "branch"):
+        _publish(folder, label, make_report())
+    assert ab.driver_main(_arguments(tmp_path, launcher, repository)) == ab.EXIT_IDENTICAL
+    assert marker.read_text(encoding="utf-8").split()[0] == "-b", "the first argument the driver gives Blender is -b"
+
+
 def test_the_source_of_the_tool_carries_no_user_path():
     text = (TOOLS / "blender_tree_ab.py").read_text(encoding="utf-8")
     assert not re.search(r"(?<![A-Za-z])[A-Za-z]:[\\/]", text), "a drive-letter path in the code"

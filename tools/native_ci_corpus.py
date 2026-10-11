@@ -43,8 +43,9 @@ ENTRY_SCRIPTS = {
 NOISE_DIRECTORIES = frozenset({"__pycache__", ".pytest_cache", "dist", "build", ".git"})
 TEXT_SUFFIXES = frozenset({".py", ".json", ".toml", ".txt", ".yml", ".yaml", ".cfg", ".ini", ".md", ".rs", ".csv"})
 SKELETON_SUBDIRECTORY = ("ci", "synthetic_skeleton")
-#: The kernel tests behind the skeleton corpus run in this many pytest processes at once (a windows-latest runner has 4 vCPUs; one process used one).
-SKELETON_PROCESSES = 3
+#: The kernel tests behind the skeleton corpus run in this many pytest processes at once (a windows-latest runner has 4 vCPUs; one process used one). Three processes on the first CI run:
+#: the Python 3.11 job waited 282 s for its slowest part while the other two were done at 177 s; the parent only waits and merges meanwhile, so all four cores can work.
+SKELETON_PROCESSES = 4
 
 
 def _content(path: Path) -> bytes:

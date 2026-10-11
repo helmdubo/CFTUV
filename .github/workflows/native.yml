@@ -372,7 +372,8 @@ jobs:
           # corpora of coverage and clip (`<base>/<name>/index.json`), of the skeleton (`<base>/<name>/skeleton`) and the field polygons (`<base>/skeleton_polygons`) are not there
           CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/skeleton-corpus
         run: |
-          mapfile -t FILES < "$RUNNER_TEMP/shard-files.txt"
+          # `tr`: a CR at the end of a path (a Windows text stream) would be part of the file name
+          mapfile -t FILES < <(tr -d '\r' < "$RUNNER_TEMP/shard-files.txt")
           "$PY" -m pytest "${FILES[@]}" -m "not native_field" -p no:cacheprovider -q -rsfE --durations=25
       - name: Architecture rules of the native port (the shim is the only importer, the Rust-only stages stay at their pin)
         if: matrix.slots == 'auto' && startsWith(matrix.shard, '1/')

@@ -174,8 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         if defects:
             print("SHARDS_NOT_THE_SUITE " + "; ".join(defects), file=sys.stderr)
             return EXIT_EMPTY_SHARD if not groups[index - 1] else 1
-        for name in groups[index - 1]:
-            print((arguments.root / name).as_posix())
+        # LF only, whatever the platform: a text-mode stdout redirected to a file on Windows would end each path with CR LF, and the CR would become part of the path in a shell `mapfile`
+        sys.stdout.buffer.write("".join(f"{(arguments.root / name).as_posix()}\n" for name in groups[index - 1]).encode("utf-8"))
         return 0
     groups = assign(files, default, weights, arguments.shards)
     for line in plan_lines(groups, default, weights):
