@@ -313,6 +313,24 @@ def test_a_pair_the_port_does_not_carry_is_declined_by_name_and_the_oracle_count
     CHECKED["dispatch: declined by name"] += 1
 
 
+def test_a_pair_the_algebra_cannot_invert_is_declined_and_the_oracle_counts_its_refusal():
+    """`da` in four square classes: the oracle's native path refuses (`OutsideNativeField`), counts it and goes to sympy; the extension never produces that refusal, it declines the pair."""
+
+    context = synthetic.metric_of([[1, 0], [0, 1]])
+    base = synthetic.source_of(context, (0, 0), (4, 0))
+    normal = planar_types.ExactPlanarVector(
+        planar_types.ExactScalar("Add(Integer(1), Pow(Integer(2), Rational(1, 2)), Pow(Integer(3), Rational(1, 2)))"), planar_types.ExactScalar("Sqrt(Rational(5, 1))"),
+    )
+    source = types.SimpleNamespace(start=base.start, end=base.end, tangent=base.tangent, owner_normal=normal, support_id="four classes")
+    barrier = synthetic.boundary_of(synthetic.R(1, -1), synthetic.R(2, 3), "b")
+    python, native = oracle_and_native((context, source, barrier, None))
+    assert python["counts"].get("contact_candidates.outside_field") == 1, python["counts"]
+    assert python["answer"] == native["answer"] and python["counts"] == native["counts"] and python["symbolic"] == native["symbolic"]
+    record = native["record"]
+    assert (record.effective_alpha_native_calls, record.effective_alpha_python_calls) == (0, 1) and record.effective_alpha_outcomes == ("NATIVE_PORT_UNSUPPORTED",)
+    CHECKED["dispatch: declined, the oracle refused"] += 1
+
+
 def test_the_zero_vector_of_a_source_raises_the_oracles_value_error_with_its_text_on_both_sides():
     context = synthetic.metric_of([[1, 0], [0, 1]])
     start = synthetic.point(synthetic.rat(1), synthetic.rat(2))

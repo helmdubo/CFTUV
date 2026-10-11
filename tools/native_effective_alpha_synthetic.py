@@ -10,7 +10,8 @@ Scenarios (a scenario is a metric, a source segment and a list of barrier segmen
   classes3    barrier coordinates with two independent radicals (three square classes: the sign ladder of the algebra)
   huge        30+ digit numerators, denominators and radicands (beyond binary64: the prefilter yields)
   ties        a barrier parallel to the source with irrational stations: two parameters with EQUAL alpha (the order of tied contacts)
-  roots       irrational METRICS (a gram with a non-square determinant: covectors in two square classes, the representatives of the classes decide the terms)
+  roots       irrational METRICS (a gram with a non-square determinant: covectors in one root class, the representatives of the classes decide the terms)
+  mixed       sources with hand-made tangent and normal components in two and three square classes (the multi-class algebra: the field never leaves one class)
 
 A pure function of `(scale, seed)`: the same arguments make the same calls in the same order (`PYTHONHASHSEED` plays no part: the oracle's sympy route is insertion-ordered).
 """
@@ -268,6 +269,44 @@ def scenario_roots(rng, scale):
         run_pairs(context, source, boundaries[:6], modes=("NATIVE_EXACT",), with_frame=False)
 
 
+#: Components of a covector in more than one square class and with representatives that are not squarefree: the algebra of two and three classes, the sign ladder, the inverse by conjugation.
+MIXED_TEXTS = (
+    "Integer(1)", "Rational(-3, 2)", "Integer(2)", "Rational(1, 3)",
+    "Sqrt(Rational(2, 1))", "Sqrt(Rational(8, 1))", "-Sqrt(Rational(18, 1))", "Sqrt(Rational(3, 4))", "Sqrt(Rational(12, 1))", "Sqrt(Rational(1, 2))", "-Sqrt(Rational(50, 9))",
+    "Add(Integer(1), Pow(Integer(2), Rational(1, 2)))",
+    "Add(Rational(1, 2), Mul(Integer(-1), Pow(Integer(3), Rational(1, 2))))",
+    "Add(Pow(Integer(2), Rational(1, 2)), Pow(Integer(3), Rational(1, 2)))",
+    "Add(Integer(1), Pow(Integer(2), Rational(1, 2)), Pow(Integer(3), Rational(1, 2)))",
+    "Add(Mul(Rational(2, 3), Pow(Integer(5), Rational(1, 2))), Mul(Integer(-1), Pow(Integer(2), Rational(1, 2))))",
+)
+
+
+def scenario_mixed(rng, scale):
+    """Sources whose tangent and owner normal are NOT those the compile makes: components in two and three square classes, so the covectors, the stations, the parameters and the alphas are
+    sums over several classes (the field has one class at most). The segments are rational. The parameters are mostly irrational (the port declines the contact), and the signs, the
+    inverses and the sort that decide which contacts exist are the multi-class arithmetic of the algebra.
+    """
+
+    for _ in range(_rounds(24, scale)):
+        context = metric_of(random_gram(rng) if rng.random() < 0.5 else [[1, 0], [0, 1]])
+        a, b = grid_point(rng, 4), grid_point(rng, 4)
+        if a == b:
+            b = (a[0] + 1, a[1] + 1)
+        base = source_of(context, a, b)
+
+        def vector(texts):
+            return planar_types.ExactPlanarVector(planar_types.ExactScalar(rng.choice(texts)), planar_types.ExactScalar(rng.choice(texts)))
+
+        # half of the sources keep the tangent rational: the stations and two of the three parameters are rational, so the contacts whose alpha is a multi-class sum are ANSWERED, not declined
+        tangent = vector(MIXED_TEXTS[:4] if rng.random() < 0.5 else MIXED_TEXTS)
+        source = SimpleNamespace(start=base.start, end=base.end, tangent=tangent, owner_normal=vector(MIXED_TEXTS), support_id="mixed")
+        boundaries = [boundary_of(R(*grid_point(rng, 6)), R(*grid_point(rng, 6)), f"m{index}") for index in range(20)]
+        mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        boundaries.append(boundary_of(R(mid[0] - 3, mid[1] - 2), R(mid[0] + 3, mid[1] + 2), "cross"))
+        run_pairs(context, source, boundaries, modes=("NATIVE_EXACT", "SHADOW"), with_frame=True)
+        run_pairs(context, source, boundaries[:6], modes=("NATIVE_EXACT",), with_frame=False)
+
+
 SCENARIOS = {
     "rational": scenario_rational,
     "degenerate": scenario_degenerate,
@@ -277,6 +316,7 @@ SCENARIOS = {
     "huge": scenario_huge,
     "ties": scenario_ties,
     "roots": scenario_roots,
+    "mixed": scenario_mixed,
 }
 
 
