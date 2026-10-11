@@ -55,6 +55,8 @@ from .envelope_width_preview_model import (
     build_model,
     deviation,
     evaluate,
+    moving_patches,
+    moving_patches_at,
     sample_of,
 )
 
@@ -125,7 +127,11 @@ class PreviewLogV1:
 
 @dataclass(frozen=True, slots=True)
 class PreviewMeshStateV1:
-    """Что показывает меш сейчас: ширина кадра, живые и придержанные домены (номера патчей), исход и цена кадра."""
+    """Что показывает меш сейчас: ширина кадра, живые и придержанные домены (номера патчей), исход и цена кадра.
+
+    `moving` — номера патчей, которые кадр двигает целиком (пусто у отказанного кадра): линии превью считаются только для остальных
+    (`PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`, `envelope_width_live.width_event_preview`).
+    """
 
     alpha: float
     live: int
@@ -134,6 +140,7 @@ class PreviewMeshStateV1:
     outcome: str
     seconds: float
     serial: int
+    moving: frozenset = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,6 +623,7 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
         return None
     controller.width_mesh_owner.pending_own_update = True
     previous = controller.width_mesh_preview
+    moving = frozenset() if frame.refusal else moving_patches(model, frame.held)
     seconds = time.perf_counter() - started
     state = PreviewMeshStateV1(
         frame.alpha,
@@ -625,6 +633,7 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
         frame.outcome,
         seconds,
         1 if previous is None else previous.serial + 1,
+        moving,
     )
     controller.width_mesh_preview = state
     log = log_of(controller)
@@ -632,6 +641,12 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
     log.frame_seconds_total += seconds
     log.frame_seconds_max = max(log.frame_seconds_max, seconds)
     return state
+
+
+def moving_now(controller, width: float) -> frozenset:
+    """Патчи, которые двигала бы модель на ширине `width`, БЕЗ записи в меш (вход инструмента: ещё ни одного кадра, а линии нужны только там, где меш не движется)."""
+
+    return moving_patches_at(controller.width_model, width)
 
 
 def restore_base_mesh(controller) -> bool:
@@ -734,6 +749,7 @@ __all__ = (
     "drop_model",
     "finish_live_run",
     "log_of",
+    "moving_now",
     "next_prime_alpha",
     "note_button_display",
     "note_decal_updates",

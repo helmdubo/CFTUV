@@ -608,6 +608,27 @@ def _called_names(function: ast.FunctionDef) -> set[str]:
     }
 
 
+def test_a_drag_event_never_computes_the_full_contour_while_the_mesh_model_can_move_the_mesh():
+    """PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1: событие перетаскивания и калбэк ползунка идут через `width_event_preview`.
+
+    Линии превью на каждом событии стоили 4.9 мс (`building`) и 34 мс (`cover.008`, до 480) против 0.6 и 3.1 мс кадра настоящего меша
+    (`DRAG_PATH_MAP.md`, T9). Прямой вызов `preview_now` без набора пропуска в этих входах вернул бы цену и линии поверх живого меша.
+    Вход инструмента (`begin_adjust`) зовёт `preview_now` только с набором пропуска: `moving_now`.
+    """
+
+    for module, function in (("envelope_width_session.py", "apply_step"), ("envelope_width_live.py", "schedule_width_live")):
+        node = _functions_of(module)[function]
+        names = _called_names(node)
+        assert "width_event_preview" in names, f"{module}:{function} обходит единый путь события превью"
+        assert not names & {"preview_now", "preview_mesh_now"}, f"{module}:{function} зовёт линии или кадр мимо `width_event_preview`"
+    begin = _functions_of("envelope_width_session.py")["begin_adjust"]
+    entry_calls = [call for call in ast.walk(begin) if isinstance(call, ast.Call) and _called_names_of(call) == "preview_now"]
+    assert entry_calls and all(len(call.args) >= 4 or any(key.arg == "skip_patches" for key in call.keywords) for call in entry_calls)
+    assert "moving_now" in _called_names(begin)
+    event = _functions_of("envelope_width_live.py")["width_event_preview"]
+    assert {"preview_mesh_now", "preview_now"} <= _called_names(event)
+
+
 @pytest.mark.parametrize("module, function, question", _WIDTH_ENTRY_POINTS)
 def test_every_width_entry_point_asks_whether_the_active_object_has_its_own_decal(module, function, question):
     path = HOST_PACKAGE / module

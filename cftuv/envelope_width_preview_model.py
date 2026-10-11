@@ -633,13 +633,41 @@ def _reasons(rows) -> dict:
 # --------------------------------------------------------------------------
 
 
-def _live_masks(model: PreviewModelV1, alpha: float):
-    live_vertex = (model.vlow < alpha) & (alpha < model.vhigh)
+def _live_domains(model: PreviewModelV1, alpha: float):
     live_domain = (model.dlow < alpha) & (alpha < model.dhigh)
     if model.quarantined is not None:
-        live_vertex &= ~model.vertex_quarantined
         live_domain &= ~model.quarantined
+    return live_domain
+
+
+def _live_masks(model: PreviewModelV1, alpha: float):
+    live_vertex = (model.vlow < alpha) & (alpha < model.vhigh)
+    live_domain = _live_domains(model, alpha)
+    if model.quarantined is not None:
+        live_vertex &= ~model.vertex_quarantined
     return live_vertex, live_domain, np.repeat(live_domain, model.loop_counts)
+
+
+def moving_patches(model: PreviewModelV1, held) -> frozenset:
+    """Номера патчей, которые кадр модели двигает целиком: патчи базы без единого придержанного домена (`held` — пары `(патч, исход)` кадра).
+
+    Остальное — придержанные домены (последняя точная геометрия) и патчи, которых в базе нет (домен отказан до меша): их меш не двигает, и
+    линии превью (`PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`) остаются именно там.
+    """
+
+    return frozenset(row[0] for row in model.rows) - frozenset(patch for patch, _reason in held)
+
+
+def moving_patches_at(model: PreviewModelV1 | None, alpha: float) -> frozenset:
+    """То же без кадра и без записи в меш: что двигала бы модель на ширине `alpha`. Пусто — модели нет, ширина негодна либо ни один домен не жив."""
+
+    alpha = float(alpha)
+    if model is None or not (math.isfinite(alpha) and alpha > 0.0):
+        return frozenset()
+    live = _live_domains(model, alpha)
+    if not live.any():
+        return frozenset()
+    return moving_patches(model, [(model.rows[number][0], None) for number in np.flatnonzero(~live)])
 
 
 def shadow_prediction(model: PreviewModelV1, number: int, alpha: float):
@@ -868,6 +896,8 @@ __all__ = (
     "deviation",
     "empty_ledger",
     "evaluate",
+    "moving_patches",
+    "moving_patches_at",
     "positions_and_uvs",
     "sample_of",
     "shadow_prediction",

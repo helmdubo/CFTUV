@@ -57,6 +57,7 @@ from cftuv.envelope_width_preview import (  # noqa: E402
     OUTCOME_NO_FACE,
     OUTCOME_NO_FAN,
     PREVIEW_BINARY64_V1,
+    PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1,
     _Counts,
     _run_points,
     build_preview_inputs,
@@ -761,6 +762,27 @@ def test_a_seam_between_two_patches_gets_one_line_on_each_side():
     assert sorted(round(line[0][0], 12) for line in lines) == [1.6, 2.4]
     assert all(abs(abs(line[0][1] - line[1][1]) - 2.0) <= TOLERANCE for line in lines)
     assert chain_centroid(inputs) == (2.0, 1.0, 0.0)
+
+
+def test_a_skipped_patch_is_not_computed_it_is_counted_by_name_and_the_other_lines_are_the_full_answer_bitwise():
+    """PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1: пути патчей из `skip_patches` не считаются и названы счётчиком, остальные линии те же, что у полного вызова."""
+
+    mesh, ids = _grid(4, 2, 1.0, patch=lambda i, j: 0 if i < 2 else 1)
+    seam = _edges_between(mesh, ids, [((2, 0), (2, 1)), ((2, 1), (2, 2))])
+    inputs = build_preview_inputs(mesh.surface(), [(0, seam), (1, seam)])
+    full = compute_width_preview(inputs, 0.4)
+    assert full.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1) == 0 and len(inputs.runs) == 2
+
+    first_only = compute_width_preview(inputs, 0.4, skip_patches=frozenset({1}))
+    second_only = compute_width_preview(inputs, 0.4, skip_patches=frozenset({0}))
+    nothing = compute_width_preview(inputs, 0.4, skip_patches=frozenset({0, 1, 99}))
+
+    assert first_only.polylines and second_only.polylines and first_only.polylines != second_only.polylines
+    assert sorted(first_only.polylines + second_only.polylines) == sorted(full.polylines)
+    assert (first_only.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1), second_only.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1)) == (1, 1)
+    assert nothing.polylines == () and nothing.lines == 0 and nothing.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1) == 2
+    assert f"{PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1} x2" in nothing.status_text()
+    assert compute_width_preview(inputs, 0.4, skip_patches=frozenset()).polylines == full.polylines  # пустой набор — прежний ответ
 
 
 def test_the_marching_does_not_cross_into_another_patch():

@@ -45,7 +45,8 @@ Decal Mesh»), а активный объект меняется. Инструм
 
 ПРЕВЬЮ МЕША (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`, ПРИБЛИЗИТЕЛЬНОЕ, не сертифицировано). Между точными
 пересчётами калбэк ползунка и модальный инструмент двигают НАСТОЯЩИЙ меш декали из модели (`preview_mesh_now`), а линии превью остаются
-поверх. Модель строит поток точного счёта (хвост `compute`: массивы меша, образец, модель, сверка с прежней моделью и журнал доверия),
+только там, где меш не движется (`width_event_preview`, `PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`: придержанные, карантинные и не вошедшие
+в меш патчи; без модели — линии всех путей, как были). Модель строит поток точного счёта (хвост `compute`: массивы меша, образец, модель, сверка с прежней моделью и журнал доверия),
 поэтому главный поток только применяет; второй планировщик контроллера (`width_prime`, «затравка») считает ТОЧНЫЙ прогон на соседней
 ширине без записи в меш — из него и образца на экране строится первая модель. Затравка уступает дорогу настоящему заказу ширины (`hold`,
 `supersede`) и в меш не пишет никогда. Меш принадлежит модели, только пока его владение (`capture_ownership`) цело: точная запись фиксирует
@@ -245,15 +246,33 @@ def set_preview(controller, preview: WidthPreviewV1 | None, source_name: str = "
     tag_view3d_redraw()
 
 
-def preview_now(controller, width: float, offset: float) -> WidthPreviewV1 | None:
-    """Мгновенное превью на `width` по записи кнопки; кладёт его в состояние. `None` — превью нет."""
+def preview_now(controller, width: float, offset: float, skip_patches: frozenset = frozenset()) -> WidthPreviewV1 | None:
+    """Мгновенное превью на `width` по записи кнопки; кладёт его в состояние. `None` — превью нет.
+
+    `skip_patches` — патчи, которые уже двигает настоящий меш: их линии не считаются (`PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`).
+    """
 
     record = controller.width_build
     if record is None or record.preview_inputs is None:
         return None
-    preview = compute_width_preview(record.preview_inputs, width, lift=offset)
+    preview = compute_width_preview(record.preview_inputs, width, lift=offset, skip_patches=skip_patches)
     set_preview(controller, preview, record.source_name)
     return preview
+
+
+def width_event_preview(controller, width: float, offset: float):
+    """Превью одного события (калбэк ползунка и перетаскивание): кадр настоящего меша, а линии — только там, где меш не движется.
+
+    PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1. Пока модель двигает меш (`preview_mesh_now`), линии каждого события считались зря: на `building`
+    4.9 мс, на `cover.008` 34 мс (до 480) против 0.6 и 3.1 мс кадра меша, а видны они поверх самого меша. Теперь линии считаются только для путей патчей,
+    которых кадр НЕ двигает целиком: придержанных (интервал ядра кончился либо за досягаемостью), в карантине журнала доверия и тех, что не вошли
+    в меш. Нет модели либо кадр отказан (имя в статусе) — линии всех путей, как прежде. Число пропущенных путей названо в статусе линий
+    (`WidthPreviewV1.outcomes`). Возвращает состояние кадра меша либо `None` (кадра нет).
+    """
+
+    state = preview_mesh_now(controller, width)
+    preview_now(controller, width, offset, frozenset() if state is None else state.moving)
+    return state
 
 
 # --------------------------------------------------------------------------
@@ -762,11 +781,10 @@ def schedule_width_live(settings, context) -> None:
         controller.supersede_preview(problem)
         scheduler.note_unavailable(problem)
         return
-    preview_now(controller, width, float(mesh_settings.offset))
     # Настоящий заказ ширины важнее затравки: она снята (результат выброшен), а меш пока двигает модель.
     if controller.width_prime is not None:
         controller.width_prime.supersede("the width is being changed")
-    preview_mesh_now(controller, width)
+    width_event_preview(controller, width, float(mesh_settings.offset))
     scheduler.request(width, target)
 
 
@@ -894,5 +912,6 @@ __all__ = (
     "tag_view3d_redraw",
     "target_of",
     "target_problem",
+    "width_event_preview",
     "width_problem",
 )

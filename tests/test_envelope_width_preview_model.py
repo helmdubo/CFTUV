@@ -1081,3 +1081,100 @@ def test_the_preview_status_names_the_model_approximate_and_never_a_certificate(
     controller.width_model = None
     controller.width_model_refusal = pm.PreviewRefusalV1("PREVIEW_NO_OTHER_EXACT_SAMPLE")
     assert preview.status_lines(controller)[-1] == "Preview model: none (PREVIEW_NO_OTHER_EXACT_SAMPLE) - the line overlay only"
+
+
+# --------------------------------------------------------------------------
+# 9. Линии превью только там, где меш не движется (PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1)
+# --------------------------------------------------------------------------
+
+
+def _contour_world(monkeypatch, *, wall_high=0.3):
+    """Мир кадра на сгибе из двух патчей (пол — патч 0, стена — патч 1); стена живёт до `wall_high`. Подмена `compute_width_preview` пишет `skip_patches` вызовов."""
+
+    from cftuv import envelope_width_live as live
+    from cftuv.envelope_width_preview import PREVIEW_BINARY64_V1, WidthPreviewV1
+
+    base, _ = _fold_sample(0.25)
+    near, _ = _fold_sample(0.2525)
+    far, _ = _fold_sample(0.2475)
+    narrowed = dataclasses.replace(base, domains=(base.domains[0], dataclasses.replace(base.domains[1], high=wall_high)))
+    world = _owned(monkeypatch, samples=(narrowed, near, far))
+    world.controller.width_build = SimpleNamespace(source_name="src", preview_inputs=object())
+    world.skips = []
+
+    def fake_contour(inputs, width, *, lift=0.0, skip_patches=frozenset()):
+        world.skips.append(frozenset(skip_patches))
+        return WidthPreviewV1(PREVIEW_BINARY64_V1, float(width), float(lift), (), (), 0.0)
+
+    monkeypatch.setattr(live, "compute_width_preview", fake_contour)
+    world.live = live
+    return world
+
+
+def test_the_contour_is_computed_only_for_patches_the_mesh_model_does_not_move(monkeypatch):
+    world = _contour_world(monkeypatch)
+    controller, live = world.controller, world.live
+
+    # Обе стороны живы: меш двигает оба патча, линии не нужны нигде.
+    state = live.width_event_preview(controller, 0.27, 0.02)
+    assert state.moving == frozenset({0, 1}) and state.held == 0 and world.skips[-1] == frozenset({0, 1})
+    # Интервал стены кончился на 0.3: стена (патч 1) придержана на последней точной геометрии — линии остаются на ней, пол движется сам.
+    state = live.width_event_preview(controller, 0.4, 0.02)
+    assert state.moving == frozenset({0}) and state.held_patches == (1,) and world.skips[-1] == frozenset({0})
+    assert controller.width_mesh_preview is state and controller.width_preview.preview.width == 0.4
+
+
+def test_without_a_live_frame_the_contour_covers_every_path_as_before(monkeypatch):
+    world = _contour_world(monkeypatch)
+    controller, live = world.controller, world.live
+
+    # 1. Ширина за интервалом каждого домена: кадр отказан именем, меш на базе, линии всех путей.
+    state = live.width_event_preview(controller, 0.9, 0.02)
+    assert state.outcome == pm.REFUSED_OUTSIDE_EVERY_INTERVAL and state.moving == frozenset() and world.skips[-1] == frozenset()
+    # 2. Меш не принимает кадр (Edit): модель снята именем, кадра нет, линии всех путей.
+    world.decal.mode = "EDIT"
+    assert live.width_event_preview(controller, 0.27, 0.02) is None and controller.width_model is None
+    assert world.skips[-1] == frozenset() and len(world.skips) == 2
+    # 3. Модели нет вовсе (первые секунды после кнопки): линии всех путей.
+    assert live.width_event_preview(controller, 0.27, 0.02) is None and world.skips[-1] == frozenset()
+
+
+def test_the_tool_entry_asks_the_model_without_writing_the_mesh(monkeypatch):
+    world = _contour_world(monkeypatch)
+    controller = world.controller
+    writes = _writes(world)
+
+    assert preview.moving_now(controller, 0.4) == frozenset({0}) and preview.moving_now(controller, 0.27) == frozenset({0, 1})
+    assert preview.moving_now(controller, 0.9) == frozenset()  # ни один домен не жив: как отказанный кадр
+    assert preview.moving_now(controller, float("nan")) == frozenset() and preview.moving_now(controller, -1.0) == frozenset()
+    assert _writes(world) == writes and controller.width_mesh_preview is None
+    controller.width_model = None
+    assert preview.moving_now(controller, 0.27) == frozenset()
+
+
+def test_a_quarantined_domain_keeps_its_contour_and_a_patch_outside_the_model_is_never_called_moving(monkeypatch):
+    world = _contour_world(monkeypatch, wall_high=0.6)
+    model = world.model
+    quarantined = np.array([False, True])
+    held_model = dataclasses.replace(model, quarantined=quarantined, vertex_quarantined=np.zeros(model.base.vertex_count, dtype=bool))
+
+    assert pm.moving_patches_at(held_model, 0.27) == frozenset({0})
+    assert pm.moving_patches(held_model, [(1, pm.DOMAIN_QUARANTINED)]) == frozenset({0})
+    assert 7 not in pm.moving_patches(held_model, ()) and pm.moving_patches(held_model, ()) == frozenset({0, 1})
+
+
+def test_a_drag_event_goes_through_the_one_event_preview_and_the_header_follows(monkeypatch):
+    from cftuv.envelope_width_adjust import KIND_MOVE, WidthAdjustSessionV1, WidthEventV1
+    from cftuv.envelope_width_session import AdjustRuntimeV1, apply_step
+
+    world = _contour_world(monkeypatch)
+    controller = world.controller
+    start = world.base.alpha
+    session = WidthAdjustSessionV1(start, pivot=(0.0, 0.0), start_mouse=(10.0, 0.0), metres_per_pixel=1.0)
+    runtime = AdjustRuntimeV1(session, controller, 0.02, start)
+    context = SimpleNamespace(area=None)
+
+    apply_step(context, runtime, session.handle(WidthEventV1(KIND_MOVE, 10.0 + 0.15, 0.0)))  # 0.40: стена придержана
+    assert controller.width_mesh_preview.held_patches == (1,) and world.skips == [frozenset({0})]
+    apply_step(context, runtime, session.handle(WidthEventV1(KIND_MOVE, 10.0 + 0.15, 0.0)))  # ширина та же: ни кадра, ни линий
+    assert len(world.skips) == 1
