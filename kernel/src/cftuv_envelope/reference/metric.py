@@ -53,11 +53,27 @@ def _matrix(value: ExactMatrix2V1) -> tuple[tuple[sp.Expr, sp.Expr], ...]:
 def _native_pair(vector) -> tuple[RadicalSumV1, RadicalSumV1]:
     """Компоненты вектора в родной арифметике: свои `natives()` либо прочтение выражений sympy."""
 
+    if type(vector) is tuple:
+        # Родная проволока (`boundary_native.points_difference`): компоненты уже `RadicalSumV1`, ни текста, ни sympy.
+        return vector
     natives = getattr(vector, "natives", None)
     if natives is not None:
         return natives()
     x, y = vector.expressions()
     return _native_from_sympy(x), _native_from_sympy(y)
+
+
+def _product(left: RadicalSumV1, right: RadicalSumV1) -> RadicalSumV1:
+    """`left * right`; рациональный левый множитель — `scaled`: те же члены с теми же представителями, без разбора классов.
+
+    Классы `right` различны по инварианту (`right` — результат `_freeze`), поэтому общий `__mul__` с левым радикандом 1 лишь
+    переписывает каждый член `right` на `left`-кратный; `scaled` делает ровно это, не вызывая `_accumulate` и `_class_ratio`.
+    """
+
+    terms = left.terms
+    if len(terms) == 1 and terms[0][0] == 1:
+        return right.scaled(terms[0][1])
+    return left * right
 
 
 def _shadow_against_native(site: str, legacy: sp.Expr, compute_native) -> None:
@@ -427,7 +443,7 @@ class ExactPlanarMetric:
 
         lx, ly = _native_pair(left)
         gx, gy = covector
-        return lx * gx + ly * gy
+        return _product(lx, gx) + _product(ly, gy)
 
     def dot_g_native(self, left, right) -> RadicalSumV1:
         """`dot_g` в родной арифметике: то же значение, без sympy и без `factor`."""

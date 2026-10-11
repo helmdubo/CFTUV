@@ -9,9 +9,17 @@
 фильтра допустимости (параметр в `[0, 1]`, станция в `[0, длина]`, alpha не отрицательна) и
 порядок по alpha. Что может отличаться и названо: ПОРЯДОК равных по alpha контактов (прежний
 код брал его из итерации множества `sympy`, зависящей от хэша имени типа и потому не воспроизводимого
-между процессами; здесь порядок — вставки), и дубликаты (прежний код держал структурно разные, но
+между процессами; здесь порядок — вставки; с S1 резервный путь `boundary._contact_candidates_sympy` обходит кандидатов в том же порядке
+вставки, и ответ обоих путей не зависит от `PYTHONHASHSEED`), и дубликаты (прежний код держал структурно разные, но
 равные по значению параметры раздельно; здесь равные по значению сливаются). Теневая сверка
 сравнивает множества различных контактов, а не последовательности.
+
+ПРОВОЛОКА РОДНОГО ЛИСТА (S1). Вход пары — рациональные дроби концов отрезка границы и начала источника (`_rational_pair`), разности и
+скалярные произведения идут в `RadicalSumV1`, точка рационального параметра пишется в строки `Rational` прямо из дробей: ни разбора текста в
+sympy, ни вычитания в sympy, ни `factor(cancel(...))`. Всё, что не рационально (иррациональный конец отрезка, значение вне поля), идёт
+ПРЕЖНИМ путём по тексту, на месте и с теми же побочными счетами: текст разности — форма sympy, и представитель класса в нём назначает sympy, а не
+порядок вычитания, поэтому родная разность изменила бы `terms`, оболочку и счёт предфильтра. Приращение `BACKEND_COUNTS` пары — `ContactCountsV1`
+(заполняет чистая операция, применяет вызывающий).
 
 Уступка sympy — исключением `NativeExactError` (вне поля, знак не решён): вызывающий считает
 прежним путём и записывает уступку в `symbolic_backend.BACKEND_COUNTS`.
@@ -35,11 +43,14 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 from .._cpython311 import sorted_as_cpython311
 from ..float_filter import _FLOOR, _MARGIN, _SLACK, centre_and_bound
 from . import symbolic_backend as _backend
 from .native_exact import (
     NativeExactError,
+    NativeSignUndecided,
     OutsideNativeField,
     RadicalSumV1,
     _rational_text,
@@ -48,6 +59,7 @@ from .native_exact import (
 )
 from .planar_types import (
     ExactPlanarPoint,
+    ExactPlanarVector,
     ExactScalar,
     point_add,
     point_sub,
@@ -58,16 +70,110 @@ _ZERO = RadicalSumV1.zero()
 _ONE = RadicalSumV1.rational(1)
 
 
+class ContactCountsV1:
+    """Приращение `BACKEND_COUNTS["contact_candidates.*"]` ОДНОЙ пары: чистая операция его заполняет, вызывающий применяет.
+
+    Операция над парой (предфильтр и точный лист) не пишет в словарь процесса: она отдаёт ЭТО приращение, и порядок записи
+    остаётся прежним (`prefilter_*`, потом отказ родной арифметики, потом `native`). `apply` зовут и при отказе, и при прерывании пары
+    исключением вне `NativeExactError` (счёт предфильтра уже стоял в `BACKEND_COUNTS`, когда лист падал): прерванная пара оставляет
+    те же счета, что оставляла бы раньше. Что пишет sympy-путь (`SYMBOLIC_FALLBACK_COUNTS`, иррациональный параметр точки), в приращение
+    не входит: это не часть чистой операции, пара с таким параметром идёт прежним путём на месте, с теми же побочными счетами.
+    """
+
+    __slots__ = ("rejected", "passed", "refusal")
+
+    def __init__(self) -> None:
+        self.rejected = 0
+        self.passed = 0
+        self.refusal: str | None = None
+
+    def refused(self, refusal: NativeExactError) -> None:
+        self.refusal = "sign_undecided" if isinstance(refusal, NativeSignUndecided) else "outside_field"
+
+    def apply(self) -> None:
+        if self.rejected:
+            _backend.count("contact_candidates", "prefilter_rejected", self.rejected)
+        if self.passed:
+            _backend.count("contact_candidates", "prefilter_passed", self.passed)
+        if self.refusal is not None:
+            _backend.count("contact_candidates", self.refusal)
+        self.rejected = self.passed = 0
+        self.refusal = None
+
+
+def _terms_are_rational(terms: tuple) -> bool:
+    return not terms or (len(terms) == 1 and terms[0][0] == 1)
+
+
+def _same_value(left: RadicalSumV1, right: RadicalSumV1) -> bool:
+    """`not (left - right).terms`: равные члены равны, две рациональные величины с разными членами различны, остальное — разность."""
+
+    a, b = left.terms, right.terms
+    if a == b:
+        return True
+    if _terms_are_rational(a) and _terms_are_rational(b):
+        return False
+    return not (left - right).terms
+
+
 def _distinct(values: list[RadicalSumV1]) -> list[RadicalSumV1]:
     unique: list[RadicalSumV1] = []
     for value in values:
-        if not any(not (value - kept).terms for kept in unique):
+        if not any(_same_value(value, kept) for kept in unique):
             unique.append(value)
     return unique
 
 
-def _point_at(barrier, direction, parameter: RadicalSumV1) -> ExactPlanarPoint:
-    """`barrier.start + direction * parameter`; рациональный случай — прямо в строки `Rational`."""
+def _rational_pair(point) -> tuple[Fraction, Fraction] | None:
+    """Координаты точки дробями, если обе рациональны; иначе `None` (вне поля тоже: пара пойдёт прежним путём, который назовёт отказ сам)."""
+
+    try:
+        x, y = point.natives()
+    except NativeExactError:
+        return None
+    first = x.as_rational()
+    if first is None:
+        return None
+    second = y.as_rational()
+    if second is None:
+        return None
+    return first, second
+
+
+def points_difference(left, right):
+    """`left - right`: пара `RadicalSumV1` без текста и sympy, если обе точки рациональны; иначе прежний вектор `point_sub`.
+
+    Рациональная разность — те же члены `((1, c),)`, что дал бы текст `Integer/Rational` прежней разности через sympy, поэтому
+    дальнейшая арифметика видит те же объекты. Иррациональная (и вне поля) идёт прежним `point_sub`: его текст — форма sympy, и представитель
+    класса в нём назначает sympy, а не порядок вычитания (это меняет `terms`, оболочки и счёт предфильтра).
+    """
+
+    first = _rational_pair(left)
+    if first is not None:
+        second = _rational_pair(right)
+        if second is not None:
+            return (
+                RadicalSumV1.rational(first[0] - second[0]),
+                RadicalSumV1.rational(first[1] - second[1]),
+            )
+    return point_sub(left, right)
+
+
+def _point_at(barrier, start: tuple[Fraction, Fraction], step: tuple[Fraction, Fraction], parameter: RadicalSumV1) -> ExactPlanarPoint:
+    """`barrier.start + step * parameter` при рациональных `start`, `step`: рациональный параметр — прямо в строки `Rational`."""
+
+    rational = parameter.as_rational()
+    if rational is not None:
+        return ExactPlanarPoint(
+            ExactScalar(_rational_text(start[0] + step[0] * rational)),
+            ExactScalar(_rational_text(start[1] + step[1] * rational)),
+        )
+    direction = ExactPlanarVector(ExactScalar(_rational_text(step[0])), ExactScalar(_rational_text(step[1])))
+    return point_add(barrier.start, vector_scale(direction, to_sympy(parameter)))
+
+
+def _point_at_texts(barrier, direction, parameter: RadicalSumV1) -> ExactPlanarPoint:
+    """`barrier.start + direction * parameter` по тексту: прежний путь для пары с иррациональным концом отрезка или началом источника."""
 
     rational = parameter.as_rational()
     if rational is not None:
@@ -109,7 +215,7 @@ class SourceContactFrame:
         metric = self._context.metric
         source = self._source
         try:
-            self.length = metric.length_g_native(point_sub(source.end, source.start))
+            self.length = metric.length_g_native(points_difference(source.end, source.start))
             self.tangent_covector = metric.covector_g_native(source.tangent)
             self.normal_covector = metric.covector_g_native(source.owner_normal)
         except NativeExactError as refusal:
@@ -221,8 +327,20 @@ def contact_candidates_native(context, source, boundary, frame: SourceContactFra
         raise type(frame.refusal)(frame.refusal.detail)
     length = frame.length
     barrier = boundary.segment
-    barrier_direction = point_sub(barrier.end, barrier.start)
-    start_offset = point_sub(barrier.start, source.start)
+    start, end, origin = _rational_pair(barrier.start), _rational_pair(barrier.end), _rational_pair(source.start)
+    if start is None or end is None or origin is None:
+        barrier_direction = point_sub(barrier.end, barrier.start)
+        start_offset = point_sub(barrier.start, source.start)
+
+        def place(parameter):
+            return _point_at_texts(barrier, barrier_direction, parameter)
+    else:
+        step = (end[0] - start[0], end[1] - start[1])
+        barrier_direction = (RadicalSumV1.rational(step[0]), RadicalSumV1.rational(step[1]))
+        start_offset = (RadicalSumV1.rational(start[0] - origin[0]), RadicalSumV1.rational(start[1] - origin[1]))
+
+        def place(parameter):
+            return _point_at(barrier, start, step, parameter)
     s0 = metric.dot_covector_native(start_offset, frame.tangent_covector)
     ds = metric.dot_covector_native(barrier_direction, frame.tangent_covector)
     a0 = metric.dot_covector_native(start_offset, frame.normal_covector)
@@ -243,7 +361,7 @@ def contact_candidates_native(context, source, boundary, frame: SourceContactFra
             continue
         if alpha.signum() < 0:
             continue
-        result.append((alpha, station, _point_at(barrier, barrier_direction, parameter)))
+        result.append((alpha, station, place(parameter)))
     result[:] = sorted_as_cpython311(result, lambda left, right: (left[0] - right[0]).signum())
     return tuple(result)
 
