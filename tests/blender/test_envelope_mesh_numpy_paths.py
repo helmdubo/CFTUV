@@ -7,7 +7,7 @@ WIDTH_REFRESH_LEAN_V1 пересобирает меш декали на мест
 
 1. меш, собранный numpy, равен эталону; пересборка уже заполненного меша равна пересборке пустого (очистка на месте ничего не оставляет);
 2. запись по месту (`write_preview_geometry` с номерами владельцев) даёт меш, равный сборке тех же раскладки и новых чисел;
-3. швы помечены теми же рёбрами, а число помеченных совпадает с эталоном;
+3. швы помечены теми же рёбрами, а число помеченных совпадает с эталоном; дайджест квитанции (`mesh_content_digest`, чтение `foreach_get`) равен дайджесту прежнего обхода по элементам;
 4. то же для граней из 3, 4, 5 и 6 вершин и для нескольких доменов.
 
 Прогон (в Blender 4.1 и выше): blender --background --factory-startup --python-exit-code 1 --python <этот файл>
@@ -104,6 +104,25 @@ def _fingerprint(mesh) -> dict:
     return result
 
 
+def _reference_digest(mesh) -> str:
+    """Дайджест меша прежним обходом (элемент за элементом через RNA), дословно из `mesh_content_digest` до `foreach_get`: эталон равенства."""
+
+    import hashlib
+    import json
+
+    uv_layer = mesh.uv_layers.get(mesh_module.DECAL_UV_LAYER)
+    payload = {
+        "positions": [tuple(item.co) for item in mesh.vertices],
+        "faces": [tuple(item.vertices) for item in mesh.polygons],
+        "uvs": [] if uv_layer is None else [tuple(item.uv) for item in uv_layer.data],
+        "seams": sorted(tuple(sorted(item.vertices)) for item in mesh.edges if item.use_seam),
+    }
+    for name in (mesh_module.DECAL_DOMAIN_ATTRIBUTE, mesh_module.DECAL_OWNER_ATTRIBUTE):
+        attribute = mesh.attributes.get(name)
+        payload[name] = [] if attribute is None else [item.value for item in attribute.data]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
 def _same(first, second, label) -> None:
     assert set(first) == set(second), (label, sorted(set(first) ^ set(second)))
     for name in first:
@@ -136,6 +155,9 @@ def _main() -> None:
     assert _numpy_mesh(fresh, arrays) == marked
     _same(_fingerprint(reference), _fingerprint(fresh), "fresh")
     assert mesh_module.mesh_content_digest(fresh) == mesh_module.mesh_content_digest(reference)
+    # Дайджест квитанции, прочитанный `foreach_get`, равен дайджесту прежнего обхода по элементам (позиции float32, грани разной длины, швы, два атрибута).
+    assert mesh_module.mesh_content_digest(reference) == _reference_digest(reference) == mesh_module.mesh_content_digest(fresh) == _reference_digest(fresh)
+    assert any(edge.use_seam for edge in reference.edges)
     again = _numpy_mesh(fresh, arrays)  # пересборка поверх заполненного меша: очистка на месте ничего не оставляет
     assert again == marked
     _same(_fingerprint(reference), _fingerprint(fresh), "rebuilt twice")
@@ -144,6 +166,7 @@ def _main() -> None:
     expected_other, _marked = _product_mesh("reference_other", other)
     _same(_fingerprint(expected_other), _fingerprint(fresh), "other numbers")
     assert mesh_module.mesh_content_digest(fresh) == mesh_module.mesh_content_digest(expected_other) != mesh_module.mesh_content_digest(reference)
+    assert mesh_module.mesh_content_digest(expected_other) == _reference_digest(expected_other)
 
     # 2. Запись по месту: те же раскладка и швы, новые позиции, UV и номера владельцев.
     inplace, _marked = _product_mesh("inplace", arrays)
@@ -165,6 +188,9 @@ def _main() -> None:
     # 4. Пустой образ (ни одной грани) не падает и даёт пустой меш.
     empty = SimpleNamespace(positions=(), faces=(), uvs=(), face_domain=(), face_owner=(), seam_edges=())
     assert _numpy_mesh(inplace, empty) == 0 and len(inplace.vertices) == len(inplace.polygons) == 0
+    assert mesh_module.mesh_content_digest(inplace) == _reference_digest(inplace)  # пустой меш: и дайджест пустого равен прежнему
+    bare = bpy.data.meshes.new("bare")  # меш без слоя UV и без атрибутов
+    assert mesh_module.mesh_content_digest(bare) == _reference_digest(bare)
     print(f"NUMPY MESH PATHS: identical to the product fill on {bpy.app.version_string}: {len(arrays.faces)} faces of 3-6 vertices, {marked} seams")
     print("ENVELOPE_MESH_NUMPY_PATHS_BLENDER_SMOKE_OK")
 

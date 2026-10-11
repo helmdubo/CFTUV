@@ -397,27 +397,42 @@ def _structure_token(view) -> str:
 # --------------------------------------------------------------------------
 
 
+def _read(collection, name: str, dtype, size: int = 1):
+    """Одно свойство каждого элемента коллекции меша в плоский массив numpy (`foreach_get`: без обхода элементов через RNA из Python)."""
+
+    buffer = np.empty(len(collection) * size, dtype=dtype)
+    collection.foreach_get(name, buffer)
+    return buffer
+
+
 def mesh_content_digest(mesh) -> str:
     """Отпечаток меша ПО ТОМУ, ЧТО ЛЕЖИТ В BLENDER (float32 и порядок петель).
 
     Позиции и UV читаются обратно, поэтому дайджест видит и округление
     хранилища: два прогона дают равные дайджесты, когда равны их меши.
+
+    Массивы читаются `foreach_get` в numpy, а не обходом элементов (`item.co`, `item.vertices`, `item.uv`, `item.value` по одному через RNA: 13 мс на `building`, 119 мс на
+    `cover.008`, то есть больше половины записи меша). Значение то же побитово: float32 приводится к тем же `float`, что давали Vector и MeshUVLoop, а JSON и хэш прежние
+    (`tests/blender/test_envelope_mesh_numpy_paths.py` держит равенство с прежним обходом на настоящих мешах).
     """
 
     uv_layer = mesh.uv_layers.get(DECAL_UV_LAYER)
+    starts = _read(mesh.polygons, "loop_start", np.int32).tolist()
+    totals = _read(mesh.polygons, "loop_total", np.int32).tolist()
+    corners = _read(mesh.loops, "vertex_index", np.int32).tolist()
+    edge_pairs = _read(mesh.edges, "vertices", np.int32, 2).reshape(-1, 2)
+    chosen = edge_pairs[_read(mesh.edges, "use_seam", np.bool_)]
+    low, high = chosen.min(axis=1), chosen.max(axis=1)
+    order = np.lexsort((high, low))
     payload = {
-        "positions": [tuple(item.co) for item in mesh.vertices],
-        "faces": [tuple(item.vertices) for item in mesh.polygons],
-        "uvs": [] if uv_layer is None else [tuple(item.uv) for item in uv_layer.data],
-        "seams": sorted(
-            tuple(sorted(item.vertices)) for item in mesh.edges if item.use_seam
-        ),
+        "positions": _read(mesh.vertices, "co", np.float32, 3).astype(np.float64).reshape(-1, 3).tolist(),
+        "faces": [corners[start : start + total] for start, total in zip(starts, totals)],
+        "uvs": [] if uv_layer is None else _read(uv_layer.data, "uv", np.float32, 2).astype(np.float64).reshape(-1, 2).tolist(),
+        "seams": np.stack((low[order], high[order]), axis=1).tolist() if len(chosen) else [],
     }
     for name in (DECAL_DOMAIN_ATTRIBUTE, DECAL_OWNER_ATTRIBUTE):
         attribute = mesh.attributes.get(name)
-        payload[name] = (
-            [] if attribute is None else [item.value for item in attribute.data]
-        )
+        payload[name] = [] if attribute is None else _read(attribute.data, "value", np.int32).tolist()
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("ascii")).hexdigest()
 

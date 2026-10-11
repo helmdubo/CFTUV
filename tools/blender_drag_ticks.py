@@ -69,6 +69,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--ticks", type=int, default=20)
     parser.add_argument("--confirms", type=int, default=3)
     parser.add_argument("--rel", type=float, default=0.005, help="each width step, as a share of the cold width")
+    parser.add_argument("--prove-digest", action="store_true", help="the receipt digest of the decal mesh read by foreach_get equals the digest read item by item (the previous implementation, verbatim), and their times")
     parser.add_argument("--prove-lean", type=int, default=0)
     parser.add_argument("--prove-rel", type=float, default=0.001, help="the proof widths step, as a share of the cold width (small: a lean frame is writable while the layout is the one on screen)")
     parser.add_argument("--mode", default="object", choices=("object", "edit"), help="the mode of the source while the width is dragged: the button needs the edit mode (it reads the selection), the drag is usually made in the object mode")
@@ -250,6 +251,40 @@ class Session:
         }
 
 
+def reference_digest(mesh) -> str:
+    """The receipt digest as `mesh_content_digest` read it before `foreach_get` (item by item through RNA), verbatim: the reference of the equality."""
+
+    mesh_module = sys.modules["cftuv.envelope_production_mesh"]
+    uv_layer = mesh.uv_layers.get(mesh_module.DECAL_UV_LAYER)
+    payload = {
+        "positions": [tuple(item.co) for item in mesh.vertices],
+        "faces": [tuple(item.vertices) for item in mesh.polygons],
+        "uvs": [] if uv_layer is None else [tuple(item.uv) for item in uv_layer.data],
+        "seams": sorted(tuple(sorted(item.vertices)) for item in mesh.edges if item.use_seam),
+    }
+    for name in (mesh_module.DECAL_DOMAIN_ATTRIBUTE, mesh_module.DECAL_OWNER_ATTRIBUTE):
+        attribute = mesh.attributes.get(name)
+        payload[name] = [] if attribute is None else [item.value for item in attribute.data]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def prove_digest(session: Session) -> dict:
+    """Both digests of the real decal mesh, equal or not, and the milliseconds of each (best of five)."""
+
+    mesh = session.decal_mesh
+    spent = {"reference": [], "foreach_get": []}
+    values = {}
+    for _ in range(5):
+        started = time.perf_counter()
+        values["reference"] = reference_digest(mesh)
+        spent["reference"].append(time.perf_counter() - started)
+        started = time.perf_counter()
+        values["foreach_get"] = session.mesh_module.mesh_content_digest(mesh)
+        spent["foreach_get"].append(time.perf_counter() - started)
+    return {"equal": values["reference"] == values["foreach_get"], "digest": values["foreach_get"][:16], "vertices": len(mesh.vertices), "polygons": len(mesh.polygons),
+            "loops": len(mesh.loops), "reference_ms": round(min(spent["reference"]) * 1000, 3), "foreach_get_ms": round(min(spent["foreach_get"]) * 1000, 3)}
+
+
 def prove_lean(session: Session, laps: Laps, widths: list) -> list:
     """Per width: lean refresh -> mesh digest; the full path at the same width -> mesh digest. Equal digests: the lean frame is the committed mesh."""
 
@@ -283,6 +318,8 @@ def main() -> int:
         if args.mode == "object" and session.bpy.context.mode != "OBJECT":
             session.bpy.ops.object.mode_set(mode="OBJECT")
         report["source_mode"] = session.bpy.context.mode
+        if args.prove_digest:
+            report["digest_proof"] = prove_digest(session)
         base = float(session.settings.envelope_debug_alpha)
         before = (session.mesh_module.mesh_content_digest(session.decal_mesh), mesh_arrays_hash(session.decal_mesh))
         step = base * args.rel

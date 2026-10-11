@@ -59,6 +59,23 @@ def _f32(value: float) -> float:
 
 
 class _Collection(list):
+    def foreach_get(self, name, buffer):
+        """Чтение свойства каждого элемента в плоский буфер (так читает дайджест меша); начала и длины граней выводятся из их вершин, как их хранит Blender."""
+
+        if name == "loop_start":
+            position, values = 0, []
+            for item in self:
+                values.append(position)
+                position += len(item.vertices)
+        elif name == "loop_total":
+            values = [len(item.vertices) for item in self]
+        else:
+            values = []
+            for item in self:
+                value = getattr(item, name)
+                values.extend(value if isinstance(value, tuple) else [value])
+        buffer[:] = values
+
     def foreach_set(self, name, flat):
         width = len(flat) // len(self) if len(self) else 0
         assert len(flat) == width * len(self), (name, len(flat), len(self))
@@ -115,6 +132,12 @@ class _Mesh:
             SimpleNamespace(vertices=pair, use_seam=False) for pair in pairs
         )
         self.loop_count = sum(len(face) for face in faces)
+
+    @property
+    def loops(self):
+        """Петли меша: вершина каждой в порядке обхода граней (то, что хранит Blender в `loops.vertex_index`)."""
+
+        return _Collection(SimpleNamespace(vertex_index=vertex) for polygon in self.polygons for vertex in polygon.vertices)
 
     def update(self):
         pass
@@ -730,6 +753,49 @@ def test_one_child_object_holds_every_domain_with_uv_attributes_and_one_material
     assert all(abs(v.co[2] - _f32(0.02)) < 1e-6 for v in mesh.vertices)
     assert receipt.mesh_digest == mesh_content_digest(mesh)
     assert fake_bpy.context.scene.linked == [decal]
+
+
+def _reference_digest(mesh) -> str:
+    """Дайджест меша прежним обходом (элемент за элементом через RNA), дословно из `mesh_content_digest` до `foreach_get`: эталон равенства."""
+
+    import hashlib
+    import json
+
+    from cftuv.envelope_production_mesh import DECAL_DOMAIN_ATTRIBUTE, DECAL_OWNER_ATTRIBUTE, DECAL_UV_LAYER
+
+    uv_layer = mesh.uv_layers.get(DECAL_UV_LAYER)
+    payload = {
+        "positions": [tuple(item.co) for item in mesh.vertices],
+        "faces": [tuple(item.vertices) for item in mesh.polygons],
+        "uvs": [] if uv_layer is None else [tuple(item.uv) for item in uv_layer.data],
+        "seams": sorted(tuple(sorted(item.vertices)) for item in mesh.edges if item.use_seam),
+    }
+    for name in (DECAL_DOMAIN_ATTRIBUTE, DECAL_OWNER_ATTRIBUTE):
+        attribute = mesh.attributes.get(name)
+        payload[name] = [] if attribute is None else [item.value for item in attribute.data]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def test_the_digest_read_by_foreach_get_is_the_digest_read_item_by_item(fake_bpy, row_results):
+    source = _source(fake_bpy)
+    receipt = write_decal_object(source, row_results, offset=0.02, material_name="CFTUV_Decal")
+    mesh = fake_bpy.data.objects.get(receipt.object_name).data
+
+    assert len(mesh.vertices) > 0 and len(mesh.polygons) > 0
+    assert mesh_content_digest(mesh) == _reference_digest(mesh) == receipt.mesh_digest
+
+
+def test_the_digest_of_a_mesh_with_seams_and_an_empty_mesh_is_the_reference_digest(fake_bpy, row_results):
+    source = _source(fake_bpy)
+    receipt = write_decal_object(source, row_results, offset=0.02, material_name="CFTUV_Decal")
+    mesh = fake_bpy.data.objects.get(receipt.object_name).data
+    for edge in list(mesh.edges)[:5]:
+        edge.use_seam = True  # швы: пары вершин по возрастанию, порядок рёбер не важен
+
+    assert any(edge.use_seam for edge in mesh.edges)
+    assert mesh_content_digest(mesh) == _reference_digest(mesh)
+    empty = fake_bpy.data.meshes.new("empty")
+    assert mesh_content_digest(empty) == _reference_digest(empty)
 
 
 def test_the_object_is_a_child_in_the_collection_of_its_source(fake_bpy, row_results):
