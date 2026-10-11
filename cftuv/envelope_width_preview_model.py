@@ -64,8 +64,10 @@ REFUTATION` и не двигается. Повторный допуск — по
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, replace
+from itertools import chain
 from fractions import Fraction
 
 import numpy as np
@@ -152,6 +154,52 @@ class DomainSampleV1:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class MeshImageV1:
+    """Меш точного прогона, кроме позиций и UV, в numpy (int32): всё, что `_fill_mesh` кладёт в меш, и ничего лишнего.
+
+    Грани: начало каждой в плоском списке вершин, сам плоский список (индексы вершин меша по обходу граней), домен и номер владельца каждой грани; швы - пары вершин.
+    Из образа и позиций с UV образца меш собирается на месте без питоновских кортежей (`envelope_production_mesh.rebuild_mesh_from_image`).
+    """
+
+    face_starts: object
+    face_vertices: object
+    face_domain: object
+    face_owner: object
+    seams: object
+
+    @property
+    def face_count(self) -> int:
+        return int(self.face_starts.shape[0])
+
+
+def mesh_image_of(arrays) -> MeshImageV1:
+    """Образ меша по массивам меша (`build_mesh_arrays`): те же числа, что кладёт в меш `_fill_mesh`, в numpy."""
+
+    faces = arrays.faces
+    lengths = np.fromiter(map(len, faces), dtype=np.int32, count=len(faces))
+    starts = np.zeros(len(faces), dtype=np.int32)
+    if len(faces) > 1:
+        np.cumsum(lengths[:-1], out=starts[1:])
+    return MeshImageV1(
+        face_starts=starts,
+        face_vertices=np.fromiter(chain.from_iterable(faces), dtype=np.int32, count=int(lengths.sum())),
+        face_domain=np.asarray(arrays.face_domain, dtype=np.int32),
+        face_owner=np.asarray(arrays.face_owner, dtype=np.int32),
+        seams=np.asarray(arrays.seam_edges, dtype=np.int32).reshape(-1, 2),
+    )
+
+
+def layout_digest_of(image: MeshImageV1, vertices: int, loops: int) -> str:
+    """Отпечаток раскладки (без номеров владельцев): число вершин и петель, грани, домен каждой грани, швы."""
+
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(f"{vertices}:{loops}:{image.face_count}".encode("ascii"))
+    for array in (image.face_starts, image.face_vertices, image.face_domain, image.seams):
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class PreviewSampleV1:
     """Точный прогон в виде, в котором модель его читает: массивы меша и домены. Неизменяем; ключ — чья это геометрия."""
 
@@ -163,6 +211,13 @@ class PreviewSampleV1:
     domains: tuple
     arrays_digest: str
     source_revision: str
+    #: Отпечаток раскладки меша, которую кладёт `_fill_mesh` по этим массивам (число вершин и петель, грани, домен каждой грани, швы): два образца с равным отпечатком кладут меш
+    #: одинаково во всём, кроме чисел позиций и UV и номеров владельцев граней, поэтому точный кадр одного вправе лечь в меш другого одной записью `co`, `uv` и `cftuv_owner`
+    #: (WIDTH_REFRESH_LEAN_V1). Номера владельцев (`claim:N`) в отпечаток НЕ входят: ядро нумерует огибающие по отсортированным именам, имена несут ширину, и порядок меняется
+    #: от ширины к ширине при той же структуре (на `building` у 480-500 граней из 907 уже при +0.1 %); это целочисленный атрибут граней, а не раскладка.
+    layout_digest: str = ""
+    #: Меш образца в numpy (`MeshImageV1`): из него меш пересобирается на месте, когда раскладка сменилась (точный lean-кадр, отмена после него).
+    image: object = None
 
     @property
     def vertex_count(self) -> int:
@@ -372,6 +427,7 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
         start += count
     positions = np.asarray(arrays.positions, dtype=np.float64).reshape(-1, 3)
     uvs = np.asarray(arrays.uvs, dtype=np.float64).reshape(-1, 2)
+    image = mesh_image_of(arrays)
     return PreviewSampleV1(
         key=tuple(key),
         alpha_text=str(alpha_text),
@@ -381,6 +437,8 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
         domains=tuple(domains),
         arrays_digest=str(arrays.digest),
         source_revision=str(arrays.source_revision),
+        layout_digest=layout_digest_of(image, len(arrays.positions), len(arrays.uvs)),
+        image=image,
     )
 
 

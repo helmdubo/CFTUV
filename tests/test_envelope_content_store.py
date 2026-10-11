@@ -133,6 +133,8 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "step_path",
         # Запись бэкенда ядра (`BackendRecordV1`): числа и имена исходов, идентичностей хоста в них нет.
         "backend_record",
+        # Метка класса обновления (WIDTH_REFRESH_LEAN_V1): lean-результат хранилище не принимает (`LeanResultError`), переносить на ревизию нечего.
+        "lean",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}

@@ -38,7 +38,7 @@ from __future__ import annotations
 import bmesh
 import bpy
 from bpy.app.handlers import persistent
-from bpy.props import EnumProperty, FloatProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty, StringProperty
 
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
@@ -109,6 +109,15 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
             "implementation (default) or the frozen Python reference. The answer is bitwise the same; a stage the native "
             "kernel cannot compute is computed in Python and named in the console. A scene that chose Python keeps it. "
             "Applies to the next Build Decal Mesh"
+        ),
+    )
+    drag_exact_ticks: BoolProperty(
+        name="Exact ticks while dragging",
+        default=False,
+        description=(
+            "While Adjust Decal Width is dragged, order an exact refresh at the pointer width whenever the hand pauses (WIDTH_REFRESH_LEAN_V1): "
+            "the decal shows the exact positions and UV instead of the approximate model, without the checks and reports of a commit; "
+            "confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. Off by default: the worker pool is busy while it runs"
         ),
     )
     status: StringProperty(name="Decal Mesh Status", default="")

@@ -14,6 +14,9 @@ INPUTS
   --case             `building`, `rounded`, `two`, `sagging0987`, `sagging02239`, `half_sphere`, `cover008` (the built-in recipes), or `NAME=mesh:alpha:density:stretch[:offset[:scene]]`.
   --workers          comma list, `0` = every domain in this process, `8` = the pool. Each count is compared with the SAME count of the other tree.
   --presses          `cold,step,step`: `cold` is the first press (alpha), each `step` widens by `--step-width` (0.0022), as the width tool does.
+                     A drag is `cold,tick,tick,...,confirm`: a `tick` is an exact refresh DURING the drag (a tree that has `run_production(lean=...)` runs it as WIDTH_REFRESH_LEAN_V1,
+                     a tree that has not runs the full path), `confirm` is the commit at the next width (always the full path). Ticks are compared on geometry, outcomes and counters
+                     (digests of the batch are not computed by a lean tick); the confirm is compared like any press, so a lean tick must leave no trace in the committed answer.
   --native-path      a directory that holds the `cftuv_native` package, put ahead of everything in BOTH trees and in the pool workers; without it the extension is the one Blender can import.
   --env KEY=VALUE    environment for every Blender (e.g. `CFTUV_SNAPSHOT_BYTE_CHECK=all`), the same for both trees.
   --keys-may-differ  the content keys of the two sides are not compared (listed in the notes): the identity of the executor of a stage is part of a key, so two settings of one tree differ in every key by construction.
@@ -69,6 +72,10 @@ ANSWER_FIELDS = (
     "outcome", "detail", "content_digest", "semantic_digest", "diagnostics", "normal", "offset_normals_digest", "vertex_normals_hash",
     "decal_topology_law", "chart_orientation", "structure_digest",
 )
+#: Fields a WIDTH_REFRESH_LEAN_V1 domain does not carry (no batch to digest): skipped when either side's row is lean, and counted in the notes.
+LEAN_UNCARRIED_FIELDS = ("content_digest", "semantic_digest", "vertex_normals_hash")
+#: Counters a lean run adds or moves on purpose: its own class counters, and the registration in the content store (a lean result is never stored).
+LEAN_COUNTER_PREFIXES = ("PRODUCTION_REFRESH_LEAN", "PRODUCTION_CONTENT_REGISTERED")
 #: Fields that say HOW the answer was reached (counted and listed, never a failure).
 LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran")
 #: Counters whose value depends on which worker a domain landed on; each group is compared by its sum.
@@ -135,22 +142,28 @@ def parse_case(text: str) -> Case:
     return Case(name, parts[0], float(parts[1]), parts[2], int(parts[3]), float(parts[4]) if len(parts) > 4 else -1.0, parts[5] if len(parts) > 5 else "testscene")
 
 
-def parse_presses(text: str, alpha: float, step_width: float = STEP_WIDTH) -> list[tuple[str, str, float]]:
-    """`cold,step,step` -> `[(label, kind, alpha)]`: `cold`, `step1`, `step2`; a step widens by `step_width` over the previous one."""
+#: Kinds of the presses after the cold one (`warm` is the old name of `step`); each widens by the step width over the previous press.
+LATER_PRESSES = {"step": "step", "warm": "step", "tick": "tick", "confirm": "confirm"}
 
-    presses, steps = [], 0
+
+def parse_presses(text: str, alpha: float, step_width: float = STEP_WIDTH) -> list[tuple[str, str, float]]:
+    """`cold,step,tick,confirm` -> `[(label, kind, alpha)]`: `cold`, `step1`, `tick1`, `confirm1`; every press after the cold one widens by `step_width` over the previous one."""
+
+    presses, steps, numbers = [], 0, {}
     for kind in (item.strip() for item in text.split(",") if item.strip()):
         if kind == "cold":
             if presses:
                 raise ValueError("`cold` is the first press only: later presses of one session are steps")
             presses.append(("cold", "cold", alpha))
-        elif kind in ("step", "warm"):
+        elif kind in LATER_PRESSES:
             if not presses:
                 raise ValueError("the first press is `cold`")
+            name = LATER_PRESSES[kind]
             steps += 1
-            presses.append((f"step{steps}", "step", round(alpha + step_width * steps, 6)))
+            numbers[name] = numbers.get(name, 0) + 1
+            presses.append((f"{name}{numbers[name]}", name, round(alpha + step_width * steps, 6)))
         else:
-            raise ValueError(f"press {kind!r}: `cold` or `step`")
+            raise ValueError(f"press {kind!r}: `cold`, `step`, `tick` or `confirm`")
     if not presses:
         raise ValueError("no presses")
     return presses
@@ -275,10 +288,16 @@ def _compare_rows(label: str, first: dict, second: dict, allowed: tuple, out: Co
     out.domains_compared += len(common)
     for patch in common:
         a, b = rows_a[patch], rows_b[patch]
+        lean = bool(a.get("lean") or b.get("lean"))
         for name in ANSWER_FIELDS:
+            if lean and name in LEAN_UNCARRIED_FIELDS:
+                continue
             if a.get(name, ABSENT) != b.get(name, ABSENT):
                 out.differences.append(f"[{label}] patch {patch} {name}: base {_short(a.get(name, ABSENT))} != branch {_short(b.get(name, ABSENT))}")
         _counter_difference_domain(label, patch, a, b, allowed, out)
+    leaned = sum(1 for patch in common if rows_a[patch].get("lean") or rows_b[patch].get("lean"))
+    if leaned:
+        out.notes.append(f"[{label}] {leaned} lean (WIDTH_REFRESH_LEAN_V1) domains: batch digests {', '.join(LEAN_UNCARRIED_FIELDS)} not carried, compared on everything else")
     for name in LABEL_FIELDS:
         changed = sum(1 for patch in common if rows_a[patch].get(name) != rows_b[patch].get(name))
         if changed:
@@ -309,6 +328,8 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
         else:
             out.notes.append(f"[{label}] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): {found}")
     _compare_rows(label, a, b, allowed, out)
+    if a.get("lean") or b.get("lean"):
+        allowed = (*allowed, *LEAN_COUNTER_PREFIXES)
     if a.get("process_counters") is not None and b.get("process_counters") is not None:
         for name in sorted(set(a["process_counters"]) | set(b["process_counters"])):
             first, second = a["process_counters"].get(name, {}), b["process_counters"].get(name, {})
@@ -322,7 +343,8 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
     for name in ("profile_domain_counters", "profile_receipts", "profile_timing_stages"):
         if a.get(name) != b.get(name):
             out.differences.append(f"[{label}] {name} differ")
-    out.presses[label] = {"domains": a["domains"], "materialized": a["materialized"], "outcomes": a["outcomes"], "mesh": a["mesh_hash"][:12], "mesh_counts": a["mesh_counts"], "keys": len(a["content_keys"])}
+    out.presses[label] = {"domains": a["domains"], "materialized": a["materialized"], "outcomes": a["outcomes"], "mesh": a["mesh_hash"][:12], "mesh_counts": a["mesh_counts"], "keys": len(a["content_keys"]),
+                          "kind": a.get("kind", ""), "lean": bool(b.get("lean"))}
 
 
 def compare_runs(base: dict, branch: dict, allowed: tuple = (), compare_keys: bool = True) -> Comparison:
@@ -624,7 +646,18 @@ def run_pair(case: Case, workers: int, trees: dict, scenes: dict, blender: str, 
             first.setdefault(label, result.report)
             for press, data in result.report.get("presses", {}).items():
                 seconds[label].setdefault(press, []).append(data["run_seconds"])
+                seconds[label].setdefault("exact:" + press, []).append(data.get("exact_seconds", data["run_seconds"]))
     return first, seconds
+
+
+def percentile(samples: list[float], fraction: float) -> float:
+    """Linear-interpolated percentile (`fraction` 0.5 = median, 0.9 = p90) of a non-empty list."""
+
+    ordered = sorted(samples)
+    position = (len(ordered) - 1) * fraction
+    low = int(position)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
 
 
 def _case_timing(seconds: dict) -> dict:
@@ -633,6 +666,14 @@ def _case_timing(seconds: dict) -> dict:
         base, branch = timing_summary(seconds["base"][press]), timing_summary(seconds.get("branch", {}).get(press, []))
         if base["n"] and branch["n"]:
             out[press] = {"base": base["median"], "branch": branch["median"], "change": change_percent(base["median"], branch["median"]), "base_all": base, "branch_all": branch}
+    # Every tick of every repetition pooled: p50 / p90 of an exact refresh DURING a drag (`exact:` = the run plus the arrays of the mesh), base against branch.
+    for kind in ("tick", "step"):
+        names = [press for press in seconds.get("base", {}) if press.startswith("exact:" + kind)]
+        pooled = {side: [value for press in names for value in seconds.get(side, {}).get(press, [])] for side in ("base", "branch")}
+        if pooled["base"] and pooled["branch"]:
+            row = {side: {"n": len(values), "p50": percentile(values, 0.5), "p90": percentile(values, 0.9)} for side, values in pooled.items()}
+            out[f"{kind}s p50"] = {"base": row["base"]["p50"], "branch": row["branch"]["p50"], "change": change_percent(row["base"]["p50"], row["branch"]["p50"]), "n": row["base"]["n"]}
+            out[f"{kind}s p90"] = {"base": row["base"]["p90"], "branch": row["branch"]["p90"], "change": change_percent(row["base"]["p90"], row["branch"]["p90"]), "n": row["base"]["n"]}
     return out
 
 
@@ -924,15 +965,16 @@ def _hash(value) -> str:
 def domain_rows(run) -> list:
     rows = []
     for item in run.results:
-        batch = item.batch
+        lean = bool(getattr(item, "lean", False))  # a WIDTH_REFRESH_LEAN_V1 result carries the view, not the batch: its digests are not computed and reading them is an error
+        batch = None if lean else item.batch
         counters = [(str(name), value) for name, value in item.counters]
         record = getattr(item, "backend_record", None)
         rows.append({
-            "patch": int(item.patch_id), "domain_id": str(item.domain_id), "outcome": str(item.outcome), "detail": str(item.detail), "content_digest": item.content_digest,
+            "patch": int(item.patch_id), "domain_id": str(item.domain_id), "outcome": str(item.outcome), "detail": str(item.detail), "content_digest": "" if lean else item.content_digest,
             "semantic_digest": "" if batch is None else batch.semantic_digest.value, "counters_all": dict(counters), "diagnostics": list(item.diagnostics), "normal": item.normal,
-            "offset_normals_digest": item.offset_normals_digest, "vertex_normals_hash": _hash(item.vertex_normals), "decal_topology_law": item.decal_topology_law,
+            "offset_normals_digest": item.offset_normals_digest, "vertex_normals_hash": "" if lean else _hash(item.vertex_normals), "decal_topology_law": item.decal_topology_law,
             "chart_orientation": item.chart_orientation, "step_path": getattr(item, "step_path", ABSENT), "placement": str(item.placement),
-            "structure_digest": item.structure_digest, "clip_memo": getattr(item, "clip_memo", ABSENT), "ran": None if record is None else record.ran,
+            "structure_digest": item.structure_digest, "clip_memo": getattr(item, "clip_memo", ABSENT), "ran": None if record is None else record.ran, "lean": lean,
             "effective_alpha_ran": None if record is None else (getattr(record, "effective_alpha_ran", None) or None),
             "effective_alpha_calls": None if record is None else [getattr(record, "effective_alpha_native_calls", 0), getattr(record, "effective_alpha_python_calls", 0)],
         })
@@ -967,7 +1009,7 @@ def counters_delta(before: dict, after: dict) -> dict:
     }
 
 
-def press_report(run, mesh_module, offset: float, seconds: float, keys: list, counters: dict | None = None) -> dict:
+def press_report(run, mesh_module, offset: float, seconds: float, keys: list, counters: dict | None = None, *, kind: str = "", lean: bool = False, arrays_seconds: float = 0.0) -> dict:
     rows = domain_rows(run)
     mesh_hash, mesh_counts = mesh_digest(run, mesh_module, offset)
     outcomes: dict = {}
@@ -976,7 +1018,7 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     profile = run.profile
     alpha_calls = [sum(row["effective_alpha_calls"][index] for row in rows if row.get("effective_alpha_calls")) for index in (0, 1)]
     return {
-        "run_seconds": seconds, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
+        "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
         "process_counters": counters, "effective_alpha_calls": alpha_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
@@ -1046,24 +1088,33 @@ def run_presses(args, report: dict, state: dict) -> None:
     report["gc_pause_available"] = gc_paused is not None
     from contextlib import nullcontext
 
+    import inspect
+
+    lean_supported = "lean" in inspect.signature(export_module.run_production).parameters  # WIDTH_REFRESH_LEAN_V1; an older tree runs a tick the full way
+    report["lean_supported"] = lean_supported
     report["presses"] = {}
     for label, kind in zip(state["labels"], state["kinds"]):
         alpha = state["alphas"][label]
         before = len(state["keys"])
         pause = gc_paused() if (kind == "cold" and gc_paused is not None and args.gc_pause != "off") else nullcontext()
+        lean = kind == "tick" and lean_supported
         counters_before = process_counters()
         started = time.perf_counter()
         with pause:
             run = export_module.run_production(
                 controller, bundle, frozenset(selected), alpha, source_object_key=key, source_data_key=data_key, density=args.density,
                 developable_stretch_budget=envelope_stretch_budget(args.stretch), silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
-                workers=args.workers if args.workers >= 2 else 0, kernel_backend=kernel_backend_of(mesh_settings),
+                workers=args.workers if args.workers >= 2 else 0, kernel_backend=kernel_backend_of(mesh_settings), **({"lean": True} if lean else {}),
             )
         seconds = time.perf_counter() - started
         counters = counters_delta(counters_before, process_counters()) if args.workers < 2 else None  # a pool worker keeps its own counters
-        report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:], counters)
+        # The arrays the live thread builds right after the run (lean arrays for a lean tick), so `exact_seconds` is the time to the arrays of the exact mesh.
+        arrays_started = time.perf_counter()
+        mesh_module.build_mesh_arrays(run.results, float(mesh_settings.offset), **({"reports": False} if lean else {}))
+        arrays_seconds = time.perf_counter() - arrays_started
+        report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:], counters, kind=kind, lean=lean, arrays_seconds=arrays_seconds)
         item = report["presses"][label]
-        print(f"TREEAB press={label} alpha={alpha} domains={item['domains']} materialized={item['materialized']} keys={len(item['content_keys'])} run={seconds:.2f}s", flush=True)
+        print(f"TREEAB press={label} kind={kind} lean={lean} alpha={alpha} domains={item['domains']} materialized={item['materialized']} keys={len(item['content_keys'])} run={seconds:.2f}s arrays={arrays_seconds:.3f}s", flush=True)
 
 
 def prepare_pool(args, report: dict, state: dict) -> None:

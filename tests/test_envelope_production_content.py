@@ -345,7 +345,11 @@ def test_another_law_after_an_edit_is_another_result_never_a_stale_one(pool, row
 
     from cftuv.surface_ir import HostNearPlanarLiftPolicy
 
-    monkeypatch.setattr(production, "HOST_NEAR_PLANAR_LIFT_POLICY", HostNearPlanarLiftPolicy.CERTIFIED_PLANE_V1)
+    from cftuv import envelope_production_scan, envelope_production_task
+
+    # закон подъёма читают ключи сканирования и воркерная сторона (PRODUCTION_EXPORT_SPLIT_V1): подмена - на каждом модуле, который его читает
+    for module in (production, envelope_production_scan, envelope_production_task):
+        monkeypatch.setattr(module, "HOST_NEAR_PLANAR_LIFT_POLICY", HostNearPlanarLiftPolicy.CERTIFIED_PLANE_V1)
     lifted = _press(edited, controller)
     assert lifted.counter(production.PRODUCTION_RESULT_CACHE_MISS) == ROW
 

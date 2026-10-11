@@ -349,6 +349,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "aux",
         "previous",
         "prime",
+        "lean",
     }
 )
 
@@ -431,13 +432,8 @@ def test_the_width_tool_never_writes_the_mesh_from_the_preview_path():
     }, callers
 
 
-def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_from_its_two_frame_functions():
-    """Позиции и UV превью пишет один писатель (`write_preview_geometry`), и звать его вправе лишь кадр и возврат базы.
-
-    Превью меша двигает ТОТ ЖЕ меш на месте (`foreach_set`), не создавая и не освобождая датаблоки: поэтому его можно звать из
-    таймера и модального оператора, не трогая шаг отмены. Любой другой вызов писателя — повод остановиться: превью, записанное
-    мимо проверки состава меша (`_mesh_problem`), легло бы на чужую геометрию.
-    """
+def _callers_of(writer: str) -> dict:
+    """`{файл: {функции, которые зовут писатель}}` по хосту, кроме самого модуля писателя."""
 
     callers = {}
     for path in _python_files(HOST_PACKAGE):
@@ -446,13 +442,31 @@ def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_from_it
         for node in ast.walk(_parse(path)):
             if isinstance(node, ast.FunctionDef):
                 for call in ast.walk(node):
-                    if isinstance(call, ast.Call) and _called_names_of(call) == "write_preview_geometry":
+                    if isinstance(call, ast.Call) and _called_names_of(call) == writer:
                         callers.setdefault(path.name, set()).add(node.name)
-    assert callers == {"envelope_width_mesh_preview.py": {"preview_mesh_now", "restore_base_mesh"}}, callers
-    path = HOST_PACKAGE / "envelope_width_mesh_preview.py"
-    for function in ("preview_mesh_now", "restore_base_mesh"):
+    return callers
+
+
+def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_under_the_ownership_check():
+    """Позиции и UV превью пишут два писателя (`write_preview_geometry` по месту, `rebuild_mesh_from_image` с пересборкой на месте), и звать их вправе лишь кадр модели, возврат базы
+    и укладка образца (`_lay_down`), а ту зовут только точный lean-кадр и отмена после него.
+
+    Превью меша двигает ТОТ ЖЕ меш на месте (`foreach_set`), не создавая и не освобождая датаблоки: поэтому его можно звать из таймера и модального оператора, не трогая шаг отмены.
+    Любой другой вызов писателя — повод остановиться: превью, записанное мимо проверки состава меша (`_mesh_problem`), легло бы на чужую геометрию. Правило расширено
+    WIDTH_REFRESH_LEAN_V1: точный кадр во время перетаскивания обязан пересобирать меш, когда раскладка сменилась, и отмена обязана вернуть то, что было.
+    """
+
+    glue = "envelope_width_mesh_preview.py"
+    assert _callers_of("write_preview_geometry") == {glue: {"preview_mesh_now", "restore_base_mesh", "_lay_down"}}
+    assert _callers_of("rebuild_mesh_from_image") == {glue: {"_lay_down"}}
+    assert _callers_of("_lay_down") == {glue: {"lean_exact_now", "_restore_origin"}}
+    path = HOST_PACKAGE / glue
+    for function in ("preview_mesh_now", "restore_base_mesh", "lean_exact_now", "_restore_origin"):
         node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
         assert "_mesh_problem" in _called_names(node), f"{function} пишет превью, не спросив, принадлежит ли меш сертификату"
+    for function in ("lean_exact_now", "_restore_origin"):
+        node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
+        assert "capture_ownership" in _called_names(node) and "drop_model" in _called_names(node), f"{function}: пересборка меша без владения и без снятия модели"
 
 
 def _functions_of(name: str) -> dict:
@@ -596,6 +610,7 @@ _WIDTH_ENTRY_POINTS = (
     ("envelope_width_live.py", "sync_width_field", "width_problem"),
     ("envelope_width_live.py", "follow_active_object", "width_problem"),
     ("envelope_width_live.py", "ensure_prime", "width_problem"),
+    ("envelope_width_live.py", "request_drag_tick", "width_problem"),
     ("envelope_width_live.py", "width_problem", "availability_problem"),
 )
 
@@ -942,7 +957,15 @@ MODULE_LINE_ALLOWANCE = {
     # 1954 -> 1957. +3 за выборку круга кодека над снапшотом (SNAPSHOT_BYTE_CHECK_SAMPLED_V1): импорт плана, поле плана в `ColdProductionInputV1` (воркер кладёт его в
     # экспорт топологии задачи) и запись итогов решений в конце нажатия (`finish_press` в `_record_content_counters`); `run_production` получает план одной вставкой в цепочку
     # экспорта топологии (его длина не выросла). Сам план, выборка и счётчики живут в `envelope_snapshot_byte_check.py`. Число поднято осознанно, до фактического.
-    "cftuv/envelope_production_export.py": 1957,
+    # 1957 -> 1100. -857: PRODUCTION_EXPORT_SPLIT_V1, ПЕРЕНОС без изменения поведения (чистый перенос: 112 верхних определений AST-идентичны старому файлу). Потолок 1957 стоял на 43 строки
+    # под общим пределом и был тормозом: каждое полезное изменение (быстрый путь шага ширины, кэши между тиками) упиралось не в смысл, а в число, а вынести кусок, не трогая десяток имён,
+    # которые импортируют тесты и инструменты, было нечем. Теперь тип результата и имена (`envelope_production_result`), воркерная сторона (`envelope_production_task`) и сканирование
+    # (`envelope_production_scan`) лежат в своих модулях, а все прежние имена по-прежнему доступны из `envelope_production_export` (переэкспорт). Потолки новых модулей - не общий
+    # предел 2000, а размер модуля с запасом на рост (около 10 % сверх факта: 1003 / 410 / 363 / 460 строк на WIDTH_REFRESH_LEAN_V1).
+    "cftuv/envelope_production_export.py": 1100,
+    "cftuv/envelope_production_result.py": 450,
+    "cftuv/envelope_production_task.py": 400,
+    "cftuv/envelope_production_scan.py": 500,
 }
 
 
@@ -1848,7 +1871,7 @@ def _call_sites(tree: ast.AST, name: str) -> list[tuple[str, ...]]:
 #: `prepare_for_production_recorded` и `run_queue_domain` ставят блок сами (`prepared_under_backend`); провайдер подготовки отладочной сессии
 #: (`evaluate_staged` -> `preparation_provider`) вызывается ИЗНУТРИ блока `run_queue_domain`, поэтому своего блока не ставит (второй заслонил бы запись первого).
 _PREPARATION_SITES = {
-    "envelope_production_export.py": {"prepare_for_production_recorded"},
+    "envelope_production_task.py": {"prepare_for_production_recorded"},
     "envelope_queue_export.py": {"run_queue_domain"},
     "envelope_debug_session.py": {"evaluate_staged"},
 }
@@ -1865,15 +1888,17 @@ def test_every_host_preparation_stands_under_the_backend_block():
         f"подготовка строится в {sites}, а блок бэкенда стоит в {_PREPARATION_SITES}: новому пути нужен `prepared_under_backend` "
         "(`envelope_kernel_backend`) либо он идёт изнутри блока `run_queue_domain`, и тогда его место называется здесь"
     )
-    for name in ("envelope_production_export.py", "envelope_queue_export.py"):
+    for name in ("envelope_production_task.py", "envelope_queue_export.py"):
         scoped = {stack[0] for stack in _call_sites(_parse(HOST_PACKAGE / name), "prepared_under_backend")}
         assert scoped == _PREPARATION_SITES[name], name
     # холодная задача воркера и родитель строят подготовку одной функцией, блок которой несёт запись скелета;
     # задача воркера открывает журнал в `solve_cold_production_task`, а подготовку зовёт `_solve_cold_production_task`, заимствуя его
+    # (воркерная сторона - `envelope_production_task`, родитель - `envelope_production_export`: PRODUCTION_EXPORT_SPLIT_V1)
+    task = _parse(HOST_PACKAGE / "envelope_production_task.py")
     export = _parse(HOST_PACKAGE / "envelope_production_export.py")
-    for function in ("_solve_cold_production_task", "_produce_cold_in_parent"):
-        assert any(stack[0] == function for stack in _call_sites(export, "prepare_for_production_recorded")), function
-    assert any(stack[0] == "solve_cold_production_task" for stack in _call_sites(export, "_solve_cold_production_task")), "solve_cold_production_task"
+    assert any(stack[0] == "_solve_cold_production_task" for stack in _call_sites(task, "prepare_for_production_recorded")), "_solve_cold_production_task"
+    assert any(stack[0] == "_produce_cold_in_parent" for stack in _call_sites(export, "prepare_for_production_recorded")), "_produce_cold_in_parent"
+    assert any(stack[0] == "solve_cold_production_task" for stack in _call_sites(task, "_solve_cold_production_task")), "solve_cold_production_task"
 
 
 def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
@@ -2204,7 +2229,8 @@ def _backend_violations(tree: ast.Module, file: str) -> list:
 _BACKEND_WIRING_SITES = (
     ("envelope_kernel_backend.py", "backend"),
     ("envelope_production_export.py", "kernel_backend"),
-    ("envelope_production_export.py", "backend"),
+    ("envelope_production_scan.py", "backend"),  # `_RunInputsV1.backend` (PRODUCTION_EXPORT_SPLIT_V1)
+    ("envelope_production_task.py", "backend"),  # `produce_domain`, `prepare_for_production_recorded`
     ("envelope_domain_pool.py", "backend"),
     ("envelope_width_live.py", "kernel_backend"),
     ("envelope_production_operator.py", "kernel_backend"),

@@ -23,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
-from .envelope_width_live import ensure_prime, preview_now, set_preview, width_event_preview, width_problem
-from .envelope_width_mesh_preview import moving_now, restore_base_mesh
+from .envelope_width_live import ensure_prime, preview_now, request_drag_tick, set_preview, width_event_preview, width_problem
+from .envelope_width_mesh_preview import begin_drag, finish_drag, moving_now
 
 NO_VIEW = "Adjust Decal Width needs a 3D View"
 
@@ -120,6 +120,7 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
         metres_per_pixel=view.metres_per_pixel,
     )
     runtime = AdjustRuntimeV1(session, controller, float(mesh_settings.offset), start)
+    begin_drag(controller)  # пока идёт перетаскивание, действуют точные lean-кадры (`request_drag_tick`, WIDTH_REFRESH_LEAN_V1); запомнено, к чему вернёт отмена
     # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.
     preview_now(controller, start, runtime.offset, moving_now(controller, start))
     ensure_prime(context)  # у сессии нет модели меша — затравка считается, пока рука доходит до перетаскивания
@@ -140,6 +141,7 @@ def apply_step(context, runtime: AdjustRuntimeV1, step: WidthStepV1) -> None:
     runtime.last_step = step
     if step.changed:
         width_event_preview(runtime.controller, step.width, runtime.offset)
+        request_drag_tick(context, runtime.controller, step.width)
     set_header(context, step.header)
 
 
@@ -153,10 +155,12 @@ def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
 
     set_header(context, None)
     width = runtime.session.width
-    if confirmed and runtime.session.phase == PHASE_CONFIRMED and width != runtime.start_width:
+    commit = confirmed and runtime.session.phase == PHASE_CONFIRMED and width != runtime.start_width
+    # До записи ширины: lean-заказ, что ещё в пути, подтверждением снимается, а его результат отбрасывается. Отмена возвращает меш на то, что показывали к началу перетаскивания, побитово.
+    finish_drag(runtime.controller, restore=not commit)
+    if commit:
         context.scene.hotspotuv_settings.envelope_debug_alpha = width
         return "FINISHED"
-    restore_base_mesh(runtime.controller)  # меш назад на геометрию базы, побитово: ничего не менялось
     set_preview(runtime.controller, None)
     return "CANCELLED"
 

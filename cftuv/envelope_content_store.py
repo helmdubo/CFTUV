@@ -46,6 +46,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from .envelope_lazy_preparation import canonical
+from .envelope_production_result import LeanResultError
 from .envelope_host_labels import (
     DomainLabelingV1,
     LabelMapV1,
@@ -172,6 +173,8 @@ class ContentStoreV1:
         занимают: возврат к ревизии, при которой слот посчитан, остаётся попаданием без переноса).
         """
 
+        if getattr(result, "lean", False):
+            raise LeanResultError("a lean result (WIDTH_REFRESH_LEAN_V1) is not stored by content: it has no batch to relabel onto another revision")
         entry = self._entries.get(key)
         if entry is None or getattr(result, "labels", None) is None or slot in entry.results:
             return

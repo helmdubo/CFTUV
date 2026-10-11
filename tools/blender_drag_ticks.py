@@ -1,0 +1,367 @@
+"""blender_drag_ticks: the exact refreshes of a width drag, timed call for call on the live path (headless).
+
+    blender -b scene.blend --python-exit-code 1 --python tools/blender_drag_ticks.py -- --root <tree> --native-path <dir> --case building \
+        --workers 12 --grade commit|lean --ticks 20 --confirms 3 --out ticks.json
+
+WHAT IT MEASURES. After the cold button (the operator), `--ticks` exact refreshes at growing widths (+0.5 % of the cold width each) and `--confirms` commits after them. A refresh is one
+width step of the live path exactly as the product takes it: `envelope_width_live._begin` (main thread) -> `compute` in the thread (`run_production` + `finish_live_run`) -> `_validity` ->
+`_apply` (main thread). The scheduler's debounce (0.15 s) and poll are left out: they are constants of the product. `--grade commit` is the full path (what the base tree always does);
+`--grade lean` is WIDTH_REFRESH_LEAN_V1 (a tree that has `WidthLiveTargetV1.grade`) and needs the tool's drag to be active, which the script sets. The confirms are always the full path:
+their time is the time "from release to the exact mesh" (plus the debounce). `--mode object` (default) leaves the edit mode after the cold button, as a drag in the object mode does (the record of the
+source check serves only that mode: the data of the edit mode is not in the mesh arrays yet); `--mode edit` drags in the edit mode.
+
+WHAT IT PROVES (`--prove-lean K`, lean grade only). For the first K widths: a lean refresh, the digest of the mesh it wrote (`mesh_content_digest`), then the full path at the SAME width,
+and its digest: they must be equal (a lean frame is the committed mesh, not an approximation), and the mesh after the cancel of the drag must be the mesh before it, bit for bit.
+
+REPORT. One JSON: per refresh the wall time, the main-thread begin and apply, the thread time, the laps of the parent stages that repeat per refresh (scan, order_by_cost, weld, the
+arrays, the digests, the model), p50 / p90 over the refreshes, the mesh digest and a hash of the final mesh arrays (two trees that give the same committed answer give the same hash).
+Last line: DRAG_TICKS_OK. The scene is never saved and no Blender but this one is touched.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import hashlib
+import json
+import os
+import statistics
+import sys
+import time
+import traceback
+from pathlib import Path
+
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: the gates and the measurements of the tools check every domain whole (the product button samples). It costs the cold press only: the width steps reuse the snapshots.
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import blender_tree_ab as tree_ab  # noqa: E402  (the tree loader, the native check, the case recipes and the edge selection are shared with the A/B tool)
+
+#: (module attribute path, lap name): the parent stages that repeat at every width step; a missing one (an older tree) is skipped.
+LAPS = (
+    ("cftuv.envelope_width_live", "_current_digest", "begin.source_digest"),
+    ("cftuv.envelope_production_export", "_scan", "scan"),
+    ("cftuv.envelope_production_export", "retry_snap_lottery", "retry"),
+    ("cftuv.envelope_domain_pool", "order_by_cost", "pool.order_by_cost"),
+    ("cftuv.envelope_production_mesh", "build_mesh_arrays", "arrays"),
+    ("cftuv.envelope_production_mesh", "weld_vertices", "arrays.weld"),
+    ("cftuv.envelope_production_mesh", "cross_domain_seams", "arrays.cross_seams"),
+    ("cftuv.envelope_production_mesh", "_arrays_digest", "arrays.digest"),
+    ("cftuv.envelope_production_mesh", "off_plane_after_offset", "arrays.off_plane"),
+    ("cftuv.envelope_production_mesh", "seam_report_of_chains", "arrays.seam_report"),
+    ("cftuv.envelope_production_mesh", "half_edge_conflicts", "arrays.half_edge"),
+    ("cftuv.envelope_production_mesh", "rewrite_decal_mesh", "apply.rewrite"),
+    ("cftuv.envelope_production_mesh", "mesh_content_digest", "apply.mesh_digest"),
+    ("cftuv.envelope_width_live", "finish_live_run", "tail"),
+    ("cftuv.envelope_width_live", "lean_exact_now", "apply.lean_frame"),
+    ("cftuv.envelope_width_mesh_preview", "build_model", "tail.model"),
+    ("cftuv.envelope_width_mesh_preview", "deviation", "tail.deviation"),
+)
+
+
+def _arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--native-path", default="")
+    parser.add_argument("--case", default="building")
+    parser.add_argument("--workers", type=int, default=12)
+    parser.add_argument("--grade", default="commit", choices=("commit", "lean"))
+    parser.add_argument("--ticks", type=int, default=20)
+    parser.add_argument("--confirms", type=int, default=3)
+    parser.add_argument("--rel", type=float, default=0.005, help="each width step, as a share of the cold width")
+    parser.add_argument("--prove-digest", action="store_true", help="the receipt digest of the decal mesh read by foreach_get equals the digest read item by item (the previous implementation, verbatim), and their times")
+    parser.add_argument("--prove-lean", type=int, default=0)
+    parser.add_argument("--prove-rel", type=float, default=0.001, help="the proof widths step, as a share of the cold width (small: a lean frame is writable while the layout is the one on screen)")
+    parser.add_argument("--mode", default="object", choices=("object", "edit"), help="the mode of the source while the width is dragged: the button needs the edit mode (it reads the selection), the drag is usually made in the object mode")
+    parser.add_argument("--kernel-backend", default="NATIVE")
+    parser.add_argument("--out", required=True)
+    return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
+
+
+class Laps:
+    """Seconds and calls per lap name since the last `reset`; the wrappers add to it."""
+
+    def __init__(self) -> None:
+        self.seconds: dict = {}
+        self.calls: dict = {}
+
+    def reset(self) -> None:
+        self.seconds, self.calls = {}, {}
+
+    def snapshot(self) -> dict:
+        return {name: [self.calls[name], round(self.seconds[name], 6)] for name in sorted(self.seconds)}
+
+
+def install_laps(laps: Laps) -> list:
+    """Wraps the lap functions in place (the product looks them up by module global at call time); returns the lap names found."""
+
+    import importlib
+
+    found = []
+    for module_name, attribute, lap in LAPS:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        original = getattr(module, attribute, None)
+        if original is None:
+            continue
+
+        def make(function, name):
+            def timed(*args, **kwargs):
+                started = time.perf_counter()
+                try:
+                    return function(*args, **kwargs)
+                finally:
+                    laps.seconds[name] = laps.seconds.get(name, 0.0) + time.perf_counter() - started
+                    laps.calls[name] = laps.calls.get(name, 0) + 1
+
+            return timed
+
+        setattr(module, attribute, make(original, lap))
+        found.append(lap)
+    return sorted(set(found))
+
+
+def percentile(values: list, fraction: float) -> float:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * fraction
+    low = int(position)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
+
+
+def stats(values: list) -> dict:
+    if not values:
+        return {}
+    return {"n": len(values), "p50": round(percentile(values, 0.5), 5), "p90": round(percentile(values, 0.9), 5), "min": round(min(values), 5), "max": round(max(values), 5),
+            "mean": round(statistics.fmean(values), 5)}
+
+
+def mesh_arrays_hash(mesh) -> str:
+    """Hash of what is in Blender: float32 positions and UV bytes, the polygon starts and the loop vertices (a changed layout changes it too)."""
+
+    import numpy as np
+
+    digest = hashlib.sha256()
+    co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
+    layer = mesh.uv_layers["UVMap"]
+    uv = np.empty(len(layer.data) * 2, dtype=np.float32)
+    layer.data.foreach_get("uv", uv)
+    corner = np.empty(len(mesh.loops), dtype=np.int32)
+    mesh.loops.foreach_get("vertex_index", corner)
+    for array in (co, uv, corner):
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+class Session:
+    """The scene after the cold button: what a width step needs."""
+
+    def __init__(self, args) -> None:
+        import bpy
+
+        self.args = args
+        self.bpy = bpy
+        self.case = tree_ab.parse_case(args.case)
+        tree_ab.load_tree(Path(args.root).resolve(), args.native_path)
+        self.native = tree_ab.verify_native(args.native_path, "")
+        import cftuv.envelope_production_mesh as mesh_module
+        import cftuv.envelope_width_live as live
+        from cftuv.envelope_alpha_preview import PreviewRequestV1
+        from cftuv.envelope_debug_session import WINDOW_MANAGER_SESSION_ATTRIBUTE, EnvelopeDebugSessionController
+
+        from cftuv.envelope_alpha_preview import PreviewUnavailable
+
+        self.mesh_module, self.live, self.request_type, self.unavailable = mesh_module, live, PreviewRequestV1, PreviewUnavailable
+        scene_args = argparse.Namespace(scene_kind=self.case.scene, mesh=self.case.mesh)
+        self.scene, self.obj, self.settings, self.mesh_settings = tree_ab._open_case(scene_args)
+        self.settings.envelope_debug_engine = "QUEUE"
+        self.settings.envelope_debug_workers = args.workers
+        self.settings.envelope_debug_fan_density = self.case.density
+        self.settings.envelope_debug_max_stretch = self.case.stretch
+        self.settings.envelope_debug_alpha = self.case.alpha
+        self.mesh_settings.kernel_backend = args.kernel_backend
+        if self.case.offset >= 0:
+            self.mesh_settings.offset = self.case.offset
+        controller = getattr(bpy.context.window_manager, WINDOW_MANAGER_SESSION_ATTRIBUTE, None)
+        if not isinstance(controller, EnvelopeDebugSessionController):
+            controller = EnvelopeDebugSessionController()
+            setattr(bpy.context.window_manager, WINDOW_MANAGER_SESSION_ATTRIBUTE, controller)
+        self.controller = controller
+        self.index = 0
+
+    def cold_press(self) -> float:
+        from cftuv.envelope_domain_pool import get_domain_pool
+        from cftuv.envelope_worker_python import read_worker_python
+
+        get_domain_pool(self.args.workers, read_worker_python())
+        try:
+            from cftuv.envelope_pool_prewarm import prewarm_pool
+
+            prewarm_pool(self.args.workers, read_worker_python())
+        except ImportError:
+            pass
+        tree_ab.select_edges(self.obj, "stored" if self.case.scene == "cover008" else "seam")
+        started = time.perf_counter()
+        assert self.bpy.ops.hotspotuv.build_envelope_decal_mesh() == {"FINISHED"}
+        return time.perf_counter() - started
+
+    @property
+    def decal_mesh(self):
+        return self.bpy.data.objects[self.mesh_module.decal_object_name(self.obj.name)].data
+
+    def target(self, lean: bool):
+        target = self.live.target_of(self.settings, self.mesh_settings, self.controller.width_build)
+        if lean:
+            from cftuv.envelope_production_result import REFRESH_LEAN
+
+            target = dataclasses.replace(target, grade=REFRESH_LEAN)
+        return target
+
+    def step(self, alpha: float, *, lean: bool, laps: Laps) -> dict:
+        """One width step of the live path, call for call; the record of its times."""
+
+        self.index += 1
+        laps.reset()
+        request = self.request_type(self.index, float(alpha), self.target(lean), time.monotonic())
+        started = time.perf_counter()
+        job = self.live._begin(self.controller, request)
+        begun = time.perf_counter()
+        job.join()
+        joined = time.perf_counter()
+        live_run = job.result()
+        reason = self.live._validity(self.controller, request, job)
+        if reason:
+            raise RuntimeError(f"the width step is not valid: {reason}")
+        applying = time.perf_counter()
+        outcome = "applied"
+        try:
+            self.live._apply(self.controller, request, job, live_run)
+        except self.unavailable as exc:  # a named refusal of the apply (the scheduler records it the same way): the tick is counted with its reason
+            outcome = str(exc)
+        finished = time.perf_counter()
+        return {
+            "apply_outcome": outcome,
+            "alpha": float(alpha), "lean": lean, "wall": finished - started, "begin_main": begun - started, "thread": float(job.seconds), "join_wait": joined - begun,
+            "apply_main": finished - applying, "run_production": float(live_run.run.wall_seconds), "laps": laps.snapshot(),
+            "refresh": getattr(live_run.run, "refresh", "COMMIT"), "domains": len(live_run.run.results),
+            "lean_domains": sum(1 for item in live_run.run.results if getattr(item, "lean", False)),
+        }
+
+
+def reference_digest(mesh) -> str:
+    """The receipt digest as `mesh_content_digest` read it before `foreach_get` (item by item through RNA), verbatim: the reference of the equality."""
+
+    mesh_module = sys.modules["cftuv.envelope_production_mesh"]
+    uv_layer = mesh.uv_layers.get(mesh_module.DECAL_UV_LAYER)
+    payload = {
+        "positions": [tuple(item.co) for item in mesh.vertices],
+        "faces": [tuple(item.vertices) for item in mesh.polygons],
+        "uvs": [] if uv_layer is None else [tuple(item.uv) for item in uv_layer.data],
+        "seams": sorted(tuple(sorted(item.vertices)) for item in mesh.edges if item.use_seam),
+    }
+    for name in (mesh_module.DECAL_DOMAIN_ATTRIBUTE, mesh_module.DECAL_OWNER_ATTRIBUTE):
+        attribute = mesh.attributes.get(name)
+        payload[name] = [] if attribute is None else [item.value for item in attribute.data]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def prove_digest(session: Session) -> dict:
+    """Both digests of the real decal mesh, equal or not, and the milliseconds of each (best of five)."""
+
+    mesh = session.decal_mesh
+    spent = {"reference": [], "foreach_get": []}
+    values = {}
+    for _ in range(5):
+        started = time.perf_counter()
+        values["reference"] = reference_digest(mesh)
+        spent["reference"].append(time.perf_counter() - started)
+        started = time.perf_counter()
+        values["foreach_get"] = session.mesh_module.mesh_content_digest(mesh)
+        spent["foreach_get"].append(time.perf_counter() - started)
+    return {"equal": values["reference"] == values["foreach_get"], "digest": values["foreach_get"][:16], "vertices": len(mesh.vertices), "polygons": len(mesh.polygons),
+            "loops": len(mesh.loops), "reference_ms": round(min(spent["reference"]) * 1000, 3), "foreach_get_ms": round(min(spent["foreach_get"]) * 1000, 3)}
+
+
+def prove_lean(session: Session, laps: Laps, widths: list) -> list:
+    """Per width: lean refresh -> mesh digest; the full path at the same width -> mesh digest. Equal digests: the lean frame is the committed mesh."""
+
+    proofs = []
+    for width in widths:
+        lean_tick = session.step(width, lean=True, laps=laps)
+        if lean_tick["apply_outcome"] != "applied":  # the layout of this width is not the layout on screen: nothing was written, so there is nothing to compare
+            proofs.append({"width": width, "skipped": lean_tick["apply_outcome"]})
+            continue
+        lean_digest = session.mesh_module.mesh_content_digest(session.decal_mesh)
+        lean_arrays = mesh_arrays_hash(session.decal_mesh)
+        session.step(width, lean=False, laps=laps)
+        full_digest = session.mesh_module.mesh_content_digest(session.decal_mesh)
+        full_arrays = mesh_arrays_hash(session.decal_mesh)
+        proofs.append({"width": width, "equal_mesh_digest": lean_digest == full_digest, "equal_arrays_hash": lean_arrays == full_arrays, "mesh_digest": full_digest[:16]})
+    return proofs
+
+
+def main() -> int:
+    args = _arguments()
+    report: dict = {"schema": "cftuv.drag-ticks.v1", "args": vars(args), "failure": None}
+    try:
+        session = Session(args)
+        report["native_build_id"] = session.native["build_id"]
+        laps = Laps()
+        report["laps_found"] = install_laps(laps)
+        lean_supported = hasattr(session.live.WidthLiveTargetV1, "grade")
+        if args.grade == "lean" and not lean_supported:
+            raise RuntimeError("this tree has no WIDTH_REFRESH_LEAN_V1 (WidthLiveTargetV1.grade)")
+        report["cold_press_s"] = round(session.cold_press(), 4)
+        if args.mode == "object" and session.bpy.context.mode != "OBJECT":
+            session.bpy.ops.object.mode_set(mode="OBJECT")
+        report["source_mode"] = session.bpy.context.mode
+        if args.prove_digest:
+            report["digest_proof"] = prove_digest(session)
+        base = float(session.settings.envelope_debug_alpha)
+        before = (session.mesh_module.mesh_content_digest(session.decal_mesh), mesh_arrays_hash(session.decal_mesh))
+        step = base * args.rel
+        session.controller.width_drag_active = True  # the tool's drag (lean refreshes are valid only while it runs)
+        ticks, widths = [], [base + step * (index + 1) for index in range(args.ticks + args.confirms + 1)]
+        if args.prove_lean:
+            report["proofs"] = prove_lean(session, laps, [base * (1.0 + args.prove_rel * (index + 1)) for index in range(args.prove_lean)])
+        for width in widths[: args.ticks]:
+            ticks.append(session.step(width, lean=args.grade == "lean", laps=laps))
+        session.controller.width_drag_active = False
+        confirms = [session.step(width, lean=False, laps=laps) for width in widths[args.ticks : args.ticks + args.confirms]]
+        report["ticks"], report["confirms"] = ticks, confirms
+        report["tick_wall"], report["confirm_wall"] = stats([item["wall"] for item in ticks]), stats([item["wall"] for item in confirms])
+        report["tick_thread"] = stats([item["thread"] for item in ticks])
+        report["tick_apply_main"] = stats([item["apply_main"] for item in ticks])
+        report["tick_outcomes"] = {name: sum(1 for item in ticks if item["apply_outcome"] == name) for name in sorted({item["apply_outcome"] for item in ticks})}
+        report["tick_begin_main"] = stats([item["begin_main"] for item in ticks])
+        report["final_mesh_digest"] = session.mesh_module.mesh_content_digest(session.decal_mesh)
+        report["final_arrays_hash"] = mesh_arrays_hash(session.decal_mesh)
+        report["final_width"] = confirms[-1]["alpha"] if confirms else widths[args.ticks - 1]
+        report["cold_mesh"] = {"digest": before[0], "arrays_hash": before[1]}
+        laps_names = sorted({name for item in ticks for name in item["laps"]})
+        report["tick_laps_p50"] = {name: round(statistics.median(item["laps"].get(name, [0, 0.0])[1] for item in ticks), 6) for name in laps_names}
+        report["confirm_laps_p50"] = {name: round(statistics.median(item["laps"].get(name, [0, 0.0])[1] for item in confirms), 6) for name in sorted({n for c in confirms for n in c["laps"]})} if confirms else {}
+    except Exception:  # noqa: BLE001 - the traceback is the report
+        report["failure"] = traceback.format_exc()
+        print(report["failure"])
+    try:
+        from cftuv.envelope_domain_pool import shutdown_domain_pool
+
+        shutdown_domain_pool()
+    except Exception as exc:  # noqa: BLE001 - the cleanup does not change the verdict
+        print("pool shutdown:", type(exc).__name__, exc)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    if report["failure"] is None:
+        print(f"DRAG_TICKS tick p50 {report['tick_wall'].get('p50')} p90 {report['tick_wall'].get('p90')} s; confirm {report['confirm_wall'].get('p50')} s; proofs {report.get('proofs')}")
+    print("DRAG_TICKS_OK" if report["failure"] is None else "DRAG_TICKS_FAILED")
+    return 0 if report["failure"] is None else 1
+
+
+if __name__ == "__main__":
+    code = main()
+    if code:
+        raise SystemExit(code)
