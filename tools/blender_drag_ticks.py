@@ -7,7 +7,8 @@ WHAT IT MEASURES. After the cold button (the operator), `--ticks` exact refreshe
 width step of the live path exactly as the product takes it: `envelope_width_live._begin` (main thread) -> `compute` in the thread (`run_production` + `finish_live_run`) -> `_validity` ->
 `_apply` (main thread). The scheduler's debounce (0.15 s) and poll are left out: they are constants of the product. `--grade commit` is the full path (what the base tree always does);
 `--grade lean` is WIDTH_REFRESH_LEAN_V1 (a tree that has `WidthLiveTargetV1.grade`) and needs the tool's drag to be active, which the script sets. The confirms are always the full path:
-their time is the time "from release to the exact mesh" (plus the debounce).
+their time is the time "from release to the exact mesh" (plus the debounce). `--mode object` (default) leaves the edit mode after the cold button, as a drag in the object mode does (the record of the
+source check serves only that mode: the data of the edit mode is not in the mesh arrays yet); `--mode edit` drags in the edit mode.
 
 WHAT IT PROVES (`--prove-lean K`, lean grade only). For the first K widths: a lean refresh, the digest of the mesh it wrote (`mesh_content_digest`), then the full path at the SAME width,
 and its digest: they must be equal (a lean frame is the committed mesh, not an approximation), and the mesh after the cancel of the drag must be the mesh before it, bit for bit.
@@ -70,6 +71,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--rel", type=float, default=0.005, help="each width step, as a share of the cold width")
     parser.add_argument("--prove-lean", type=int, default=0)
     parser.add_argument("--prove-rel", type=float, default=0.001, help="the proof widths step, as a share of the cold width (small: a lean frame is writable while the layout is the one on screen)")
+    parser.add_argument("--mode", default="object", choices=("object", "edit"), help="the mode of the source while the width is dragged: the button needs the edit mode (it reads the selection), the drag is usually made in the object mode")
     parser.add_argument("--kernel-backend", default="NATIVE")
     parser.add_argument("--out", required=True)
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
@@ -278,6 +280,9 @@ def main() -> int:
         if args.grade == "lean" and not lean_supported:
             raise RuntimeError("this tree has no WIDTH_REFRESH_LEAN_V1 (WidthLiveTargetV1.grade)")
         report["cold_press_s"] = round(session.cold_press(), 4)
+        if args.mode == "object" and session.bpy.context.mode != "OBJECT":
+            session.bpy.ops.object.mode_set(mode="OBJECT")
+        report["source_mode"] = session.bpy.context.mode
         base = float(session.settings.envelope_debug_alpha)
         before = (session.mesh_module.mesh_content_digest(session.decal_mesh), mesh_arrays_hash(session.decal_mesh))
         step = base * args.rel
