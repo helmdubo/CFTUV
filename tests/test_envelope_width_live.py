@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 import sys
 import threading
 import types
@@ -841,3 +842,210 @@ def test_the_target_is_remembered_by_the_build_and_forgotten_with_the_session(mo
     assert live.retarget(world.controller, "other") is True and world.controller.width_target == "other"
     world.controller.clear()
     assert world.controller.width_target is None
+
+
+# --------------------------------------------------------------------------
+# 8. Пауза сборщика на тике ширины (GC_PAUSED_DURING_WIDTH_TICK_V1)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _collector_on():
+    """Тест меняет состояние процесса: следующий застаёт сборщик таким, каким его застал этот; открытых блоков паузы не остаётся."""
+
+    from cftuv import envelope_gc_pause
+
+    held = gc.isenabled()
+    gc.enable()
+    yield
+    assert envelope_gc_pause._OPEN_BLOCKS == 0
+    gc.enable() if held else gc.disable()
+
+
+class _GcProbe:
+    """Подмены `run_production` (счёт в потоке) и записи меша (применение): состояние сборщика и поток в тот миг; счёт может ждать приказа (`hold`)."""
+
+    def __init__(self, monkeypatch, world=None, *, hold=False, real=True, error=None) -> None:
+        from cftuv import envelope_production_export as export
+
+        self.seen: list = []
+        self.inside, self.release = threading.Event(), threading.Event()
+        real_run = export.run_production
+        real_rewrite = None if world is None else world._rewrite
+
+        def run(*args, **kwargs):
+            self.seen.append(("compute", threading.current_thread().name, gc.isenabled()))
+            self.inside.set()
+            if hold:
+                assert self.release.wait(60)
+            if error is not None:
+                raise error
+            return real_run(*args, **kwargs) if real else "run"
+
+        def rewrite(*args, **kwargs):
+            self.seen.append(("apply", threading.current_thread().name, gc.isenabled()))
+            return real_rewrite(*args, **kwargs)
+
+        monkeypatch.setattr(export, "run_production", run)
+        if real_rewrite is not None:
+            monkeypatch.setattr(production_mesh, "rewrite_decal_mesh", rewrite)
+        if not real:
+            monkeypatch.setattr(live, "finish_live_run", lambda run, **_unused: run)  # хвост потока читает настоящий прогон
+
+
+def test_a_width_tick_computes_and_applies_with_the_collector_off_and_idles_with_it_on(monkeypatch, _collector_on):
+    """Один тик по шагам планировщика, как его ведёт таймер: пауза планировщика, полёт, ожидание применения, применение, простой.
+
+    Пока поток внутри `compute`, главный поток видит сборщик ВЫКЛЮЧЕННЫМ (он общий на процесс; главный поток в это время лишь опрашивает), а после возврата `compute` и до применения,
+    после применения и всё время паузы планировщика - ВКЛЮЧЁННЫМ.
+    """
+
+    world = _World(monkeypatch)
+    probe = _GcProbe(monkeypatch, world, hold=True)
+    world.drag(0.30)
+    scheduler = world.scheduler
+    assert scheduler.busy and not scheduler.in_flight and gc.isenabled()  # пауза планировщика (debounce): заказ записан, счёта нет
+    scheduler.step()
+    assert gc.isenabled() and not scheduler.in_flight  # срок не назрел: опрос таймера при включённом сборщике
+
+    scheduler._deadline = scheduler._clock()  # срок назрел (как делает `settle`)
+    scheduler.step()
+    assert scheduler.in_flight and probe.inside.wait(60)
+    assert not gc.isenabled()  # главный поток видит паузу, поставленную потоком счёта
+    scheduler.step()  # опрос, пока счёт летит
+    assert not gc.isenabled() and scheduler.counters.applied == 0
+
+    job = scheduler._job
+    probe.release.set()
+    job.join(120)
+    assert job.finished and gc.isenabled()  # счёт вернулся, применения ещё нет: простой при включённом сборщике
+    scheduler.step()  # применение на главном потоке
+
+    assert scheduler.counters.applied == 1 and gc.isenabled()
+    assert probe.seen == [("compute", "CFTUV-alpha-preview", False), ("apply", "MainThread", False)]
+    assert len(world.written) == 1
+
+
+@pytest.mark.parametrize("variant", ["commit", "lean", "prime"])
+def test_the_compute_of_every_kind_of_refresh_runs_with_the_collector_off_and_ends_with_it_on(monkeypatch, _collector_on, variant):
+    """Точный COMMIT (ползунок, подтверждение), точный lean-кадр перетаскивания и затравка модели считаются одной и той же функцией потока - все под паузой."""
+
+    from cftuv.envelope_production_result import REFRESH_LEAN
+
+    world = _World(monkeypatch)
+    probe = _GcProbe(monkeypatch, real=False)
+    changes = {"commit": {}, "lean": {"grade": REFRESH_LEAN}, "prime": {"purpose": live.PURPOSE_PRIME}}[variant]
+    target = dataclasses.replace(live.target_of(world.settings, world.mesh_settings, world.record), **changes)
+
+    job = live._begin(world.controller, types.SimpleNamespace(alpha=0.4, payload=target))
+    job.join(120)
+
+    assert job.result() == "run" and gc.isenabled()
+    assert probe.seen == [("compute", "CFTUV-alpha-preview", False)]
+
+
+@pytest.mark.parametrize("failure", ["error", "cancel"])
+def test_a_compute_that_fails_or_is_cancelled_gives_the_collector_back(monkeypatch, _collector_on, failure):
+    from cftuv.envelope_alpha_preview import PreviewCancelled
+    from cftuv.envelope_production_export import ProductionCancelled
+
+    world = _World(monkeypatch)
+    raised, expected = (RuntimeError("boom"), RuntimeError) if failure == "error" else (ProductionCancelled("PRODUCTION_CANCELLED"), PreviewCancelled)
+    probe = _GcProbe(monkeypatch, error=raised)
+    target = live.target_of(world.settings, world.mesh_settings, world.record)
+
+    job = live._begin(world.controller, types.SimpleNamespace(alpha=0.4, payload=target))
+    job.join(120)
+
+    with pytest.raises(expected):
+        job.result()
+    assert gc.isenabled() and probe.seen == [("compute", "CFTUV-alpha-preview", False)]
+
+
+def test_an_apply_that_raises_gives_the_collector_back_and_the_error_reaches_the_scheduler(monkeypatch, _collector_on):
+    world = _World(monkeypatch)
+    probe = _GcProbe(monkeypatch, world)
+    target = live.target_of(world.settings, world.mesh_settings, world.record)
+    request = types.SimpleNamespace(alpha=0.4, payload=target)
+    job = live._begin(world.controller, request)
+    job.join(120)
+    finished = job.result()
+
+    def broken(*args, **kwargs):
+        probe.seen.append(("apply", threading.current_thread().name, gc.isenabled()))
+        raise RuntimeError("cannot write")
+
+    monkeypatch.setattr(production_mesh, "rewrite_decal_mesh", broken)
+    with pytest.raises(RuntimeError, match="cannot write"):
+        live._apply(world.controller, request, job, finished)
+
+    assert gc.isenabled()
+    assert probe.seen[-1] == ("apply", "MainThread", False)
+
+
+def test_the_apply_of_a_prime_runs_with_the_collector_off_and_gives_it_back(monkeypatch, _collector_on):
+    seen = []
+    monkeypatch.setattr(live, "note_prime", lambda controller, base, run: seen.append(("note_prime", gc.isenabled())) or "")
+    monkeypatch.setattr(live, "request_prime", lambda controller, target: seen.append(("request_prime", gc.isenabled())))
+    job = types.SimpleNamespace(context=types.SimpleNamespace(base=None))
+
+    live._apply_prime(None, types.SimpleNamespace(payload=object()), job, object())
+
+    assert seen == [("note_prime", False), ("request_prime", False)] and gc.isenabled()
+    monkeypatch.setattr(live, "note_prime", lambda controller, base, run: "PRIME_BASE_REPLACED")
+    with pytest.raises(live.PreviewUnavailable):
+        live._apply_prime(None, types.SimpleNamespace(payload=object()), job, object())
+    assert gc.isenabled()  # названный отказ применения выходит из блока, как любое исключение
+
+
+def test_the_confirm_pauses_its_own_body_and_the_commit_job_it_orders_pauses_its_compute_and_apply(monkeypatch, _collector_on):
+    """Подтверждение инструмента: запись свойства (тело `finish_adjust`) под паузой; заказанный ею COMMIT-тик считается и применяется под паузой; ожидание между ними - при включённом."""
+
+    from cftuv import envelope_width_session as session
+    from cftuv.envelope_width_adjust import PHASE_CONFIRMED
+
+    world = _World(monkeypatch)
+    probe = _GcProbe(monkeypatch, world)
+    writes = []
+
+    def property_hook(settings):
+        writes.append(("property write", gc.isenabled()))
+        live.schedule_width_live(settings, world.context)
+
+    world.settings.hook = property_hook
+    runtime = types.SimpleNamespace(
+        session=types.SimpleNamespace(width=0.31, phase=PHASE_CONFIRMED), controller=world.controller, start_width=0.25
+    )
+
+    assert session.finish_adjust(world.context, runtime, confirmed=True) == "FINISHED"
+
+    assert writes == [("property write", False)] and gc.isenabled()  # запись внутри паузы, после возврата сборщик включён
+    scheduler = world.scheduler
+    assert scheduler.busy and not scheduler.in_flight  # заказ ждёт паузу планировщика: простой между событиями
+    live.settle_width_live(world.controller)
+    assert scheduler.counters.applied == 1 and gc.isenabled()
+    assert probe.seen == [("compute", "CFTUV-alpha-preview", False), ("apply", "MainThread", False)]
+
+
+def test_a_cancelled_or_failing_finish_gives_the_collector_back(monkeypatch, _collector_on):
+    from cftuv import envelope_width_session as session
+    from cftuv.envelope_width_adjust import PHASE_CANCELLED
+
+    world = _World(monkeypatch)
+    seen = []
+    monkeypatch.setattr(session, "finish_drag", lambda controller, *, restore: seen.append((restore, gc.isenabled())))
+    monkeypatch.setattr(session, "set_preview", lambda controller, preview: None)
+    runtime = types.SimpleNamespace(
+        session=types.SimpleNamespace(width=0.25, phase=PHASE_CANCELLED), controller=world.controller, start_width=0.25
+    )
+
+    assert session.finish_adjust(world.context, runtime, confirmed=False) == "CANCELLED"
+    assert seen == [(True, False)] and gc.isenabled()
+
+    def broken(controller, *, restore):
+        raise RuntimeError("cannot restore")
+
+    monkeypatch.setattr(session, "finish_drag", broken)
+    with pytest.raises(RuntimeError, match="cannot restore"):
+        session.finish_adjust(world.context, runtime, confirmed=False)
+    assert gc.isenabled()

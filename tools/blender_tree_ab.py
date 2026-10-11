@@ -4,7 +4,7 @@
         [--workers 0,8] [--presses cold,step,step] [--timing --reps 3] [--native-path DIR] [--blender EXE] [--work-dir DIR] [--out report.json]
 
 Typical use: a performance change that must not move the answer. The scene is opened by a fresh HEADLESS Blender (`blender -b`, never a window: `require_headless` refuses anything else) for every (tree, case, worker count, repetition); the
-button is replayed call for call (`run_production` + `build_mesh_arrays`, the cold press under `gc_paused()` when the tree has it, as the operator does) and then the width
+button is replayed call for call (`run_production` + `build_mesh_arrays`, the cold press under `gc_paused()` when the tree has it, as the operator does; the steps, ticks and confirms too when the tree has GC_PAUSED_DURING_WIDTH_TICK_V1, as the live path does) and then the width
 steps the live width tool takes, on ONE controller, the way a session does. The scene is never saved.
 
 INPUTS
@@ -547,7 +547,7 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--native-path", default="")
     parser.add_argument("--expect-native-build-id", default="")
     parser.add_argument("--kernel-backend", default="NATIVE", choices=("NATIVE", "PYTHON"))
-    parser.add_argument("--gc-pause", default="auto", choices=("auto", "on", "off"), help="the cold press under gc_paused() as the operator does (auto: when the tree has it)")
+    parser.add_argument("--gc-pause", default="auto", choices=("auto", "on", "off"), help="the cold press (and, in a tree with GC_PAUSED_DURING_WIDTH_TICK_V1, every step, tick and confirm) under gc_paused() as the product does (auto: when the tree has it)")
     parser.add_argument("--prime-byte-check", action="store_true", help="the cold press counts as a LATER press of the session (the sampled snapshot byte check)")
     parser.add_argument("--origin-check", default="on", choices=("on", "off"))
     parser.add_argument("--env", action="append", default=[], help="KEY=VALUE for every Blender")
@@ -1086,6 +1086,9 @@ def run_presses(args, report: dict, state: dict) -> None:
     except ImportError:
         gc_paused = None
     report["gc_pause_available"] = gc_paused is not None
+    # GC_PAUSED_DURING_WIDTH_TICK_V1: the live path computes (the run AND the arrays of the thread's tail) under the pause; a tree without the constant takes only the cold press under it.
+    width_pause = gc_paused is not None and hasattr(sys.modules["cftuv.envelope_gc_pause"], "GC_PAUSE_WIDTH_OUTCOME")
+    report["gc_pause_width_tick"] = width_pause
     from contextlib import nullcontext
 
     import inspect
@@ -1096,7 +1099,8 @@ def run_presses(args, report: dict, state: dict) -> None:
     for label, kind in zip(state["labels"], state["kinds"]):
         alpha = state["alphas"][label]
         before = len(state["keys"])
-        pause = gc_paused() if (kind == "cold" and gc_paused is not None and args.gc_pause != "off") else nullcontext()
+        paused = gc_paused is not None and args.gc_pause != "off" and (kind == "cold" or (width_pause and kind in ("step", "tick", "confirm")))
+        pause = gc_paused() if paused else nullcontext()
         lean = kind == "tick" and lean_supported
         counters_before = process_counters()
         started = time.perf_counter()
@@ -1110,7 +1114,8 @@ def run_presses(args, report: dict, state: dict) -> None:
         counters = counters_delta(counters_before, process_counters()) if args.workers < 2 else None  # a pool worker keeps its own counters
         # The arrays the live thread builds right after the run (lean arrays for a lean tick), so `exact_seconds` is the time to the arrays of the exact mesh.
         arrays_started = time.perf_counter()
-        mesh_module.build_mesh_arrays(run.results, float(mesh_settings.offset), **({"reports": False} if lean else {}))
+        with (gc_paused() if (paused and kind != "cold") else nullcontext()):
+            mesh_module.build_mesh_arrays(run.results, float(mesh_settings.offset), **({"reports": False} if lean else {}))
         arrays_seconds = time.perf_counter() - arrays_started
         report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:], counters, kind=kind, lean=lean, arrays_seconds=arrays_seconds)
         item = report["presses"][label]

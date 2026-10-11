@@ -58,6 +58,11 @@ Decal Mesh»), а активный объект меняется. Инструм
 дайджеста и отчётов, результат не ложится ни в какой кэш): геометрия, исходы доменов и счётчики те же побитово. Lean всегда у затравки (она ничего не фиксирует) и у точных кадров во
 время перетаскивания (`request_drag_tick`, настройка «Exact ticks while dragging», по умолчанию выключена): такой кадр заменяет меш и образец на экране (`lean_exact_now`), кормит модель,
 а подтверждение пересчитывает и записывает зафиксированный ответ, отмена возвращает меш и образцы, какими они были перед первым кадром.
+
+ПАУЗА СБОРЩИКА (GC_PAUSED_DURING_WIDTH_TICK_V1, `envelope_gc_pause`). Циклический сборщик родителя стоит на паузе ровно на работе тика, а не на простое между ними: счёт в потоке (`compute`:
+тот же для точного заказа, подтверждения и затравки), применение на главном потоке (`_apply`, `_apply_prime`) и подтверждение инструмента (`envelope_width_session.finish_adjust`). Сборщик общий
+на процесс, поэтому пока поток внутри `compute`, он выключен и для главного потока (тот в это время опрашивает таймер; тик длится секунды), а когда `compute` вернулся, включён: и пауза
+планировщика, и опрос, и рука на месте идут при включённом. Блоки потоков СЧИТАЮТСЯ (см. `envelope_gc_pause`), поэтому кнопка, вошедшая, пока счёт ещё летит, не получает сборщик обратно от счёта.
 """
 
 from __future__ import annotations
@@ -70,6 +75,7 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
+from .envelope_gc_pause import gc_paused_function
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
@@ -551,6 +557,7 @@ def _begin(controller, request):
     offset = float(target.offset)
     key = sample_key(record, offset)
 
+    @gc_paused_function  # GC_PAUSED_DURING_WIDTH_TICK_V1: пауза сборщика стоит ровно на счёте тика (поток живёт секунды), а не на простое между тиками; сборщик общий на процесс
     def compute(cancel):
         try:
             run = run_production(
@@ -608,6 +615,7 @@ def _validity(controller, request, job) -> str | None:
     return None
 
 
+@gc_paused_function
 def _apply_prime(controller, request, job, live) -> None:
     """Затравка посчитана: образец и модель в сессию, меш не трогается (в него пишет только точный заказ ширины)."""
 
@@ -639,6 +647,7 @@ def _apply_lean(controller, request, job, live) -> None:
     tag_view3d_redraw()
 
 
+@gc_paused_function  # точное применение на главном потоке (COMMIT и lean-кадр): GC_PAUSED_DURING_WIDTH_TICK_V1
 def _apply(controller, request, job, live) -> None:
     if request.payload.grade == REFRESH_LEAN:
         return _apply_lean(controller, request, job, live)
