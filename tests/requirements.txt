@@ -8,6 +8,7 @@
 # mpmath приходит вместе с sympy, но его версия входит в ответ (интервальный фильтр знака): детерминизм доказан для 1.3.0, поэтому версия
 # прибита отдельной строкой и равна объявленной в `kernel/pyproject.toml` (`kernel/tests/test_dependency_pins.py`, `tests/test_dependency_pins.py`).
 #
+# pytest-xdist: host-suite.yml гонит набор тремя процессами (`-n 3 --dist loadfile`); без пакета ключ `-n` — ошибка запуска, и job красный до первого теста.
 # pyyaml: тесты структуры workflow (`tests/test_native_ci_workflow.py`, `tests/test_ci_shards_workflow.py`) разбирают .github/workflows/*.yml. Без него они пропускались бы
 # (`pytest.importorskip("yaml")`), и host-suite не держал бы ни шарды ядра, ни кэш корпусов; версия та же, что в `TEST_REQUIREMENTS` native.yml.
 pytest>=8,<10
@@ -15,3 +16,4 @@ sympy==1.14.0
 mpmath==1.3.0
 numpy==1.26.4
 pyyaml==6.0.3
+pytest-xdist==3.8.0

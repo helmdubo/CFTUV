@@ -77,7 +77,9 @@ jobs:
       - name: Architecture invariants
         run: python -m pytest tests/test_architecture.py -q -p no:cacheprovider
 
+      # Три процесса pytest-xdist на файл (`--dist loadfile`: каждый файл целиком в одном процессе, как в однопроцессном прогоне): раннер 4 vCPU, набор шёл одним процессом по ~8.5-10 минут.
+      # Это не только скорость этой задачи: она держит слоты параллельных задач аккаунта (20), а нативный дифференциал (18 ножек) ждёт слота за ней. Локально: 7:06 -> 4:04, те же 1914+ тестов зелёные.
       - name: Host suite
         run: >-
           python -m pytest tests -q -p no:cacheprovider -rs
-          --ignore=tests/test_architecture.py
+          --ignore=tests/test_architecture.py -n 3 --dist loadfile

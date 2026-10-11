@@ -88,6 +88,17 @@ def test_the_interpreters_and_the_two_builds_are_the_ones_that_ran_before_the_sh
     assert "blender-free-host-bridge-v0b" in jobs
 
 
+def test_the_host_suite_runs_in_xdist_processes_per_file_and_its_requirements_declare_xdist():
+    """The host suite takes 3 pytest-xdist processes (`--dist loadfile`: a file stays whole in one process, as in a single-process run); the flag without the package would fail the job before the first test."""
+
+    text = (ROOT / ".github" / "workflows" / "host-suite.yml").read_text(encoding="utf-8")
+    assert "-n 3 --dist loadfile" in text and "--ignore=tests/test_architecture.py" in text
+    requirements = (ROOT / "tests" / "requirements.txt").read_text(encoding="utf-8")
+    assert any(line.startswith("pytest-xdist==") for line in requirements.splitlines()), "the exact version of xdist is declared with the other test dependencies"
+    architecture = next(line for line in text.splitlines() if "tests/test_architecture.py -q" in line)
+    assert "-n " not in architecture, "the structural rules run alone, first, in one process, with a plain message"
+
+
 def test_the_kernel_weights_table_is_well_formed_and_names_real_files():
     document = json.loads(WEIGHTS.read_text(encoding="utf-8"))
     assert document["schema"] == shard_tests.WEIGHTS_SCHEMA and document["default_seconds"] > 0
