@@ -1,0 +1,191 @@
+name: Native crash hunt (investigation)
+
+# INVESTIGATION ONLY (branch native/investigate-raw-crash, never merged): run 38182199917, job "differential (py3.13, slots raw, shard 3/3)", died ~5 s into pytest with
+# exit code -2147483644 = 0x80000004 = STATUS_SINGLE_STEP, no pytest output, no faulthandler line; the same SHA passed on a re-run and in another run.
+#
+#   probe   how THIS runner's Git bash reports a child that ends with 0x80000004 (ExitProcess, RaiseException, a real CPU single step in a native program and in a Python thread under
+#           faulthandler) and whether bash's own fork emulation (`mapfile < <(tr ...)`, the line the failed step used) survives 1500 repetitions;
+#   hunt    the first seconds of the failing leg repeated (startup = collection, first file) and then the whole shard exactly as native.yml runs it, py3.13, with exact exit codes.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [native/investigate-raw-crash]
+
+concurrency:
+  group: native-hunt-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0 mpmath==1.3.0 pyyaml==6.0.3
+  CFTUV_SNAPSHOT_BYTE_CHECK: all
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    name: probe (how a child death by 0x80000004 is reported)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Runner
+        run: |
+          echo "git: $(git --version)"; bash --version | head -1; uname -a
+          python -VV
+          powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors | Format-List; (Get-CimInstance Win32_ComputerSystem) | Select-Object Manufacturer,Model,HypervisorPresent | Format-List; (Get-Item 'C:\Program Files\Git\usr\bin\msys-2.0.dll').VersionInfo.FileVersion"
+      - name: Build the exit probe
+        run: rustc -O .github/hunt/sstep.rs -o "$RUNNER_TEMP/sstep.exe"
+      - name: ExitProcess(0x80000004) from a native program
+        continue-on-error: true
+        run: '"$RUNNER_TEMP/sstep.exe" exit'
+      - name: RaiseException(0x80000004), unhandled, native program
+        continue-on-error: true
+        run: '"$RUNNER_TEMP/sstep.exe" raise'
+      - name: A real CPU single step (trap flag), native program
+        continue-on-error: true
+        run: '"$RUNNER_TEMP/sstep.exe" tf'
+      - name: os._exit(0x80000004) from Python
+        continue-on-error: true
+        run: python -c "import os; os._exit(0x80000004)"
+      - name: A real CPU single step on a thread of a Python process, faulthandler on
+        continue-on-error: true
+        run: python .github/hunt/pythread_tf.py
+      - name: The same through the pytest wrapper line of the failed step (Python last in a pipeline of bash)
+        continue-on-error: true
+        run: |
+          mapfile -t FILES < <(printf 'a\r\nb\r\n' | tr -d '\r')
+          python .github/hunt/pythread_tf.py
+      - name: bash fork emulation, 1500 x mapfile < <(tr), the construct of the failed step
+        run: |
+          printf 'tests/a.py\r\ntests/b.py\r\n' > "$RUNNER_TEMP/list.txt"
+          fails=0
+          for i in $(seq 1 1500); do
+            mapfile -t F < <(tr -d '\r' < "$RUNNER_TEMP/list.txt") || { echo "iteration $i: rc=$?"; fails=$((fails + 1)); }
+            [ "${#F[@]}" -eq 2 ] || { echo "iteration $i: got ${#F[@]} lines"; fails=$((fails + 1)); }
+          done
+          echo "fork loop finished, failures: $fails"
+          test "$fails" -eq 0
+
+  wheel:
+    name: release wheel (maturin)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "maturin>=1.15,<2"
+      - name: Build the release wheel
+        working-directory: native/cftuv-python
+        run: python -m maturin build --release --locked -o "$GITHUB_WORKSPACE/dist"
+      - run: python tools/native_build_id.py --json | tee dist/tree-id.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-wheel
+          path: dist
+          if-no-files-found: error
+          retention-days: 3
+
+  corpora:
+    name: synthetic corpora (py3.13)
+    needs: wheel
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheel
+          path: ${{ runner.temp }}/wheel
+      - run: |
+          python -m pip install $TEST_REQUIREMENTS
+          python -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
+      - run: python tools/native_ci_corpus.py build --kind clip --out "$RUNNER_TEMP/synthetic-clip"
+      - run: python tools/native_ci_corpus.py build --kind skeleton --out "$RUNNER_TEMP/skeleton-corpus"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corpora
+          path: |
+            ${{ runner.temp }}/synthetic-clip
+            ${{ runner.temp }}/skeleton-corpus
+          if-no-files-found: error
+          retention-days: 1
+
+  hunt:
+    name: hunt (py3.13, slots ${{ matrix.slots }}, replica ${{ matrix.replica }})
+    needs: [wheel, corpora]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        slots: [raw]
+        replica: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        include:
+          - { slots: auto, replica: 1 }
+          - { slots: auto, replica: 2 }
+    env:
+      PYTHONSAFEPATH: "1"
+      HUNT_LABEL: hunt py3.13 slots ${{ matrix.slots }} replica ${{ matrix.replica }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheel
+          path: ${{ runner.temp }}/wheel
+      - uses: actions/download-artifact@v4
+        with:
+          name: corpora
+          path: ${{ runner.temp }}/corpora
+      - name: Clean venv, wheel, identity of the installed build
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          PY="$RUNNER_TEMP/venv/Scripts/python.exe"
+          "$PY" -m pip install $TEST_REQUIREMENTS
+          "$PY" -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          "$PY" tools/native_build_id.py --require
+          "$PY" kernel/tools/shard_tests.py list --root tests --glob "test_native_*.py" --weights tests/data/native_ci_shard_weights.json --shard "3/3" | tr -d '\r' > "$RUNNER_TEMP/shard-files.txt"
+          cat "$RUNNER_TEMP/shard-files.txt"
+          powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores | Format-List"
+      - name: The first seconds of the failing leg, repeated (collection, first file), exact exit codes
+        env:
+          CFTUV_NATIVE_STRICT: "1"
+          CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
+          CFTUV_NATIVE_EXPECT_PYTHON: "3.13"
+          CFTUV_SYNTHETIC_CLIP_OUT: ${{ runner.temp }}/corpora/synthetic-clip
+          CFTUV_EMBEDDING_SYNTHETIC: "600"
+          CFTUV_EFFECTIVE_ALPHA_SYNTHETIC: "0.3"
+          CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/corpora/skeleton-corpus
+        run: '"$PY" .github/hunt/hunt.py --py "$PY" --files-from "$RUNNER_TEMP/shard-files.txt" --startups 40 --first-file 3 --full 0 --out "$RUNNER_TEMP/hunt"'
+      - name: Differential tests against the live oracle (strict), the step of native.yml with faulthandler
+        env:
+          CFTUV_NATIVE_STRICT: "1"
+          CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
+          CFTUV_NATIVE_EXPECT_PYTHON: "3.13"
+          CFTUV_SYNTHETIC_CLIP_OUT: ${{ runner.temp }}/corpora/synthetic-clip
+          CFTUV_EMBEDDING_SYNTHETIC: "600"
+          CFTUV_EFFECTIVE_ALPHA_SYNTHETIC: "0.3"
+          CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/corpora/skeleton-corpus
+        run: |
+          # `tr`: a CR at the end of a path (a Windows text stream) would be part of the file name
+          mapfile -t FILES < <(tr -d '\r' < "$RUNNER_TEMP/shard-files.txt")
+          "$PY" -X faulthandler -m pytest "${FILES[@]}" -m "not native_field" -p no:cacheprovider -q -rsfE --durations=10
