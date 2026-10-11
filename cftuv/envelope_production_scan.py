@@ -124,6 +124,8 @@ class _RunInputsV1:
     registered: list = field(default_factory=list)
     #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет), "key_memo": тексты общих записей для ключей содержимого этого прогона}`; повтор лотереи привязки заводит свои.
     scan_records: dict = field(default_factory=dict)
+    #: WIDTH_REFRESH_LEAN_V1: прогон заказал обновление без работы, нужной только фиксации (`lean_ready` решает, какие домены его получают).
+    lean: bool = False
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -137,6 +139,16 @@ class _RunInputsV1:
         """Закон выбора масштаба решётки прогона (`None`: умолчание ядра; повтор после отказа лотереи привязки - `PLANE_PRESERVING_V1`): часть ключей кэшей."""
 
         return getattr(self.topology_export, "grid_scale_law", None)
+
+
+def lean_ready(run: _RunInputsV1, entry: _DomainEntryV1) -> bool:
+    """Домен получает lean-путь (WIDTH_REFRESH_LEAN_V1): прогон lean, подготовка этой ревизии уже в кэше сессии, переноса из хранилища нет.
+
+    Перенос на ревизию читает батч (`relabel_result`), поэтому домен с переносом (`carried`, `reuse`) всегда идёт полным путём; холодный домен
+    считается воркером вместе с подготовкой и тоже полным: его подготовка и результат ложатся в кэши сессии и хранилище.
+    """
+
+    return run.lean and entry.prepared is not None and entry.carried is None and not entry.reuse
 
 
 def _check_cancel(run: _RunInputsV1) -> None:

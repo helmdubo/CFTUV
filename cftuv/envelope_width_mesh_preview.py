@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .envelope_production_result import REFRESH_LEAN
 from .envelope_width_preview_model import (
     INTERVAL_CERTIFIED,
     PREVIEW_MESH_FROM_INTERVAL_V1,
@@ -85,6 +86,9 @@ MESH_DATABLOCK_REPLACED = "PREVIEW_MESH_DATABLOCK_REPLACED"
 MESH_LAYOUT_CHANGED = "PREVIEW_MESH_LAYOUT_CHANGED"
 DECAL_CHANGED_EXTERNALLY = "PREVIEW_DECAL_CHANGED_EXTERNALLY"
 HISTORY_STEP = "PREVIEW_HISTORY_STEP"
+#: Точный кадр во время перетаскивания (WIDTH_REFRESH_LEAN_V1, `lean_exact_now`) не лёг в меш: названа причина, меш не тронут, а модель (если меш не наш) снята.
+LEAN_NO_BASE = "WIDTH_REFRESH_LEAN_NO_DISPLAYED_SAMPLE"
+LEAN_KEY_MISMATCH = "WIDTH_REFRESH_LEAN_KEY_MISMATCH"
 #: Как часто кадр перечитывает отпечаток раскладки меша (сеть на случай пропущенного сигнала) и сколько кадров он вправе стоить в среднем:
 #: интервал не меньше `LAYOUT_RECHECK_COST_RATIO` длительностей самого чтения.
 LAYOUT_RECHECK_SECONDS = 0.25
@@ -120,6 +124,12 @@ class PreviewLogV1:
     layout_generation: int = 0
     layout_checks: int = 0
     layout_check_seconds_max: float = 0.0
+    #: Точные кадры во время перетаскивания (WIDTH_REFRESH_LEAN_V1): сколько легло в меш, из них сколько пересобрало меш на месте (раскладка сменилась), сколько секунд главный
+    #: поток платил за запись и сколько раз отмена возвращала образец на экране (кадры успели его заменить).
+    lean_frames: int = 0
+    lean_rebuilds: int = 0
+    lean_frame_seconds_total: float = 0.0
+    lean_origin_restores: int = 0
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -141,6 +151,20 @@ class PreviewMeshStateV1:
     seconds: float
     serial: int
     moving: frozenset = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
+class DragOriginV1:
+    """Что показывали сессия и меш, когда первый точный lean-кадр перетаскивания собрался заменить образец на экране: к этому возвращает отмена.
+
+    Не начало перетаскивания, а момент перед первой заменой: затравка, что легла за время перетаскивания до неё (вспомогательные образцы, модель), принадлежит этому состоянию.
+    """
+
+    displayed: PreviewSampleV1 | None
+    aux: tuple
+    model: object | None
+    model_refusal: object | None
+    trust: object | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,8 +252,11 @@ def _model_or_refusal(base, others, ledger):
         return PreviewRefusalV1(MODEL_BUILD_FAILED, f"{type(exc).__name__}: {exc}")
 
 
-def finish_live_run(run, *, alpha, offset, key, displayed, aux, previous, prime, trust=None) -> LiveRunV1:
+def finish_live_run(run, *, alpha, offset, key, displayed, aux, previous, prime, trust=None, lean=False) -> LiveRunV1:
     """Хвост потока точного счёта: массивы меша, образец и модель (всё в потоке, главный поток только применяет).
+
+    `lean=True` (WIDTH_REFRESH_LEAN_V1; так считает затравка и точное lean-обновление): массивы без отчётов (`build_mesh_arrays(reports=False)`: ни дайджеста, ни отчётов о плоскости,
+    шве и обходе рёбер, геометрия та же побитово). Модель и сверка строятся как у зафиксированного ответа: lean-обновление ставит образец на экране и кормит модель.
 
     Точный прогон (`prime=False`): сверка предсказания прежней модели с ним (`deviation`), журнал доверия по её итогу (`advance_ledger`:
     опровергнутый домен — в карантин), модель НОВОГО образца из прежнего образца на экране и вспомогательных, с журналом. Затравка
@@ -239,7 +266,7 @@ def finish_live_run(run, *, alpha, offset, key, displayed, aux, previous, prime,
 
     from .envelope_production_mesh import build_mesh_arrays
 
-    arrays = build_mesh_arrays(run.results, offset)
+    arrays = build_mesh_arrays(run.results, offset, reports=not lean)
     sample = build_sample(run.results, arrays, key, alpha)
     if prime:
         model = None if displayed is None else _model_or_refusal(displayed, (sample, *aux), trust)
@@ -535,8 +562,8 @@ def note_decal_updates(controller, updates) -> str:
 # --------------------------------------------------------------------------
 
 
-def _mesh_problem(controller, model, decal) -> str:
-    """Почему меш не принимает кадр модели (пусто — принимает): владение, тождество, размеры, свойства точного пути и раскладка.
+def _mesh_problem(controller, base, decal) -> str:
+    """Почему меш не принимает кадр образца `base` (пусто — принимает): владение, тождество, размеры, свойства точного пути и раскладка.
 
     Порядок — от дешёвого к дорогому: объект, режим, владение (поколение образца), тождество (указатели и `session_uid`), размеры, записанные точным
     путём ширина и ревизия, и лишь раз в `recheck_after` — отпечаток раскладки. Каждый ответ — имя исхода.
@@ -552,7 +579,6 @@ def _mesh_problem(controller, model, decal) -> str:
     if mesh is None:
         return MESH_NOT_THE_BASE
     owner = controller.width_mesh_owner
-    base = model.base
     if owner is None:
         return OWNERSHIP_UNKNOWN
     if owner.sample is not base:
@@ -611,7 +637,7 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
 
     started = time.perf_counter()
     decal = _decal_of(controller)
-    problem = _mesh_problem(controller, model, decal)
+    problem = _mesh_problem(controller, model.base, decal)
     if problem:
         drop_model(controller, problem)
         return None
@@ -649,12 +675,124 @@ def moving_now(controller, width: float) -> frozenset:
     return moving_patches_at(controller.width_model, width)
 
 
+def begin_drag(controller) -> None:
+    """Перетаскивание началось: действуют точные lean-кадры (`width_drag_active`). К чему вернётся отмена, запоминает первый же кадр, который заменит образец на экране."""
+
+    controller.width_drag_active = True
+    controller.width_drag_origin = None
+
+
+def finish_drag(controller, *, restore: bool) -> bool:
+    """Перетаскивание кончилось: lean-кадры, что ещё в пути, больше не действуют. `restore` (отмена) возвращает меш на базу; `True` - было что возвращать.
+
+    Подтверждение ничего не возвращает: меш остаётся таким, каким его оставили кадры, пока зафиксированный ответ не перепишет его целиком.
+    """
+
+    controller.width_drag_active = False
+    try:
+        return restore_base_mesh(controller) if restore else False
+    finally:
+        controller.width_drag_origin = None
+
+
+def _lay_down(decal, sample, *, same_layout: bool) -> int:
+    """Точный образец `sample` - в меш декали: позиции, UV и номера владельцев одной записью, если раскладка меша та же, иначе меш пересобран на месте. Число помеченных швов (0 - не пересобирали)."""
+
+    from .envelope_production_mesh import record_decal_width, rebuild_mesh_from_image, write_preview_geometry
+
+    if same_layout:
+        frame = base_frame(sample)
+        write_preview_geometry(decal.data, frame.positions, frame.uvs, sample.image.face_owner)
+        marked = 0
+    else:
+        marked = rebuild_mesh_from_image(decal.data, sample.positions, sample.uvs, sample.image)
+    record_decal_width(decal.data, sample.alpha)
+    return marked
+
+
+def lean_exact_now(controller, live) -> str:
+    """Точный lean-кадр (WIDTH_REFRESH_LEAN_V1) во время перетаскивания: точный прогон `live` ложится в меш и становится образцом на экране. Пусто - сделано, иначе - имя причины.
+
+    Это то же, что делает применение зафиксированного ответа (`note_exact_display`: образец на экране, прежний - вспомогательный, модель нового образца, сверка и журнал доверия,
+    владение мешем снято заново), БЕЗ работы, нужной только фиксации: ни квитанции, ни дайджеста меша, ни консоли, ни кэшей. Меш получает ровно то, что записал бы полный путь:
+    раскладка та же (равный `layout_digest`) - позиции, UV и номера владельцев граней одной записью, ширина записи - ширина кадра; сменилась (домен сменил структуру) - меш пересобран
+    на месте по образу (`rebuild_mesh_from_image`). Проверка владения (`_mesh_problem`) та же, что у кадра модели: чужой меш не получает записи, а модель снимается с названной
+    причиной. Отмена инструмента возвращает то, что показывали перед первым кадром (`DragOriginV1`, `restore_base_mesh`), побитово.
+    """
+
+    base, sample = controller.width_displayed, live.sample
+    log = log_of(controller)
+    if base is None:
+        log.refuse(LEAN_NO_BASE)
+        return LEAN_NO_BASE
+    if sample.key != base.key:
+        log.refuse(LEAN_KEY_MISMATCH)
+        return LEAN_KEY_MISMATCH
+    from .envelope_production_mesh import ProductionWriteError
+
+    started = time.perf_counter()
+    decal = _decal_of(controller)
+    problem = _mesh_problem(controller, base, decal)
+    if problem:
+        drop_model(controller, problem)
+        return problem
+    same_layout = bool(base.layout_digest) and sample.layout_digest == base.layout_digest
+    if controller.width_drag_origin is None and controller.width_drag_active:
+        controller.width_drag_origin = DragOriginV1(base, controller.width_aux, controller.width_model, controller.width_model_refusal, controller.width_trust)
+    try:
+        _lay_down(decal, sample, same_layout=same_layout)
+    except ProductionWriteError as exc:
+        drop_model(controller, exc.outcome)
+        return exc.outcome
+    note_exact_display(controller, live)
+    capture_ownership(controller, decal, sample)
+    previous = controller.width_mesh_preview
+    seconds = time.perf_counter() - started
+    controller.width_mesh_preview = PreviewMeshStateV1(
+        sample.alpha, len(sample.domains), 0, (), REFRESH_LEAN, seconds, 1 if previous is None else previous.serial + 1
+    )
+    log.lean_frames += 1
+    log.lean_rebuilds += 0 if same_layout else 1
+    log.lean_frame_seconds_total += seconds
+    return ""
+
+
+def _restore_origin(controller, origin: DragOriginV1) -> bool:
+    """Отмена после lean-кадров: меш и состояние сессии - такие, какими были перед первым из них (кадры заменили образец на экране)."""
+
+    from .envelope_production_mesh import ProductionWriteError
+
+    current, base = controller.width_displayed, origin.displayed
+    if current is None or base is None:
+        return False
+    decal = _decal_of(controller)
+    problem = _mesh_problem(controller, current, decal)
+    if problem:
+        drop_model(controller, problem)
+        return False
+    try:
+        _lay_down(decal, base, same_layout=bool(current.layout_digest) and current.layout_digest == base.layout_digest)
+    except ProductionWriteError as exc:
+        drop_model(controller, exc.outcome)
+        return False
+    controller.width_displayed, controller.width_aux = base, origin.aux
+    controller.width_model, controller.width_model_refusal, controller.width_trust = origin.model, origin.model_refusal, origin.trust
+    controller.width_mesh_preview = None
+    capture_ownership(controller, decal, base)
+    log_of(controller).lean_origin_restores += 1
+    return True
+
+
 def restore_base_mesh(controller) -> bool:
     """Меш возвращён на геометрию базы (отмена инструмента): побитово то, что записал точный путь. `True` — было что возвращать.
 
-    Меш, который модель не вправе писать, не получает записи, а модель снимается с именем причины (как в кадре).
+    Меш, который модель не вправе писать, не получает записи, а модель снимается с именем причины (как в кадре). Если точные lean-кадры успели заменить образец на экране,
+    возвращается то, что показывали перед первым из них (`_restore_origin`).
     """
 
+    origin = controller.width_drag_origin
+    if origin is not None:
+        return _restore_origin(controller, origin)
     if controller.width_mesh_preview is None:
         return False
     model = controller.width_model
@@ -664,7 +802,7 @@ def restore_base_mesh(controller) -> bool:
     from .envelope_production_mesh import ProductionWriteError, write_preview_geometry
 
     decal = _decal_of(controller)
-    problem = _mesh_problem(controller, model, decal)
+    problem = _mesh_problem(controller, model.base, decal)
     if problem:
         drop_model(controller, problem)
         return False
@@ -685,7 +823,12 @@ def restore_base_mesh(controller) -> bool:
 def status_lines(controller) -> tuple[str, ...]:
     lines = []
     state = controller.width_mesh_preview
-    if state is not None:
+    if state is not None and state.outcome == REFRESH_LEAN:
+        lines.append(
+            f"Mesh {REFRESH_LEAN}: exact geometry at width {state.alpha:.4g}, {state.live} domains (without the checks and reports of a commit; "
+            "confirming recomputes and writes the committed result)"
+        )
+    elif state is not None:
         held = ""
         if state.held:
             shown = ", ".join(str(item) for item in state.held_patches)
@@ -736,6 +879,7 @@ __all__ = (
     "MESH_NOT_THE_BASE",
     "MODEL_BUILD_FAILED",
     "MODEL_DROPPED",
+    "DragOriginV1",
     "MeshOwnershipV1",
     "OWNERSHIP_CAPTURE_FAILED",
     "OWNERSHIP_UNKNOWN",
@@ -746,8 +890,13 @@ __all__ = (
     "PreviewMeshStateV1",
     "build_sample",
     "capture_ownership",
+    "LEAN_KEY_MISMATCH",
+    "LEAN_NO_BASE",
+    "begin_drag",
     "drop_model",
+    "finish_drag",
     "finish_live_run",
+    "lean_exact_now",
     "log_of",
     "moving_now",
     "next_prime_alpha",

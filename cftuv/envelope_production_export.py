@@ -114,6 +114,12 @@ from .envelope_production_result import (  # noqa: F401 - переэкспорт
     _placed,
     _raised,
     _refusal,
+    LeanResultError,
+    REFRESH_COMMIT,
+    REFRESH_LEAN,
+    PRODUCTION_REFRESH_LEAN_DOMAINS,
+    PRODUCTION_REFRESH_LEAN_FULL_DOMAINS,
+    lean_result,
 )
 from .envelope_production_scan import (  # noqa: F401 - переэкспорт: имена прежние
     _NO_BINDING,
@@ -132,6 +138,7 @@ from .envelope_production_scan import (  # noqa: F401 - переэкспорт: 
     _result_key,
     _scan,
     _slot,
+    lean_ready,
 )
 from .envelope_production_task import (  # noqa: F401 - переэкспорт: имена прежние
     _domain_of_preparation,
@@ -318,6 +325,10 @@ def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
     """
 
     controller = run.controller
+    if result.lean:
+        # WIDTH_REFRESH_LEAN_V1: lean-результат НЕ ложится ни в кэш результатов сессии, ни в хранилище по содержимому (оба отказывают ему `LeanResultError`):
+        # у него нет батча, и ответом, который отдают другому нажатию, он быть не вправе. Зафиксированный ответ даёт прогон полным путём (COMMIT).
+        return None, result
     if item.carried is not None:
         result = result.with_changes(backend_record=None)
     if result.outcome == OUTCOME_DOMAIN_RAISED:
@@ -371,6 +382,7 @@ def _produced_by_parent(run: _RunInputsV1, item: _DomainEntryV1) -> ProductionDo
         run.alpha_text,
         uv_policy_id=run.uv_policy_id,
         topology_law=run.topology_law,
+        lean=lean_ready(run, item),
         backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
@@ -406,7 +418,7 @@ def _production_input(run: _RunInputsV1, entry: _DomainEntryV1, blob: bytes) -> 
     # Память подготовок воркера держит подготовки, а не результаты на перенос: у `carried` пикл едет всегда.
     key = "" if entry.carried is not None else run.controller.preparation_blobs.key_of(entry.prepared)
     return ProductionInputV1(
-        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None, key
+        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None, key, lean_ready(run, entry)
     )
 
 
@@ -593,6 +605,8 @@ class ProductionRunV1:
     kernel_backend: str = DEFAULT_KERNEL_BACKEND  # главный переключатель ядра, заказанный прогоном
     skeleton_backend: str | None = None  # порядки стадий прогона: `None` — как `kernel_backend`, `__post_init__` приводит их к именам
     embedding_backend: str | None = None
+    #: Класс обновления (`REFRESH_COMMIT` | `REFRESH_LEAN` = WIDTH_REFRESH_LEAN_V1): lean-прогон заказывает путь без работы, нужной только фиксации.
+    refresh: str = REFRESH_COMMIT
 
     def __post_init__(self) -> None:
         settle_stage_orders(self, "kernel_backend")
@@ -749,6 +763,7 @@ def run_production(
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
+    lean: bool = False,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -764,6 +779,10 @@ def run_production(
     превью и не вправе останавливать тот же планировщик из потока счёта; кнопка оставляет `True`.
 
     `kernel_backend` — ГЛАВНЫЙ переключатель всех стадий ядра; `skeleton_backend`/`embedding_backend` (только API) — порядок одной стадии, `None` — как главный (`stage_orders`).
+
+    `lean=True` — WIDTH_REFRESH_LEAN_V1: обновление БЕЗ работы, нужной только фиксации (воркер не пакует батч, результат не ложится ни в какой кэш). Геометрия, исходы доменов
+    и счётчики материализатора те же побитово; зафиксированный ответ даёт только прогон с `lean=False`. Домены без готовой подготовки этой ревизии (холодные, с переносом
+    из хранилища) идут полным путём в том же прогоне, и профиль называет их число (`PRODUCTION_REFRESH_LEAN_FULL_DOMAINS`).
     """
 
     from .envelope_chart_band import policy_alpha
@@ -814,6 +833,7 @@ def run_production(
         backend=kernel_backend,
         skeleton_backend=skeleton_backend,
         embedding_backend=embedding_backend,
+        lean=lean,
     )
     entries = _scan(run)
     _check_cancel(run)
@@ -832,12 +852,21 @@ def run_production(
             pool,
         )
     results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
-    _record_run_counters(profile, controller, builds_before, entries, results, cold)
-    record_unpickled(profile, lazy_before, controller.lazy_unpickled)
+    return _production_run(run, entries, results, cold, started, builds_before, lazy_before)
+
+
+def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_before, lazy_before) -> ProductionRunV1:
+    """Счётчики прогона в профиль и итог `ProductionRunV1`."""
+
+    profile = run.profile
+    _record_run_counters(profile, run.controller, builds_before, entries, results, cold)
+    record_unpickled(profile, lazy_before, run.controller.lazy_unpickled)
     _record_content_counters(profile, run, entries)
+    if run.lean:
+        _record_lean_counters(profile, results)
     return ProductionRunV1(
         results=tuple(results),
-        revision=revision,
+        revision=run.revision,
         cold=cold,
         profile=profile.snapshot(),
         wall_seconds=time.perf_counter() - started,
@@ -848,7 +877,16 @@ def run_production(
         kernel_backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
+        refresh=REFRESH_LEAN if run.lean else REFRESH_COMMIT,
     )
+
+
+def _record_lean_counters(profile, results) -> None:
+    """WIDTH_REFRESH_LEAN_V1: сколько доменов посчитано без фиксирующей работы и сколько пошло полным путём (кэш, холодный домен, перенос); пишется только у lean-прогона."""
+
+    lean = sum(1 for item in results if item.lean)
+    profile.set_counter(PRODUCTION_REFRESH_LEAN_DOMAINS, lean)
+    profile.set_counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS, sum(1 for item in results if item.is_materialized) - lean)
 
 
 # --------------------------------------------------------------------------
@@ -874,9 +912,18 @@ def production_timing_text(run: ProductionRunV1) -> str:
         f"built {builds} | results cached {cached}, computed {computed}"
         f"{_content_timing_suffix(run, content)}"
         f"{_clip_memo_timing_suffix(run)}"
+        f"{_lean_timing_suffix(run)}"
         f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend)}"
         f"{_pool_timing_suffix(run.profile)}"
     )
+
+
+def _lean_timing_suffix(run: ProductionRunV1) -> str:
+    """` | WIDTH_REFRESH_LEAN_V1 L lean, F full`: класс обновления назван в строке панели (у COMMIT строки нет, она прежняя)."""
+
+    if run.refresh != REFRESH_LEAN:
+        return ""
+    return f" | {REFRESH_LEAN} {run.counter(PRODUCTION_REFRESH_LEAN_DOMAINS)} lean, {run.counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS)} full"
 
 
 def _clip_memo_timing_suffix(run: ProductionRunV1) -> str:

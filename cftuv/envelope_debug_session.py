@@ -17,6 +17,7 @@ from typing import Callable, Hashable, TYPE_CHECKING
 from .envelope_chart_band import band_facts_of, policy_alpha, tightened_export
 from .envelope_content_store import ContentStoreV1
 from .envelope_lazy_preparation import LazyPreparationV1
+from .envelope_production_result import LeanResultError
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
 from .envelope_scan_memo import ScanMemoV1
@@ -299,6 +300,10 @@ class EnvelopeDebugSessionController:
         #: (тождество, поколение и отпечаток раскладки точной записи), что меш показывает сейчас, счётчики и планировщик затравки.
         #: Всё это данные ревизии и записи кнопки: смена ревизии и полный сброс их роняют.
         self.width_prime = None
+        #: Перетаскивание модального инструмента ширины идёт (`begin_adjust` .. `finish_adjust`): только пока оно идёт, действуют точные lean-кадры (WIDTH_REFRESH_LEAN_V1).
+        self.width_drag_active = False
+        #: `DragOriginV1`: что показывали перед первым точным lean-кадром перетаскивания (к этому возвращает отмена) либо `None`.
+        self.width_drag_origin = None
         self.reset_width_mesh_preview()
 
     def reset_width_mesh_preview(self) -> None:
@@ -468,6 +473,8 @@ class EnvelopeDebugSessionController:
         self.width_build = None
         self.width_preview = None
         self.width_target = None
+        self.width_drag_active = False
+        self.width_drag_origin = None
         self.reset_width_mesh_preview()
         self._invalidation_count += 1
 
@@ -1137,6 +1144,8 @@ class EnvelopeDebugSessionController:
         return found
 
     def remember_production_result(self, key: tuple, result) -> None:
+        if getattr(result, "lean", False):
+            raise LeanResultError("a lean result (WIDTH_REFRESH_LEAN_V1) is not stored in the result cache: it would answer a later full lookup without a batch")
         cache = self._production_result_cache
         cache[key] = result
         cache.move_to_end(key)

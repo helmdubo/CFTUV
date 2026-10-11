@@ -34,6 +34,7 @@ from .envelope_production_result import (
     _raised,
     _refusal,
     deferred_result,
+    lean_result,
 )
 from .envelope_request_policy import ENVELOPE_UV_POLICIES
 from .envelope_snap_retry import snap_scale_notes
@@ -80,6 +81,7 @@ def produce_domain(
     uv_policy_id: str = PRODUCTION_UV_POLICY,
     topology_law: str = PRODUCTION_TOPOLOGY_LAW,
     defer: bool = False,
+    lean: bool = False,
 ) -> ProductionDomainResultV1:
     """Покрытие на готовой подготовке и материализация: общий код всех путей.
 
@@ -91,7 +93,12 @@ def produce_domain(
 
     `defer=True` (так считает воркер) — отложенный результат (`deferred_result`): дайджесты не считаются (ядро `digests=False`),
     вид домена посчитан, батч упакован в байты. Прочитанное из него равно результату `defer=False`.
+
+    `lean=True` (WIDTH_REFRESH_LEAN_V1; подразумевает `defer`) - lean-результат (`lean_result`): тот же вид, но батч НЕ пакуется (пикл и zlib - работа, нужная только
+    зафиксированному ответу). Вызов материализатора тот же, поэтому исходы доменов (в том числе отказы `VALIDATE` и `AUDIT`), счётчики и геометрия те же.
     """
+
+    defer = defer or lean
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
@@ -167,7 +174,7 @@ def produce_domain(
             step_path=stepped.path,
         )
         if defer:
-            produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
+            produced = (lean_result if lean else deferred_result)(produced).with_changes(seconds=time.perf_counter() - started)
         return produced
     except Exception as exc:  # noqa: BLE001 - исход называется, а не теряется
         return _raised(exc, patch_id, domain_id, time.perf_counter() - started)
@@ -313,6 +320,7 @@ def solve_production_task(task):
 
     production = task.production
     payload = prepared_of(production, retain=not production.carried)
+    lean = production.lean and production.relabel is None and not production.carried  # перенос на ревизию читает батч: такой домен идёт полным путём
     result = (
         payload
         if production.carried
@@ -324,6 +332,7 @@ def solve_production_task(task):
             uv_policy_id=production.uv_policy_id,
             topology_law=production.topology_law,
             defer=True,
+            lean=lean,
             backend=task.backend,
             skeleton_backend=task.skeleton_backend,
             embedding_backend=task.embedding_backend,

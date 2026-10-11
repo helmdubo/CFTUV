@@ -95,6 +95,20 @@ PLACEMENT_CACHED = "cache"
 PLACEMENT_UNAVAILABLE = "parent:ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
 PLACEMENT_FALLBACK = "parent:ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
 
+#: WIDTH_REFRESH_LEAN_V1. Обновление точного пути ширины идёт одним из двух классов, и класс назван (профиль прогона, строка статуса, результат
+#: домена): `COMMIT` - полный путь (проверки, дайджесты, отчёты, кэши сессии и хранилище по содержимому, квитанция записи), `WIDTH_REFRESH_LEAN_V1` -
+#: обновление БЕЗ работы, нужной только фиксации: воркер не пакует батч (пикл и zlib), родитель не считает дайджест массивов, отчёты о плоскости,
+#: шве и обходе рёбер, не кладёт результат ни в какой кэш. Геометрия, исходы доменов и счётчики материализатора у них побитово одни: эти стадии
+#: только проверяют и сообщают (доказательство - `tests/test_envelope_refresh_lean.py`). Проверки ядра, влияющие на исход домена (`VALIDATE`,
+#: `AUDIT`), и повтор лотереи привязки остаются: они могут отказать домен, то есть меняют ответ.
+REFRESH_COMMIT = "COMMIT"
+REFRESH_LEAN = "WIDTH_REFRESH_LEAN_V1"
+#: Домены lean-прогона, посчитанные без фиксирующей работы, и домены того же прогона, что пошли полным путём (холодные либо с переносом из хранилища).
+PRODUCTION_REFRESH_LEAN_DOMAINS = "PRODUCTION_REFRESH_LEAN_DOMAINS"
+PRODUCTION_REFRESH_LEAN_FULL_DOMAINS = "PRODUCTION_REFRESH_LEAN_FULL_DOMAINS"
+#: Исход, которым называется неверное обращение с lean-результатом (чтение батча, дайджеста; запись в кэш).
+OUTCOME_LEAN_RESULT_MISUSED = "LEAN_RESULT_MISUSED"
+
 
 class ProductionCancelled(RuntimeError):
     """Прогон остановлен по заказу (`cancel`): результата нет и не будет, кэши сессии целы.
@@ -102,6 +116,15 @@ class ProductionCancelled(RuntimeError):
     Это НЕ отказ домена: ни один домен не назван отказавшим и ничего не посчитано родителем
     взамен недоделанного пулом. Бросается только когда вызывающий передал `cancel`.
     """
+
+
+class LeanResultError(RuntimeError):
+    """Lean-результат (`WIDTH_REFRESH_LEAN_V1`) просят о том, чего у него нет по построению (батч, нормали вершин, дайджест), либо кладут туда, где живут
+    только зафиксированные результаты (кэш результатов сессии, хранилище по содержимому). Громко, а не `None`: молчаливый `None` читался бы как отказ домена.
+    """
+
+    def __init__(self, what: str):
+        super().__init__(f"{OUTCOME_LEAN_RESULT_MISUSED}: {what}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +148,8 @@ class ProductionInputV1:
     #: Ключ пикла в памяти подготовок воркера (`envelope_worker_store.blob_key`); пусто - подготовка не запоминается. Пул шлёт
     #: задачу без `blob` (одним ключом) воркеру, который подготовку держит, и с `blob` - остальным.
     key: str = ""
+    #: `WIDTH_REFRESH_LEAN_V1`: воркер не пакует батч, а присылает вид домена (`lean_result`). Только для домена без переноса (`relabel` пуст, `carried` нет).
+    lean: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,15 +249,22 @@ class ProductionDomainResultV1:
     #: Не аргументы конструктора: у результата, собранного заново, их нет (чужой вид к новому батчу не прикладывается).
     view: object | None = field(default=None, init=False, compare=False, repr=False)
     heavy: bytes | None = field(default=None, init=False, compare=False, repr=False)
+    #: `WIDTH_REFRESH_LEAN_V1` (`lean_result`): вид посчитан, а батча, нормалей вершин и дайджеста содержимого НЕТ ПО ПОСТРОЕНИЮ (чтение - `LeanResultError`).
+    #: Такой результат не ложится ни в какой кэш и не переносится на другую ревизию: он про одно обновление ширины, а не про зафиксированный ответ.
+    lean: bool = field(default=False, compare=False)
 
     @property
     def is_materialized(self) -> bool:
         state = self.__dict__
         return self.outcome == MATERIALIZED and (
-            state.get("heavy") is not None or state.get("batch") is not None
+            state.get("heavy") is not None or state.get("batch") is not None or bool(state.get("lean"))
         )
 
     def __getattr__(self, name):
+        if name in _LAZY_FIELDS and self.__dict__.get("lean"):
+            raise LeanResultError(
+                f"the result of patch {self.__dict__.get('patch_id')} is a WIDTH_REFRESH_LEAN_V1 result: it carries the view, not the {name}"
+            )
         if name in _LAZY_FIELDS and self.__dict__.get("heavy") is not None:
             if name == "content_digest":
                 object.__setattr__(self, name, self._content_digest_of(self.batch))
@@ -272,6 +304,8 @@ class ProductionDomainResultV1:
     def materialized(self, with_digest: bool = True) -> "ProductionDomainResultV1":
         """Тот же результат без отложенности: поля развёрнуты, `view` и `heavy` нет (новый батч не наследует чужой вид)."""
 
+        if self.__dict__.get("lean"):
+            raise LeanResultError(f"the result of patch {self.__dict__.get('patch_id')} is a WIDTH_REFRESH_LEAN_V1 result: there is no batch to materialize")
         if self.__dict__.get("heavy") is None:
             return self
         state = dict(self.__dict__)
@@ -313,7 +347,7 @@ def deferred_result(result: ProductionDomainResultV1) -> ProductionDomainResultV
     (`materialize_domain(digests=False)`): его запечатывает первое чтение. Известный `content_digest` остаётся в поле.
     """
 
-    if result.__dict__.get("heavy") is not None or result.batch is None:
+    if result.__dict__.get("lean") or result.__dict__.get("heavy") is not None or result.batch is None:
         return result
     from .envelope_production_view import build_domain_view
 
@@ -323,6 +357,27 @@ def deferred_result(result: ProductionDomainResultV1) -> ProductionDomainResultV
     state["heavy"] = zlib.compress(packed, HEAVY_COMPRESSION_LEVEL)
     if not state.get("content_digest"):
         state.pop("content_digest", None)
+    copy = object.__new__(type(result))
+    copy.__dict__.update(state)
+    return copy
+
+
+def lean_result(result: ProductionDomainResultV1) -> ProductionDomainResultV1:
+    """Lean-копия материализованного результата (`WIDTH_REFRESH_LEAN_V1`): вид посчитан ТЕМ ЖЕ кодом, что у `deferred_result`, а батч и нормали вершин не пакуются.
+
+    Не делается то, что `deferred_result` делает ради фиксации: пикл батча и zlib (на `building` 11 % ЦП воркеров и ~85 % байтов ответа). Всё, что читает писатель меша и
+    образец превью, лежит в виде и в полях результата. Отказ, отложенный и уже lean-результат возвращаются как есть.
+    """
+
+    if result.__dict__.get("lean") or result.__dict__.get("heavy") is not None or result.batch is None:
+        return result
+    from .envelope_production_view import build_domain_view
+
+    state = dict(result.__dict__)
+    state["view"] = build_domain_view(result)
+    for name in _LAZY_FIELDS:
+        state.pop(name, None)
+    state["lean"] = True
     copy = object.__new__(type(result))
     copy.__dict__.update(state)
     return copy

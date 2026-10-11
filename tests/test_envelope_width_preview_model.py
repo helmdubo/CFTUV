@@ -609,6 +609,8 @@ class _Mesh(dict):
         self.vertices = _Collection(*range(vertices))
         layer = SimpleNamespace(name=production_mesh.DECAL_UV_LAYER, data=_Collection(*range(loops)))
         self.uv_layers = _Collection(layer)
+        owner = SimpleNamespace(name=production_mesh.DECAL_OWNER_ATTRIBUTE, data=_Collection(*range(loops // 3)))
+        self.attributes = _Collection(owner)  # атрибут граней `cftuv_owner`: его пишет точный lean-кадр (WIDTH_REFRESH_LEAN_V1)
         self.loops = _Layout(np.arange(loops) % max(vertices, 1) if corners is None else corners)
         self.polygons = _Layout(np.arange(loops // 3) * 3)
         self.edges = _Collection(*range(vertices + loops // 3))

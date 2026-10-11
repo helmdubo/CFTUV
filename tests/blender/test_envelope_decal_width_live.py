@@ -37,6 +37,10 @@
    (в Object и через Edit с правкой UV), обновление геометрии декали мимо нас и шаг Undo/Redo снимают модель с названной причиной, ничего
    не записав в меш, а точный путь после этого работает как прежде (меш равен холодной кнопке) и заводит владение и модель заново.
 
+10. ТОЧНЫЕ LEAN-КАДРЫ ВО ВРЕМЯ ПЕРЕТАСКИВАНИЯ (WIDTH_REFRESH_LEAN_V1, настройка `drag_exact_ticks`): кадр от паузы руки ложится в меш и заменяет образец на экране, затравка
+    работает без дайджеста массивов, кадры не пополняют кэши, меш кадра равен мешу зафиксированного ответа на той же ширине (по месту и пересборкой по образу), отмена
+    возвращает меш, образец, вспомогательные образцы и модель побитово.
+
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
 Последняя строка при успехе: ENVELOPE_DECAL_WIDTH_LIVE_BLENDER_SMOKE_OK
@@ -535,6 +539,123 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result
         f"PREVIEW MESH: {earlier['frames']} frames, max {earlier['frame_seconds_max'] * 1000:.2f} ms; models {earlier['models']}; "
         f"self-check max {earlier['max_position_error']:.3e} m over {earlier['domains_checked']} domains; dropped {dict(log.dropped)}"
     )
+
+
+def _lean_tool(*, view=None):
+    """Свежая сцена, кнопка, вход инструмента, затравка: `(контроллер, автомат перетаскивания)`; настройка точных кадров включена."""
+
+    from cftuv.envelope_width_session import ViewScaleV1, begin_adjust
+
+    source = _fresh()
+    _press(source)
+    _decal_settings().drag_exact_ticks = True
+    runtime = begin_adjust(bpy.context, (0.0, 0.0), view or ViewScaleV1(pivot=(0.0, 0.0), metres_per_pixel=1.0))
+    assert not isinstance(runtime, str), runtime
+    _pump_all()
+    return _controller(), runtime
+
+
+def _lean_tick(width, *, forced):
+    """Точный кадр на `width` заказан инструментом и досчитан; `forced` объявляет раскладку сменившейся (меш пересобран на месте по образу)."""
+
+    from cftuv import envelope_width_live as live_module
+
+    real = live_module.lean_exact_now
+
+    def relaid(control, run):
+        if forced:
+            run = dataclasses.replace(run, sample=dataclasses.replace(run.sample, layout_digest="forced: another layout"))
+        return real(control, run)
+
+    live_module.lean_exact_now = relaid
+    try:
+        assert live_module.request_drag_tick(bpy.context, _controller(), width)
+        _pump_all()
+    finally:
+        live_module.lean_exact_now = real
+
+
+def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it():
+    """ТОЧНЫЕ LEAN-КАДРЫ ВО ВРЕМЯ ПЕРЕТАСКИВАНИЯ (WIDTH_REFRESH_LEAN_V1, настройка `drag_exact_ticks`), на настоящем меше и настоящем планировщике.
+
+    1. затравка работает lean: её образцы без дайджеста массивов, образец кнопки - с дайджестом;
+    2. кадр, заказанный движением руки (`apply_step`), ложится в меш и заменяет образец на экране; ширина записи меша - ширина кадра; зафиксированной записи нет (кэши
+       результатов не пополняются, датаблоки те же);
+    3. меш lean-кадра РАВЕН мешу, который даёт зафиксированный ответ на той же ширине (`mesh_content_digest` и массивы float32) - и когда меш записан по месту, и когда раскладка
+       принудительно объявлена сменившейся и меш пересобран на месте по образу (`rebuild_mesh_from_image`);
+    4. отмена после кадров возвращает меш, образец, вспомогательные образцы и модель, какими они были к началу перетаскивания, побитово (в обоих случаях).
+    """
+
+    import numpy as np
+
+    from cftuv.envelope_width_adjust import KIND_MOVE, WidthEventV1
+    from cftuv.envelope_width_mesh_preview import finish_drag
+    from cftuv.envelope_width_session import apply_step, finish_adjust
+
+    # 1-2. Кадр от паузы руки.
+    controller, runtime = _lean_tool()
+    settings = _settings()
+    start = float(settings.envelope_debug_alpha)
+    assert controller.width_model is not None and controller.width_aux, "the prime built the model"
+    assert controller.width_displayed.arrays_digest and all(item.arrays_digest == "" for item in controller.width_aux), "lean primes carry no arrays digest, the button's sample does"
+    origin = controller.width_displayed
+    blocks, cached = _datablock_counts(), controller.production_result_count
+    step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.004, 0.0))
+    apply_step(bpy.context, runtime, step)
+    assert controller.width_live is not None and controller.width_live.counters.requested == 1, "the pause of the hand orders an exact tick"
+    _pump_all()
+    assert controller.width_live.counters.applied == 1 and controller.width_live.counters.failed == 0
+    assert controller.width_displayed is not origin and controller.width_displayed.alpha == step.width and controller.width_aux[0] is origin
+    assert controller.width_mesh_preview is not None and controller.width_mesh_preview.outcome == "WIDTH_REFRESH_LEAN_V1"
+    assert _width_property(DECAL) == step.width and _datablock_counts() == blocks
+    assert controller.production_result_count == cached, "a lean result is stored in no cache"
+    assert any(line.startswith("Mesh WIDTH_REFRESH_LEAN_V1: exact geometry at width") for line in _status_lines()), _status_lines()
+    assert _decal_settings().status.startswith("WIDTH_REFRESH_LEAN_V1: exact geometry at width"), _decal_settings().status
+    assert "WIDTH_REFRESH_LEAN_V1" in _decal_settings().timing
+    finish_adjust(bpy.context, runtime, confirmed=False)
+
+    for forced in (False, True):
+        how = "rebuilt in place from the image" if forced else "positions, UV and owners written in place"
+        # 3. Тот же float32, что у ползунка: зафиксированный ответ и lean-кадр считают на ОДНОМ числе.
+        controller, runtime = _lean_tool()
+        settings = _settings()
+        width = float(np.float32(float(settings.envelope_debug_alpha) + 0.005))
+        _lean_tick(width, forced=forced)
+        assert controller.width_displayed.alpha == width and _width_property(DECAL) == width
+        assert (controller.width_preview_log.lean_rebuilds >= 1) is forced
+        lean_digest, lean_arrays = _digest(), _mesh_arrays(DECAL)
+        finish_drag(controller, restore=False)  # так подтверждение снимает lean-заказы до записи ширины
+        settings.envelope_debug_alpha = width
+        _pump_all()
+        assert controller.width_live.counters.failed == 0
+        committed = _mesh_arrays(DECAL)
+        assert _digest() == lean_digest, ("the lean frame is not the committed mesh", forced)
+        assert np.array_equal(committed[0], lean_arrays[0]) and np.array_equal(committed[1], lean_arrays[1]), forced
+        print(f"LEAN FRAME == COMMITTED MESH at width {width:.6f} ({how})")
+
+        # 4. Отмена после кадра того же вида.
+        controller, runtime = _lean_tool()
+        settings = _settings()
+        entered = controller.width_displayed
+        entered_aux, entered_model = controller.width_aux, controller.width_model
+        before, still = _digest(), _mesh_arrays(DECAL)
+        _lean_tick(float(np.float32(float(settings.envelope_debug_alpha) + 0.004)), forced=forced)
+        assert controller.width_displayed is not entered and _digest() != before, "the tick replaced the mesh"
+        assert finish_adjust(bpy.context, runtime, confirmed=False) == "CANCELLED"
+        assert controller.width_displayed is entered and controller.width_aux == entered_aux and controller.width_model is entered_model
+        assert controller.width_mesh_preview is None and not controller.width_drag_active and controller.width_drag_origin is None
+        assert _digest() == before, ("cancel does not return the mesh", forced)
+        returned = _mesh_arrays(DECAL)
+        assert np.array_equal(returned[0], still[0]) and np.array_equal(returned[1], still[1]), forced
+        assert _width_property(DECAL) == entered.alpha and controller.width_mesh_owner.sample is entered
+        print(f"CANCEL AFTER A LEAN FRAME returned the mesh bit for bit ({how})")
+        # Меш после отмены принимает кадры модели как прежде: владение снято под образцом начала.
+        from cftuv.envelope_width_mesh_preview import preview_mesh_now
+
+        assert preview_mesh_now(controller, entered.alpha * 1.001) is not None
+    log = dataclasses.asdict(controller.width_preview_log)
+    print(f"LEAN FRAMES (last session): {log['lean_frames']} frames, {log['lean_rebuilds']} rebuilds in place, {log['lean_origin_restores']} origin restores; refusals {log['refusals']}")
+    _decal_settings().drag_exact_ticks = False
 
 
 def _layout_of(mesh):
@@ -1038,6 +1159,7 @@ def _main():
     _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_confirm()
     _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result_replaces_it()
     _run_the_preview_mesh_belongs_only_to_the_mesh_the_exact_path_wrote()
+    _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
     _run_the_tool_belongs_to_the_active_objects_own_decal()
     _run_the_width_tool_rebuilds_a_tightened_dome_ring_for_the_new_width()

@@ -52,6 +52,12 @@ Decal Mesh»), а активный объект меняется. Инструм
 `supersede`) и в меш не пишет никогда. Меш принадлежит модели, только пока его владение (`capture_ownership`) цело: точная запись фиксирует
 его тут же после себя (`_apply`), а любое внешнее изменение (история, правка геометрии декали мимо нас — `note_depsgraph`) снимает модель
 с названной причиной, и точный путь продолжает работать без превью меша.
+
+КЛАССЫ ТОЧНОГО ОБНОВЛЕНИЯ (WIDTH_REFRESH_LEAN_V1, `WidthLiveTargetV1.grade`). `COMMIT` - полный путь (проверки, дайджесты, отчёты, кэши, квитанция, консоль): так считают подтверждение
+инструмента, ползунок и кнопка, и это зафиксированный ответ. `WIDTH_REFRESH_LEAN_V1` - то же обновление БЕЗ работы, нужной только фиксации (воркер не пакует батч, массивы меша без
+дайджеста и отчётов, результат не ложится ни в какой кэш): геометрия, исходы доменов и счётчики те же побитово. Lean всегда у затравки (она ничего не фиксирует) и у точных кадров во
+время перетаскивания (`request_drag_tick`, настройка «Exact ticks while dragging», по умолчанию выключена): такой кадр заменяет меш и образец на экране (`lean_exact_now`), кормит модель,
+а подтверждение пересчитывает и записывает зафиксированный ответ, отмена возвращает меш и образцы, какими они были перед первым кадром.
 """
 
 from __future__ import annotations
@@ -65,10 +71,12 @@ from .envelope_alpha_preview import (
     ThreadedPreviewJob,
 )
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
+from .envelope_production_result import REFRESH_COMMIT, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
     PRIME_BASE_REPLACED,
     capture_ownership,
     finish_live_run,
+    lean_exact_now,
     log_of,
     next_prime_alpha,
     note_decal_updates,
@@ -96,6 +104,8 @@ POLICY_CHANGED = "{name} changed since Build Decal Mesh: press Build Decal Mesh"
 NO_ACTIVE = "select a mesh object: the width tool adjusts the decal of the active object"
 NEED_BUILD = "Build Decal Mesh first for {name}"
 NO_PREVIEW = "the last Build Decal Mesh has no chain to draw"
+#: Точное lean-обновление (WIDTH_REFRESH_LEAN_V1) досчиталось, когда перетаскивание уже кончилось: подтверждение заказало зафиксированный ответ, и lean-кадр ему не нужен.
+LEAN_DRAG_ENDED = "WIDTH_REFRESH_LEAN_DRAG_ENDED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +150,9 @@ class WidthLiveTargetV1:
     dissolve_percent: float = 0.390625
     #: `EXACT` — заказ точного результата в меш; `PRIME` — затравка модели: тот же точный прогон, но в меш он не пишется.
     purpose: str = "EXACT"
+    #: Класс обновления (WIDTH_REFRESH_LEAN_V1): `COMMIT` - полный путь, зафиксированный ответ (умолчание: подтверждение инструмента, ползунок, кнопка);
+    #: `WIDTH_REFRESH_LEAN_V1` - без работы, нужной только фиксации. Затравка всегда lean (в меш не пишется и ничего не фиксирует), как бы ни был задан класс.
+    grade: str = REFRESH_COMMIT
 
 
 PURPOSE_EXACT = "EXACT"
@@ -524,6 +537,7 @@ def _begin(controller, request):
     embedding_backend = record.embedding_backend
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     prime = target.purpose == PURPOSE_PRIME
+    lean = prime or target.grade == REFRESH_LEAN  # WIDTH_REFRESH_LEAN_V1: затравка ничего не фиксирует, и обновление, которое просили lean, тоже
     displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_model
     trust = controller.width_trust
     offset = float(target.offset)
@@ -547,6 +561,7 @@ def _begin(controller, request):
                 kernel_backend=kernel_backend,
                 skeleton_backend=skeleton_backend,
                 embedding_backend=embedding_backend,
+                lean=lean,
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc
@@ -560,6 +575,7 @@ def _begin(controller, request):
             previous=previous,
             prime=prime,
             trust=trust,
+            lean=lean,
         )
 
     return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None, displayed))
@@ -579,6 +595,8 @@ def _validity(controller, request, job) -> str | None:
         return DECAL_GONE
     if request.payload.purpose == PURPOSE_PRIME and controller.width_displayed is not job.context.base:
         return PRIME_BASE_REPLACED
+    if request.payload.grade == REFRESH_LEAN and request.payload.purpose == PURPOSE_EXACT and not controller.width_drag_active:
+        return LEAN_DRAG_ENDED
     return None
 
 
@@ -591,7 +609,31 @@ def _apply_prime(controller, request, job, live) -> None:
     request_prime(controller, request.payload)  # прямая через две точки уступает квадрату через три: вторая затравка с другой стороны
 
 
+def _apply_lean(controller, request, job, live) -> None:
+    """Точное lean-обновление (WIDTH_REFRESH_LEAN_V1) посчитано во время перетаскивания: меш и образец на экране заменены им (`lean_exact_now`), класс назван в статусе.
+
+    Ни квитанции, ни дайджеста меша, ни консоли, ни затравки: это не зафиксированный ответ, его даёт подтверждение (COMMIT). Отмена инструмента возвращает то, что показывали перед
+    первым кадром. Меш, который кадр не вправе писать (чужой, в Edit), - названный отказ (`lean_exact_now`), меш не тронут.
+    """
+
+    import bpy
+
+    from .envelope_production_export import production_timing_text
+
+    reason = lean_exact_now(controller, live)
+    if reason:
+        raise PreviewUnavailable(reason)
+    mesh_settings = getattr(bpy.context.scene, "hotspotuv_decal_mesh", None)
+    if mesh_settings is not None:
+        mesh_settings.status = f"{REFRESH_LEAN}: exact geometry at width {float(request.alpha):.4g} (the commit follows on confirm)"
+        mesh_settings.timing = f"{production_timing_text(live.run)} | live width {float(request.alpha):.4g}"
+    set_preview(controller, None)  # точный кадр на ширине курсора: линии превью этой ширины не нужны
+    tag_view3d_redraw()
+
+
 def _apply(controller, request, job, live) -> None:
+    if request.payload.grade == REFRESH_LEAN:
+        return _apply_lean(controller, request, job, live)
     import bpy
 
     from .envelope_production_export import (
@@ -722,6 +764,31 @@ def request_prime(controller, target: WidthLiveTargetV1) -> bool:
     return True
 
 
+def request_drag_tick(context, controller, width: float) -> bool:
+    """Точное lean-обновление (WIDTH_REFRESH_LEAN_V1) на ширине курсора, пока идёт перетаскивание: заказ тем же планировщиком, что и точный пересчёт. `True` - заказано.
+
+    Включается настройкой «Exact ticks while dragging» (`drag_exact_ticks`, по умолчанию выключена: пул занят и пока рука стоит). Заказ живёт, пока идёт перетаскивание
+    (`width_drag_active`), и тот же планировщик отменяет его подтверждением: подтверждение заказывает зафиксированный ответ (COMMIT, полный путь), а меш lean-кадра
+    он переписывает целиком. Затравку lean-заказ не снимает: она готовит модель и важнее. Пока на экране нет образца точной записи, обновлять нечего.
+    """
+
+    scene = getattr(context, "scene", None)
+    settings = getattr(scene, "hotspotuv_settings", None)
+    mesh_settings = getattr(scene, "hotspotuv_decal_mesh", None)
+    if controller is None or settings is None or mesh_settings is None or controller.width_build is None:
+        return False
+    # Дешёвое - первым: событие мыши приходит десятки раз в секунду, а вопрос «есть ли у активного объекта своя декаль» обходит объекты сцены.
+    if not getattr(mesh_settings, "drag_exact_ticks", False) or not controller.width_drag_active or controller.width_displayed is None:
+        return False
+    if width_problem(context):
+        return False
+    target = replace(target_of(settings, mesh_settings, controller.width_build), grade=REFRESH_LEAN)
+    if target_problem(controller, target):
+        return False
+    scheduler_of(controller).request(float(width), target)
+    return True
+
+
 def ensure_prime(context) -> bool:
     """Вход инструмента ширины: у активного объекта своя декаль и запись кнопки — тогда затравка заказывается, если нужна."""
 
@@ -829,6 +896,9 @@ def draw_decal_width_rows(layout) -> None:
     layout.operator(
         "hotspotuv.adjust_decal_width", text="Adjust Decal Width", icon="ARROW_LEFTRIGHT"
     )
+    mesh_settings = getattr(getattr(context, "scene", None), "hotspotuv_decal_mesh", None)
+    if mesh_settings is not None:
+        layout.prop(mesh_settings, "drag_exact_ticks")
     if problem:
         layout.label(text=problem, icon="INFO")
         return
@@ -901,6 +971,7 @@ __all__ = (
     "note_depsgraph",
     "preview_now",
     "reconcile_after_history",
+    "request_drag_tick",
     "remember_build",
     "retarget",
     "scheduler_of",

@@ -64,6 +64,7 @@ import json
 from dataclasses import dataclass
 
 import bpy
+import numpy as np
 
 from .envelope_production_weld import (
     COUNTER_SEAM_CLIP_VERTICES,
@@ -114,6 +115,8 @@ OUTCOME_SOURCE_NORMAL_UNKNOWN = "ADAPTER_SOURCE_NORMAL_UNKNOWN"
 OUTCOME_FLIPPED_VS_SOURCE = "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"
 OUTCOME_SEAM_EDGE_MISSING = "ADAPTER_SEAM_EDGE_MISSING"
 OUTCOME_MESH_SHARED = "ADAPTER_MESH_DATABLOCK_SHARED"
+#: Lean-массивы (`build_mesh_arrays(reports=False)`, WIDTH_REFRESH_LEAN_V1) несут геометрию, но не отчёты и дайджест: квитанцию записи по ним не выдать.
+OUTCOME_LEAN_ARRAYS = "LEAN_ARRAYS_HAVE_NO_RECEIPT"
 OUTCOME_PARENT_REASSERTED = "ADAPTER_DECAL_PARENT_REASSERTED"
 OUTCOME_COLLECTION_REASSERTED = "ADAPTER_DECAL_COLLECTION_REASSERTED"
 OUTCOME_DUPLICATE_DECALS = "ADAPTER_DUPLICATE_DECAL_OBJECTS"
@@ -164,6 +167,9 @@ class MeshArraysV1:
     domain_vertex_index: tuple = ()
     domain_loop_counts: tuple = ()
     domain_tokens: tuple = ()
+    #: `False` у lean-массивов (WIDTH_REFRESH_LEAN_V1): позиции, грани, UV, владельцы и швы те же побитово, а дайджест, счётчик обхода рёбер, отчёты о плоскости и шве
+    #: не считались (`digest` пуст, `offset_counters` и `seam_counters` пусты). Писатель квитанции (`_receipt`) такие массивы не принимает.
+    reports: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +262,7 @@ def _arrays_digest(arrays: dict) -> str:
     return hashlib.sha256(text.encode("ascii")).hexdigest()
 
 
-def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
+def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshArraysV1:
     """Массивы меша по результатам домена. Не-MATERIALIZED домены — в `skipped`.
 
     Домены идут по номеру патча, вершины внутри домена — по ключу батча:
@@ -264,6 +270,10 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
     соседних доменов с одной ссылкой `location:src:<id>` и побитово равными
     позициями сварены в одну (`envelope_production_weld`), смещение над
     поверхностью — митра общих вершин.
+
+    `reports=False` (WIDTH_REFRESH_LEAN_V1) не считает то, что только сообщает: дайджест массивов, плоскость граней после смещения, отчёт о шве по цепям
+    и обход рёбер. Ни одно из четырёх не читается дальше при построении `positions`, `faces`, `uvs`, `face_domain`, `face_owner` и `seams` (они
+    определены ДО них, а отчёты читают их и пишут в свои поля), поэтому эти шесть массивов побитово те же (`tests/test_envelope_refresh_lean.py`).
     """
 
     faces, uvs = [], []
@@ -305,7 +315,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
     seam_pairs.update(folds)
     seams = sorted(seam_pairs)
     positions = list(weld.positions)
-    conflicts = half_edge_conflicts(faces)
+    conflicts = half_edge_conflicts(faces) if reports else 0
     warnings.extend(weld.warnings)
     if conflicts:
         warnings.append(
@@ -316,8 +326,8 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
                 "neighbouring domains wind against each other there",
             )
         )
-    seam = seam_report_of_chains([view.boundary_chains for _result, view in entries])
-    seam_found = dict(seam)
+    seam = seam_report_of_chains([view.boundary_chains for _result, view in entries]) if reports else ()
+    seam_found = dict(seam) if reports else {COUNTER_SEAM_T_JUNCTIONS: 0, COUNTER_SEAM_CLIP_VERTICES: 0}
     if seam_found[COUNTER_SEAM_T_JUNCTIONS] or seam_found[COUNTER_SEAM_CLIP_VERTICES]:
         warnings.append(
             (
@@ -328,15 +338,19 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
                 "the seam may be open",
             )
         )
-    digest = _arrays_digest(
-        {
-            "positions": positions,
-            "faces": faces,
-            "uvs": uvs,
-            "face_domain": face_domain,
-            "face_owner": face_owner,
-            "seams": seams,
-        }
+    digest = (
+        _arrays_digest(
+            {
+                "positions": positions,
+                "faces": faces,
+                "uvs": uvs,
+                "face_domain": face_domain,
+                "face_owner": face_owner,
+                "seams": seams,
+            }
+        )
+        if reports
+        else ""
     )
     return MeshArraysV1(
         positions=tuple(positions),
@@ -353,15 +367,16 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         decal_topology_law=",".join(sorted(item for item in laws if item)),
         weld_counters=(
             *weld.counters,
-            (OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),
+            *(((OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),) if reports else ()),
             (COUNTER_WELD_SEAMS_MARKED, len(folds)),
         ),
-        offset_counters=off_plane_after_offset(positions, faces),
+        offset_counters=off_plane_after_offset(positions, faces) if reports else (),
         seam_counters=seam,
         domain_keys=tuple(domain_keys),
         domain_vertex_index=tuple(domain_vertex_index),
         domain_loop_counts=tuple(domain_loop_counts),
         domain_tokens=tuple(domain_tokens),
+        reports=reports,
     )
 
 
@@ -631,6 +646,13 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
     )
 
 
+def _require_reports(arrays: MeshArraysV1) -> None:
+    """Зафиксированная запись (кнопка, COMMIT живой ширины) принимает только полные массивы: квитанция несёт их дайджест и отчёты."""
+
+    if not arrays.reports:
+        raise ProductionWriteError(OUTCOME_LEAN_ARRAYS, "the arrays were built without reports (WIDTH_REFRESH_LEAN_V1): a committed write needs the full arrays")
+
+
 def _blank_arrays(arrays: MeshArraysV1) -> MeshArraysV1:
     """Массивы пустого результата: ничего не записано, пропуски и предупреждения те же."""
 
@@ -672,6 +694,7 @@ def write_decal_object(
     """
 
     arrays = build_mesh_arrays(results, offset) if arrays is None else arrays
+    _require_reports(arrays)
     name = decal_object_name(source_obj.name)
     existing, warnings = _find_decal(source_obj, name)
     if existing is not None:
@@ -737,6 +760,7 @@ def rewrite_decal_mesh(
     """
 
     arrays = build_mesh_arrays(results, offset) if arrays is None else arrays
+    _require_reports(arrays)
     existing, warnings = _find_decal(source_obj, decal_object_name(source_obj.name))
     if existing is None:
         raise ProductionWriteError(
@@ -782,11 +806,59 @@ def rewrite_decal_mesh(
     )
 
 
+def rebuild_mesh_from_image(mesh, positions, uvs, image) -> int:
+    """Геометрия СУЩЕСТВУЮЩЕГО меша пересобрана на месте по образу точного прогона (`MeshImageV1`) и его позициям и UV: число реально помеченных швов.
+
+    Для точного lean-кадра, чья раскладка не та, что в меше (WIDTH_REFRESH_LEAN_V1), и для отмены после него. Тот же результат, что у `_clear_mesh_in_place` + `_fill_mesh`
+    по массивам этого прогона (`from_pydata`, слой UV, атрибуты граней, швы), но через `foreach_set` из numpy: без питоновских кортежей и без цикла по рёбрам меша
+    (здание: 3.7 мс против 18.4; сверка с `_fill_mesh` по всем массивам меша - `tests/blender/test_envelope_mesh_numpy_paths.py`). Датаблок, объект и материал остаются теми же.
+    """
+
+    _clear_mesh_in_place(mesh)
+    vertex_count = int(positions.shape[0])
+    mesh.vertices.add(vertex_count)
+    mesh.vertices.foreach_set("co", np.ascontiguousarray(positions, dtype=np.float32).reshape(-1))
+    mesh.loops.add(int(image.face_vertices.shape[0]))
+    mesh.polygons.add(image.face_count)
+    mesh.polygons.foreach_set("loop_start", image.face_starts)
+    mesh.polygons.foreach_set("vertices", image.face_vertices)
+    mesh.shade_flat()  # как `from_pydata` (его умолчание): гладкая заливка граней не нужна
+    mesh.update(calc_edges=bool(image.face_count), calc_edges_loose=False)
+    layer = mesh.uv_layers.new(name=DECAL_UV_LAYER)
+    layer.data.foreach_set("uv", np.ascontiguousarray(uvs, dtype=np.float32).reshape(-1))
+    for attribute_name, values in ((DECAL_DOMAIN_ATTRIBUTE, image.face_domain), (DECAL_OWNER_ATTRIBUTE, image.face_owner)):
+        attribute = mesh.attributes.new(name=attribute_name, type="INT", domain="FACE")
+        attribute.data.foreach_set("value", values)
+    return _mark_seams(mesh, image.seams, vertex_count)
+
+
+def _mark_seams(mesh, seams, vertex_count: int) -> int:
+    """Швы меша по парам вершин (каждая пара - `(меньшая, большая)`): число помеченных рёбер. Ребро - пара вершин, поэтому ключ пары однозначен."""
+
+    if not len(seams):
+        return 0
+    pairs = np.empty(len(mesh.edges) * 2, dtype=np.int32)
+    mesh.edges.foreach_get("vertices", pairs)
+    pairs = pairs.reshape(-1, 2).astype(np.int64)
+    key = np.minimum(pairs[:, 0], pairs[:, 1]) * vertex_count + np.maximum(pairs[:, 0], pairs[:, 1])
+    wanted = seams.astype(np.int64)
+    mask = np.isin(key, np.minimum(wanted[:, 0], wanted[:, 1]) * vertex_count + np.maximum(wanted[:, 0], wanted[:, 1]))
+    mesh.edges.foreach_set("use_seam", mask)
+    return int(mask.sum())
+
+
+def record_decal_width(mesh, width) -> None:
+    """Ширина, при которой записан меш (свойство МЕША, его читает `reconcile_after_history` и проверка владения): после lean-кадра она - ширина кадра."""
+
+    _record_width(mesh, width)
+
+
 OUTCOME_PREVIEW_SHAPE_MISMATCH = "PREVIEW_MESH_SHAPE_MISMATCH"
 OUTCOME_PREVIEW_NO_UV_LAYER = "PREVIEW_MESH_UV_LAYER_MISSING"
+OUTCOME_PREVIEW_NO_OWNER_ATTRIBUTE = "PREVIEW_MESH_OWNER_ATTRIBUTE_MISSING"
 
 
-def write_preview_geometry(mesh, positions, uvs) -> None:
+def write_preview_geometry(mesh, positions, uvs, owners=None) -> None:
     """Позиции и UV превью в СУЩЕСТВУЮЩИЙ меш того же состава: `foreach_set`, без пересоздания геометрии (путь живой ширины).
 
     Единственный писатель превью. Его вызывает только `envelope_width_mesh_preview` (стена `tests/test_architecture.py`), и
@@ -794,6 +866,9 @@ def write_preview_geometry(mesh, positions, uvs) -> None:
     `rewrite_decal_mesh`). `positions` и `uvs` — плоские float32 (`vertices * 3`, петли UV `* 2`); состав меша другой —
     именованный отказ, а не запись наугад. Топологию, швы, атрибуты граней и материал писатель не трогает: они те же, что у
     точного результата, на котором держится модель.
+
+    `owners` (int32, номер владельца каждой грани) - только у точного lean-кадра и возврата базы после него (WIDTH_REFRESH_LEAN_V1): ядро нумерует огибающие по именам, имена несут
+    ширину, и номера меняются от ширины к ширине при той же структуре, а точная запись кладёт их в атрибут граней `cftuv_owner`. Кадр модели владельцев не трогает (`None`).
     """
 
     layer = mesh.uv_layers.get(DECAL_UV_LAYER)
@@ -805,8 +880,17 @@ def write_preview_geometry(mesh, positions, uvs) -> None:
             f"the preview carries {len(positions) // 3} vertices and {len(uvs) // 2} loops, "
             f"mesh {mesh.name!r} has {len(mesh.vertices)} and {len(layer.data)}",
         )
+    attribute = None
+    if owners is not None:
+        attribute = mesh.attributes.get(DECAL_OWNER_ATTRIBUTE)
+        if attribute is None or len(attribute.data) != len(owners):
+            raise ProductionWriteError(
+                OUTCOME_PREVIEW_NO_OWNER_ATTRIBUTE, f"mesh {mesh.name!r} has no face attribute {DECAL_OWNER_ATTRIBUTE!r} of {len(owners)} faces"
+            )
     mesh.vertices.foreach_set("co", positions)
     layer.data.foreach_set("uv", uvs)
+    if attribute is not None:
+        attribute.data.foreach_set("value", owners)
     mesh.update()
 
 
@@ -829,6 +913,7 @@ __all__ = (
     "OUTCOME_DUPLICATE_DECALS",
     "OUTCOME_EMPTY_BATCH",
     "OUTCOME_FLIPPED_VS_SOURCE",
+    "OUTCOME_LEAN_ARRAYS",
     "OUTCOME_MATERIAL_MISSING",
     "OUTCOME_MESH_SHARED",
     "OUTCOME_NAME_TAKEN",
@@ -836,6 +921,7 @@ __all__ = (
     "OUTCOME_NORMAL_MISSING",
     "OUTCOME_NORMAL_OPPOSES_SOURCE",
     "OUTCOME_PARENT_REASSERTED",
+    "OUTCOME_PREVIEW_NO_OWNER_ATTRIBUTE",
     "OUTCOME_PREVIEW_NO_UV_LAYER",
     "OUTCOME_PREVIEW_SHAPE_MISMATCH",
     "OUTCOME_SEAM_EDGE_MISSING",
@@ -847,6 +933,8 @@ __all__ = (
     "decal_object_name",
     "find_decal_object",
     "mesh_content_digest",
+    "rebuild_mesh_from_image",
+    "record_decal_width",
     "rewrite_decal_mesh",
     "write_decal_object",
     "write_preview_geometry",
