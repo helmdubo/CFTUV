@@ -55,6 +55,10 @@ from dataclasses import dataclass
 
 PREVIEW_BINARY64_V1 = "PREVIEW_BINARY64_V1"
 
+#: Пока настоящий меш двигает модель (`PREVIEW_MESH_FROM_INTERVAL_V1`), линии считаются только для путей, которые меш НЕ двигает (патч придержан,
+#: в карантине, вне интервала либо не в модели вовсе); пропущенные пути названы счётчиком этого имени (`compute_width_preview`, `skip_patches`).
+PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1 = "PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1"
+
 OUTCOME_CLIPPED = "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY"
 OUTCOME_MITRE_LIMITED = "PREVIEW_MITRE_LIMITED"
 OUTCOME_NO_FAN = "PREVIEW_CORNER_WITHOUT_FAN"
@@ -768,15 +772,25 @@ def chain_centroid(inputs: PreviewInputsV1) -> Vec | None:
     return None if not count else (total[0] / count, total[1] / count, total[2] / count)
 
 
-def compute_width_preview(inputs: PreviewInputsV1, width: float, *, lift: float = 0.0) -> WidthPreviewV1:
-    """Линии отступа на ширину `width` для всех путей прогона (чистая функция, binary64)."""
+def compute_width_preview(
+    inputs: PreviewInputsV1, width: float, *, lift: float = 0.0, skip_patches: frozenset = frozenset()
+) -> WidthPreviewV1:
+    """Линии отступа на ширину `width` для путей прогона (чистая функция, binary64).
+
+    `skip_patches` — номера патчей, чьи пути не считаются: их двигает настоящий меш (`PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`). Каждый
+    пропущенный путь — единица в исходе этого имени, линии остальных путей те же, что считал бы полный вызов (путь от соседних не зависит).
+    """
 
     started = time.perf_counter()
     width = float(width)
     lift = float(lift)
     counts = _Counts()
     lines: list = []
+    skipped = 0
     for run in inputs.runs:
+        if run.patch_id in skip_patches:
+            skipped += 1
+            continue
         points = _offset_run(inputs, run, width, lift, counts)
         if len(points) >= 2:
             lines.append(tuple(points))
@@ -786,6 +800,7 @@ def compute_width_preview(inputs: PreviewInputsV1, width: float, *, lift: float 
         (OUTCOME_MITRE_LIMITED, counts.mitre),
         (OUTCOME_STEP_LIMIT, counts.steps),
         (OUTCOME_FOLDS_BACK, counts.folds),
+        (PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1, skipped),
         *inputs.outcomes,
     )
     return WidthPreviewV1(
@@ -811,6 +826,7 @@ __all__ = (
     "OUTCOME_NO_FAN",
     "OUTCOME_STEP_LIMIT",
     "PREVIEW_BINARY64_V1",
+    "PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1",
     "STRAIGHT_SINE",
     "PreviewInputsV1",
     "WidthPreviewV1",

@@ -11,6 +11,7 @@
 
 В течение перетаскивания в свойство ширины НИЧЕГО не пишется: меняются линии превью, заголовок и — когда у сессии есть модель —
 позиции и UV настоящего меша декали (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`: приблизительное превью, не сертифицировано).
+Линии при живой модели остаются только там, где меш не движется (`envelope_width_live.width_event_preview`, `PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`).
 Меш при этом тот же объект и тот же датаблок (`foreach_set`, ни одного нового датаблока), поэтому отмена возвращает прежний меш ПОБИТОВО
 (`restore_base_mesh`: кадр на ширине базы — сама база), а подтверждение — единственная запись в свойство, один заказ точного счёта и
 один шаг отмены на всё перетаскивание (его кладёт Blender при завершении оператора с флагом UNDO). Вход в инструмент заказывает затравку
@@ -22,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
-from .envelope_width_live import ensure_prime, preview_now, set_preview, width_problem
-from .envelope_width_mesh_preview import preview_mesh_now, restore_base_mesh
+from .envelope_width_live import ensure_prime, preview_now, set_preview, width_event_preview, width_problem
+from .envelope_width_mesh_preview import moving_now, restore_base_mesh
 
 NO_VIEW = "Adjust Decal Width needs a 3D View"
 
@@ -119,8 +120,8 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
         metres_per_pixel=view.metres_per_pixel,
     )
     runtime = AdjustRuntimeV1(session, controller, float(mesh_settings.offset), start)
-    # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения.
-    preview_now(controller, start, runtime.offset)
+    # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.
+    preview_now(controller, start, runtime.offset, moving_now(controller, start))
     ensure_prime(context)  # у сессии нет модели меша — затравка считается, пока рука доходит до перетаскивания
     return runtime
 
@@ -138,8 +139,7 @@ def apply_step(context, runtime: AdjustRuntimeV1, step: WidthStepV1) -> None:
 
     runtime.last_step = step
     if step.changed:
-        preview_now(runtime.controller, step.width, runtime.offset)
-        preview_mesh_now(runtime.controller, step.width)
+        width_event_preview(runtime.controller, step.width, runtime.offset)
     set_header(context, step.header)
 
 
