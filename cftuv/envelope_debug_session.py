@@ -304,6 +304,8 @@ class EnvelopeDebugSessionController:
         self.width_drag_active = False
         #: `DragOriginV1`: что показывали перед первым точным lean-кадром перетаскивания (к этому возвращает отмена) либо `None`.
         self.width_drag_origin = None
+        #: `SourceCheckV1`: отпечаток массивов меша источника и отпечаток ревизии, что полный путь дал для него (`envelope_source_check`): шаг ширины не обходит bmesh, пока байты те же.
+        self.width_source_check = None
         self.reset_width_mesh_preview()
 
     def reset_width_mesh_preview(self) -> None:
@@ -475,6 +477,7 @@ class EnvelopeDebugSessionController:
         self.width_target = None
         self.width_drag_active = False
         self.width_drag_origin = None
+        self.width_source_check = None
         self.reset_width_mesh_preview()
         self._invalidation_count += 1
 

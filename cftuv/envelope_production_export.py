@@ -629,12 +629,6 @@ class ProductionRunV1:
 _FROM_SETTINGS = object()
 
 
-def _domain_of(run: _RunInputsV1, patch_id) -> str:
-    from .envelope_request_export import _typed_value
-
-    return _typed_value("patch-domain", run.revision, patch_id)
-
-
 def _domain_results(entries, done, refused):
     """Результаты в порядке доменов: отказ входа, результат из кэша, посчитанное либо названная пропажа."""
 
@@ -859,6 +853,7 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
     """Счётчики прогона в профиль и итог `ProductionRunV1`."""
 
     profile = run.profile
+    domains = {entry.patch_id: entry.domain_id for entry in entries}
     _record_run_counters(profile, run.controller, builds_before, entries, results, cold)
     record_unpickled(profile, lazy_before, run.controller.lazy_unpickled)
     _record_content_counters(profile, run, entries)
@@ -870,8 +865,9 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
         cold=cold,
         profile=profile.snapshot(),
         wall_seconds=time.perf_counter() - started,
+        # Идентичность домена патча `_scan` уже вывел (`_typed_value("patch-domain", ревизия, патч)`) и держит в записи каждого домена: второй раз её не выводят.
         selected_by_patch=tuple(
-            (int(patch_id), tuple(sorted(run.selected_by_domain[_domain_of(run, patch_id)])))
+            (int(patch_id), tuple(sorted(run.selected_by_domain[domains[patch_id]])))
             for patch_id in run.patch_ids
         ),
         kernel_backend=run.backend,

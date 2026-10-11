@@ -20,8 +20,9 @@ alpha-независима. Здесь первая сборка домена з
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields
 from decimal import Decimal, InvalidOperation
+from functools import cache
 
 #: Сколько прогонов (выделение и политика) держит память: ширина меняется при одном, к двум-трём возвращает отмена.
 SCAN_MEMO_RUN_LIMIT = 4
@@ -52,12 +53,29 @@ def request_alpha(alpha) -> Decimal | None:
 
 
 def request_at(record: ScanRecordV1, alpha: Decimal):
-    """Запрос записи при ширине `alpha`: единственное поле, в котором он от ширины зависит."""
+    """Запрос записи при ширине `alpha`: единственное поле, в котором он от ширины зависит.
+
+    Копия собирается напрямую (поля старого запроса и новая ширина), а не `dataclasses.replace`: тот проходит по полям через интроспекцию и стоил 31 мкс на домен (32 мс на шаг
+    ширины `cover.008`). Равенство `replace` держит тест (`tests/test_envelope_scan_cache.py`), и он же падает, если у запроса появится `__post_init__`: `replace` вызвал бы
+    его, а прямая сборка - нет.
+    """
 
     from .envelope_request_export import _load_kernel
 
     kernel, _ = _load_kernel()
-    return replace(record.request, requested_alpha=kernel.LocalLengthV1(alpha))
+    request = record.request
+    clone = object.__new__(type(request))
+    for name in _request_field_names(type(request)):
+        object.__setattr__(clone, name, getattr(request, name))
+    object.__setattr__(clone, "requested_alpha", kernel.LocalLengthV1(alpha))
+    return clone
+
+
+@cache
+def _request_field_names(request_type) -> tuple:
+    """Имена полей запроса (один раз на тип)."""
+
+    return tuple(item.name for item in fields(request_type))
 
 
 def carries_band(snapshot) -> bool:

@@ -179,9 +179,19 @@ class EnvelopeTopologyExportV1:
         )
 
     def without_chart_band(self):
-        """Тот же экспорт без полосы: метрика ЦЕЛОГО патча, как она кэшируется независимо от выделения."""
+        """Тот же экспорт без полосы: метрика ЦЕЛОГО патча, как она кэшируется независимо от выделения.
 
-        return self if self.chart_band is None else replace(self, chart_band=None)
+        Копия одна на объект: сканирование прогона просит её на КАЖДЫЙ домен, а `replace` пересобирает экспорт целиком, в том числе копирует словарь `patch_domain_id_by_patch`
+        (`__post_init__`), то есть стоит O(доменов) на домен: 58 мс на шаг ширины `cover.008`. Экспорт неизменяем, поэтому копия - чистая функция объекта; запись лежит в `_derived`
+        (у копии своя пустая, и ключ не переживёт своего объекта).
+        """
+
+        if self.chart_band is None:
+            return self
+        found = self._derived.get("without_chart_band")
+        if found is None:
+            found = self._derived["without_chart_band"] = replace(self, chart_band=None)
+        return found
 
 
 def metric_law_key(source) -> tuple:

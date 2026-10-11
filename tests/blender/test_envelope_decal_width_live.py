@@ -41,6 +41,8 @@
     работает без дайджеста массивов, кадры не пополняют кэши, меш кадра равен мешу зафиксированного ответа на той же ширине (по месту и пересборкой по образу), отмена
     возвращает меш, образец, вспомогательные образцы и модель побитово.
 
+11. ОТПЕЧАТОК МЕША ИСТОЧНИКА (S5, `envelope_source_check`): запись отвечает, пока байты массивов меша те же; правка вершины даёт полный путь и `SOURCE_CHANGED`.
+
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
 Последняя строка при успехе: ENVELOPE_DECAL_WIDTH_LIVE_BLENDER_SMOKE_OK
@@ -658,6 +660,50 @@ def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
     _decal_settings().drag_exact_ticks = False
 
 
+def _run_the_source_check_follows_the_bytes_of_the_mesh():
+    """ОТПЕЧАТОК МЕША ИСТОЧНИКА (S5, `envelope_source_check`) на настоящем меше: первый шаг считает полным путём и тот же отпечаток, что записала кнопка; пока байты массивов меша
+    те же, запись отвечает без обхода bmesh; правка вершины даёт другие байты, полный путь и `SOURCE_CHANGED`. В режиме Edit запись не заводится (данные Edit ещё не в массивах меша)."""
+
+    import time
+
+    from cftuv import envelope_width_live as live_module
+    from cftuv.envelope_alpha_preview import PreviewRequestV1, PreviewUnavailable
+    from cftuv.envelope_source_check import mesh_fingerprint
+
+    controller, runtime = _lean_tool()
+    source = bpy.data.objects[SOURCE]
+    record = controller.width_build
+    if bpy.context.mode != "OBJECT":
+        assert mesh_fingerprint(source) is None, "the edit mode has no record: its data is not in the mesh arrays yet"
+        bpy.ops.object.mode_set(mode="OBJECT")
+    controller.width_source_check = None
+    real = live_module._current_digest
+    calls = []
+    live_module._current_digest = lambda target: calls.append(1) or real(target)
+    try:
+        full = real(source)
+        assert full == record.source_digest, "the full path gives the digest the button recorded"
+        assert live_module._source_digest(controller, source) == full and calls == [1] and controller.width_source_check.digest == full
+        assert live_module._source_digest(controller, source) == full and calls == [1], "unchanged bytes: the record answers, no bmesh walk"
+        original = tuple(source.data.vertices[0].co)
+        source.data.vertices[0].co.x += 0.01
+        changed = live_module._source_digest(controller, source)
+        assert calls == [1, 1] and changed != full and changed == real(source), "a moved vertex: other bytes, the full path"
+        settings, mesh_settings = _settings(), _decal_settings()
+        request = PreviewRequestV1(1, float(settings.envelope_debug_alpha), live_module.target_of(settings, mesh_settings, record), time.monotonic())
+        try:
+            live_module._begin(controller, request)
+        except PreviewUnavailable as exc:
+            assert str(exc) == live_module.SOURCE_CHANGED, str(exc)
+        else:
+            raise AssertionError("the step did not name the changed source")
+        source.data.vertices[0].co = original
+        assert live_module._source_digest(controller, source) == full
+    finally:
+        live_module._current_digest = real
+    print("SOURCE CHECK: the record answers for the same bytes, a moved vertex and the SOURCE_CHANGED step are named on the real mesh")
+
+
 def _layout_of(mesh):
     """Отпечаток раскладки меша теми же функциями, что и кадр (`_read_layout`): индексы вершин петель и начала граней."""
 
@@ -1160,6 +1206,7 @@ def _main():
     _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result_replaces_it()
     _run_the_preview_mesh_belongs_only_to_the_mesh_the_exact_path_wrote()
     _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
+    _run_the_source_check_follows_the_bytes_of_the_mesh()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
     _run_the_tool_belongs_to_the_active_objects_own_decal()
     _run_the_width_tool_rebuilds_a_tightened_dome_ring_for_the_new_width()

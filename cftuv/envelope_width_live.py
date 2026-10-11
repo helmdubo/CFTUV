@@ -504,6 +504,14 @@ def _current_digest(source_obj) -> str:
             bm.free()
 
 
+def _source_digest(controller, source_obj) -> str:
+    """Отпечаток меша источника СЕЙЧАС для проверки шага: из записи сессии, пока байты массивов меша те же (`envelope_source_check`), иначе полным путём `_current_digest`."""
+
+    from .envelope_source_check import source_digest_now
+
+    return source_digest_now(controller, source_obj, _current_digest)
+
+
 def _begin(controller, request):
     import bpy
 
@@ -522,7 +530,7 @@ def _begin(controller, request):
     decal = find_decal_object(source)
     if decal is None:
         raise PreviewUnavailable(DECAL_GONE)
-    if _current_digest(source) != record.source_digest:
+    if _source_digest(controller, source) != record.source_digest:
         raise PreviewUnavailable(SOURCE_CHANGED)
     from .envelope_domain_pool import peek_domain_pool
 
