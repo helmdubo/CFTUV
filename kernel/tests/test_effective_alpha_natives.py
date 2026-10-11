@@ -413,6 +413,8 @@ def _shown(entries):
     out = {}
     for key, value in entries.items():
         kind = key[0]
+        if type(value) is boundary_module._Wire:
+            value = value.decode()
         if kind == "contacts":
             value = tuple((a.terms, s.terms, p.x.expression, p.y.expression) if type(a) is R else (sp.srepr(a), sp.srepr(s), p.x.expression, p.y.expression) for a, s, p in value)
         elif kind == "length":
@@ -444,12 +446,30 @@ def test_the_memo_round_trips_through_pickle_with_the_same_terms_and_answer(mode
             assert _shown(clone.entries) == _shown(memo.entries)
             for key, value in memo.entries.items():
                 if key[0] == "bounds":
-                    assert clone.entries[key] == value
+                    assert clone.entries[key].decode() == value
             context, domain = geometry
             for alpha in ALPHAS:
                 value = LocalLengthV1(Decimal(alpha))
                 assert resolve_component_alphas(context, value, domain, clone) == resolve_component_alphas(context, value, domain)
             assert (clone.computed, clone.reused) != (0, 0)
+
+
+def test_an_unpickled_memo_decodes_an_entry_at_its_first_use_and_repickles_without_decoding():
+    context, domain = _geometry(*_hole_ring())
+    memo = _filled_memo((context, domain), ("1", "4"))
+    clone = pickle.loads(pickle.dumps(memo, protocol=pickle.HIGHEST_PROTOCOL))
+    lazy = [key for key, value in clone.entries.items() if type(value) is boundary_module._Wire]
+    assert {key[0] for key in lazy} == {"contacts", "bounds", "length"}
+    assert (clone.computed, clone.reused) == (0, 0)
+    # an unused clone repickles to the same stream content: the wire passes through without a decode
+    assert _entries_wire(clone.entries) == _entries_wire(memo.entries)
+    assert [key for key, value in clone.entries.items() if type(value) is boundary_module._Wire] == lazy
+    answer = resolve_component_alphas(context, LocalLengthV1(Decimal("4")), domain, clone)
+    assert answer == resolve_component_alphas(context, LocalLengthV1(Decimal("4")), domain)
+    decoded = [key for key in lazy if type(clone.entries[key]) is not boundary_module._Wire]
+    assert decoded and clone.computed == 0 and clone.reused > 0, "the resolver decoded what it used and computed nothing"
+    for key in decoded:
+        assert _shown({key: clone.entries[key]}) == _shown({key: memo.entries[key]})
 
 
 def test_a_memo_pickled_in_the_old_format_still_loads_and_answers():

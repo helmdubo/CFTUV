@@ -90,8 +90,9 @@ class ContactCandidatesMemoV1:
 
     В ПИКЛЕ память — целые и строки (`_entries_wire`): члены `RadicalSumV1` плоскими кортежами `(r, числитель, знаменатель, ...)`,
     оболочки `(числитель, знаменатель, числитель, знаменатель)`, точка — двумя строками координат. Те же значения с теми же
-    представителями классов, а не их объекты: проволока одна и для питоновского, и для родного листа (память — граница между ними). Старый
-    пикл (объекты в `entries`) читается как раньше: `__init__` принимает объекты.
+    представителями классов, а не их объекты: проволока одна и для питоновского, и для родного листа (память — граница между ними). После
+    пикла записи лежат в `entries` как `_Wire` и разбираются при первом обращении (`_remembered`). Старый пикл (объекты в `entries`)
+    читается как раньше: `__init__` принимает объекты.
 
     Ключ несёт геометрию обоих отрезков, а не только имена: отрезок границы и его
     `reversed()` носят одно `segment_id`.
@@ -135,13 +136,36 @@ def _bounds_of_wire(wire):
     return None if wire is None else (Fraction(wire[0], wire[1]), Fraction(wire[2], wire[3]))
 
 
+class _Wire:
+    """Запись памяти после пикла, ещё не разобранная: целые и строки до первого обращения (`_remembered` разбирает и подменяет её в `entries`).
+
+    Воркер, получивший подготовку, обычно не зовёт резолвер (попадание сертификата шага), и разбор всех записей на разворот пикла был бы
+    платой за то, что не понадобилось: разворот дорожает ровно настолько, насколько разбор (`Fraction` и `RadicalSumV1` на каждый член).
+    """
+
+    __slots__ = ("kind", "payload")
+
+    def __init__(self, kind: str, payload) -> None:
+        self.kind = kind
+        self.payload = payload
+
+    def decode(self):
+        if self.kind == "contacts":
+            return tuple(_contact_of_wire(item) for item in self.payload)
+        if self.kind == "bounds":
+            return tuple(_bounds_of_wire(item) for item in self.payload)
+        return value_of_wire(self.payload)
+
+
 def _entries_wire(entries: dict) -> dict:
     """`entries` для пикла: контакты, оболочки и длины — целые и строки; остальное (границы домена, вселенная простых) как есть."""
 
     wire = {}
     for key, value in entries.items():
         kind = key[0] if type(key) is tuple and key else None
-        if kind == "contacts":
+        if type(value) is _Wire:
+            value = value.payload
+        elif kind == "contacts":
             value = tuple(_contact_wire(item) for item in value)
         elif kind == "bounds":
             value = tuple(_bounds_wire(item) for item in value)
@@ -155,12 +179,8 @@ def _restore_memo(wire: dict) -> ContactCandidatesMemoV1:
     entries = {}
     for key, value in wire.items():
         kind = key[0] if type(key) is tuple and key else None
-        if kind == "contacts":
-            value = tuple(_contact_of_wire(item) for item in value)
-        elif kind == "bounds":
-            value = tuple(_bounds_of_wire(item) for item in value)
-        elif kind == "length" and type(value) is tuple:
-            value = value_of_wire(value)
+        if kind in ("contacts", "bounds") or (kind == "length" and type(value) is tuple):
+            value = _Wire(kind, value)
         entries[key] = value
     return ContactCandidatesMemoV1(entries)
 
@@ -173,6 +193,8 @@ def _remembered(memo: ContactCandidatesMemoV1 | None, key: tuple, compute):
         found = memo.entries[key] = compute()
         memo.computed += 1
     else:
+        if type(found) is _Wire:
+            found = memo.entries[key] = found.decode()
         memo.reused += 1
     return found
 
