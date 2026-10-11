@@ -28,7 +28,7 @@ WHAT IS COMPARED, per domain and press (any difference is a failure; the exit co
   `*_MS`) and byte counters of the run are not answers. `--allow-counter PREFIX` names counters a change adds on purpose: they are listed, never silently ignored.
   The process counters of the kernel's symbolic backend (`symbolic_backend.BACKEND_COUNTS`, `planar_types.SYMBOLIC_FALLBACK_COUNTS`) are compared too, per press, when the press was computed in this
   process (`--workers 0`; a pool worker keeps counters of its own, which the parent does not see). Label-only fields (step path, placement, clip memo, who ran, who ran the effective-alpha stage) are counted
-  and listed, not failures; `--env CFTUV_EFFECTIVE_ALPHA_BACKEND=NATIVE` orders that stage in a tree that has it (the other tree ignores the variable), and the notes name how many of its pairs each tree computed natively. A run that failed, or a pool worker that imported another tree, another native build
+  and listed, not failures; the stage follows the master switch in a tree that has it (NATIVE by default; EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1) and `--env CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON` isolates it to the reference (the other tree ignores the variable), and the notes name how many of its pairs each tree computed natively. A run that failed, or a pool worker that imported another tree, another native build
   or another sympy than the parent (the origin check), is a failure of the run.
 
 TIMING (`--timing --reps N`)  alternating base/branch, order flipped every repetition; before each run the tool waits while a FOREIGN blender.exe is busy (it never stops one) and re-runs a

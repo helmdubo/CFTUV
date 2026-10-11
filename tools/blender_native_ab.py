@@ -772,7 +772,7 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
 
     from cftuv.analysis import build_analysis_bundle
     from cftuv.analysis_surface import source_revision_from_bmesh
-    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, KERNEL_BACKEND_NATIVE, KERNEL_BACKEND_PYTHON, kernel_backend_of
+    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, KERNEL_BACKEND_NATIVE, KERNEL_BACKEND_PYTHON, STAGE_ENVIRONMENT, kernel_backend_of
     from cftuv.envelope_production_export import run_production
     from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
@@ -793,6 +793,8 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
     else:
         mesh_settings.kernel_backend = backend  # изоляция coverage/clip: остальные стадии заказаны на PYTHON порядками API
         assert kernel_backend_of(mesh_settings) == backend
+    # лист эффективной alpha идёт за главным переключателем (EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1), порядка у `run_production` нет: A/B одной стадии изолирует его средой; его собственный A/B - `blender_tree_ab.py`
+    os.environ[STAGE_ENVIRONMENT["effective_alpha"]] = KERNEL_BACKEND_PYTHON
     _fresh_state(controller, args.workers)
     obj = bpy.data.objects[mesh_name]
     selected = _select_seams(obj)

@@ -5,7 +5,7 @@
 
 The case is one of the built-in recipes of `tools/blender_tree_ab.py` (the mesh, alpha, density, stretch budget and scene of the field A/B). The press is the A/B tool's own cold press (`run_presses`: the controller
 of a session, the stored or seam selection, `run_production` in this process: no workers), with the add-on and the extension taken from the tree of the repository and `native_path` ahead of everything. The stage
-`effective_alpha` is NOT ordered (the oracle computes every pair), and the recorder wraps `boundary._contact_candidates`, so each pair the resolver asks is recorded once per distinct input with its call count.
+`effective_alpha` is ordered to PYTHON by its environment hook (the oracle computes every pair; the product default is NATIVE), and the recorder wraps `boundary._contact_candidates`, so each pair the resolver asks is recorded once per distinct input with its call count.
 The scene is never saved: the SHA-256 of the .blend is taken before and after, and a change fails the export.
 
 Output: `<out>/field/<mesh>.recs.xz` (`native_effective_alpha_corpus` format), `<out>/index.json`. The last line on success: `NATIVE_EFFECTIVE_ALPHA_EXPORT_OK <pairs> <bytes>`.
@@ -30,6 +30,8 @@ except NameError:  # a Blender that does not define __file__ for --python script
     ROOT = Path(sys.argv[sys.argv.index("--python") + 1]).resolve().parents[1]
 # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: the gates of the tools check every domain whole (the product's button samples).
 os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
+# EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1: the stage follows the master switch (NATIVE below); the recorder sees the ORACLE's calls only when the stage is ordered to PYTHON.
+os.environ["CFTUV_EFFECTIVE_ALPHA_BACKEND"] = "PYTHON"
 sys.path.insert(0, str(ROOT / "tools"))
 
 
