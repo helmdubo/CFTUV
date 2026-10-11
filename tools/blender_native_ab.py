@@ -48,12 +48,15 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import time
 import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: ворота и замеры этого инструмента проверяют каждый домен целиком (на кнопке продукта по умолчанию выборка).
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 #: 22 полевых случая `mesh:alpha:density:stretch` (рецепт `field_rel.py`).
 FIELD_CASES = (
     "2:0.25:2:20,2.001:0.25:2:20,building:0.25:2:20,building.001:0.25:2:20,building.002:0.25:2:20,building.003:0.25:2:20,"

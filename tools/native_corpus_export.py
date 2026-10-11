@@ -33,6 +33,8 @@ import bmesh
 import bpy
 
 ROOT = Path(__file__).resolve().parents[1]
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: ворота и замеры этого инструмента проверяют каждый домен целиком (на кнопке продукта по умолчанию выборка).
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 sys.path.insert(0, str(ROOT / "tools"))
 DEFAULT_PLAN = (
     "building=0.2239;rounded_wall_noise_top=0.2239,0.5;sagging_wall=0.987,0.2239;2=0.2239,0.5;half_sphere=0.2239,0.5"

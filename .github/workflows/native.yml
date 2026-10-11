@@ -44,6 +44,8 @@ env:
   # exact test dependencies of the native job (the kernel's own pin is `sympy==1.14.0`, `kernel/pyproject.toml`)
   # (pyyaml: the test of this workflow's own structure, tests/test_native_ci_workflow.py)
   TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0 pyyaml==6.0.3
+  # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: CI проверяет круг кодека над снапшотом каждого домена (на кнопке продукта по умолчанию выборка).
+  CFTUV_SNAPSHOT_BYTE_CHECK: all
 
 defaults:
   run:

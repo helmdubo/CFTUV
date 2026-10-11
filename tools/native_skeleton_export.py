@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import os
 import sys
 import time
 import traceback
@@ -29,6 +30,8 @@ from pathlib import Path
 import bpy
 
 ROOT = Path(__file__).resolve().parents[1]
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: ворота и замеры этого инструмента проверяют каждый домен целиком (на кнопке продукта по умолчанию выборка).
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 sys.path.insert(0, str(ROOT / "tools"))
 DEFAULT_PLAN = "building=0.2239;rounded_wall_noise_top=0.2239;sagging_wall=0.2239;2=0.2239;half_sphere=0.2239"
 

@@ -12,8 +12,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
+
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: Blender-тесты (этот модуль импортируют остальные) проверяют каждый домен целиком; на кнопке продукта по умолчанию выборка.
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for _path in (REPO_ROOT, REPO_ROOT / "kernel" / "src"):

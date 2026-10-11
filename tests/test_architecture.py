@@ -918,7 +918,10 @@ MODULE_LINE_ALLOWANCE = {
     # 1952 -> 1954. +2 за ту же проверку снапшота внутри воркера (WORKER_REUSES_ITS_SNAPSHOT_CHECK_V1): параметр `checker` у
     # `prepare_for_production_recorded` и его передача из `_solve_cold_production_task`. Решение «та же ли это проверка» принимает
     # `WorkerSnapshotCheck.clean_issues_for` (`envelope_snapshot_check.py`), здесь только проводка; остальное втиснуто в существующие строки.
-    "cftuv/envelope_production_export.py": 1954,
+    # 1954 -> 1957. +3 за выборку круга кодека над снапшотом (SNAPSHOT_BYTE_CHECK_SAMPLED_V1): импорт плана, поле плана в `ColdProductionInputV1` (воркер кладёт его в
+    # экспорт топологии задачи) и запись итогов решений в конце нажатия (`finish_press` в `_record_content_counters`); `run_production` получает план одной вставкой в цепочку
+    # экспорта топологии (его длина не выросла). Сам план, выборка и счётчики живут в `envelope_snapshot_byte_check.py`. Число поднято осознанно, до фактического.
+    "cftuv/envelope_production_export.py": 1957,
 }
 
 

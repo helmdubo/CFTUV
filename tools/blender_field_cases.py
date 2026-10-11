@@ -13,11 +13,15 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
 import sys
 import time
 import traceback
 from collections import Counter
 from pathlib import Path
+
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: ворота и замеры этого инструмента проверяют каждый домен целиком (на кнопке продукта по умолчанию выборка).
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 
 import bmesh
 import bpy

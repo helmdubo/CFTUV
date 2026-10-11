@@ -418,12 +418,12 @@ def test_legacy_omission_and_explicit_density_select_distinct_predicates(
 # --------------------------------------------------------------------------
 
 
-def test_export_gate_rejects_a_snapshot_that_only_the_bytes_break():
-    """Дыра среза: экспортёр проверял объект, а выпускал байты.
+def _only_the_bytes_break():
+    """Снапшот, валидный в памяти и отвергаемый на записи.
 
     Мера ниже валидна в памяти и накрывает точный поворот опор — по геометрии
     придраться не к чему. Ломается она ровно на записи: у φ 29 значащих цифр,
-    и `normalize()` съедает последнюю. HEAD такие байты выпускал молча.
+    и `normalize()` съедает последнюю.
     """
 
     snapshot = _reflex_snapshot()
@@ -444,7 +444,7 @@ def test_export_gate_rejects_a_snapshot_that_only_the_bytes_break():
         kernel.IntervalEndpointKind.CLOSED,
         Decimal("2E-28"),
     )
-    candidate = _with_measure(
+    return _with_measure(
         snapshot,
         kernel.CertifiedReflexAngleMeasureV1(
             phi,
@@ -453,6 +453,12 @@ def test_export_gate_rejects_a_snapshot_that_only_the_bytes_break():
             kernel.AngleNormalizationLaw.VALUE_OVER_SYMBOLIC_PI_V1,
         ),
     )
+
+
+def test_export_gate_rejects_a_snapshot_that_only_the_bytes_break():
+    """Дыра среза: экспортёр проверял объект, а выпускал байты. HEAD такие байты выпускал молча."""
+
+    candidate = _only_the_bytes_break()
     assert kernel.validate_analysis_snapshot(candidate) == ()
     with pytest.raises(SnapshotExportRejected) as error:
         validate_exported_snapshot(kernel, candidate)
@@ -462,6 +468,40 @@ def test_export_gate_rejects_a_snapshot_that_only_the_bytes_break():
     message = str(error.value)
     assert message.startswith("canonical bytes:")
     assert "delta interval must equal phi_over_pi minus one exactly" in message
+
+
+def test_a_skipped_byte_check_lets_the_snapshot_that_only_the_bytes_break_proceed(monkeypatch):
+    """SNAPSHOT_BYTE_CHECK_SAMPLED_V1, объявленное изменение поведения: домен вне выборки, чьи байты не прошли бы, идёт дальше.
+
+    Круг кодека не вызван вовсе (ни `dumps`, ни `loads`), байтов нет (`None`); проверка выбранного домена (`byte_check=True`, умолчание) отказывает прежним именем.
+    """
+
+    candidate = _only_the_bytes_break()
+    codec = kernel.AnalysisSnapshotCodecV1
+    calls = []
+    for name in ("dumps", "loads"):
+        real = getattr(codec, name)
+        monkeypatch.setattr(codec, name, staticmethod(lambda *a, _real=real, _name=name: (calls.append(_name), _real(*a))[1]))
+
+    assert validate_exported_snapshot(kernel, candidate, byte_check=False) is None
+    assert calls == []
+    with pytest.raises(SnapshotExportRejected) as error:
+        validate_exported_snapshot(kernel, candidate, byte_check=True)
+    assert error.value.outcome_name == "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID"
+    assert calls == ["dumps", "loads", "dumps"]
+
+
+def test_a_skipped_byte_check_still_refuses_a_snapshot_the_object_check_refuses():
+    """Пропуск касается круга кодека, а не проверки объекта: невалидный в памяти снапшот отказан и без байтов, тем же исходом."""
+
+    snapshot = _reflex_snapshot()
+    spoiled = replace(snapshot, analysis_capabilities=frozenset())
+    assert kernel.validate_analysis_snapshot(spoiled)
+    for byte_check in (True, False):
+        with pytest.raises(SnapshotExportRejected) as error:
+            validate_exported_snapshot(kernel, spoiled, byte_check=byte_check)
+        assert error.value.outcome_name == "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID"
+        assert str(error.value).startswith("snapshot:")
 
 
 def test_export_gate_returns_the_bytes_it_proved():

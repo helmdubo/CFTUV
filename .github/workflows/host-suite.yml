@@ -58,6 +58,8 @@ jobs:
         shell: bash
     env:
       PYTHONPATH: kernel/src
+      # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: CI проверяет круг кодека над снапшотом каждого домена (на кнопке продукта по умолчанию выборка).
+      CFTUV_SNAPSHOT_BYTE_CHECK: all
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

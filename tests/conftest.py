@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 import types
 from pathlib import Path
@@ -9,6 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: на кнопке продукта круг кодека над снапшотом идёт на выборке, а тесты (как CI и полевые ворота) проверяют каждый домен
+# целиком. Значение, заданное снаружи (`sample` для проверки выборки), уважается.
+os.environ.setdefault("CFTUV_SNAPSHOT_BYTE_CHECK", "all")
 
 
 if "mathutils" not in sys.modules:

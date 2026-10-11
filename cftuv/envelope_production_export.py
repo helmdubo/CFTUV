@@ -48,6 +48,7 @@ from .envelope_kernel_backend import (
     with_preparation_record,
 )
 from .envelope_snap_retry import retry_snap_lottery, snap_scale_notes
+from .envelope_snapshot_byte_check import finish_press, resolve_plan
 from .envelope_topology_export import metric_law_key
 from .envelope_production_report import (  # noqa: F401 - переэкспорт: имена прежние
     diagnostic_summary_lines,
@@ -192,6 +193,7 @@ class ColdProductionInputV1:
 
     uv_policy_id: str = PRODUCTION_UV_POLICY
     topology_law: str = PRODUCTION_TOPOLOGY_LAW
+    snapshot_byte_check: object | None = None  # `SnapshotByteCheckPlanV1` нажатия (`None` - проверка байтов на каждом домене); воркер кладёт его в экспорт топологии задачи
 
 
 #: Поля результата, которых у ОТЛОЖЕННОГО результата нет в `__dict__` до первого чтения: они лежат в `heavy` (`batch` и нормали
@@ -1428,7 +1430,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
-    laws = ColdProductionInputV1(run.uv_policy_id, run.topology_law)
+    laws = ColdProductionInputV1(run.uv_policy_id, run.topology_law, run.topology_export.snapshot_byte_check)
     for entry in cold:
         snapshot, request = entry.inputs or (None, None)
         tasks.append(
@@ -1661,6 +1663,7 @@ def _record_content_counters(profile, run: _RunInputsV1, entries) -> None:
         PRODUCTION_CONTENT_UNKEYED,
         sum(1 for item in entries if item.export is not None and item.content_key is None),
     )
+    finish_press(profile, run.topology_export.snapshot_byte_check)  # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: решения по доменам - в итоги нажатия
 
 
 def _record_run_counters(profile, controller, builds_before, entries, results, cold):
@@ -1783,7 +1786,7 @@ def run_production(
         analysis_bundle, source_object_key, source_data_key, profile=profile
     ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
         silhouette_uv_slide
-    ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha))
+    ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha)).with_snapshot_byte_check(resolve_plan(kernel_backend, skeleton_backend, embedding_backend))
     stage_memo = controller.stage_inputs_memo
     revision, patch_ids, request_id, selected_by_domain = stage_production_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export, memo=stage_memo

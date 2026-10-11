@@ -167,15 +167,20 @@ def _reference_validation():
     return importlib.import_module("cftuv_envelope.reference.validation")
 
 
-def validate_exported_snapshot(kernel, snapshot) -> bytes:
+def validate_exported_snapshot(kernel, snapshot, *, byte_check: bool = True) -> bytes | None:
     """Оба валидатора ядра над объектом И над каноническими байтами.
 
     Проверенные байты возвращаются, а не выбрасываются: тому, кто их пишет,
     незачем считать их второй раз. Сегодняшний экспортёр снапшота их не пишет
     и результат игнорирует — записью фикстур занимается `tools/`.
+
+    `byte_check=False` (SNAPSHOT_BYTE_CHECK_SAMPLED_V1, `envelope_snapshot_byte_check`): проверка ОБЪЕКТА идёт всегда, круг кодека и
+    проверка декодированного объекта пропущены, байтов нет - `None`. Решение по домену принимает вызывающий и записывает счётчиком.
     """
 
     _reject_snapshot(kernel, snapshot, stage="snapshot")
+    if not byte_check:
+        return None
     payload = kernel.AnalysisSnapshotCodecV1.dumps(snapshot)
     decoded = kernel.AnalysisSnapshotCodecV1.loads(payload)
     if kernel.AnalysisSnapshotCodecV1.dumps(decoded) != payload:

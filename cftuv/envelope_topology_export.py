@@ -86,6 +86,9 @@ class EnvelopeTopologyExportV1:
     #: (сертификат решётки в снапшоте) строится из этого экспорта, поэтому закон входит в ключи кэшей метрики, геометрии, подготовки и результата
     #: (`metric_law_key`): подготовка, построенная повторной попыткой, никогда не ложится под ключ обычной.
     grid_scale_law: str | None = None
+    #: План проверки байтов снапшота этого нажатия (`SnapshotByteCheckPlanV1`, `envelope_snapshot_byte_check`; `None` - вне продуктового пути, проверка идёт всегда). Политика
+    #: нажатия, не факт топологии: не сравнивается и не входит ни в один ключ кэша, а выгрузка читает его, решая, идёт ли круг кодека над снапшотом ЭТОГО домена.
+    snapshot_byte_check: object | None = field(default=None, compare=False, repr=False)
     #: Производные от `host_chains`: цепочки и рёбра по патчу, строятся при первом обращении ОДИН раз на объект. Не часть значения
     #: экспорта (не сравнивается, не печатается); копия через `replace` получает свою пустую запись, и ключ не может пережить свои цепочки.
     _derived: dict = field(default_factory=dict, init=False, repr=False, compare=False)
@@ -140,6 +143,11 @@ class EnvelopeTopologyExportV1:
 
         slide = envelope_silhouette_uv_slide(slide)
         return self if slide == self.silhouette_uv_slide else replace(self, silhouette_uv_slide=slide)
+
+    def with_snapshot_byte_check(self, plan):
+        """Тот же экспорт с планом проверки байтов нажатия `plan` (SNAPSHOT_BYTE_CHECK_SAMPLED_V1); тяжёлые части общие."""
+
+        return self if plan is self.snapshot_byte_check else replace(self, snapshot_byte_check=plan)
 
     def with_grid_scale_retry(self):
         """Тот же экспорт под законом `PLANE_PRESERVING_V1` (повторная попытка после отказа лотереи привязки); тяжёлые части общие."""

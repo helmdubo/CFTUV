@@ -44,6 +44,7 @@ from .envelope_debug_profile import (
     EnvelopeDomainStage,
     EnvelopeDomainStageReceiptV1,
 )
+from .envelope_snapshot_byte_check import byte_check_decision
 from .envelope_host_outcomes import (  # noqa: F401 - переэкспорт: имена прежние
     METRIC_STAGE_OUTCOMES,
     EnvelopeDebugHostOutcome,
@@ -2063,7 +2064,8 @@ def build_envelope_analysis_snapshot(
         # полевой отказ прошёл именно здесь — в памяти снапшот был валиден, а
         # выпущенные байты ядро отвергало целиком.
         try:
-            validate_exported_snapshot(kernel, snapshot)
+            # Круг кодека - на выборке кнопки, на каждом домене вне её (`envelope_snapshot_byte_check`); проверка объекта - всегда.
+            validate_exported_snapshot(kernel, snapshot, byte_check=byte_check_decision(getattr(topology_export, "snapshot_byte_check", None), angular_timing_domain, profile))
         except SnapshotExportRejected as error:
             raise EnvelopeHostAdapterError(
                 EnvelopeDebugHostOutcome(error.outcome_name),
