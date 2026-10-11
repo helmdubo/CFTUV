@@ -621,6 +621,22 @@ def read_record(path: Path) -> Record:
 # --------------------------------------------------------------------------
 
 
+def split_files(files, processes: int) -> list:
+    """`processes` groups of the kernel test `files` (each a tuple), balanced by the measured seconds of `kernel/tools/shard_weights.json` (`kernel/tools/shard_tests.py`, longest first); every file
+    in exactly one group. The recorders of the synthetic corpora (`native_skeleton_synthetic.py`, `native_clip_synthetic.py`) run their pytest processes on these groups (`build --processes N`)."""
+
+    import importlib.util
+
+    tools = ROOT / "kernel" / "tools"
+    spec = importlib.util.spec_from_file_location("kernel_shard_tests_for_the_corpus", tools / "shard_tests.py")
+    shards = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shards)
+    default, weights = shards.load_weights(tools / "shard_weights.json")
+    groups = [tuple(group) for group in shards.assign(list(files), default, weights, min(processes, len(files)))]
+    assert sorted(name for group in groups for name in group) == sorted(files), "the groups must be exactly the files"
+    return groups
+
+
 def git_head(root: Path = ROOT) -> str:
     return subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=str(root), capture_output=True, text=True, check=True

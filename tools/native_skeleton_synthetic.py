@@ -33,7 +33,6 @@ import argparse
 import contextlib
 import dataclasses
 import hashlib
-import importlib.util
 import json
 import os
 import pickle
@@ -468,17 +467,7 @@ def _command(files, extra_arguments=()) -> list:
     return [sys.executable, "-m", "pytest", "-q", "-p", "native_skeleton_synthetic", "-p", "no:cacheprovider", *extra_arguments, *paths]
 
 
-def split_files(files, processes: int) -> list:
-    """`processes` groups of `files` (each a tuple), balanced by the measured seconds of `kernel/tools/shard_weights.json` (`kernel/tools/shard_tests.py`, longest first); every file in exactly one group."""
-
-    tools = ROOT / "kernel" / "tools"
-    spec = importlib.util.spec_from_file_location("kernel_shard_tests_for_the_corpus", tools / "shard_tests.py")
-    shards = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(shards)
-    default, weights = shards.load_weights(tools / "shard_weights.json")
-    groups = [tuple(group) for group in shards.assign(list(files), default, weights, min(processes, len(files)))]
-    assert sorted(name for group in groups for name in group) == sorted(files), "the groups must be exactly the files"
-    return groups
+split_files = nc.split_files
 
 
 def merge_parts(parts: list, files) -> tuple:

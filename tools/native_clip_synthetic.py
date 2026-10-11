@@ -10,7 +10,10 @@
 считается ПОСЛЕ прогона тестов, заново, из пикла и состояния «до» (тест мог сделать между созданием стадии и `run` что угодно:
 запись описывает вызов `clip_geometry` от записанного состояния, а не ход теста). Вызовы швов пишутся пиклом по тесту.
 
-    python tools/native_clip_synthetic.py build [--out DIR]      # прогон тестов ядра с плагином (подпроцесс), индекс
+    python tools/native_clip_synthetic.py build [--out DIR] [--processes N]     # прогон тестов ядра с плагином (подпроцесс), индекс
+
+`--processes N` (N > 1): тесты идут N процессами pytest одновременно, каждый на своём наборе ФАЙЛОВ (`native_corpus.split_files`: веса `kernel/tools/shard_weights.json`); процесс кладёт в файл собранные
+вызовы резки и вызовы швов, родитель объединяет их в порядке файлов (повторы здесь не отбрасываются: каждый вызов теста — запись) и пишет корпус тем же `write_records`.
 """
 
 from __future__ import annotations
@@ -22,8 +25,10 @@ import json
 import lzma
 import os
 import pickle
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
 from pathlib import Path
@@ -39,6 +44,8 @@ import pytest  # noqa: E402
 import native_corpus as nc  # noqa: E402
 
 OUT_ENVIRONMENT = "CFTUV_SYNTHETIC_CLIP_OUT"
+#: Если задан, плагин не пишет корпус, а кладёт собранное в этот файл (процесс параллельной сборки, `build --processes N`).
+ITEMS_ENVIRONMENT = "CFTUV_SYNTHETIC_CLIP_ITEMS"
 INDEX_SCHEMA = "cftuv.native-corpus.synthetic-clip.v1"
 
 #: Тесты ядра, которые доходят до резки (`clip_geometry`, стадия, швы). Остальные тесты ядра не пишутся: плагин пишет только то, что вызвано.
@@ -253,12 +260,23 @@ def pytest_sessionfinish(session, exitstatus) -> None:
 
 
 def write_corpus(collector: _Collector, exitstatus) -> None:
-    out = collector.out
+    target = os.environ.get(ITEMS_ENVIRONMENT)
+    if target:  # one process of a parallel build: the corpus is written by the parent, from what all the processes collected
+        part = {"pending": collector.pending, "seam_files": collector.seam_files, "skipped": dict(collector.skipped), "exit": int(exitstatus)}
+        Path(target).write_bytes(pickle.dumps(part, protocol=5))
+        print(f"synthetic clip part: {len(collector.pending)} clip calls, {len(collector.seam_files)} tests with seam calls -> {target}")
+        return
+    write_records(collector.out, collector.pending, collector.seam_files, collector.skipped, exitstatus)
+
+
+def write_records(out: Path, pending: list, seam_files: list, skipped, exitstatus) -> None:
+    """Replays the oracle over the recorded calls, generates the frozen cases and writes the corpus: records, seam files, index."""
+
     out.mkdir(parents=True, exist_ok=True)
     description = nc.run_description({"corpus": "synthetic_clip", "tests": list(TEST_FILES), "pytest_exit": int(exitstatus)})
     recorder = nc.Recorder(out, description, preset=3, max_bytes=nc.DEFAULT_MAX_BYTES)
     labels: Counter = Counter()
-    for item in collector.pending:
+    for item in pending:
         recorder.context.update(mesh=item["test"], mesh_digest="", alpha=None, patch_id=None, domain_id=None)
         call = nc.prepare_call(nc.OP_CLIP, item["blob"], item["before"])
         started = time.perf_counter()
@@ -277,7 +295,7 @@ def write_corpus(collector: _Collector, exitstatus) -> None:
     seam_rows = []
     seams_dir = out / "seams"
     seams_dir.mkdir(parents=True, exist_ok=True)
-    for number, entry in enumerate(collector.seam_files, 1):
+    for number, entry in enumerate(seam_files, 1):
         path = seams_dir / f"{number:04d}-{_safe(entry['test'])}.seams"
         body = lzma.compress(pickle.dumps(entry["calls"], protocol=5), format=lzma.FORMAT_XZ, preset=3)
         path.write_bytes(body)
@@ -288,7 +306,7 @@ def write_corpus(collector: _Collector, exitstatus) -> None:
         **description,
         "records_count": len(recorder.rows),
         "labels": dict(labels),
-        "skipped": dict(collector.skipped),
+        "skipped": dict(skipped),
         "generated_outcomes": dict(generated_outcomes),
         "outcomes": dict(Counter(row["outcome"] for row in recorder.rows)),
         "seam_files": seam_rows,
@@ -312,24 +330,85 @@ def load_index(out: Path | None = None) -> dict:
 # --------------------------------------------------------------------------
 
 
-def build(out: Path, files=TEST_FILES, extra_arguments=()) -> int:
+def _environment(out: Path) -> dict:
     environment = dict(os.environ)
     environment[OUT_ENVIRONMENT] = str(out)
     existing = environment.get("PYTHONPATH", "")
     environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(TOOLS), str(ROOT / "kernel" / "src"), str(ROOT / "kernel" / "tests"), existing]))
     environment["PYTHONSAFEPATH"] = "1"
+    return environment
+
+
+def _command(files, extra_arguments=()) -> list:
     paths = [str(ROOT / "kernel" / "tests" / name) for name in files]
-    command = [sys.executable, "-m", "pytest", "-q", "-p", "native_clip_synthetic", "-p", "no:cacheprovider", *extra_arguments, *paths]
+    return [sys.executable, "-m", "pytest", "-q", "-p", "native_clip_synthetic", "-p", "no:cacheprovider", *extra_arguments, *paths]
+
+
+split_files = nc.split_files
+
+
+def merge_parts(parts: list, files) -> tuple:
+    """`(pending, seam_files, skipped, exit)` of the parts of a parallel build, in the order ONE process running `files` in order would have collected them: by the position of the test file in
+    `files` (a stable sort: within a file, the order they arrived in). Every call a test made is a record (this corpus keeps repeats), so nothing is dropped."""
+
+    position = {name: number for number, name in enumerate(files)}
+
+    def place(entry: dict) -> int:
+        return position[Path(entry["test"].split("::")[0]).name]
+
+    pending = sorted((entry for part in parts for entry in part["pending"]), key=place)
+    seam_files = sorted((entry for part in parts for entry in part["seam_files"]), key=place)
+    skipped: Counter = Counter()
+    for part in parts:
+        skipped.update(part["skipped"])
+    return pending, seam_files, skipped, max(part["exit"] for part in parts)
+
+
+def build_parallel(out: Path, files, processes: int, extra_arguments=()) -> int:
+    """The tests in `processes` pytest processes at once, the corpus written once, from what they all collected."""
+
+    groups = split_files(files, processes)
+    folder = Path(tempfile.mkdtemp(prefix="clip-parts-"))
+    started = time.perf_counter()
+    running = []
+    for number, group in enumerate(groups, 1):
+        environment = _environment(out)
+        environment[ITEMS_ENVIRONMENT] = str(folder / f"part-{number}.pkl")
+        command = _command(group, extra_arguments)
+        print(f"+ part {number}/{len(groups)} ({len(group)} files):", " ".join(command[:6]), "...", flush=True)
+        running.append((number, subprocess.Popen(command, env=environment, cwd=str(ROOT / "kernel"), stdout=open(folder / f"part-{number}.log", "wb"), stderr=subprocess.STDOUT)))
+    codes = [process.wait() for _, process in running]
+    parts = []
+    for number, _ in running:
+        log = (folder / f"part-{number}.log").read_text(encoding="utf-8", errors="replace").splitlines()
+        print(f"part {number}: {log[-1] if log else '(no output)'}", flush=True)
+        part = folder / f"part-{number}.pkl"
+        if not part.is_file():
+            print(f"NATIVE_CLIP_SYNTHETIC_PART_FAILED part {number} left no result; its log: {folder / f'part-{number}.log'}")
+            return 1
+        parts.append(pickle.loads(part.read_bytes()))
+    shutil.rmtree(folder, ignore_errors=True)  # the parts are in memory now; a part that failed returned above and kept its log
+    pending, seam_files, skipped, exit_code = merge_parts(parts, files)
+    print(f"parts done in {time.perf_counter() - started:.0f} s, exit codes {codes}; writing the corpus", flush=True)
+    write_records(out, pending, seam_files, skipped, exit_code)
+    return max(codes + [exit_code])
+
+
+def build(out: Path, files=TEST_FILES, extra_arguments=(), processes: int = 1) -> int:
+    if processes > 1:
+        return build_parallel(out, files, processes, extra_arguments)
+    command = _command(files, extra_arguments)
     print("+", " ".join(command), flush=True)
-    return subprocess.run(command, env=environment, cwd=str(ROOT / "kernel")).returncode
+    return subprocess.run(command, env=_environment(out), cwd=str(ROOT / "kernel")).returncode
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("build",))
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--processes", type=int, default=1, help="run the tests in N pytest processes at once (see the module docstring)")
     arguments = parser.parse_args(argv)
-    return build(arguments.out or default_out())
+    return build(arguments.out or default_out(), processes=arguments.processes)
 
 
 if __name__ == "__main__":

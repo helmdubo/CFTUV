@@ -45,7 +45,7 @@ TEXT_SUFFIXES = frozenset({".py", ".json", ".toml", ".txt", ".yml", ".yaml", ".c
 SKELETON_SUBDIRECTORY = ("ci", "synthetic_skeleton")
 #: The stages of the skeleton corpus (the kernel tests, the replay of the oracle over their calls, the derivation) run in this many processes at once. A windows-latest runner has 4 vCPUs, but
 #: they do not deliver four cores of throughput: measured on CI, 3 processes took 105 s per part and 4 processes 143 s (the same work per second), so 3 it is.
-SKELETON_PROCESSES = 3
+CORPUS_PROCESSES = 3
 
 
 def _content(path: Path) -> bytes:
@@ -172,12 +172,12 @@ def build_commands(kind: str, out: Path) -> list[list[str]]:
 
     tools = str(TOOLS)
     if kind == "clip":
-        return [[sys.executable, str(Path(tools, "native_clip_synthetic.py")), "build", "--out", str(out)]]
+        return [[sys.executable, str(Path(tools, "native_clip_synthetic.py")), "build", "--out", str(out), "--processes", str(CORPUS_PROCESSES)]]
     corpus = Path(out).joinpath(*SKELETON_SUBDIRECTORY)
     return [
-        [sys.executable, str(Path(tools, "native_skeleton_synthetic.py")), "build", "--out", str(corpus), "--ci", "--processes", str(SKELETON_PROCESSES)],
+        [sys.executable, str(Path(tools, "native_skeleton_synthetic.py")), "build", "--out", str(corpus), "--ci", "--processes", str(CORPUS_PROCESSES)],
         [sys.executable, str(Path(tools, "native_skeleton_generated.py")), "generate", "--corpus", str(corpus)],
-        [sys.executable, str(Path(tools, "native_skeleton_derive.py")), "--corpus", str(corpus), "--processes", str(SKELETON_PROCESSES)],
+        [sys.executable, str(Path(tools, "native_skeleton_derive.py")), "--corpus", str(corpus), "--processes", str(CORPUS_PROCESSES)],
     ]
 
 

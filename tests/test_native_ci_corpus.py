@@ -218,10 +218,10 @@ def test_the_cli_refuses_a_key_without_the_pinned_dependencies(capsys):
 
 def test_the_recipe_is_the_one_the_workflow_ran_inline_before_the_cache_existed(tmp_path):
     (clip,) = corpus.build_commands("clip", tmp_path)
-    assert clip[1:] == [str(ROOT / "tools" / "native_clip_synthetic.py"), "build", "--out", str(tmp_path)]
+    assert clip[1:] == [str(ROOT / "tools" / "native_clip_synthetic.py"), "build", "--out", str(tmp_path), "--processes", str(corpus.CORPUS_PROCESSES)]
     tests, generate, derive = corpus.build_commands("skeleton", tmp_path)
     where = str(tmp_path / "ci" / "synthetic_skeleton")
-    assert tests[1:] == [str(ROOT / "tools" / "native_skeleton_synthetic.py"), "build", "--out", where, "--ci", "--processes", str(corpus.SKELETON_PROCESSES)]
-    assert 2 <= corpus.SKELETON_PROCESSES <= 4, "a windows-latest runner has 4 vCPUs"
+    assert tests[1:] == [str(ROOT / "tools" / "native_skeleton_synthetic.py"), "build", "--out", where, "--ci", "--processes", str(corpus.CORPUS_PROCESSES)]
+    assert 2 <= corpus.CORPUS_PROCESSES <= 4, "a windows-latest runner has 4 vCPUs"
     assert generate[1:] == [str(ROOT / "tools" / "native_skeleton_generated.py"), "generate", "--corpus", where]
-    assert derive[1:] == [str(ROOT / "tools" / "native_skeleton_derive.py"), "--corpus", where, "--processes", str(corpus.SKELETON_PROCESSES)]
+    assert derive[1:] == [str(ROOT / "tools" / "native_skeleton_derive.py"), "--corpus", where, "--processes", str(corpus.CORPUS_PROCESSES)]
