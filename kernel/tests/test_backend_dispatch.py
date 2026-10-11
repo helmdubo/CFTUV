@@ -980,3 +980,137 @@ def test_borrowed_scope_must_be_the_active_owner_with_the_same_choices():
     with pytest.raises(ValueError, match="BACKEND_BORROW_SCOPE_MISMATCH"):
         with backend.use_backend("PYTHON", "PYTHON", "NATIVE", borrowed_ledger=owner):
             pass
+
+
+# Пятая стадия — лист контактов резолвера эффективной alpha (`reference.boundary._native_contacts`): отдельный выбор, ответ — приращение двух счётов и контакты.
+class _Counts:
+    """`ContactCountsV1` в той мере, в какой её трогает диспетчер: два счёта."""
+
+    def __init__(self):
+        self.rejected = self.passed = 0
+
+
+def _alpha_args():
+    return tuple(object() for _ in range(4))
+
+
+def test_effective_alpha_status_identity_and_record_are_independent_of_the_other_stages(monkeypatch):
+    module, _ = install_native(monkeypatch, status={"coverage": "available", "clip": "available", "effective_alpha": "available"})
+    assert backend.native_status().effective_alpha == "available" and backend.native_status().effective_alpha_available
+    assert backend.native_status().as_record()["effective_alpha"] == "available" and not backend.native_status().embedding_available
+    assert backend.backend_identity("PYTHON", "PYTHON", "PYTHON", "NATIVE") == f"PYTHON|effective_alpha=NATIVE:{BUILD_ID}"
+    assert backend.backend_identity("NATIVE", "PYTHON", "NATIVE", "NATIVE") == f"NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}"
+    assert backend.backend_identity("PYTHON") == backend.backend_identity("PYTHON", "PYTHON", "PYTHON", "PYTHON") == "PYTHON"
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.active_effective_alpha_backend() is backend.KernelBackendV1.NATIVE and backend.active_backend() is backend.KernelBackendV1.PYTHON
+    record = ledger.record()
+    assert record.effective_alpha_requested == "NATIVE" and record.requested == "PYTHON" and record.effective_alpha_ran == "" and record.effective_alpha_outcomes == ()
+    assert record.as_record()["effective_alpha_requested"] == "NATIVE" and record.as_record()["effective_alpha_ran"] == ""
+    # an old wheel without the key: the stage is named unavailable
+    install_native(monkeypatch, status={"coverage": "available", "clip": "available"})
+    assert backend.native_status().effective_alpha == "unavailable"
+
+
+def test_effective_alpha_outside_a_block_and_in_a_block_that_does_not_order_it_is_the_oracle_call(monkeypatch):
+    install_native(monkeypatch)
+    args, seen = _alpha_args(), []
+    counts = _Counts()
+
+    def oracle(*actual):
+        seen.append(actual)
+        return ("answer",)
+
+    assert backend.effective_alpha_compute(oracle, *args, counts) == ("answer",)
+    with backend.use_backend("NATIVE", "NATIVE", "NATIVE") as ledger:
+        assert backend.effective_alpha_compute(oracle, *args, counts) == ("answer",)
+    assert [item[:-1] == args and item[-1] is counts for item in seen] == [True, True]
+    assert ledger.record().effective_alpha_ran == "" and not ledger.record().effective_alpha_fallbacks
+
+
+def test_effective_alpha_native_answer_adds_its_counts_and_is_the_native_executor(monkeypatch):
+    module, _ = install_native(monkeypatch)
+    context, source, boundary, frame = _alpha_args()
+    contacts, counts, asked = (("contact",), ()), _Counts(), []
+    module.effective_alpha_contacts = lambda *actual: asked.append(actual) or (1, 0, contacts)
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        found = backend.effective_alpha_compute(lambda *a: pytest.fail("the oracle must not be called"), context, source, boundary, frame, counts)
+        backend.effective_alpha_compute(lambda *a: pytest.fail("the oracle must not be called"), context, source, boundary, frame, counts)
+    assert found is contacts and asked[0] == (source, boundary, frame), "the extension gets the source, the barrier and the frame -- not the context"
+    assert (counts.rejected, counts.passed) == (2, 0)
+    record = ledger.record()
+    assert (record.effective_alpha_native_calls, record.effective_alpha_python_calls, record.effective_alpha_ran) == (2, 0, "native") and not record.effective_alpha_fallbacks
+
+
+def test_effective_alpha_pair_without_a_frame_is_the_oracles(monkeypatch):
+    module, _ = install_native(monkeypatch)
+    module.effective_alpha_contacts = lambda *actual: pytest.fail("a pair without a frame has no prefilter and no converted source")
+    context, source, boundary, _frame = _alpha_args()
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.effective_alpha_compute(lambda *a: ("oracle",), context, source, boundary, None, _Counts()) == ("oracle",)
+    assert ledger.record().effective_alpha_native_calls == 0 and ledger.record().effective_alpha_python_calls == 0
+
+
+@pytest.mark.parametrize("failure", [Stale, Unsupported, UnsupportedPython])
+def test_effective_alpha_named_refusal_falls_back_to_the_oracle_and_leaves_the_counts_to_it(monkeypatch, failure):
+    module, _ = install_native(monkeypatch)
+    args, counts, seen = _alpha_args(), _Counts(), []
+
+    def refused(*actual):
+        raise failure("a named refusal")
+
+    def oracle(*actual):
+        seen.append(actual)
+        actual[-1].passed += 1
+        return ("oracle",)
+
+    module.effective_alpha_contacts = refused
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.effective_alpha_compute(oracle, *args, counts) == ("oracle",)
+    assert len(seen) == 1 and (counts.rejected, counts.passed) == (0, 1), "the oracle counted the pair once, the refusal counted nothing"
+    record = ledger.record()
+    assert record.effective_alpha_python_calls == 1 and len(record.effective_alpha_fallbacks) == 1 and not record.fallbacks and record.effective_alpha_ran == "python"
+
+
+def test_effective_alpha_oracle_outcome_is_not_a_fallback_and_a_defect_is_named(monkeypatch):
+    module, _ = install_native(monkeypatch)
+    args = _alpha_args()
+
+    def value_error(*actual):
+        raise ValueError("zero vector has no metric length")
+
+    module.effective_alpha_contacts = value_error
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        with pytest.raises(ValueError, match="zero vector"):
+            backend.effective_alpha_compute(lambda *a: pytest.fail("must not call the oracle"), *args, _Counts())
+    assert not ledger.record().effective_alpha_fallbacks
+
+    def defect(*actual):
+        raise TypeError("cftuv_native: a frame it cannot carry")
+
+    module.effective_alpha_contacts = defect
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.effective_alpha_compute(lambda *a: ("oracle",), *args, _Counts()) == ("oracle",)
+    assert ledger.record().effective_alpha_outcomes == ("NATIVE_INTERNAL_ERROR",)
+
+
+def test_effective_alpha_wheel_without_the_operation_is_named_unavailable(monkeypatch):
+    install_native(monkeypatch)  # no `effective_alpha_contacts` in this wheel
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.effective_alpha_compute(lambda *a: ("oracle",), *_alpha_args(), _Counts()) == ("oracle",)
+    assert ledger.record().effective_alpha_outcomes == ("NATIVE_UNAVAILABLE",)
+
+
+def test_effective_alpha_records_merge_and_the_borrowed_scope_counts_all_four_choices(monkeypatch):
+    module, _ = install_native(monkeypatch)
+    module.effective_alpha_contacts = lambda *actual: (0, 1, ())
+    with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE") as owner:
+        backend.effective_alpha_compute(lambda *a: (), *_alpha_args(), _Counts())
+        with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "NATIVE", borrowed_ledger=owner) as nested:
+            assert nested is owner
+        with pytest.raises(ValueError, match="BACKEND_BORROW_SCOPE_MISMATCH"):
+            with backend.use_backend("PYTHON", "PYTHON", "PYTHON", "PYTHON", borrowed_ledger=owner):
+                pass
+    first = owner.record()
+    merged = first.merged(first)
+    assert (merged.effective_alpha_native_calls, merged.effective_alpha_requested) == (2, "NATIVE")
+    assert first.merged(None) is first

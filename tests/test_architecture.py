@@ -1650,7 +1650,7 @@ def _load_native_pin():
 def test_the_native_pins_hold_one_digest_per_mirrored_file():
     pin = _load_native_pin()
     listed = {name for files in pin.OPERATION_FILES.values() for name in files}
-    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding"}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha"}
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
@@ -2114,6 +2114,40 @@ def test_embedding_hook_preserves_the_value_memo_and_frozen_python_leaf():
     required = next(n for n in dispatcher.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_REQUIRED" for t in n.targets))
     assert "snap_embedding_certificate" not in ast.dump(required), "B1 must not disable the older three-operation wheel"
     assert "snap_embedding" in RUST_ONLY_OPERATIONS, "EMBEDDING_NATIVE_DEFAULT_V1: the certificate stage is Rust-only after the strict field A/B and parity"
+
+
+# EFFECTIVE_ALPHA_NATIVE_V1: the pair step of the resolver is chosen at ONE call, and choosing it is not a law of the pair.
+def test_effective_alpha_hook_is_one_call_and_the_function_without_it_is_the_oracle_s_own():
+    import copy
+    import hashlib
+
+    boundary_tree = _parse(KERNEL_SOURCE / "cftuv_envelope" / "reference" / "boundary.py")
+    node = copy.deepcopy(next(n for n in boundary_tree.body if isinstance(n, ast.FunctionDef) and n.name == "_contact_candidates"))
+    hooks = [
+        n for n in ast.walk(node)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == "kernel_backend" and n.func.attr == "effective_alpha_compute"
+    ]
+    assert len(hooks) == 1 and isinstance(hooks[0].args[0], ast.Name) and hooks[0].args[0].id == "_native_contacts", "the oracle is the first argument of the dispatcher"
+    everywhere = [
+        path for path in (KERNEL_SOURCE / "cftuv_envelope").rglob("*.py")
+        if "effective_alpha_compute(" in path.read_text(encoding="utf-8") and path.name not in ("backend.py",)
+    ]
+    assert [path.name for path in everywhere] == ["boundary.py"], "the dispatcher is called from the pair function and nowhere else"
+
+    class Original(ast.NodeTransformer):
+        def visit_Call(self, n):
+            if n is hooks[0]:
+                return ast.Call(func=n.args[0], args=n.args[1:], keywords=n.keywords)
+            return self.generic_visit(n)
+
+    # the digest of `_contact_candidates` before the hook (08e8ab67), taken the same way on 3.10, 3.11 and 3.13
+    original = Original().visit(node)
+    assert hashlib.sha256(_portable_ast_dump(original).encode()).hexdigest() == "65ba820c5e3c5864a687af55bceeee1b6eb3de2032230d186cd3a760de51c9ae", (
+        "the pair function changed besides the dispatcher call: counts, the refusal route or the SHADOW comparison are part of what the port mirrors (`_native_contacts` is checked in the shim)"
+    )
+    dispatcher = _parse(KERNEL_SOURCE / "cftuv_envelope" / "backend.py")
+    required = next(n for n in dispatcher.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_REQUIRED" for t in n.targets))
+    assert "effective_alpha_contacts" not in ast.dump(required), "the fifth stage must not disable an older wheel that lacks it"
 
 
 # --------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from fractions import Fraction
 
 import sympy as sp
 
+from .. import backend as kernel_backend
 from .._cpython311 import sorted_as_cpython311
 from ..contracts.envelopes import StripEnvelopeSpec
 from ..numeric import LocalLengthV1
@@ -313,7 +314,7 @@ def _contact_candidates(
         return _contact_candidates_sympy(context, source, boundary)
     counts = ContactCountsV1()
     try:
-        native = _native_contacts(context, source, boundary, frame, counts)
+        native = kernel_backend.effective_alpha_compute(_native_contacts, context, source, boundary, frame, counts)
     except NativeExactError as refusal:
         counts.refused(refusal)
         counts.apply()
