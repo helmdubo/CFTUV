@@ -496,3 +496,80 @@ def test_timing_repeats_alternates_the_order_and_reports_medians(stand_in, repos
     timing = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))["results"][0]["timing"]
     assert timing["cold"]["base"] == 1.0 and timing["cold"]["branch"] == 0.5 and timing["cold"]["change"] == pytest.approx(-50.0)
     assert timing["step2"]["base_all"]["n"] == 3
+
+
+# --------------------------------------------------------------------------
+# a drag: cold, ticks (WIDTH_REFRESH_LEAN_V1 when the tree has it), confirm
+# --------------------------------------------------------------------------
+
+
+def test_a_drag_is_a_cold_press_ticks_and_a_confirm_each_at_the_next_width():
+    assert ab.parse_presses("cold,tick,tick,confirm", 0.2239) == [
+        ("cold", "cold", 0.2239), ("tick1", "tick", 0.2261), ("tick2", "tick", 0.2283), ("confirm1", "confirm", 0.2305),
+    ]
+    assert [label for label, _kind, _alpha in ab.parse_presses("cold,step,tick,warm,confirm", 1.0, 0.5)] == ["cold", "step1", "tick1", "step2", "confirm1"]
+    with pytest.raises(ValueError, match="tick"):
+        ab.parse_presses("cold,drag", 1.0)
+
+
+def _lean_pair(mutate=None):
+    """Base: the full tick; branch: the same tick as WIDTH_REFRESH_LEAN_V1 (no batch digests, its own class counters)."""
+
+    base, branch = make_report(labels=("cold", "tick1", "confirm1")), make_report(labels=("cold", "tick1", "confirm1"))
+    base["presses"]["tick1"]["kind"] = branch["presses"]["tick1"]["kind"] = "tick"
+    branch["presses"]["tick1"]["lean"] = True
+    for row in branch["presses"]["tick1"]["rows"]:
+        row.update(lean=True, content_digest="", semantic_digest="", vertex_normals_hash="")
+    branch["presses"]["tick1"]["profile_counters"].update({"PRODUCTION_REFRESH_LEAN_DOMAINS": 3, "PRODUCTION_CONTENT_REGISTERED": 0})
+    base["presses"]["tick1"]["profile_counters"]["PRODUCTION_CONTENT_REGISTERED"] = 3
+    if mutate is not None:
+        mutate(branch)
+    return ab.compare_runs(base, branch)
+
+
+def test_a_lean_tick_is_compared_on_everything_but_the_digests_it_does_not_carry():
+    comparison = _lean_pair()
+
+    assert comparison.identical, comparison.differences
+    assert any("lean (WIDTH_REFRESH_LEAN_V1) domains" in note for note in comparison.notes)
+    assert comparison.presses["tick1"]["lean"] and not comparison.presses["confirm1"]["lean"]
+
+
+@pytest.mark.parametrize("field", [name for name in ab.ANSWER_FIELDS if name not in ab.LEAN_UNCARRIED_FIELDS])
+def test_a_lean_tick_still_moves_the_verdict_on_every_field_it_carries(field):
+    comparison = _lean_pair(lambda branch: row_of(branch, "tick1").update({field: "CHANGED"}))
+
+    assert not comparison.identical and any(f"[tick1] patch 2 {field}" in line for line in comparison.differences), comparison.differences
+
+
+def test_the_mesh_the_outcomes_and_the_counters_of_a_lean_tick_are_compared_exactly():
+    assert not _lean_pair(lambda branch: branch["presses"]["tick1"].update(mesh_hash="cd" * 32)).identical
+    assert not _lean_pair(lambda branch: row_of(branch, "tick1")["counters_all"].update({"EXACT_WORK_PRIME": 999})).identical
+    assert not _lean_pair(lambda branch: branch["presses"]["tick1"]["profile_counters"].update({"PRODUCTION_DOMAINS": 1})).identical
+
+
+def test_the_class_counters_of_a_lean_tick_are_allowed_there_and_a_difference_in_the_confirm_is_not():
+    assert _lean_pair().identical
+    comparison = _lean_pair(lambda branch: branch["presses"]["confirm1"]["profile_counters"].update({"PRODUCTION_CONTENT_REGISTERED": 0}))
+
+    assert not comparison.identical and any("PRODUCTION_CONTENT_REGISTERED" in line and "[confirm1]" in line for line in comparison.differences)
+
+
+def test_a_confirm_after_lean_ticks_must_leave_no_trace_in_the_committed_mesh():
+    comparison = _lean_pair(lambda branch: branch["presses"]["confirm1"].update(mesh_hash="ef" * 32))
+
+    assert not comparison.identical and any("[confirm1] MESH HASH differs" in line for line in comparison.differences)
+
+
+def test_percentiles_and_the_pooled_tick_timing():
+    assert ab.percentile([1.0, 2.0, 3.0, 4.0, 5.0], 0.5) == 3.0 and ab.percentile([1.0, 2.0, 3.0, 4.0, 5.0], 0.9) == pytest.approx(4.6)
+    assert ab.percentile([2.0], 0.9) == 2.0
+    seconds = {
+        "base": {"exact:tick1": [1.0, 1.2], "exact:tick2": [1.1, 1.3], "exact:confirm1": [2.0]},
+        "branch": {"exact:tick1": [0.7, 0.8], "exact:tick2": [0.75, 0.9], "exact:confirm1": [2.0]},
+    }
+
+    timing = ab._case_timing(seconds)
+
+    assert timing["ticks p50"]["base"] == pytest.approx(1.15) and timing["ticks p50"]["branch"] == pytest.approx(0.775) and timing["ticks p50"]["n"] == 4
+    assert timing["ticks p90"]["change"] < 0 and "steps p50" not in timing
