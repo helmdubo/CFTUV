@@ -149,6 +149,7 @@ from .envelope_production_scan import (  # noqa: F401 - переэкспорт: 
     _scan,
     _slot,
     lean_ready,
+    released,
 )
 from .envelope_production_task import (  # noqa: F401 - переэкспорт: имена прежние
     _domain_of_preparation,
@@ -257,7 +258,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
                 entry.export_records.append(ledger_record(ledger))
                 if reply is not None and reply.production is not None:
                     entry.export_records.append(reply.production.backend_record)
-                return exc, None
+                return released(exc), None
         entry.export_records.append(ledger_record(ledger))
         entry.built_inputs.append(inputs)
     request = inputs[1]

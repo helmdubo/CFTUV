@@ -17,8 +17,15 @@
 под замком: сборщик выключает первый вошедший (он и запомнил, был ли тот включён), включает последний вышедший, и только если он был включён. Для одного потока и вложенных блоков это
 прежнее поведение до бита.
 
+ЗАМОРОЗКА ПОСЛЕ КНОПКИ (GC_FROZEN_AFTER_BUTTON_V1, `gc_paused(freeze=True)`). Выходя из паузы, первая же аллокация запускала одну сборку поколения 0 по ВСЕМУ, что нажатие
+накопило (~1.4 млн живых объектов на `cover.008`): 0.31-0.36 с в конце кнопки, до того как Blender перерисует окно; потом те же объекты обходили сборки поколений 1 и 2 (полная сборка ~0.5-0.66 с
+в случайный момент). Кнопка переносит накопленное в постоянное поколение (`gc.freeze()`) ПЕРЕД `gc.enable()`: обходить нечего. Цена - циклический мусор среди замороженных объектов никогда не
+собирается, поэтому заморозка допустима только вместе с PRODUCTION_REFUSAL_WITHOUT_TRACEBACK_V1 (`envelope_production_scan.released`): прежде нажатие оставляло ~110 тыс. объектов в циклах трасс отказов
+(кадры `run_production` держали рабочий набор), и заморозка утекала бы ~18 МБ за нажатие. С разорванными циклами мусора на конце нажатия 0, а клапан (`FREEZE_VALVE_OBJECTS`) не даёт замороженному
+расти без счёта: выше него заморозка пропускается, а замороженное возвращается сборщику (`gc.unfreeze()`), и обычный ход сборок догоняет его, как прежде. Тик ширины не замораживает: он повторяется.
+
 Исходы названы: `GC_PAUSED_DURING_BUTTON_V1` и `GC_PAUSED_DURING_WIDTH_TICK_V1` - ответ от паузы не зависит (проверено равенством ответа в поле), меняется только
-время и пик памяти процесса, пока кнопка или тик идут.
+время и пик памяти процесса, пока кнопка или тик идут; `GC_FROZEN_AFTER_BUTTON_V1` - постоянное поколение держит замороженное (`gc.get_freeze_count()`).
 """
 
 from __future__ import annotations
@@ -30,37 +37,59 @@ from contextlib import contextmanager
 
 GC_PAUSE_OUTCOME = "GC_PAUSED_DURING_BUTTON_V1"
 GC_PAUSE_WIDTH_OUTCOME = "GC_PAUSED_DURING_WIDTH_TICK_V1"
+GC_FROZEN_OUTCOME = "GC_FROZEN_AFTER_BUTTON_V1"
+#: Сколько объектов может держать постоянное поколение, прежде чем кнопка перестанет замораживать и вернёт замороженное сборщику (клапан от неограниченного роста: см. модуль).
+FREEZE_VALVE_OBJECTS = 6_000_000
 
 _LOCK = threading.Lock()
 #: Сколько блоков `gc_paused` открыто сейчас во всём процессе (все потоки).
 _OPEN_BLOCKS = 0
 #: Был ли сборщик включён, когда вошёл первый из открытых блоков: включит его последний вышедший.
 _ENABLE_AFTER_LAST = False
+#: Какой-то из открытых блоков просил заморозку (кнопка): последний вышедший заморозит накопленное перед включением сборщика.
+_FREEZE_ON_LAST = False
 
 
 @contextmanager
-def gc_paused():
+def gc_paused(freeze: bool = False):
     """Отключает циклический сборщик на время блока; возвращает прежнее состояние (`True` - был включён) и восстанавливает его в `finally`.
 
     Блоки разных потоков считаются: сборщик включает последний вышедший из них, и только если он был включён до первого вошедшего.
+    `freeze=True` (кнопка, GC_FROZEN_AFTER_BUTTON_V1): последний вышедший блок, пока среди открытых был такой, переносит накопленное в постоянное поколение перед `gc.enable()`
+    (если сборщик включает он сам; клапан постоянного поколения - `_freeze_or_release`).
     """
 
-    global _OPEN_BLOCKS, _ENABLE_AFTER_LAST
+    global _OPEN_BLOCKS, _ENABLE_AFTER_LAST, _FREEZE_ON_LAST
     with _LOCK:
         was_enabled = gc.isenabled()
         if _OPEN_BLOCKS == 0:
             _ENABLE_AFTER_LAST = was_enabled
+            _FREEZE_ON_LAST = False
             if was_enabled:
                 gc.disable()
+        _FREEZE_ON_LAST = _FREEZE_ON_LAST or bool(freeze)
         _OPEN_BLOCKS += 1
     try:
         yield was_enabled
     finally:
         with _LOCK:
             _OPEN_BLOCKS -= 1
-            if _OPEN_BLOCKS == 0 and _ENABLE_AFTER_LAST:
-                _ENABLE_AFTER_LAST = False
-                gc.enable()
+            if _OPEN_BLOCKS == 0:
+                freezing, _FREEZE_ON_LAST = _FREEZE_ON_LAST, False
+                if _ENABLE_AFTER_LAST:
+                    _ENABLE_AFTER_LAST = False
+                    if freezing:
+                        _freeze_or_release()
+                    gc.enable()
+
+
+def _freeze_or_release() -> None:
+    """Накопленное - в постоянное поколение, пока оно не выше клапана; выше - замороженное возвращается сборщику (догонят обычные сборки)."""
+
+    if gc.get_freeze_count() > FREEZE_VALVE_OBJECTS:
+        gc.unfreeze()
+        return
+    gc.freeze()
 
 
 def gc_paused_call(function):
@@ -72,7 +101,7 @@ def gc_paused_call(function):
 
     @functools.wraps(function)
     def wrapper(self, context):
-        with gc_paused():
+        with gc_paused(freeze=True):
             return function(self, context)
 
     return wrapper
@@ -93,4 +122,4 @@ def gc_paused_function(function):
     return wrapper
 
 
-__all__ = ("GC_PAUSE_OUTCOME", "GC_PAUSE_WIDTH_OUTCOME", "gc_paused", "gc_paused_call", "gc_paused_function")
+__all__ = ("FREEZE_VALVE_OBJECTS", "GC_FROZEN_OUTCOME", "GC_PAUSE_OUTCOME", "GC_PAUSE_WIDTH_OUTCOME", "gc_paused", "gc_paused_call", "gc_paused_function")
