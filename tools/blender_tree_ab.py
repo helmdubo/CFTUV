@@ -1296,7 +1296,8 @@ def run_presses(args, report: dict, state: dict) -> None:
         alpha = state["alphas"][label]
         before = len(state["keys"])
         paused = gc_paused is not None and args.gc_pause != "off" and (kind == "cold" or (width_pause and kind in ("step", "tick", "incr", "confirm")))
-        pause = gc_paused() if paused else nullcontext()
+        # GC_FROZEN_AFTER_BUTTON_V1: the button's pause freezes what the press accumulated (a tree that has the parameter); ticks and steps do not.
+        pause = gc_paused(**({"freeze": True} if kind == "cold" and "freeze" in inspect.signature(gc_paused).parameters else {})) if paused else nullcontext()
         lean = kind in ("tick", "incr") and lean_supported
         counters_before = process_counters()
         plan = None
