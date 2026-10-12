@@ -116,10 +116,15 @@ from .envelope_production_result import (  # noqa: F401 - переэкспорт
     _refusal,
     LeanResultError,
     REFRESH_COMMIT,
+    REFRESH_INCREMENTAL,
     REFRESH_LEAN,
+    PLACEMENT_REBASED,
+    PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED,
+    PRODUCTION_REFRESH_INCREMENTAL_SERVED,
     PRODUCTION_REFRESH_LEAN_DOMAINS,
     PRODUCTION_REFRESH_LEAN_FULL_DOMAINS,
     lean_result,
+    rebased_result,
 )
 from .envelope_production_scan import (  # noqa: F401 - переэкспорт: имена прежние
     _NO_BINDING,
@@ -501,7 +506,9 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
         else ([], {})
     )
     sent_cold = list(cold) if domain_pool is not None else []
-    if not (sent_cold or _worth_the_pool(shipped)):
+    # WIDTH_REFRESH_INCREMENTAL_V1: подмножество (домены вне сертификата) всегда идёт в пул, когда он есть: мало байт подготовок значит мало доменов, а не то, что пересылка не окупится (замер: пул быстрее и на
+    # четырёх доменах), и родитель считал бы их последовательно в потоке рядом с главным.
+    if not (sent_cold or run.served or _worth_the_pool(shipped)):
         shipped = []
     tasks = _worker_tasks(run, ready, shipped, sent_cold) if (shipped or sent_cold) else []
     pooled, failure = (
@@ -638,6 +645,8 @@ def _domain_results(entries, done, refused):
             results.append(_host_refusal(entry))
         elif entry.domain_id in refused:
             results.append(_host_refusal(entry, refused[entry.domain_id]))
+        elif entry.rebased:
+            results.append(entry.cached)
         elif entry.cached is not None:
             results.append(entry.cached.with_changes(seconds=0.0, placement=PLACEMENT_CACHED, clip_memo="", backend_record=entry.export_record))
         elif entry.domain_id in done:
@@ -695,7 +704,7 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
         sum(
             1
             for item in entries
-            if item.failure is None and (item.cached is not None or item.carried is not None)
+            if item.failure is None and (item.cached is not None or item.carried is not None) and not item.rebased
         ),
     )
     profile.set_counter(
@@ -758,6 +767,7 @@ def run_production(
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
     lean: bool = False,
+    served: dict | None = None,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -777,6 +787,10 @@ def run_production(
     `lean=True` — WIDTH_REFRESH_LEAN_V1: обновление БЕЗ работы, нужной только фиксации (воркер не пакует батч, результат не ложится ни в какой кэш). Геометрия, исходы доменов
     и счётчики материализатора те же побитово; зафиксированный ответ даёт только прогон с `lean=False`. Домены без готовой подготовки этой ревизии (холодные, с переносом
     из хранилища) идут полным путём в том же прогоне, и профиль называет их число (`PRODUCTION_REFRESH_LEAN_FULL_DOMAINS`).
+
+    `served` (WIDTH_REFRESH_INCREMENTAL_V1; только вместе с `lean=True`) - `{номер патча: результат}` доменов, которых прогон НЕ считает: результаты прежнего прогона, сдвинутые аффинным сертификатом на ширину
+    прогона (`envelope_width_rebase`). Они не сканируются, не уходят воркерам и не ложатся в кэши; остальные домены считаются как у lean-прогона, а подмножество всегда идёт в пул, когда он есть. Домен, чья
+    идентичность в этой ревизии не найдена, считается как обычно (подмена молча не делается). Итог - `refresh=REFRESH_INCREMENTAL`, число обслуженных и посчитанных - в профиле.
     """
 
     from .envelope_chart_band import policy_alpha
@@ -788,6 +802,8 @@ def run_production(
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
     if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
         raise ValueError(f"unknown decal topology law {topology_law!r}")
+    if served and not lean:
+        raise ValueError("served domains (WIDTH_REFRESH_INCREMENTAL_V1) belong to a lean run: a committed answer is computed whole")
     # Поток превью alpha считает на тех же подготовках, что и эта кнопка: сперва стоп и ожидание.
     if quiesce:
         controller.quiesce_preview("Build Decal Mesh")
@@ -828,6 +844,7 @@ def run_production(
         skeleton_backend=skeleton_backend,
         embedding_backend=embedding_backend,
         lean=lean,
+        served=dict(served or {}),
     )
     entries = _scan(run)
     _check_cancel(run)
@@ -857,8 +874,12 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
     _record_run_counters(profile, run.controller, builds_before, entries, results, cold)
     record_unpickled(profile, lazy_before, run.controller.lazy_unpickled)
     _record_content_counters(profile, run, entries)
+    rebased = sum(1 for entry in entries if entry.rebased)
     if run.lean:
         _record_lean_counters(profile, results)
+    if rebased:
+        profile.set_counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED, rebased)
+        profile.set_counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED, len(entries) - rebased)
     return ProductionRunV1(
         results=tuple(results),
         revision=run.revision,
@@ -873,16 +894,16 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
         kernel_backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
-        refresh=REFRESH_LEAN if run.lean else REFRESH_COMMIT,
+        refresh=REFRESH_INCREMENTAL if rebased else (REFRESH_LEAN if run.lean else REFRESH_COMMIT),
     )
 
 
 def _record_lean_counters(profile, results) -> None:
     """WIDTH_REFRESH_LEAN_V1: сколько доменов посчитано без фиксирующей работы и сколько пошло полным путём (кэш, холодный домен, перенос); пишется только у lean-прогона."""
 
-    lean = sum(1 for item in results if item.lean)
+    lean = sum(1 for item in results if item.lean and item.placement != PLACEMENT_REBASED)
     profile.set_counter(PRODUCTION_REFRESH_LEAN_DOMAINS, lean)
-    profile.set_counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS, sum(1 for item in results if item.is_materialized) - lean)
+    profile.set_counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS, sum(1 for item in results if item.is_materialized and item.placement != PLACEMENT_REBASED) - lean)
 
 
 # --------------------------------------------------------------------------
@@ -917,6 +938,8 @@ def production_timing_text(run: ProductionRunV1) -> str:
 def _lean_timing_suffix(run: ProductionRunV1) -> str:
     """` | WIDTH_REFRESH_LEAN_V1 L lean, F full`: класс обновления назван в строке панели (у COMMIT строки нет, она прежняя)."""
 
+    if run.refresh == REFRESH_INCREMENTAL:
+        return f" | {REFRESH_INCREMENTAL} {run.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED)} served by the certificate, {run.counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED)} recomputed"
     if run.refresh != REFRESH_LEAN:
         return ""
     return f" | {REFRESH_LEAN} {run.counter(PRODUCTION_REFRESH_LEAN_DOMAINS)} lean, {run.counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS)} full"
@@ -970,6 +993,8 @@ __all__ = (
     "PRODUCTION_POOL_UNPICKLE_CPU_US",
     "PRODUCTION_POOL_UNPICKLE_WALL_US",
     "PRODUCTION_PREPARATIONS_UNPICKLED",
+    "PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED",
+    "PRODUCTION_REFRESH_INCREMENTAL_SERVED",
     "PRODUCTION_PREPARATION_REUSED",
     "PRODUCTION_PREPARATION_UNPICKLE_CPU_US",
     "PRODUCTION_REFUSED",

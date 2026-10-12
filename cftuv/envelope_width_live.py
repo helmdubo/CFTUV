@@ -58,6 +58,10 @@ Decal Mesh»), а активный объект меняется. Инструм
 время перетаскивания (`request_drag_tick`, настройка «Exact ticks while dragging», по умолчанию выключена): такой кадр заменяет меш и образец на экране (`lean_exact_now`), кормит модель,
 а подтверждение пересчитывает и записывает зафиксированный ответ, отмена возвращает меш и образцы, какими они были перед первым кадром.
 
+ИНКРЕМЕНТАЛЬНЫЙ ТАКТ (WIDTH_REFRESH_INCREMENTAL_V1, `envelope_width_incremental`). Такты перетаскивания (`request_drag_tick`) заказываются как инкрементальные: lean-такт, который считает заново только домены, чей аффинный сертификат ширину не
+обслуживает (интервал ядра кончился, карантин, нет сертификата), а остальные берёт из прежних результатов, сдвинутых сертификатом на ширину такта (`envelope_width_rebase`). Структура обслуженных доменов не заверена, поэтому политика сверки
+периодически (число тактов, секунды, мало обслуженных) делает такт ПОЛНЫМ lean-тактом, а подтверждение всегда COMMIT. `CFTUV_INCREMENTAL=0` возвращает прежние lean-такты.
+
 ПАУЗА СБОРЩИКА (GC_PAUSED_DURING_WIDTH_TICK_V1, `envelope_gc_pause`). Циклический сборщик родителя стоит на паузе ровно на работе тика, а не на простое между ними: счёт в потоке (`compute`:
 тот же для точного заказа и подтверждения), применение на главном потоке (`_apply`) и подтверждение инструмента (`envelope_width_session.finish_adjust`). Сборщик общий
 на процесс, поэтому пока поток внутри `compute`, он выключен и для главного потока (тот в это время опрашивает таймер; тик длится секунды), а когда `compute` вернулся, включён: и пауза
@@ -76,7 +80,7 @@ from .envelope_alpha_preview import (
 )
 from .envelope_gc_pause import gc_paused_function
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
-from .envelope_production_result import REFRESH_COMMIT, REFRESH_LEAN
+from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
     capture_ownership,
     ensure_model,
@@ -85,6 +89,7 @@ from .envelope_width_mesh_preview import (
     note_decal_updates,
     note_exact_display,
     note_history,
+    plan_tick,
     preview_mesh_now,
     sample_key,
 )
@@ -107,6 +112,9 @@ NEED_BUILD = "Build Decal Mesh first for {name}"
 NO_PREVIEW = "the last Build Decal Mesh has no chain to draw"
 #: Точное lean-обновление (WIDTH_REFRESH_LEAN_V1) досчиталось, когда перетаскивание уже кончилось: подтверждение заказало зафиксированный ответ, и lean-кадр ему не нужен.
 LEAN_DRAG_ENDED = "WIDTH_REFRESH_LEAN_DRAG_ENDED"
+#: Классы обновления, которые заказывает перетаскивание (не зафиксированный ответ): их применяет `_apply_lean`. Инкрементальный (WIDTH_REFRESH_INCREMENTAL_V1) - заказ lean-такта, который политика сверки
+#: (`envelope_width_incremental.verification_reason`) сама делает полным, когда сверка пора; в обоих случаях результат - lean-такт, а полный ответ даёт подтверждение.
+DRAG_GRADES = (REFRESH_LEAN, REFRESH_INCREMENTAL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -537,15 +545,18 @@ def _begin(controller, request):
     skeleton_backend = record.skeleton_backend
     embedding_backend = record.embedding_backend
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
-    lean = target.grade == REFRESH_LEAN  # WIDTH_REFRESH_LEAN_V1
+    grade = target.grade
+    lean = grade in DRAG_GRADES  # WIDTH_REFRESH_LEAN_V1; инкрементальный такт (WIDTH_REFRESH_INCREMENTAL_V1) - тоже lean-прогон
     ensure_model(controller)  # модель образца на экране есть (миллисекунды numpy): первое обновление после кнопки тоже судит предсказание точным прогоном
     displayed, previous = controller.width_displayed, controller.width_model
     trust = controller.width_trust
+    state = controller.width_incremental  # запись сверки читает главный поток: поток счёта получает её значением
     offset = float(target.offset)
     key = sample_key(record, offset)
 
     @gc_paused_function  # GC_PAUSED_DURING_WIDTH_TICK_V1: пауза сборщика стоит ровно на счёте тика (поток живёт секунды), а не на простое между тиками; сборщик общий на процесс
     def compute(cancel):
+        plan = plan_tick(grade, displayed, previous, state, alpha)  # WIDTH_REFRESH_INCREMENTAL_V1: какие домены обслужит сертификат (`None` - тик не инкрементальный)
         try:
             run = run_production(
                 controller,
@@ -564,6 +575,7 @@ def _begin(controller, request):
                 skeleton_backend=skeleton_backend,
                 embedding_backend=embedding_backend,
                 lean=lean,
+                served=None if plan is None else plan.served,
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc
@@ -576,6 +588,7 @@ def _begin(controller, request):
             previous=previous,
             trust=trust,
             lean=lean,
+            plan=plan,
         )
 
     return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None))
@@ -593,7 +606,7 @@ def _validity(controller, request, job) -> str | None:
         return SOURCE_GONE
     if find_decal_object(source) is None:
         return DECAL_GONE
-    if request.payload.grade == REFRESH_LEAN and not controller.width_drag_active:
+    if request.payload.grade in DRAG_GRADES and not controller.width_drag_active:
         return LEAN_DRAG_ENDED
     return None
 
@@ -614,7 +627,12 @@ def _apply_lean(controller, request, job, live) -> None:
         raise PreviewUnavailable(reason)
     mesh_settings = getattr(bpy.context.scene, "hotspotuv_decal_mesh", None)
     if mesh_settings is not None:
-        mesh_settings.status = f"{REFRESH_LEAN}: exact geometry at width {float(request.alpha):.4g} (the commit follows on confirm)"
+        incremental = live.plan is not None and live.plan.incremental
+        mesh_settings.status = (
+            f"{REFRESH_INCREMENTAL}: {len(live.plan.served)} domains moved by the affine certificate (structure verified afterwards), the rest exact at width {float(request.alpha):.4g} (the commit follows on confirm)"
+            if incremental
+            else f"{REFRESH_LEAN}: exact geometry at width {float(request.alpha):.4g} (the commit follows on confirm)"
+        )
         mesh_settings.timing = f"{production_timing_text(live.run)} | live width {float(request.alpha):.4g}"
     set_preview(controller, None)  # точный кадр на ширине курсора: линии превью этой ширины не нужны
     tag_view3d_redraw()
@@ -622,7 +640,7 @@ def _apply_lean(controller, request, job, live) -> None:
 
 @gc_paused_function  # точное применение на главном потоке (COMMIT и lean-кадр): GC_PAUSED_DURING_WIDTH_TICK_V1
 def _apply(controller, request, job, live) -> None:
-    if request.payload.grade == REFRESH_LEAN:
+    if request.payload.grade in DRAG_GRADES:
         return _apply_lean(controller, request, job, live)
     import bpy
 
@@ -723,7 +741,7 @@ def request_drag_tick(context, controller, width: float) -> bool:
         return False
     if width_problem(context):
         return False
-    target = replace(target_of(settings, mesh_settings, controller.width_build), grade=REFRESH_LEAN)
+    target = replace(target_of(settings, mesh_settings, controller.width_build), grade=REFRESH_INCREMENTAL)
     if target_problem(controller, target):
         return False
     scheduler_of(controller).request(float(width), target)

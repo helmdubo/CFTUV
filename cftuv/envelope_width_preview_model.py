@@ -241,6 +241,9 @@ class PreviewSampleV1:
     image: object = None
     #: Смещение декали над поверхностью (метры), с которым построены позиции образца (`MeshArraysV1.offset`): ошибка кадра домена-развёртки пропорциональна ему (`_display_reach`).
     offset: float = 0.0
+    #: `{номер патча: результат домена}` прогонов, из которых сложен образец: ИХ сдвигает аффинный сертификат, когда инкрементальный такт (WIDTH_REFRESH_INCREMENTAL_V1) обслуживает домен, а не
+    #: считает его заново. Домены без сертификата с числами сюда не входят (сдвигать нечем). Результат домена - прежний прогон на СВОЕЙ ширине (`certificate.alpha`), не копия, сдвинутая ранее.
+    origins: object = None
 
     @property
     def vertex_count(self) -> int:
@@ -421,11 +424,13 @@ class DeviationV1:
 # --------------------------------------------------------------------------
 
 
-def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV1:
+def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | None = None) -> PreviewSampleV1:
     """Образец точного прогона: `arrays` — массивы меша тех же `results` (`build_mesh_arrays`), `key` — чья это геометрия.
 
     Домены берутся в порядке меша (`arrays.domain_keys`); запись интервала, подпись структуры и аффинный сертификат читаются из результата домена. Наклоны сертификата лежат в порядке вида
     домена (вершины по ключу батча, петли по граням), как и номера вершин меша и петли `uvs`, поэтому выравнивать их не нужно.
+
+    `origins` - результаты, которые образец хранит для инкрементального такта (`PreviewSampleV1.origins`); без них образец хранит результаты `results`, у которых есть сертификат с числами.
     """
 
     by_key = {(item.patch_id, item.domain_id): item for item in results}
@@ -464,6 +469,8 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
     positions = np.asarray(arrays.positions, dtype=np.float64).reshape(-1, 3)
     uvs = np.asarray(arrays.uvs, dtype=np.float64).reshape(-1, 2)
     image = mesh_image_of(arrays)
+    if origins is None:
+        origins = {int(item.patch_id): item for item in results if _has_slopes_to_move(item)}
     return PreviewSampleV1(
         key=tuple(key),
         alpha_text=str(alpha_text),
@@ -476,7 +483,15 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
         layout_digest=layout_digest_of(image, len(arrays.positions), len(arrays.uvs)),
         image=image,
         offset=float(getattr(arrays, "offset", 0.0) or 0.0),
+        origins=origins,
     )
+
+
+def _has_slopes_to_move(result) -> bool:
+    """Результат домена, который инкрементальный такт может сдвигать: материализован и несёт сертификат с числами."""
+
+    certificate = getattr(result, "parametric", None)
+    return result.is_materialized and certificate is not None and not certificate.markers and certificate.vertex_count > 0
 
 
 def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str) -> tuple:
@@ -766,6 +781,18 @@ def moving_patches(model: PreviewModelV1, held) -> frozenset:
     return frozenset(row[0] for row in model.rows) - frozenset(patch for patch, _reason in held)
 
 
+def served_mask(model: PreviewModelV1, alpha: float):
+    """Булев массив по доменам образца модели: модель двигает домен на ширине `alpha` (то же условие, что у кадра: интервал ядра, досягаемость, не в карантине). Инкрементальный такт обслуживает именно их."""
+
+    return _live_domains(model, float(alpha))
+
+
+def held_name(model: PreviewModelV1, number: int, alpha: float) -> str:
+    """Имя причины, по которой модель не двигает домен номер `number` на ширине `alpha` (причина построения, карантин либо конец интервала)."""
+
+    return _held_reason(model, number, float(alpha))[1]
+
+
 def moving_patches_at(model: PreviewModelV1 | None, alpha: float) -> frozenset:
     """То же без кадра и без записи в меш: что двигала бы модель на ширине `alpha`. Пусто — модели нет, ширина негодна либо ни один домен не жив."""
 
@@ -1011,9 +1038,11 @@ __all__ = (
     "deviation",
     "empty_ledger",
     "evaluate",
+    "held_name",
     "moving_patches",
     "moving_patches_at",
     "positions_and_uvs",
     "sample_of",
+    "served_mask",
     "shadow_prediction",
 )

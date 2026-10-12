@@ -314,6 +314,8 @@ class EnvelopeDebugSessionController:
         self.width_model = None
         self.width_model_refusal = None
         self.width_trust = None
+        #: `IncrementalStateV1` (WIDTH_REFRESH_INCREMENTAL_V1): сколько инкрементальных тактов прошло с последней полной сверки образца на экране и когда она была; `None` - сверки нет (полный такт).
+        self.width_incremental = None
         self.width_mesh_owner = None
         self.width_layout_generation = 0
         self.width_mesh_preview = None

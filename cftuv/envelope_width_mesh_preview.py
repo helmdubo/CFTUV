@@ -42,7 +42,22 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .envelope_production_result import REFRESH_LEAN
+from .envelope_gc_pause import gc_paused_function
+from .envelope_production_result import PLACEMENT_REBASED, REFRESH_INCREMENTAL, REFRESH_LEAN
+from .envelope_width_incremental import (
+    HELD_NOT_IN_BASE,
+    INCREMENTAL_MIN_SERVED_SHARE,
+    REASON_FEW_SERVED,
+    REASON_MODEL_FOREIGN,
+    REASON_NO_MODEL,
+    REASON_NO_ORIGINS,
+    IncrementalPlanV1,
+    IncrementalStateV1,
+    full_plan,
+    next_state,
+    verification_reason,
+)
+from .envelope_width_rebase import rebase_result
 from .envelope_width_preview_model import (
     DISPLAY_APPROXIMATE_ERROR_LIMIT,
     DOMAIN_DISPLAY_APPROXIMATE,
@@ -56,9 +71,11 @@ from .envelope_width_preview_model import (
     build_model,
     deviation,
     evaluate,
+    held_name,
     moving_patches,
     moving_patches_at,
     sample_of,
+    served_mask,
 )
 
 MODEL_DROPPED = "PREVIEW_MODEL_DROPPED"
@@ -119,6 +136,13 @@ class PreviewLogV1:
     lean_rebuilds: int = 0
     lean_frame_seconds_total: float = 0.0
     lean_origin_restores: int = 0
+    #: Инкрементальные такты (WIDTH_REFRESH_INCREMENTAL_V1), легшие в меш: сколько доменов обслужил сертификат и сколько посчитано заново (суммы по тактам), секунды сдвига; и такты, заказанные
+    #: инкрементальными, но ставшие полными lean-тактами (сверка), по названной причине.
+    incremental_ticks: int = 0
+    incremental_served: int = 0
+    incremental_recomputed: int = 0
+    incremental_rebase_seconds_total: float = 0.0
+    incremental_full: dict = field(default_factory=dict)
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -155,6 +179,8 @@ class DragOriginV1:
     model: object | None
     model_refusal: object | None
     trust: object | None
+    #: Запись сверки инкрементальных тактов (`IncrementalStateV1`) на тот же момент.
+    incremental: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +196,8 @@ class LiveRunV1:
     #: Журнал доверия после сверки этого прогона (`TrustLedgerV1`) и его события `((патч, домен, имя), ...)`.
     trust: object | None = None
     trust_events: tuple = ()
+    #: Решение тика (`IncrementalPlanV1`): инкрементальный такт (часть доменов обслужил сертификат) либо полный lean-такт под названной причиной; `None` - тик не заказывал инкрементальности.
+    plan: IncrementalPlanV1 | None = None
 
 
 @dataclass(slots=True)
@@ -229,10 +257,10 @@ def sample_key(record, offset: float) -> tuple:
     )
 
 
-def build_sample(results, arrays, key: tuple, alpha: float) -> PreviewSampleV1:
+def build_sample(results, arrays, key: tuple, alpha: float, origins: dict | None = None) -> PreviewSampleV1:
     """Образец точного прогона на `alpha` (текст ширины прогона — `str(float(alpha))`, как у `run_production`)."""
 
-    return sample_of(results, arrays, key=key, alpha_text=str(float(alpha)))
+    return sample_of(results, arrays, key=key, alpha_text=str(float(alpha)), origins=origins)
 
 
 def _model_or_refusal(base, ledger):
@@ -242,7 +270,67 @@ def _model_or_refusal(base, ledger):
         return PreviewRefusalV1(MODEL_BUILD_FAILED, f"{type(exc).__name__}: {exc}")
 
 
-def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None, lean=False) -> LiveRunV1:
+def plan_tick(grade, displayed, model, state, alpha: float) -> IncrementalPlanV1 | None:
+    """Решение тика (WIDTH_REFRESH_INCREMENTAL_V1): `None` - тик не заказывал инкрементальности (`grade` не `REFRESH_INCREMENTAL`), иначе `IncrementalPlanV1`.
+
+    Тик инкрементальный, когда политика сверки (`verification_reason`) не требует полного такта, у образца на экране есть своя модель и результаты, которые можно сдвигать, и сертификат обслуживает не меньше
+    `INCREMENTAL_MIN_SERVED_SHARE` его доменов. Обслуживает ровно те домены, что двигает кадр модели на этой ширине (`served_mask`: интервал ядра, досягаемость, не в карантине), поэтому обслуженное
+    равно кадру модели; остальные домены назывной причиной попадают в `held` и считаются заново. Чистая функция значений (её зовёт поток счёта): ни `bpy`, ни записи в сессию.
+    """
+
+    if grade != REFRESH_INCREMENTAL:
+        return None
+    reason = verification_reason(state, float(alpha))
+    if reason:
+        return full_plan(reason)
+    if model is None:
+        return full_plan(REASON_NO_MODEL)
+    if displayed is None or model.base is not displayed:
+        return full_plan(REASON_MODEL_FOREIGN)
+    if not displayed.origins:
+        return full_plan(REASON_NO_ORIGINS)
+    started = time.perf_counter()
+    alpha_text = str(float(alpha))
+    live = served_mask(model, alpha)
+    served: dict = {}
+    originals: dict = {}
+    held: dict = {}
+    for number, domain in enumerate(displayed.domains):
+        patch_id = domain.patch_id
+        if not live[number]:
+            held[patch_id] = held_name(model, number, alpha)
+            continue
+        origin = displayed.origins.get(patch_id)
+        if origin is None:
+            held[patch_id] = HELD_NOT_IN_BASE
+            continue
+        moved, why = rebase_result(origin, alpha_text)
+        if moved is None:
+            held[patch_id] = why
+            continue
+        served[patch_id] = moved
+        originals[patch_id] = origin
+    domains = len(displayed.domains)
+    if len(served) < INCREMENTAL_MIN_SERVED_SHARE * domains:
+        return full_plan(REASON_FEW_SERVED, domains)
+    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", served, originals, held, domains, time.perf_counter() - started)
+
+
+def _composite_origins(results, plan: IncrementalPlanV1) -> dict:
+    """Результаты, которые хранит образец инкрементального такта: у обслуженных домена - его ПРЕЖНИЙ результат (следующий такт сдвигает его, а не сдвинутую копию: ошибка округления не копится), у посчитанных - новый."""
+
+    origins = {}
+    for item in results:
+        if item.placement == PLACEMENT_REBASED:
+            origins[int(item.patch_id)] = plan.originals[item.patch_id]
+        elif item.is_materialized:
+            certificate = getattr(item, "parametric", None)
+            if certificate is not None and not certificate.markers and certificate.vertex_count > 0:
+                origins[int(item.patch_id)] = item
+    return origins
+
+
+def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None, lean=False, plan=None) -> LiveRunV1:
     """Хвост потока точного счёта: массивы меша, образец и модель (всё в потоке, главный поток только применяет).
 
     `lean=True` (WIDTH_REFRESH_LEAN_V1; так считает точное lean-обновление): массивы без отчётов (`build_mesh_arrays(reports=False)`: ни дайджеста, ни отчётов о плоскости,
@@ -250,22 +338,26 @@ def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None,
 
     Сверка предсказания прежней модели с этим прогоном (`deviation`), журнал доверия по её итогу (`advance_ledger`: опровергнутый домен — в карантин) и модель НОВОГО образца из его
     собственных аффинных сертификатов, с журналом. Других прогонов модели не нужно.
+
+    `plan` (`plan_tick`) - решение тика. Инкрементальный такт (`plan.incremental`): часть результатов - домены, сдвинутые сертификатом, и они равны предсказанию модели по построению, так что сверка
+    (`deviation`) ничего не судила бы; она не идёт, журнал доверия остаётся прежним, а образец хранит прежние результаты обслуженных доменов. Сверку делает полный lean-такт.
     """
 
     from .envelope_production_mesh import build_mesh_arrays
 
     arrays = build_mesh_arrays(run.results, offset, reports=not lean)
-    sample = build_sample(run.results, arrays, key, alpha)
+    incremental = plan is not None and plan.incremental
+    sample = build_sample(run.results, arrays, key, alpha, _composite_origins(run.results, plan) if incremental else None)
     check = None
     events: tuple = ()
-    if previous is not None:
+    if previous is not None and not incremental:
         try:
             check = deviation(previous, sample)
             trust, events = advance_ledger(trust, previous, check)
         except Exception as exc:  # noqa: BLE001 - сверка не роняет результат
             check = DeviationV1(sample.alpha, 0.0, 0.0, 0, 0, -1, (), f"PREVIEW_CHECK_FAILED:{type(exc).__name__}")
             events = ()
-    return LiveRunV1(run, arrays, sample, _model_or_refusal(sample, trust), check, trust, events)
+    return LiveRunV1(run, arrays, sample, _model_or_refusal(sample, trust), check, trust, events, plan)
 
 
 # --------------------------------------------------------------------------
@@ -331,6 +423,7 @@ def note_exact_display(controller, live: LiveRunV1) -> None:
     controller.width_displayed = live.sample
     controller.width_trust = live.trust
     controller.width_mesh_preview = None
+    controller.width_incremental = next_state(controller.width_incremental, live.plan, live.sample.alpha)
     model = live.model
     _count_model(controller, model)
     controller.width_model = model if isinstance(model, PreviewModelV1) else None
@@ -345,6 +438,7 @@ def note_button_display(controller, sample: PreviewSampleV1) -> None:
     controller.width_model_refusal = None
     controller.width_mesh_preview = None
     controller.width_trust = None
+    controller.width_incremental = IncrementalStateV1(0, sample.alpha)  # кнопка - полный зафиксированный ответ: от него и считается сверка инкрементальных тактов
 
 
 def ensure_model(controller) -> bool:
@@ -358,11 +452,16 @@ def ensure_model(controller) -> bool:
     displayed = controller.width_displayed
     if displayed is None or controller.width_model_refusal is not None:
         return False
+    _build_displayed_model(controller, displayed)
+    return controller.width_model is not None
+
+
+@gc_paused_function  # GC_PAUSED_DURING_WIDTH_TICK_V1: первая постройка модели на `cover.008` стоила 260-380 мс, потому что в неё попадал проход сборщика (установившаяся - 22 мс): пауза стоит на самой работе
+def _build_displayed_model(controller, displayed: PreviewSampleV1) -> None:
     model = _model_or_refusal(displayed, controller.width_trust)
     _count_model(controller, model)
     controller.width_model = model if isinstance(model, PreviewModelV1) else None
     controller.width_model_refusal = model if isinstance(model, PreviewRefusalV1) else None
-    return controller.width_model is not None
 
 
 def drop_model(controller, reason: str) -> None:
@@ -383,6 +482,7 @@ def drop_model(controller, reason: str) -> None:
     controller.width_displayed = None
     controller.width_mesh_preview = None
     controller.width_mesh_owner = None
+    controller.width_incremental = None
 
 
 def note_history(controller) -> None:
@@ -669,7 +769,9 @@ def lean_exact_now(controller, live) -> str:
         return problem
     same_layout = bool(base.layout_digest) and sample.layout_digest == base.layout_digest
     if controller.width_drag_origin is None and controller.width_drag_active:
-        controller.width_drag_origin = DragOriginV1(base, controller.width_model, controller.width_model_refusal, controller.width_trust)
+        controller.width_drag_origin = DragOriginV1(
+            base, controller.width_model, controller.width_model_refusal, controller.width_trust, controller.width_incremental
+        )
     try:
         _lay_down(decal, sample, same_layout=same_layout)
     except ProductionWriteError as exc:
@@ -679,9 +781,22 @@ def lean_exact_now(controller, live) -> str:
     capture_ownership(controller, decal, sample)
     previous = controller.width_mesh_preview
     seconds = time.perf_counter() - started
-    controller.width_mesh_preview = PreviewMeshStateV1(
-        sample.alpha, len(sample.domains), 0, (), REFRESH_LEAN, seconds, 1 if previous is None else previous.serial + 1
-    )
+    plan = live.plan
+    if plan is not None and plan.incremental:
+        recomputed = tuple(sorted(item.patch_id for item in live.run.results if item.placement != PLACEMENT_REBASED))
+        controller.width_mesh_preview = PreviewMeshStateV1(
+            sample.alpha, len(plan.served), len(recomputed), recomputed[:HELD_NAMES_SHOWN], REFRESH_INCREMENTAL, seconds, 1 if previous is None else previous.serial + 1
+        )
+        log.incremental_ticks += 1
+        log.incremental_served += len(plan.served)
+        log.incremental_recomputed += len(recomputed)
+        log.incremental_rebase_seconds_total += plan.rebase_seconds
+    else:
+        controller.width_mesh_preview = PreviewMeshStateV1(
+            sample.alpha, len(sample.domains), 0, (), REFRESH_LEAN, seconds, 1 if previous is None else previous.serial + 1
+        )
+        if plan is not None:
+            log.incremental_full[plan.reason] = log.incremental_full.get(plan.reason, 0) + 1
     log.lean_frames += 1
     log.lean_rebuilds += 0 if same_layout else 1
     log.lean_frame_seconds_total += seconds
@@ -708,6 +823,7 @@ def _restore_origin(controller, origin: DragOriginV1) -> bool:
         return False
     controller.width_displayed = base
     controller.width_model, controller.width_model_refusal, controller.width_trust = origin.model, origin.model_refusal, origin.trust
+    controller.width_incremental = origin.incremental
     controller.width_mesh_preview = None
     capture_ownership(controller, decal, base)
     log_of(controller).lean_origin_restores += 1
@@ -754,7 +870,14 @@ def restore_base_mesh(controller) -> bool:
 def status_lines(controller) -> tuple[str, ...]:
     lines = []
     state = controller.width_mesh_preview
-    if state is not None and state.outcome == REFRESH_LEAN:
+    if state is not None and state.outcome == REFRESH_INCREMENTAL:
+        shown = ", ".join(str(item) for item in state.held_patches)
+        more = "" if state.held <= len(state.held_patches) else ", ..."
+        lines.append(
+            f"Mesh {REFRESH_INCREMENTAL}: width {state.alpha:.4g}, {state.live} domains moved by the affine certificate (structure verified afterwards), {state.held} recomputed exactly (patch {shown}{more}); "
+            "the structure of the moved ones is checked by the next full tick (confirming recomputes and writes the committed result)"
+        )
+    elif state is not None and state.outcome == REFRESH_LEAN:
         lines.append(
             f"Mesh {REFRESH_LEAN}: exact geometry at width {state.alpha:.4g}, {state.live} domains (without the checks and reports of a commit; "
             "confirming recomputes and writes the committed result)"
@@ -796,6 +919,12 @@ def status_lines(controller) -> tuple[str, ...]:
     log = controller.width_preview_log
     if log is not None and log.last_check:
         lines.append(f"Last exact check: {log.last_check}")
+    if log is not None and (log.incremental_ticks or log.incremental_full):
+        full = ", ".join(f"{name} {count}" for name, count in sorted(log.incremental_full.items()))
+        lines.append(
+            f"Incremental ticks {REFRESH_INCREMENTAL}: {log.incremental_ticks} incremental ({log.incremental_served} domain-ticks moved by the affine certificate (structure verified afterwards), {log.incremental_recomputed} recomputed)"
+            + (f"; full lean ticks: {full}" if full else "")
+        )
     return tuple(lines)
 
 
@@ -836,6 +965,7 @@ __all__ = (
     "note_decal_updates",
     "note_exact_display",
     "note_history",
+    "plan_tick",
     "preview_mesh_now",
     "restore_base_mesh",
     "sample_key",

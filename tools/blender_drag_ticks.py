@@ -1,12 +1,16 @@
 """blender_drag_ticks: the exact refreshes of a width drag, timed call for call on the live path (headless).
 
     blender -b scene.blend --python-exit-code 1 --python tools/blender_drag_ticks.py -- --root <tree> --native-path <dir> --case building \
-        --workers 12 --grade commit|lean --ticks 20 --confirms 3 --out ticks.json
+        --workers 12 --grade commit|lean|incremental [--shadow] --ticks 20 --confirms 3 --out ticks.json
 
 WHAT IT MEASURES. After the cold button (the operator), `--ticks` exact refreshes at growing widths (+0.5 % of the cold width each) and `--confirms` commits after them. A refresh is one
 width step of the live path exactly as the product takes it: `envelope_width_live._begin` (main thread) -> `compute` in the thread (`run_production` + `finish_live_run`) -> `_validity` ->
 `_apply` (main thread). The scheduler's debounce (0.15 s) and poll are left out: they are constants of the product. `--grade commit` is the full path (what the base tree always does);
-`--grade lean` is WIDTH_REFRESH_LEAN_V1 (a tree that has `WidthLiveTargetV1.grade`) and needs the tool's drag to be active, which the script sets. The confirms are always the full path:
+`--grade lean` is WIDTH_REFRESH_LEAN_V1 (a tree that has `WidthLiveTargetV1.grade`) and needs the tool's drag to be active, which the script sets. `--grade incremental` is WIDTH_REFRESH_INCREMENTAL_V1 (a tree that has
+`envelope_width_incremental`): the tick the tool orders while dragging; the policy of the tree decides per tick whether it is incremental or a full lean tick (the verification), and the record names which (`plan`).
+`--shadow` (incremental only) additionally runs, after every tick and OUTSIDE its time, a full lean refresh at the same width that is never applied, and records how the incremental tick differs from it (served domains whose
+structure digest differs from the exact one = flips the tick did not see, the largest position / UV deviation of the served and of the recomputed domains, whether the mesh layout is the same): the evidence for the verification
+period. The confirms are always the full path:
 their time is the time "from release to the exact mesh" (plus the debounce). `--mode object` (default) leaves the edit mode after the cold button, as a drag in the object mode does (the record of the
 source check serves only that mode: the data of the edit mode is not in the mesh arrays yet); `--mode edit` drags in the edit mode.
 
@@ -39,6 +43,7 @@ import sys
 import threading
 import time
 import traceback
+from collections import Counter
 from pathlib import Path
 
 # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: the gates and the measurements of the tools check every domain whole (the product button samples). It costs the cold press only: the width steps reuse the snapshots.
@@ -64,6 +69,11 @@ LAPS = (
     ("cftuv.envelope_production_mesh", "mesh_content_digest", "apply.mesh_digest"),
     ("cftuv.envelope_width_live", "finish_live_run", "tail"),
     ("cftuv.envelope_width_live", "lean_exact_now", "apply.lean_frame"),
+    ("cftuv.envelope_width_live", "plan_tick", "plan"),
+    ("cftuv.envelope_width_mesh_preview", "rebase_result", "plan.rebase"),
+    ("cftuv.envelope_width_mesh_preview", "build_sample", "tail.sample"),
+    ("cftuv.envelope_width_mesh_preview", "_composite_origins", "tail.origins"),
+    ("cftuv.envelope_production_export", "_dispatch", "dispatch"),
     ("cftuv.envelope_width_mesh_preview", "build_model", "tail.model"),
     ("cftuv.envelope_width_mesh_preview", "deviation", "tail.deviation"),
 )
@@ -75,7 +85,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--native-path", default="")
     parser.add_argument("--case", default="building")
     parser.add_argument("--workers", type=int, default=12)
-    parser.add_argument("--grade", default="commit", choices=("commit", "lean"))
+    parser.add_argument("--grade", default="commit", choices=("commit", "lean", "incremental"))
+    parser.add_argument("--shadow", action="store_true", help="incremental only: after every tick, outside its time, a full lean refresh at the same width (never applied) and the difference between the two")
     parser.add_argument("--ticks", type=int, default=20)
     parser.add_argument("--confirms", type=int, default=3)
     parser.add_argument("--rel", type=float, default=0.005, help="each width step, as a share of the cold width")
@@ -309,20 +320,33 @@ class Session:
     def decal_mesh(self):
         return self.bpy.data.objects[self.mesh_module.decal_object_name(self.obj.name)].data
 
-    def target(self, lean: bool):
+    def target(self, lean, incremental: bool = False):
         target = self.live.target_of(self.settings, self.mesh_settings, self.controller.width_build)
-        if lean:
+        if incremental:
+            from cftuv.envelope_production_result import REFRESH_INCREMENTAL
+
+            target = dataclasses.replace(target, grade=REFRESH_INCREMENTAL)
+        elif lean:
             from cftuv.envelope_production_result import REFRESH_LEAN
 
             target = dataclasses.replace(target, grade=REFRESH_LEAN)
         return target
 
-    def step(self, alpha: float, *, lean: bool, laps: Laps) -> dict:
+    def shadow(self, alpha: float, applied_run) -> dict:
+        """A full lean refresh at `alpha` that is never applied, and how the applied (incremental) tick differs from it. Not part of any timing."""
+
+        self.index += 1
+        request = self.request_type(self.index, float(alpha), self.target(True), time.monotonic())
+        job = self.live._begin(self.controller, request)
+        job.join()
+        return shadow_difference(applied_run, job.result())
+
+    def step(self, alpha: float, *, lean: bool, laps: Laps, incremental: bool = False, shadow: bool = False) -> dict:
         """One width step of the live path, call for call; the record of its times."""
 
         self.index += 1
         laps.reset()
-        request = self.request_type(self.index, float(alpha), self.target(lean), time.monotonic())
+        request = self.request_type(self.index, float(alpha), self.target(lean, incremental), time.monotonic())
         self.gc_trace.window_reset()
         started = time.perf_counter()
         job = self.live._begin(self.controller, request)
@@ -340,14 +364,67 @@ class Session:
         except self.unavailable as exc:  # a named refusal of the apply (the scheduler records it the same way): the tick is counted with its reason
             outcome = str(exc)
         finished = time.perf_counter()
+        lap_record = laps.snapshot()  # before the shadow refresh: its laps are not this tick's
+        plan = getattr(live_run, "plan", None)
+        record_plan = None if plan is None else {
+            "mode": plan.mode, "reason": plan.reason, "served": len(plan.served or {}), "held": len(plan.held or {}), "held_reasons": dict(Counter((plan.held or {}).values())),
+            "rebase_seconds": round(plan.rebase_seconds, 6),
+        }
+        shadow_record = self.shadow(alpha, live_run) if (shadow and plan is not None and plan.incremental) else None
         return {
+            "plan": record_plan, "shadow": shadow_record,
             **self.gc_trace.window(started), "gc_enabled_after_step": gc.isenabled(), "started_at": started, "finished_at": finished, "rss_after_mb": round(working_set_bytes()[0] / 1048576, 1),
             "apply_outcome": outcome,
             "alpha": float(alpha), "lean": lean, "wall": finished - started, "begin_main": begun - started, "thread": float(job.seconds), "join_wait": joined - begun,
-            "apply_main": finished - applying, "run_production": float(live_run.run.wall_seconds), "laps": laps.snapshot(),
+            "apply_main": finished - applying, "run_production": float(live_run.run.wall_seconds), "laps": lap_record,
             "refresh": getattr(live_run.run, "refresh", "COMMIT"), "domains": len(live_run.run.results),
             "lean_domains": sum(1 for item in live_run.run.results if getattr(item, "lean", False)),
         }
+
+
+def shadow_difference(applied, exact) -> dict:
+    """The incremental tick (`applied`, a `LiveRunV1`) against the full lean refresh of the same width (`exact`): per domain, nothing hidden.
+
+    A SERVED domain is one the tick moved by its certificate (`placement == certificate`); its structure digest is the one of the verification base, so a digest that differs from the exact one is a FLIP the tick could not see.
+    Position / UV deviations are those of the domain views (batch coordinates, metres / tile units); `arrays` compares the mesh arrays of the two (same layout only)."""
+
+    import numpy as np
+
+    inc = {int(item.patch_id): item for item in applied.run.results}
+    full = {int(item.patch_id): item for item in exact.run.results}
+    served = sorted(patch for patch, item in inc.items() if item.placement == "certificate")
+    flips, position_served, uv_served, position_recomputed, uv_recomputed, recomputed_different = [], 0.0, 0.0, 0.0, 0.0, []
+    for patch, item in inc.items():
+        other = full.get(patch)
+        if other is None or item.view is None or other.view is None or item.view.vertices is None or other.view.vertices is None:
+            continue
+        flipped = item.structure_digest != other.structure_digest
+        if patch in served and flipped:
+            flips.append(patch)
+        same_shape = len(item.view.vertices.positions) == len(other.view.vertices.positions) and len(item.view.uvs) == len(other.view.uvs)
+        if not same_shape:
+            if patch not in served:
+                recomputed_different.append(patch)
+            continue
+        position = float(np.max(np.abs(np.asarray(item.view.vertices.positions) - np.asarray(other.view.vertices.positions)), initial=0.0))
+        uv = float(np.max(np.abs(np.asarray(item.view.uvs) - np.asarray(other.view.uvs)), initial=0.0))
+        if patch in served:
+            if not flipped:
+                position_served, uv_served = max(position_served, position), max(uv_served, uv)
+        else:
+            position_recomputed, uv_recomputed = max(position_recomputed, position), max(uv_recomputed, uv)
+            if position or uv or item.structure_digest != other.structure_digest or item.counters != other.counters:
+                recomputed_different.append(patch)
+    same_layout = applied.sample.layout_digest == exact.sample.layout_digest
+    arrays = {"same_layout": same_layout}
+    if same_layout:
+        arrays["position_max"] = float(np.max(np.abs(applied.sample.positions - exact.sample.positions), initial=0.0))
+        arrays["uv_max"] = float(np.max(np.abs(applied.sample.uvs - exact.sample.uvs), initial=0.0))
+        arrays["owners_equal"] = bool(np.array_equal(applied.sample.image.face_owner, exact.sample.image.face_owner))
+    return {
+        "served": len(served), "recomputed": len(inc) - len(served), "flipped_served": flips, "served_position_max": position_served, "served_uv_max": uv_served,
+        "recomputed_position_max": position_recomputed, "recomputed_uv_max": uv_recomputed, "recomputed_different": recomputed_different, "arrays": arrays,
+    }
 
 
 def reference_digest(mesh) -> str:
@@ -411,8 +488,10 @@ def main() -> int:
         laps = Laps()
         report["laps_found"] = install_laps(laps)
         lean_supported = hasattr(session.live.WidthLiveTargetV1, "grade")
-        if args.grade == "lean" and not lean_supported:
+        if args.grade in ("lean", "incremental") and not lean_supported:
             raise RuntimeError("this tree has no WIDTH_REFRESH_LEAN_V1 (WidthLiveTargetV1.grade)")
+        if args.grade == "incremental" and not hasattr(session.live, "DRAG_GRADES"):
+            raise RuntimeError("this tree has no WIDTH_REFRESH_INCREMENTAL_V1 (envelope_width_live.DRAG_GRADES)")
         report["cold_press_s"] = round(session.cold_press(), 4)
         if args.mode == "object" and session.bpy.context.mode != "OBJECT":
             session.bpy.ops.object.mode_set(mode="OBJECT")
@@ -431,7 +510,7 @@ def main() -> int:
         sampler.start()
         phase_started = time.perf_counter()
         for width in widths[: args.ticks]:
-            ticks.append(session.step(width, lean=args.grade == "lean", laps=laps))
+            ticks.append(session.step(width, lean=args.grade in ("lean", "incremental"), laps=laps, incremental=args.grade == "incremental", shadow=args.shadow))
         ticks_finished = time.perf_counter()
         gc_ticks = session.gc_trace.cumulative()
         session.controller.width_drag_active = False
@@ -455,6 +534,14 @@ def main() -> int:
                             "sampler_samples": sampler.samples}
         report["ticks"], report["confirms"] = ticks, confirms
         report["tick_wall"], report["confirm_wall"] = stats([item["wall"] for item in ticks]), stats([item["wall"] for item in confirms])
+        if args.grade == "incremental":
+            incremental = [item for item in ticks if item["plan"] and item["plan"]["mode"] == "WIDTH_REFRESH_INCREMENTAL_V1"]
+            verification = [item for item in ticks if item["plan"] and item["plan"]["mode"] != "WIDTH_REFRESH_INCREMENTAL_V1"]
+            report["incremental_tick_wall"], report["verification_tick_wall"] = stats([item["wall"] for item in incremental]), stats([item["wall"] for item in verification])
+            report["verification_reasons"] = dict(Counter(item["plan"]["reason"] for item in verification))
+            report["incremental_ticks"], report["verification_ticks"] = len(incremental), len(verification)
+            report["incremental_served"] = stats([float(item["plan"]["served"]) for item in incremental])
+            report["incremental_held"] = stats([float(item["plan"]["held"]) for item in incremental])
         report["tick_thread"] = stats([item["thread"] for item in ticks])
         report["tick_apply_main"] = stats([item["apply_main"] for item in ticks])
         report["tick_outcomes"] = {name: sum(1 for item in ticks if item["apply_outcome"] == name) for name in sorted({item["apply_outcome"] for item in ticks})}

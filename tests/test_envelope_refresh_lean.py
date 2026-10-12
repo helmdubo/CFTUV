@@ -400,7 +400,7 @@ def _exact(alpha, **kwargs):
     """Точный прогон на другой ширине с той же раскладкой, что у образца на экране (`_owned` кладёт ширину 0.25): то, что отдаёт поток счёта."""
 
     sample = _fold_sample(alpha)[0]
-    return SimpleNamespace(sample=dataclasses.replace(sample, **kwargs), model=None, check=None, trust=None, trust_events=())
+    return SimpleNamespace(sample=dataclasses.replace(sample, **kwargs), model=None, check=None, trust=None, trust_events=(), plan=None)
 
 
 def _relaid(sample):

@@ -647,3 +647,144 @@ def test_percentiles_and_the_pooled_tick_timing():
 
     assert timing["ticks p50"]["base"] == pytest.approx(1.15) and timing["ticks p50"]["branch"] == pytest.approx(0.775) and timing["ticks p50"]["n"] == 4
     assert timing["ticks p90"]["change"] < 0 and "steps p50" not in timing
+
+
+# --------------------------------------------------------------------------
+# an INCREMENTAL press (WIDTH_REFRESH_INCREMENTAL_V1): computed domains bit-identical, served domains within rounding of the exact view
+# --------------------------------------------------------------------------
+
+np = pytest.importorskip("numpy")
+
+
+def _dump_of(patches=(1, 2, 3), shift=None, **hashes):
+    """The arrays a press dumps: a view of 4 vertices per domain and the mesh; `shift` maps a patch to an offset added to its view positions."""
+
+    data = {}
+    for patch in patches:
+        data[f"pos_{patch}"] = np.arange(12, dtype=float).reshape(4, 3) + patch
+        data[f"uv_{patch}"] = np.arange(8, dtype=float).reshape(4, 2) / 10.0
+        if shift and patch in shift:
+            data[f"pos_{patch}"] = data[f"pos_{patch}"] + shift[patch]
+    data["mesh_positions"] = np.arange(30, dtype=float).reshape(10, 3)
+    data["mesh_uvs"] = np.arange(20, dtype=float).reshape(10, 2) / 7.0
+    record = {"faces_hash": "f", "seams_hash": "s", "tokens_hash": "t", "owners_hash": "o"}
+    record.update(hashes)
+    return data, record
+
+
+def _incremental_pair(served=(1, 2), base_dump=None, branch_dump=None, mutate=None, plan=None):
+    """Base: a full lean tick; branch: the same width as an incremental tick that served `served`."""
+
+    base, branch = make_report(labels=("cold", "incr1")), make_report(labels=("cold", "incr1"))
+    dumps = {}
+    for side, report, dump in (("base", base, base_dump), ("branch", branch, branch_dump)):
+        press = report["presses"]["incr1"]
+        press["kind"], press["lean"] = "incr", True
+        data, record = dump or _dump_of()
+        dumps[f"{side}.npz"] = data
+        press["dump"] = dict(record, path=f"{side}.npz")
+    for row in branch["presses"]["incr1"]["rows"]:
+        row["served"] = row["patch"] in served
+    branch["presses"]["incr1"]["plan"] = plan or {"mode": ab.REFRESH_INCREMENTAL, "reason": "", "served": len(served), "held": {}, "approximate": 0}
+    if mutate is not None:
+        mutate(base, branch, dumps)
+    return ab.compare_runs(base, branch, load=lambda path: dumps[path])
+
+
+def test_an_incremental_press_that_equals_the_full_lean_tick_is_identical_and_named():
+    comparison = _incremental_pair()
+
+    assert comparison.identical, comparison.differences
+    record = comparison.presses["incr1"]
+    assert (record["kind"], record["served"], record["computed"], record["flips"]) == ("incr", 2, 1, [])
+    assert record["served_max"] == {"position": 0.0, "uv": 0.0} and record["mesh_compare"]["same_layout"] is True
+
+
+def test_a_served_domain_is_compared_within_rounding_and_a_computed_one_bit_for_bit():
+    near = _incremental_pair(branch_dump=_dump_of(shift={1: 5e-10}))
+    far = _incremental_pair(branch_dump=_dump_of(shift={1: 5e-8}))
+    computed = _incremental_pair(branch_dump=_dump_of(shift={3: 1e-15}))
+
+    assert near.identical and near.presses["incr1"]["served_max"]["position"] == pytest.approx(5e-10)
+    assert not far.identical and any("patch 1 (served) position deviates" in line for line in far.differences)
+    assert not computed.identical and any("patch 3 (computed) position is not bit-identical" in line for line in computed.differences)
+
+
+def test_a_served_domain_whose_structure_flipped_is_a_named_note_and_a_failure_only_if_the_mesh_layout_is_unexplained():
+    def flip(base, branch, dumps):
+        row_of(branch, "incr1", 1)["structure_digest"] = "another"
+        data = dumps["branch.npz"]
+        data["pos_1"] = np.zeros((6, 3))  # the flipped domain has another number of vertices
+
+    comparison = _incremental_pair(mutate=flip, branch_dump=_dump_of(faces_hash="other faces"))
+
+    assert comparison.identical, comparison.differences
+    assert any("FLIP" in note and "[1]" in note for note in comparison.notes) and comparison.presses["incr1"]["flips"] == [1]
+    assert not _incremental_pair(branch_dump=_dump_of(faces_hash="other faces")).identical  # the layout moved with no flip to explain it
+    assert not _incremental_pair(branch_dump=_dump_of(seams_hash="other seams")).identical
+    assert not _incremental_pair(branch_dump=_dump_of(tokens_hash="other tokens")).identical
+
+
+def test_the_computed_domains_are_compared_on_every_answer_field_and_counter_the_served_ones_on_the_outcome():
+    for field in ("outcome", "detail", "diagnostics", "normal", "structure_digest"):
+        comparison = _incremental_pair(mutate=lambda base, branch, dumps, name=field: row_of(branch, "incr1", 3).update({name: "CHANGED"}))
+        assert not comparison.identical and any(f"patch 3 {field}" in line for line in comparison.differences), field
+    comparison = _incremental_pair(mutate=lambda base, branch, dumps: row_of(branch, "incr1", 3)["counters_all"].update({"EXACT_WORK_PRIME": 999}))
+    assert not comparison.identical
+    served_outcome = _incremental_pair(mutate=lambda base, branch, dumps: row_of(branch, "incr1", 1).update(outcome="REFUSED"))
+    assert not served_outcome.identical and any("patch 1 (served) outcome" in line for line in served_outcome.differences)
+    served_counters = _incremental_pair(mutate=lambda base, branch, dumps: row_of(branch, "incr1", 1)["counters_all"].update({"EXACT_WORK_PRIME": 999}))
+    assert served_counters.identical  # a served domain carries the counters of its verification base: they are not its answer
+
+
+def test_the_domain_set_of_an_incremental_press_is_compared():
+    comparison = _incremental_pair(mutate=lambda base, branch, dumps: branch["presses"]["incr1"]["rows"].pop())
+
+    assert not comparison.identical and any("DOMAIN SET" in line for line in comparison.differences)
+    assert not _incremental_pair(mutate=lambda base, branch, dumps: branch["presses"]["incr1"].update(materialized=2)).identical
+
+
+def test_the_mesh_positions_of_an_incremental_press_are_compared_with_the_display_limit_only_where_a_developable_domain_moves():
+    def move_mesh(shift):
+        def apply(base, branch, dumps):
+            dumps["branch.npz"]["mesh_positions"] = dumps["branch.npz"]["mesh_positions"] + shift
+
+        return apply
+
+    assert _incremental_pair(mutate=move_mesh(5e-10)).identical
+    assert not _incremental_pair(mutate=move_mesh(5e-6)).identical
+    approximate = {"mode": ab.REFRESH_INCREMENTAL, "reason": "", "served": 2, "held": {}, "approximate": 1}
+    assert _incremental_pair(mutate=move_mesh(5e-6), plan=approximate).identical
+    assert not _incremental_pair(mutate=move_mesh(5e-4), plan=approximate).identical
+
+
+def test_the_owner_ordinals_of_the_served_domains_are_a_label_not_a_failure():
+    comparison = _incremental_pair(branch_dump=_dump_of(owners_hash="stale ordinals"))
+
+    assert comparison.identical and any("owner ordinals" in note for note in comparison.notes) and comparison.presses["incr1"]["mesh_compare"]["owners_equal"] is False
+
+
+def test_an_incremental_press_that_the_policy_made_a_full_lean_tick_is_compared_like_a_lean_tick():
+    def full(base, branch, dumps):
+        branch["presses"]["incr1"]["plan"] = {"mode": "WIDTH_REFRESH_LEAN_V1", "reason": "INCREMENTAL_VERIFY_PERIOD_TICKS", "served": 0, "held": {}}
+        branch["presses"]["incr1"]["profile_counters"].update({"PRODUCTION_REFRESH_LEAN_DOMAINS": 3, "PRODUCTION_CONTENT_REGISTERED": 0})
+        base["presses"]["incr1"]["profile_counters"]["PRODUCTION_CONTENT_REGISTERED"] = 3
+        for row in branch["presses"]["incr1"]["rows"]:
+            row.update(lean=True, content_digest="", semantic_digest="", vertex_normals_hash="")
+
+    comparison = _incremental_pair(served=(), mutate=full)
+
+    assert comparison.identical, comparison.differences
+    assert comparison.presses["incr1"]["kind"] == "incr" and "served" not in comparison.presses["incr1"]
+    assert not _incremental_pair(served=(), mutate=lambda base, branch, dumps: (full(base, branch, dumps), branch["presses"]["incr1"].update(mesh_hash="cd" * 32))).identical
+
+
+def test_an_incremental_drag_is_cold_incr_ticks_and_a_confirm_each_at_the_next_width():
+    assert ab.parse_presses("cold,incr,incr,confirm", 0.2239) == [
+        ("cold", "cold", 0.2239), ("incr1", "incr", 0.2261), ("incr2", "incr", 0.2283), ("confirm1", "confirm", 0.2305),
+    ]
+
+
+def test_the_domain_rows_name_the_domains_the_certificate_served():
+    assert ab.PLACEMENT_REBASED == "certificate" and ab.REFRESH_INCREMENTAL == "WIDTH_REFRESH_INCREMENTAL_V1"
+    assert all(prefix.startswith("PRODUCTION_") for prefix in ab.INCREMENTAL_COUNTER_PREFIXES)

@@ -352,6 +352,11 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "previous",
         "prime",
         "lean",
+        # WIDTH_REFRESH_INCREMENTAL_V1: решение тика (`plan_tick`: чистая функция значений, ни `bpy`, ни записи в сессию) читает класс заказа и запись сверки, захваченные `_begin` на главном потоке.
+        "plan",
+        "plan_tick",
+        "grade",
+        "state",
     }
 )
 
@@ -717,6 +722,48 @@ def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_ent
             if any(_called_names_of(call) == "write_preview_geometry" for call in calls):
                 frame_writers.add((path.name, function.name, any(_called_names_of(call) == "evaluate" for call in calls)))
     assert {item[:2] for item in frame_writers if item[2]} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, frame_writers
+
+
+def test_only_the_live_tick_serves_domains_by_the_certificate_and_only_the_rebase_module_makes_a_rebased_result():
+    """WIDTH_REFRESH_INCREMENTAL_V1: результат домена, сдвинутый сертификатом, существует только внутри тика перетаскивания и на экране.
+
+    Исполняемо: `rebased_result` зовёт ровно `envelope_width_rebase.py` (никто больше не собирает такую копию); `run_production(served=...)` зовёт ровно поток счёта живой ширины (`compute` в `_begin`), поэтому
+    кнопка, подтверждение и COMMIT-обновление не получают ни одного обслуженного домена; а сами модули сдвига и политики чистые (ни `bpy`, ни настроек, ни сессии).
+    """
+
+    makers, servers = set(), set()
+    for path in _python_files(HOST_PACKAGE):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.Call):
+                continue
+            name = _called_names_of(node)
+            if name == "rebased_result":
+                makers.add(path.name)
+            if name == "run_production" and any(keyword.arg == "served" for keyword in node.keywords):
+                servers.add(path.name)
+    assert makers == {"envelope_width_rebase.py"}, makers
+    assert servers == {"envelope_width_live.py"}, servers
+    for name in ("envelope_width_rebase.py", "envelope_width_incremental.py"):
+        leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / name)
+        assert not leaked, f"{name} импортирует {sorted(leaked)}: сдвиг и политика сверки чистые (их зовёт поток счёта)"
+    source = (HOST_PACKAGE / "envelope_width_incremental.py").read_text(encoding="utf-8")
+    assert "time" not in _imported_roots(HOST_PACKAGE / "envelope_width_incremental.py"), "политика сверки считает значения (путь ширины, число тактов), а не часы"
+    assert "INCREMENTAL_VERIFY_AFTER_TICKS" in source and "INCREMENTAL_VERIFY_AFTER_DISTANCE" in source
+
+
+def test_a_tick_that_serves_domains_is_never_a_committed_answer():
+    """Обслуженный сертификатом результат не ложится в кэши и не пишется писателем с квитанцией: lean-метка стоит на самом результате, а `run_production` отказывает `served` без `lean`.
+
+    Поведение (отказ, `LeanResultError` у кэшей, лишь lean-массивы) держит `tests/test_envelope_width_incremental.py`; здесь закреплено, что отказ стоит в коде прогона и что копия строится как lean-результат.
+    """
+
+    export = _parse(HOST_PACKAGE / "envelope_production_export.py")
+    run_production = next(node for node in ast.walk(export) if isinstance(node, ast.FunctionDef) and node.name == "run_production")
+    guard = [node for node in ast.walk(run_production) if isinstance(node, ast.If) and "served" in {item.id for item in ast.walk(node.test) if isinstance(item, ast.Name)} and "lean" in {item.id for item in ast.walk(node.test) if isinstance(item, ast.Name)}]
+    assert guard and any(isinstance(item, ast.Raise) for item in ast.walk(guard[0])), "served без lean не отказан"
+    result = _parse(HOST_PACKAGE / "envelope_production_result.py")
+    maker = next(node for node in ast.walk(result) if isinstance(node, ast.FunctionDef) and node.name == "rebased_result")
+    assert any(isinstance(node, ast.keyword) and node.arg == "lean" for node in ast.walk(maker)), "копия не помечена lean"
 
 
 def _imports_module(path: Path, module: str) -> bool:

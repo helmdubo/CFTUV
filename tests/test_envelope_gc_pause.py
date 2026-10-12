@@ -329,6 +329,16 @@ def test_the_width_tick_pause_sits_on_the_compute_the_apply_and_the_confirm_and_
     assert [node.name for node in begin.body if isinstance(node, ast.FunctionDef)] == ["compute"]  # поток исполняет ровно эту функцию (ThreadedPreviewJob)
 
 
+def test_the_model_build_at_the_tool_entry_is_paused_and_the_per_frame_entry_is_not():
+    """Пауза стоит на постройке модели (`_build_displayed_model`), а `ensure_model` (зовётся каждый кадр, обычно с готовой моделью) не помечен: между кадрами сборщик включён."""
+
+    assert _decorated_with(HOST / "envelope_width_mesh_preview.py", "gc_paused_function") == ["_build_displayed_model"]
+    tree = ast.parse((HOST / "envelope_width_mesh_preview.py").read_text(encoding="utf-8"))
+    ensure = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "ensure_model")
+    called = {item.func.id for item in ast.walk(ensure) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)}
+    assert "_build_displayed_model" in called and not ensure.decorator_list
+
+
 def test_only_the_button_the_pool_worker_and_the_width_tick_pause_the_collector():
     users = {
         path.name: _imports_of_the_pause(path)
@@ -339,6 +349,9 @@ def test_only_the_button_the_pool_worker_and_the_width_tick_pause_the_collector(
         "envelope_domain_pool.py": ["gc_paused"],
         "envelope_production_operator.py": ["gc_paused_call"],
         "envelope_width_live.py": ["gc_paused_function"],
+        # Вход инструмента (WIDTH_REFRESH_INCREMENTAL_V1): первая постройка модели образца на экране (`ensure_model`) на `cover.008` стоила 260-380 мс, потому что в неё попадал проход сборщика, установившаяся - 22 мс;
+        # это работа на главном потоке, а не простой, поэтому пауза стоит на самой постройке (`_build_displayed_model`), а не на `ensure_model`, который каждый кадр возвращается с готовой моделью.
+        "envelope_width_mesh_preview.py": ["gc_paused_function"],
         "envelope_width_session.py": ["gc_paused_function"],
     }  # планировщик (`envelope_alpha_preview`), его таймер и опрос сборщик не трогают: простой между событиями идёт при включённом
 

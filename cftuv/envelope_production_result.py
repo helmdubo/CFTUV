@@ -103,6 +103,15 @@ PLACEMENT_FALLBACK = "parent:ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
 #: `AUDIT`), и повтор лотереи привязки остаются: они могут отказать домен, то есть меняют ответ.
 REFRESH_COMMIT = "COMMIT"
 REFRESH_LEAN = "WIDTH_REFRESH_LEAN_V1"
+#: WIDTH_REFRESH_INCREMENTAL_V1. Третий класс: lean-обновление, которое считает ТОЛЬКО домены, чей аффинный сертификат ширину не обслуживает (интервал ядра кончился, домен в карантине журнала доверия, сертификата нет),
+#: а остальные домены (обслуженные) берёт из прежних результатов, сдвинутых сертификатом на ширину тика (`envelope_width_rebase`). Структура обслуженных доменов (тесселяция, силуэт, митра) не заверена, поэтому полную сверку делает
+#: периодический полный lean-такт и подтверждение (политика - `envelope_width_incremental`).
+REFRESH_INCREMENTAL = "WIDTH_REFRESH_INCREMENTAL_V1"
+#: Размещение обслуженного домена: его не считал никто в этом прогоне, результат прежнего прогона сдвинут сертификатом на ширину тика.
+PLACEMENT_REBASED = "certificate"
+#: Домены incremental-прогона: обслуженные сертификатом и посчитанные заново (в сумме - все домены прогона).
+PRODUCTION_REFRESH_INCREMENTAL_SERVED = "PRODUCTION_REFRESH_INCREMENTAL_SERVED"
+PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED = "PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED"
 #: Домены lean-прогона, посчитанные без фиксирующей работы, и домены того же прогона, что пошли полным путём (холодные либо с переносом из хранилища).
 PRODUCTION_REFRESH_LEAN_DOMAINS = "PRODUCTION_REFRESH_LEAN_DOMAINS"
 PRODUCTION_REFRESH_LEAN_FULL_DOMAINS = "PRODUCTION_REFRESH_LEAN_FULL_DOMAINS"
@@ -382,6 +391,23 @@ def lean_result(result: ProductionDomainResultV1) -> ProductionDomainResultV1:
     for name in _LAZY_FIELDS:
         state.pop(name, None)
     state["lean"] = True
+    copy = object.__new__(type(result))
+    copy.__dict__.update(state)
+    return copy
+
+
+def rebased_result(result: ProductionDomainResultV1, *, view, certificate) -> ProductionDomainResultV1:
+    """Lean-копия материализованного результата, СДВИНУТАЯ на другую ширину (`envelope_width_rebase`): `view` и `certificate` уже на ширине тика, остальное - поля прежнего прогона.
+
+    Это не новый ответ ядра, а его аффинное продолжение внутри заверенного интервала домена: размещение называет это (`PLACEMENT_REBASED`), батча, нормалей вершин и дайджеста у копии нет (как у lean-результата,
+    чтение - `LeanResultError`), и она не ложится ни в какой кэш. Счётчики, исход, подпись структуры и интервал - прежние: структура обслуженного домена не пересчитывалась.
+    """
+
+    state = dict(result.__dict__)
+    for name in _LAZY_FIELDS:
+        state.pop(name, None)
+    state.pop("heavy", None)
+    state.update(view=view, parametric=certificate, lean=True, placement=PLACEMENT_REBASED, seconds=0.0, clip_memo="", step_path="REBASED")
     copy = object.__new__(type(result))
     copy.__dict__.update(state)
     return copy

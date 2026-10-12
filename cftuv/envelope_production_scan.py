@@ -61,6 +61,8 @@ class _DomainEntryV1:
     export_records: list = field(default_factory=list, compare=False, repr=False)
     #: Вход `(снапшот, запрос)`, который родитель построил для холодного домена после ответа воркера (`_adopt_cold`): `_dispatch` пишет его в записи сборки.
     built_inputs: list = field(default_factory=list, compare=False, repr=False)
+    #: WIDTH_REFRESH_INCREMENTAL_V1: `cached` - результат, сдвинутый аффинным сертификатом (`envelope_width_rebase`), а не взятый из кэша сессии: домен не считается и не сканируется.
+    rebased: bool = False
 
     @property
     def export_record(self):
@@ -126,6 +128,8 @@ class _RunInputsV1:
     scan_records: dict = field(default_factory=dict)
     #: WIDTH_REFRESH_LEAN_V1: прогон заказал обновление без работы, нужной только фиксации (`lean_ready` решает, какие домены его получают).
     lean: bool = False
+    #: WIDTH_REFRESH_INCREMENTAL_V1: `{номер патча: результат, сдвинутый сертификатом на ширину прогона}` доменов, которых прогон не считает (`_scan` кладёт их в записи как готовые); остальные считаются как всегда.
+    served: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -420,6 +424,11 @@ def _scan(run: _RunInputsV1):
 
     entries = []
     for patch_id in run.patch_ids:
+        result = run.served.get(patch_id)
+        if result is not None and result.domain_id in run.selected_by_domain:
+            # WIDTH_REFRESH_INCREMENTAL_V1: домен обслужен сертификатом (идентичность домена - у самого результата, он про эту ревизию), ни записей, ни кэшей, ни выгрузки.
+            entries.append(_DomainEntryV1(patch_id, result.domain_id, frozenset(run.selected_by_domain[result.domain_id]), cached=result, rebased=True))
+            continue
         domain_id = _typed_value("patch-domain", run.revision, patch_id)
         selected = frozenset(run.selected_by_domain[domain_id])
         record = None if records is None else records.get(patch_id)
