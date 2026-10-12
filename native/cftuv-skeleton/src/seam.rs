@@ -348,7 +348,7 @@ pub(crate) fn time_entry_value(entry: (Option<EventTime>, TimeOutcome)) -> Value
 }
 
 fn queue_script(ctx: &mut ExactCtx<'_>, script: &Value) -> Wire<SkelResult<Value>> {
-    let zero = Rc::new(EventPoint { x: SqrtSum::zero(), y: SqrtSum::zero() });
+    let zero = Rc::new(EventPoint::new(SqrtSum::zero(), SqrtSum::zero()));
     let mut queue = EventQueue::new();
     let mut results = Vec::new();
     for op in list(script, "a queue script")? {

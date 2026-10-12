@@ -313,7 +313,7 @@ pub fn project(line: &SupportLine, point: &EventPoint) -> SqrtSum {
 }
 
 fn rational_point(point: Point) -> EventPoint {
-    EventPoint { x: SqrtSum::rational(&Rat::from_i64(point.0)), y: SqrtSum::rational(&Rat::from_i64(point.1)) }
+    EventPoint::new(SqrtSum::rational(&Rat::from_i64(point.0)), SqrtSum::rational(&Rat::from_i64(point.1)))
 }
 
 /// What the loop does at a call of the transaction.

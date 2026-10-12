@@ -82,7 +82,7 @@ fn compare_times_is_exact_on_a_root_and_equality_is_an_empty_difference() {
 fn the_queue_takes_a_whole_level_and_keeps_the_counts() {
     let mut world = World::new();
     let mut queue = EventQueue::new();
-    let point = Rc::new(EventPoint { x: SqrtSum::zero(), y: SqrtSum::zero() });
+    let point = Rc::new(EventPoint::new(SqrtSum::zero(), SqrtSum::zero()));
     for (tag, time) in [(0, 3), (1, 1), (2, 2), (3, 1), (4, 2), (5, 5)] {
         let event = CandidateEvent { kind: EventKind::Edge, time: Rc::new(rational_time(time, 1)), point: Rc::clone(&point), vertex: tag, peer: -1, edge: -1, span_unproven: false };
         queue.push(&mut world.ctx(), event).unwrap();

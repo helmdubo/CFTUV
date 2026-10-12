@@ -145,7 +145,7 @@ pub fn time_of(value: &Value) -> Wire<EventTime> {
 /// `[x, y]`.
 pub fn point_of(value: &Value) -> Wire<EventPoint> {
     let [x, y] = fixed::<2>(value, "a point")?;
-    Ok(EventPoint { x: sum_of(x, "a point x")?.clone(), y: sum_of(y, "a point y")?.clone() })
+    Ok(EventPoint::new(sum_of(x, "a point x")?.clone(), sum_of(y, "a point y")?.clone()))
 }
 
 /// A rational as the oracle holds it: a `Fraction` (the dividend of a time is one even when it is whole).

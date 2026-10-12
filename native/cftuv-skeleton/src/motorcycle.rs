@@ -417,7 +417,7 @@ impl MotorcycleGraph {
 
 /// The point of the ray at an offset: `origin + velocity * offset` (the stretch `_segment_box` boxes is the one between the points of two offsets).
 fn point_at(origin: &EventPoint, velocity: &(SqrtSum, SqrtSum), offset: &Rat) -> EventPoint {
-    EventPoint { x: origin.x.add(&velocity.0.scaled(offset)), y: origin.y.add(&velocity.1.scaled(offset)) }
+    EventPoint::new(origin.x.add(&velocity.0.scaled(offset)), origin.y.add(&velocity.1.scaled(offset)))
 }
 
 /// `_wall_hit(left, right, start_time, wall)`: when and where the vertex between the two lines meets the wall's segment after the start, or nothing.
@@ -501,7 +501,7 @@ fn apply_trace_crash(ctx: &mut ExactCtx<'_>, graph: &mut MotorcycleGraph, entry:
     let reach = upper_bound_of_time(&entry.time)?;
     graph.traces[position] = Trace {
         crash_time: Some(Rc::clone(&entry.time)),
-        crash_point: Some(Rc::new(EventPoint { x, y })),
+        crash_point: Some(Rc::new(EventPoint::new(x, y))),
         crash_kind: entry.kind,
         crash_target: entry.target,
         reach,
@@ -600,7 +600,7 @@ fn seed_traces(ctx: &mut ExactCtx<'_>, polygon: &Polygon, graph: &mut Motorcycle
             let before = (index + size - 1) % size;
             let left = SupportLine::with_speed(each.points[before], each.points[index], each.speeds[before].clone(), 0)?;
             let right = SupportLine::with_speed(each.points[index], each.points[(index + 1) % size], each.speeds[index].clone(), 0)?;
-            let origin = Rc::new(EventPoint { x: SqrtSum::rational(&Rat::from_i64(each.points[index].0)), y: SqrtSum::rational(&Rat::from_i64(each.points[index].1)) });
+            let origin = Rc::new(EventPoint::new(SqrtSum::rational(&Rat::from_i64(each.points[index].0)), SqrtSum::rational(&Rat::from_i64(each.points[index].1))));
             let trace = graph.march(ctx, vertex + index as i64, &left, &right, &zero, &origin)?;
             let exact = trace.outcome == TraceOutcome::Exact;
             graph.traces.push(trace);

@@ -5,17 +5,20 @@
 //! questions in the oracle's order (which signs, which radicals, which divisions, which hydration spends), because that order is the
 //! cost: the six budget articles, the memory tables and the sign counters are compared with the oracle's after the call.
 
+use std::cell::{OnceCell, RefCell};
 use std::rc::Rc;
 
 use cftuv_canon::Operation;
 use cftuv_core::exact::{self, ExactCtx, ExactError};
 use cftuv_core::num::{IBig, UBig};
+use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::{filtered_sign, scaled_difference_parts, SqrtSum, SIGN_FILTER_BITS};
 
 use crate::error::{SkelError, SkelResult};
 use crate::line::SupportLine;
 use crate::profile::{timed, Phase};
+use crate::pyval::Val;
 
 /// `EventTimeOutcome`: why a triple of lines gives no event (there is no silent return).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,6 +33,16 @@ pub enum TimeOutcome {
 pub struct EventTime {
     pub dividend: Rat,
     pub divisor: SqrtSum,
+    /// The conjugation of the divisor (what every division by `divisor * determinant` of the places at this time starts from), made on the first division and kept.
+    plan: RefCell<Option<Rc<DivisorPlan>>>,
+}
+
+/// The rounds of the conjugation of a divisor against one prime universe (`None`: the universe cannot make them), computed once for a time and shared by the
+/// divisions of all its places: the rounds depend on the radicands of the divisor alone, and a rational factor (the determinant of two lines) changes none of them.
+#[derive(Debug)]
+struct DivisorPlan {
+    universe: Vec<UBig>,
+    plan: Option<exact::ConjugationPlan>,
 }
 
 /// `EventPointV1`: two canonical sums.
@@ -37,6 +50,19 @@ pub struct EventTime {
 pub struct EventPoint {
     pub x: SqrtSum,
     pub y: SqrtSum,
+    /// `(x.terms, y.terms)` as the oracle's keys hold them, made on first use (a point is immutable, and the same point object is keyed again and again).
+    key: OnceCell<Val>,
+}
+
+impl EventPoint {
+    pub fn new(x: SqrtSum, y: SqrtSum) -> EventPoint {
+        EventPoint { x, y, key: OnceCell::new() }
+    }
+
+    /// `exact_point_key(point)`: the key of the point, made once.
+    pub fn key(&self) -> &Val {
+        self.key.get_or_init(|| Val::tuple(vec![Val::terms_of(&self.x), Val::terms_of(&self.y)]))
+    }
 }
 
 pub type TimeRef = Rc<EventTime>;
@@ -68,12 +94,24 @@ fn product(coefficient: i128, cofactor: i128) -> IBig {
 
 impl EventTime {
     pub fn new(dividend: Rat, divisor: SqrtSum) -> EventTime {
-        EventTime { dividend, divisor }
+        EventTime { dividend, divisor, plan: RefCell::new(None) }
     }
 
     /// `ZERO_TIME`: `0 / 1`.
     pub fn zero() -> EventTime {
-        EventTime { dividend: Rat::zero(), divisor: SqrtSum::rational(&Rat::one()) }
+        EventTime::new(Rat::zero(), SqrtSum::rational(&Rat::one()))
+    }
+
+    /// The conjugation plan of the divisor against `universe`, made on the first ask for a universe.
+    fn divisor_plan(&self, universe: &[UBig], products: &mut ProductMemo) -> Rc<DivisorPlan> {
+        if let Some(found) = self.plan.borrow().as_ref() {
+            if found.universe == universe {
+                return Rc::clone(found);
+            }
+        }
+        let made = Rc::new(DivisorPlan { universe: universe.to_vec(), plan: exact::conjugation_plan(&self.divisor, universe, products) });
+        *self.plan.borrow_mut() = Some(Rc::clone(&made));
+        made
     }
 
     /// `EventTimeV1.normalized`: the sign of the divisor is asked (and paid for), zero is `ZeroDivisorTimeError`, a negative divisor flips both.
@@ -83,9 +121,9 @@ impl EventTime {
             return Err(SkelError::ZeroDivisorTime);
         }
         if sign < 0 {
-            return Ok(EventTime { dividend: dividend.neg(), divisor: divisor.neg() });
+            return Ok(EventTime::new(dividend.neg(), divisor.neg()));
         }
-        Ok(EventTime { dividend, divisor })
+        Ok(EventTime::new(dividend, divisor))
     }
 
     /// `EventTimeV1.sign`: the sign of the dividend.
@@ -102,7 +140,7 @@ impl EventTime {
         let scale = first.coef.value();
         let scale = if scale.signum() < 0 { scale.neg() } else { scale.clone() };
         let factor = Rat::one().div(&scale).map_err(|_| ExactError::Internal("a zero scale"))?;
-        Ok(EventTime { dividend: self.dividend.mul(&factor), divisor: self.divisor.scaled(&factor) })
+        Ok(EventTime::new(self.dividend.mul(&factor), self.divisor.scaled(&factor)))
     }
 }
 
@@ -188,7 +226,7 @@ fn sliding_point_body(ctx: &mut ExactCtx<'_>, line: &SupportLine, along: &SqrtSu
     let (a, b) = (rat_of(i128::from(line.a)), rat_of(i128::from(line.b)));
     let x = moving.scaled(&a).add(&along.scaled(&b)).scaled(&scale);
     let y = moving.scaled(&b).sub(&along.scaled(&a)).scaled(&scale);
-    Ok(EventPoint { x, y })
+    Ok(EventPoint::new(x, y))
 }
 
 /// `_event_point(first, second, time, prime_universe=..., budget)`: the crossing of two moving lines at `time`. With a universe the divisions take their
@@ -199,43 +237,44 @@ pub fn event_point(ctx: &mut ExactCtx<'_>, first: &SupportLine, second: &Support
         return Err(SkelError::ParallelSupportLines);
     }
     crate::profile::count(crate::profile::Stat::EventPoints, 1);
-    crate::profile::count_seen(crate::profile::Stat::PlanDivisors, crate::profile::Stat::PlanDivisorsRepeated, || {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = cftuv_canon::fxhash::FxHasher::default();
-        time.divisor.canonical_form().hash(&mut hasher);
-        hasher.finish()
-    });
+    crate::profile::count_seen(crate::profile::Stat::PlanDivisors, crate::profile::Stat::PlanDivisorsRepeated, || time as *const EventTime as usize as u64);
     spend_hydration(ctx, first)?;
     let first_radical = timed(Phase::EventPointRadical, || exact::radical(ctx, &time.dividend, &first.q))?;
     let second_radical = timed(Phase::EventPointRadical, || exact::radical(ctx, &time.dividend, &second.q))?;
-    let (scale, x_numerator, y_numerator) = timed(Phase::EventPointArithmetic, || {
+    let (x_numerator, y_numerator) = timed(Phase::EventPointArithmetic, || {
         let right_first = time.divisor.scaled(&rat_of(first.c)).add(&first_radical);
         let right_second = time.divisor.scaled(&rat_of(second.c)).add(&second_radical);
-        let scale = time.divisor.scaled(&rat_of(determinant));
         let x_numerator = combined(&right_first, &rat_of(i128::from(second.b)), &right_second, &rat_of(i128::from(first.b)));
         let y_numerator = combined(&right_second, &rat_of(i128::from(first.a)), &right_first, &rat_of(i128::from(second.a)));
-        (scale, x_numerator, y_numerator)
+        (x_numerator, y_numerator)
     });
     let (x, y) = timed(Phase::EventPointDivide, || -> SkelResult<(SqrtSum, SqrtSum)> {
         Ok(match universe {
-            None => (exact::divided_by(ctx, &x_numerator, &scale)?, exact::divided_by(ctx, &y_numerator, &scale)?),
-            Some(universe) => divide_pair_with_prime_universe(ctx, &x_numerator, &y_numerator, &scale, universe)?,
+            None => {
+                let scale = time.divisor.scaled(&rat_of(determinant));
+                (exact::divided_by(ctx, &x_numerator, &scale)?, exact::divided_by(ctx, &y_numerator, &scale)?)
+            }
+            Some(universe) => divide_pair_by_time(ctx, time, determinant, &x_numerator, &y_numerator, universe)?,
         })
     })?;
-    Ok(EventPoint { x, y })
+    Ok(EventPoint::new(x, y))
 }
 
-/// `(x_numerator / scale, y_numerator / scale)` as the oracle computes them, one `_divide_with_prime_universe` after the other, with the conjugation of `scale`
-/// made ONCE: the primes of the rounds of that loop depend on the denominator alone, so both coordinates take them (and the product of the conjugates) from one
-/// plan. What the oracle's loops ask of the memory is replayed in their order: per division, `squarefree_split(prime)` for each prime of the plan, until one
-/// of them is not `(1, prime)` (then that division is `divided_by` on its original operands, as in the oracle). A plan the universe cannot make leaves both
-/// divisions to the oracle's loop itself, which knows how far it got before it left.
-fn divide_pair_with_prime_universe(ctx: &mut ExactCtx<'_>, x_numerator: &SqrtSum, y_numerator: &SqrtSum, scale: &SqrtSum, universe: &[UBig]) -> SkelResult<(SqrtSum, SqrtSum)> {
-    let plan = if scale.is_zero() { None } else { exact::conjugation_plan(scale, universe, ctx.products) };
-    let Some(plan) = plan else {
-        return Ok((exact::divide_with_prime_universe(ctx, x_numerator, scale, universe)?, exact::divide_with_prime_universe(ctx, y_numerator, scale, universe)?));
+/// `(x_numerator / scale, y_numerator / scale)` for `scale = time.divisor * determinant`, as the oracle computes them (one `_divide_with_prime_universe` after the other), with the
+/// conjugation of the denominator made ONCE per time: the primes of the rounds of that loop depend on the radicands of the denominator alone, and a rational factor (the
+/// determinant of two lines) changes none of them, so both coordinates of every place at this time take them (and the product of the conjugates) from the plan the time keeps.
+/// What the oracle's loops ask of the memory is replayed in their order: per division, `squarefree_split(prime)` for each prime of the plan, until one of them is not
+/// `(1, prime)` (then that division is `divided_by` on its original operands, as in the oracle). A plan the universe cannot make leaves both divisions to the oracle's loop
+/// itself, which knows how far it got before it left. `scale` is built only for those two fallbacks; the conjugate is the divisor's and the rational it ends with is the
+/// divisor's times the determinant. The quotient is the same value, whichever way its integers were reached.
+fn divide_pair_by_time(ctx: &mut ExactCtx<'_>, time: &EventTime, determinant: i128, x_numerator: &SqrtSum, y_numerator: &SqrtSum, universe: &[UBig]) -> SkelResult<(SqrtSum, SqrtSum)> {
+    let scale = || time.divisor.scaled(&rat_of(determinant));
+    let base = time.divisor_plan(universe, ctx.products);
+    let Some(plan) = base.plan.as_ref() else {
+        let scale = scale();
+        return Ok((exact::divide_with_prime_universe(ctx, x_numerator, &scale, universe)?, exact::divide_with_prime_universe(ctx, y_numerator, &scale, universe)?));
     };
-    let inverse = Rat::one().div(&plan.rational).map_err(|_| ExactError::Internal("a zero rational denominator"))?;
+    let inverse = Rat::one().div(&plan.rational.mul(&rat_of(determinant))).map_err(|_| ExactError::Internal("a zero rational denominator"))?;
     let mut quotients = Vec::with_capacity(2);
     for numerator in [x_numerator, y_numerator] {
         let mut agrees = true;
@@ -246,7 +285,7 @@ fn divide_pair_with_prime_universe(ctx: &mut ExactCtx<'_>, x_numerator: &SqrtSum
                 break;
             }
         }
-        quotients.push(if agrees { numerator.mul(&plan.conjugate, ctx.products).scaled(&inverse) } else { exact::divided_by(ctx, numerator, scale)? });
+        quotients.push(if agrees { numerator.mul(&plan.conjugate, ctx.products).scaled(&inverse) } else { exact::divided_by(ctx, numerator, &scale())? });
     }
     let y = quotients.pop().ok_or(ExactError::Internal("two quotients"))?;
     let x = quotients.pop().ok_or(ExactError::Internal("two quotients"))?;

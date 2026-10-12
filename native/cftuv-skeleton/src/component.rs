@@ -96,7 +96,7 @@ pub fn point_from_key(key: &Val) -> SkelResult<EventPoint> {
         }
         SqrtSum::from_terms(found).map_err(|error| SkelError::Unsupported(format!("a point key that is not canonical: {error:?}")))
     };
-    Ok(EventPoint { x: sum(key.get(0))?, y: sum(key.get(1))? })
+    Ok(EventPoint::new(sum(key.get(0))?, sum(key.get(1))?))
 }
 
 /// `normalize_dead_component(overlay, contact_keys=..., dead_refs=..., point_key=..., birth_kind=..., stale_reason=..., ambiguity_reason=...)`: the terminal 0/0 or the unique

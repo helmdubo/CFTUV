@@ -167,7 +167,7 @@ pub fn sum_repr(sum: &SqrtSum) -> String {
 /// `_event_point_key(event)` / `exact_point_key(point)`: `(x.terms, y.terms)`.
 pub fn exact_point_key(point: &EventPoint) -> Val {
     crate::profile::count_seen(crate::profile::Stat::PointKeys, crate::profile::Stat::PointKeysRepeated, || point as *const EventPoint as usize as u64);
-    Val::tuple(vec![Val::terms_of(&point.x), Val::terms_of(&point.y)])
+    point.key().clone()
 }
 
 /// `_time_key(time)`: `(canonical dividend, canonical divisor terms)`.
