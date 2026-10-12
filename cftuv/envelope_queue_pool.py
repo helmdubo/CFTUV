@@ -57,6 +57,7 @@ from .envelope_queue_export import (
     POOL_TASK_FALLBACK,
     POOL_UNAVAILABLE,
     POOL_WALL_STAGE,
+    POOL_WORKER_AFFINITY,
     POOL_WORKERS,
     CoverageCancelled,
     _measure,
@@ -461,6 +462,7 @@ def _record_pool_counters(
     profile.set_counter(
         POOL_INTERPRETER_REASON, getattr(interpreter, "reason_code", 0)
     )
+    profile.set_counter(POOL_WORKER_AFFINITY, int(getattr(run, "affinity", 0)))
 
 
 def _name_interpreter_fallback(run, tasks, staged) -> None:
