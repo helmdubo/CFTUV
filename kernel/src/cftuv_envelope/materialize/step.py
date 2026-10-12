@@ -51,6 +51,7 @@ from . import domain as domain_module
 from .domain import MaterializationV1
 from .interval import CERTIFIED
 from .memo import memo_enabled, memo_of
+from .parametric import ParametricRequestV1, parametric_enabled
 
 ENVIRONMENT_SWITCH = "CFTUV_INTERVAL_STEP"
 ENVIRONMENT_VERIFY = "CFTUV_INTERVAL_VERIFY"
@@ -239,8 +240,12 @@ class StepV1:
         return self.path == PATH_FAST
 
 
-def _materialize(prepared, coverage, arguments) -> MaterializationV1:
+def _materialize(prepared, coverage, arguments, templates=None, exact=False) -> MaterializationV1:
+    """Материализация домена на покрытии; `templates` (`{id(разбиение): шаблон}`) заказывает аффинный сертификат перетаскивания (`parametric`) из ЭТОГО прогона."""
+
     request, lift_law, topology_law, digests = arguments
+    # Только при заказе: подменная стадия без этого параметра (отказ ядра в тестах хоста) продолжает работать.
+    extra = {} if templates is None else {"parametric": ParametricRequestV1(templates, exact)}
     # Через модуль, а не по имени: подмена стадии (отказ ядра в тестах хоста, сверка) должна действовать и здесь.
     return domain_module.materialize_domain(
         prepared,
@@ -250,6 +255,7 @@ def _materialize(prepared, coverage, arguments) -> MaterializationV1:
         decal_topology_law=topology_law,
         digests=digests,
         certify=True,
+        **extra,
     )
 
 
@@ -290,13 +296,13 @@ def _full(prepared, alpha_text, arguments) -> MaterializationV1:
     return _materialize(prepared, _coverage(prepared, alpha_text), arguments)
 
 
-def _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates):
-    """Полный счёт с записью шаблона: `(результат, сертификат либо None)`."""
+def _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates, ordered=None):
+    """Полный счёт с записью шаблона: `(результат, сертификат либо None)`; `ordered` - `None` либо флаг точного режима - заказ аффинного сертификата перетаскивания."""
 
     recorder = _Recorder()
     with coverage_source(recorder):
         coverage = _coverage(prepared, alpha_text)
-    result = _materialize(prepared, coverage, arguments)
+    result = _materialize(prepared, coverage, arguments, None if ordered is None else recorder.templates, bool(ordered))
     bounds = result.coverage_bounds
     if (
         not result.is_materialized
@@ -322,7 +328,7 @@ def _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates):
     return result, certificate
 
 
-def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True) -> StepV1:
+def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True, parametric=False, parametric_exact=False) -> StepV1:
     """Шаг ширины (`_step_domain`) с именованным отказом: величина без канонической строки V2 даёт исход `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`.
 
     Покрытие (`wavefront.coverage`, закреплено за Rust) исключение не называет: оно выходит из шага и именуется ЗДЕСЬ, на границе ядра. Путь шага у
@@ -332,14 +338,14 @@ def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_to
     try:
         return _step_domain(
             prepared, alpha_text, request=request, near_planar_lift_law=near_planar_lift_law,
-            decal_topology_law=decal_topology_law, digests=digests,
+            decal_topology_law=decal_topology_law, digests=digests, parametric=parametric, parametric_exact=parametric_exact,
         )
     except ExactScalarTextCanonUnsupported as unsupported:
         STEP_COUNTERS["INTERVAL_FALLBACK_" + FALLBACK_REFUSED] += 1
         return StepV1(domain_module.canon_unsupported_refusal(unsupported), "FALLBACK:" + FALLBACK_REFUSED)
 
 
-def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True) -> StepV1:
+def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True, parametric=False, parametric_exact=False) -> StepV1:
     """Покрытие и материализация домена при `alpha_text`: из шаблона внутри заверенного интервала, иначе полным путём с записью шаблона.
 
     Ответ (`StepV1.result`) равен ответу `materialize_domain(prepared, conveyor_coverage(prepared, alpha_text), ...)` с `certify=True`, и цена
@@ -347,6 +353,8 @@ def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_t
     """
 
     arguments = (request, near_planar_lift_law, decal_topology_law, digests)
+    # Заказ аффинного сертификата перетаскивания: `None` - не заказан, иначе флаг точного режима (тесты теоремы).
+    ordered = bool(parametric_exact) if (parametric or parametric_exact) and parametric_enabled() else None
     memo = memo_of(prepared)
     if memo is None or not memo_enabled() or not step_enabled():
         STEP_COUNTERS["INTERVAL_FALLBACK_" + FALLBACK_DISABLED] += 1
@@ -361,7 +369,7 @@ def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_t
         if attempts >= TEMPLATE_ATTEMPT_LIMIT and not certificates:
             STEP_COUNTERS["INTERVAL_FALLBACK_" + FALLBACK_TEMPLATE] += 1
             return StepV1(_full(prepared, alpha_text, arguments), "FALLBACK:" + FALLBACK_TEMPLATE)
-        result, certificate = _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates)
+        result, certificate = _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates, ordered)
         if certificate is None and result.is_materialized:
             memo.put(key + ("attempts",), attempts + 1)
         STEP_COUNTERS["INTERVAL_FALLBACK_" + reason] += 1
@@ -369,7 +377,7 @@ def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_t
     source = _Instantiator(chosen)
     with coverage_source(source):
         coverage = _coverage(prepared, alpha_text)
-    result = _materialize(prepared, coverage, arguments)
+    result = _materialize(prepared, coverage, arguments, None if ordered is None else chosen.templates, bool(ordered))
     if coverage.outcome is not ConveyorOutcome.EXACT:
         STEP_COUNTERS["INTERVAL_FALLBACK_" + FALLBACK_REFUSED] += 1
         return StepV1(result, "FALLBACK:" + FALLBACK_REFUSED)

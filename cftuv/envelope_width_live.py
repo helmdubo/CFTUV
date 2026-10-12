@@ -43,24 +43,23 @@ Decal Mesh»), а активный объект меняется. Инструм
 НИЧЕГО НЕ ПРОПАДАЕТ МОЛЧА: нет сборки, смена плотности/допуска, правка меша, исчезнувший объект — строки статуса
 и счётчики планировщика (`status_lines`); ошибка потока — консоль и статус.
 
-ПРЕВЬЮ МЕША (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`, ПРИБЛИЗИТЕЛЬНОЕ, не сертифицировано). Между точными
+ПРЕВЬЮ МЕША (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`). Между точными
 пересчётами калбэк ползунка и модальный инструмент двигают НАСТОЯЩИЙ меш декали из модели (`preview_mesh_now`), а линии превью остаются
 только там, где меш не движется (`width_event_preview`, `PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`: придержанные, карантинные и не вошедшие
-в меш патчи; без модели — линии всех путей, как были). Модель строит поток точного счёта (хвост `compute`: массивы меша, образец, модель, сверка с прежней моделью и журнал доверия),
-поэтому главный поток только применяет; второй планировщик контроллера (`width_prime`, «затравка») считает ТОЧНЫЙ прогон на соседней
-ширине без записи в меш — из него и образца на экране строится первая модель. Затравка уступает дорогу настоящему заказу ширины (`hold`,
-`supersede`) и в меш не пишет никогда. Меш принадлежит модели, только пока его владение (`capture_ownership`) цело: точная запись фиксирует
+в меш патчи; без модели — линии всех путей, как были). Модель строится из АФФИННОГО СЕРТИФИКАТА одного точного прогона (ядро выпускает его вместе с результатом: наклон по ширине каждой вершины и петли UV):
+точный результат (хвост `compute`: массивы меша, образец, модель, сверка с прежней моделью и журнал доверия) заводит её сам, а образец кнопки получает модель при первом кадре (`ensure_model`).
+Затравочных прогонов нет: вход в инструмент ничего не ждёт. Меш принадлежит модели, только пока его владение (`capture_ownership`) цело: точная запись фиксирует
 его тут же после себя (`_apply`), а любое внешнее изменение (история, правка геометрии декали мимо нас — `note_depsgraph`) снимает модель
 с названной причиной, и точный путь продолжает работать без превью меша.
 
 КЛАССЫ ТОЧНОГО ОБНОВЛЕНИЯ (WIDTH_REFRESH_LEAN_V1, `WidthLiveTargetV1.grade`). `COMMIT` - полный путь (проверки, дайджесты, отчёты, кэши, квитанция, консоль): так считают подтверждение
 инструмента, ползунок и кнопка, и это зафиксированный ответ. `WIDTH_REFRESH_LEAN_V1` - то же обновление БЕЗ работы, нужной только фиксации (воркер не пакует батч, массивы меша без
-дайджеста и отчётов, результат не ложится ни в какой кэш): геометрия, исходы доменов и счётчики те же побитово. Lean всегда у затравки (она ничего не фиксирует) и у точных кадров во
+дайджеста и отчётов, результат не ложится ни в какой кэш): геометрия, исходы доменов и счётчики те же побитово. Lean — у точных кадров во
 время перетаскивания (`request_drag_tick`, настройка «Exact ticks while dragging», по умолчанию выключена): такой кадр заменяет меш и образец на экране (`lean_exact_now`), кормит модель,
 а подтверждение пересчитывает и записывает зафиксированный ответ, отмена возвращает меш и образцы, какими они были перед первым кадром.
 
 ПАУЗА СБОРЩИКА (GC_PAUSED_DURING_WIDTH_TICK_V1, `envelope_gc_pause`). Циклический сборщик родителя стоит на паузе ровно на работе тика, а не на простое между ними: счёт в потоке (`compute`:
-тот же для точного заказа, подтверждения и затравки), применение на главном потоке (`_apply`, `_apply_prime`) и подтверждение инструмента (`envelope_width_session.finish_adjust`). Сборщик общий
+тот же для точного заказа и подтверждения), применение на главном потоке (`_apply`) и подтверждение инструмента (`envelope_width_session.finish_adjust`). Сборщик общий
 на процесс, поэтому пока поток внутри `compute`, он выключен и для главного потока (тот в это время опрашивает таймер; тик длится секунды), а когда `compute` вернулся, включён: и пауза
 планировщика, и опрос, и рука на месте идут при включённом. Блоки потоков СЧИТАЮТСЯ (см. `envelope_gc_pause`), поэтому кнопка, вошедшая, пока счёт ещё летит, не получает сборщик обратно от счёта.
 """
@@ -79,19 +78,15 @@ from .envelope_gc_pause import gc_paused_function
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
-    PRIME_BASE_REPLACED,
     capture_ownership,
+    ensure_model,
     finish_live_run,
     lean_exact_now,
-    log_of,
-    next_prime_alpha,
     note_decal_updates,
     note_exact_display,
     note_history,
-    note_prime,
     preview_mesh_now,
     sample_key,
-    wants_prime,
 )
 from .envelope_width_mesh_preview import status_lines as mesh_preview_status_lines
 from .envelope_width_preview import (
@@ -154,15 +149,9 @@ class WidthLiveTargetV1:
     offset: float
     material_name: str
     dissolve_percent: float = 0.390625
-    #: `EXACT` — заказ точного результата в меш; `PRIME` — затравка модели: тот же точный прогон, но в меш он не пишется.
-    purpose: str = "EXACT"
     #: Класс обновления (WIDTH_REFRESH_LEAN_V1): `COMMIT` - полный путь, зафиксированный ответ (умолчание: подтверждение инструмента, ползунок, кнопка);
-    #: `WIDTH_REFRESH_LEAN_V1` - без работы, нужной только фиксации. Затравка всегда lean (в меш не пишется и ничего не фиксирует), как бы ни был задан класс.
+    #: `WIDTH_REFRESH_LEAN_V1` - без работы, нужной только фиксации.
     grade: str = REFRESH_COMMIT
-
-
-PURPOSE_EXACT = "EXACT"
-PURPOSE_PRIME = "PRIME"
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,8 +176,6 @@ class WidthPreviewStateV1:
 class _JobContextV1:
     record: LastProductionBuildV1
     pooled: bool
-    #: Образец на экране в момент старта затравки: её результат применяется, только если он всё ещё на экране.
-    base: object | None = None
 
 
 # --------------------------------------------------------------------------
@@ -550,9 +537,9 @@ def _begin(controller, request):
     skeleton_backend = record.skeleton_backend
     embedding_backend = record.embedding_backend
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
-    prime = target.purpose == PURPOSE_PRIME
-    lean = prime or target.grade == REFRESH_LEAN  # WIDTH_REFRESH_LEAN_V1: затравка ничего не фиксирует, и обновление, которое просили lean, тоже
-    displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_model
+    lean = target.grade == REFRESH_LEAN  # WIDTH_REFRESH_LEAN_V1
+    ensure_model(controller)  # модель образца на экране есть (миллисекунды numpy): первое обновление после кнопки тоже судит предсказание точным прогоном
+    displayed, previous = controller.width_displayed, controller.width_model
     trust = controller.width_trust
     offset = float(target.offset)
     key = sample_key(record, offset)
@@ -586,14 +573,12 @@ def _begin(controller, request):
             offset=offset,
             key=key,
             displayed=displayed,
-            aux=aux,
             previous=previous,
-            prime=prime,
             trust=trust,
             lean=lean,
         )
 
-    return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None, displayed))
+    return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None))
 
 
 def _validity(controller, request, job) -> str | None:
@@ -608,27 +593,15 @@ def _validity(controller, request, job) -> str | None:
         return SOURCE_GONE
     if find_decal_object(source) is None:
         return DECAL_GONE
-    if request.payload.purpose == PURPOSE_PRIME and controller.width_displayed is not job.context.base:
-        return PRIME_BASE_REPLACED
-    if request.payload.grade == REFRESH_LEAN and request.payload.purpose == PURPOSE_EXACT and not controller.width_drag_active:
+    if request.payload.grade == REFRESH_LEAN and not controller.width_drag_active:
         return LEAN_DRAG_ENDED
     return None
-
-
-@gc_paused_function
-def _apply_prime(controller, request, job, live) -> None:
-    """Затравка посчитана: образец и модель в сессию, меш не трогается (в него пишет только точный заказ ширины)."""
-
-    reason = note_prime(controller, job.context.base, live)
-    if reason:
-        raise PreviewUnavailable(reason)
-    request_prime(controller, request.payload)  # прямая через две точки уступает квадрату через три: вторая затравка с другой стороны
 
 
 def _apply_lean(controller, request, job, live) -> None:
     """Точное lean-обновление (WIDTH_REFRESH_LEAN_V1) посчитано во время перетаскивания: меш и образец на экране заменены им (`lean_exact_now`), класс назван в статусе.
 
-    Ни квитанции, ни дайджеста меша, ни консоли, ни затравки: это не зафиксированный ответ, его даёт подтверждение (COMMIT). Отмена инструмента возвращает то, что показывали перед
+    Ни квитанции, ни дайджеста меша, ни консоли: это не зафиксированный ответ, его даёт подтверждение (COMMIT). Отмена инструмента возвращает то, что показывали перед
     первым кадром. Меш, который кадр не вправе писать (чужой, в Edit), - названный отказ (`lean_exact_now`), меш не тронут.
     """
 
@@ -689,7 +662,6 @@ def _apply(controller, request, job, live) -> None:
     for line in receipt_console_lines(receipt, run.results):
         print(line, flush=True)
     set_preview(controller, None)  # точный результат на последней ширине применён: превью не нужно
-    request_prime(controller, target)  # модели следующего перетаскивания не хватает второго образца: затравка в фоне
 
 
 # --------------------------------------------------------------------------
@@ -727,58 +699,10 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             timers=_BpyTimers(),
             on_change=lambda _status: tag_view3d_redraw(),
             label="width",
-            hold=lambda: _in_flight(controller.alpha_preview) or _in_flight(controller.width_prime),
+            hold=lambda: _in_flight(controller.alpha_preview),
         )
         controller.width_live = scheduler
     return scheduler
-
-
-#: Пауза затравки: она не реагирует на движение руки, а ждёт её конца (`hold` ниже уступает настоящему заказу ширины).
-PRIME_DEBOUNCE_SECONDS = 0.05
-
-
-def prime_scheduler_of(controller) -> AlphaPreviewScheduler:
-    """Планировщик затравки модели: тот же класс и тот же `_begin`, но результат идёт в сессию, а не в меш."""
-
-    scheduler = controller.width_prime
-    if scheduler is None:
-        scheduler = AlphaPreviewScheduler(
-            begin=lambda request: _begin(controller, request),
-            apply=lambda request, job, live: _apply_prime(controller, request, job, live),
-            valid=lambda request, job: _validity(controller, request, job),
-            timers=_BpyTimers(),
-            on_change=lambda _status: tag_view3d_redraw(),
-            debounce=PRIME_DEBOUNCE_SECONDS,
-            label="preview model",
-            hold=lambda: bool(
-                (controller.width_live is not None and controller.width_live.busy) or _in_flight(controller.alpha_preview)
-            ),
-        )
-        controller.width_prime = scheduler
-    return scheduler
-
-
-def request_prime(controller, target: WidthLiveTargetV1) -> bool:
-    """Заказ затравки, если модели она нужна: ширина рядом с базой, точный прогон без записи в меш. `True` — заказано.
-
-    Условия: запись кнопки цела и согласна с настройками (`target_problem`), образец на экране есть и его ключ — этого меша, а нужда есть
-    (`wants_prime`: модели нет либо она прямая). Заказ ничего не пишет и не вмешивается в ширину: пока идёт настоящий заказ,
-    планировщик затравки ждёт (`hold`), а настоящий заказ снимает затравку (`supersede` в `schedule_width_live`).
-    """
-
-    record = controller.width_build
-    displayed = controller.width_displayed
-    if record is None or displayed is None or not wants_prime(controller) or target_problem(controller, target):
-        return False
-    if sample_key(record, target.offset) != displayed.key:
-        return False
-    alpha = next_prime_alpha(displayed, controller.width_aux)
-    if alpha is None:
-        return False
-    controller.width_prime_attempts += 1
-    log_of(controller).primes_requested += 1
-    prime_scheduler_of(controller).request(alpha, replace(target, purpose=PURPOSE_PRIME))
-    return True
 
 
 def request_drag_tick(context, controller, width: float) -> bool:
@@ -786,7 +710,7 @@ def request_drag_tick(context, controller, width: float) -> bool:
 
     Включается настройкой «Exact ticks while dragging» (`drag_exact_ticks`, по умолчанию выключена: пул занят и пока рука стоит). Заказ живёт, пока идёт перетаскивание
     (`width_drag_active`), и тот же планировщик отменяет его подтверждением: подтверждение заказывает зафиксированный ответ (COMMIT, полный путь), а меш lean-кадра
-    он переписывает целиком. Затравку lean-заказ не снимает: она готовит модель и важнее. Пока на экране нет образца точной записи, обновлять нечего.
+    он переписывает целиком. Пока на экране нет образца точной записи, обновлять нечего.
     """
 
     scene = getattr(context, "scene", None)
@@ -804,20 +728,6 @@ def request_drag_tick(context, controller, width: float) -> bool:
         return False
     scheduler_of(controller).request(float(width), target)
     return True
-
-
-def ensure_prime(context) -> bool:
-    """Вход инструмента ширины: у активного объекта своя декаль и запись кнопки — тогда затравка заказывается, если нужна."""
-
-    if width_problem(context):
-        return False
-    controller = _controller_of(context)
-    scene = getattr(context, "scene", None)
-    settings = getattr(scene, "hotspotuv_settings", None)
-    mesh_settings = getattr(scene, "hotspotuv_decal_mesh", None)
-    if controller is None or settings is None or mesh_settings is None or controller.width_build is None:
-        return False
-    return request_prime(controller, target_of(settings, mesh_settings, controller.width_build))
 
 
 def target_of(settings, mesh_settings, record: LastProductionBuildV1) -> WidthLiveTargetV1:
@@ -865,9 +775,6 @@ def schedule_width_live(settings, context) -> None:
         controller.supersede_preview(problem)
         scheduler.note_unavailable(problem)
         return
-    # Настоящий заказ ширины важнее затравки: она снята (результат выброшен), а меш пока двигает модель.
-    if controller.width_prime is not None:
-        controller.width_prime.supersede("the width is being changed")
     width_event_preview(controller, width, float(mesh_settings.offset))
     scheduler.request(width, target)
 

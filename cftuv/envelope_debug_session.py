@@ -295,11 +295,10 @@ class EnvelopeDebugSessionController:
         #: Имя источника, чью декаль сейчас адресуют инструменты ширины (активный объект, `retarget`): смена его
         #: снимает превью; запись кнопки (`width_build`) при этом остаётся, она про СВОЙ источник.
         self.width_target = None
-        #: Превью МЕША ширины (`envelope_width_mesh_preview`): образец точного прогона, чья геометрия лежит в меше, вспомогательные
-        #: образцы, приблизительная модель образца на экране (либо названный отказ), журнал доверия к её доменам, владение мешем
-        #: (тождество, поколение и отпечаток раскладки точной записи), что меш показывает сейчас, счётчики и планировщик затравки.
+        #: Превью МЕША ширины (`envelope_width_mesh_preview`): образец точного прогона, чья геометрия лежит в меше (с наклонами его аффинного сертификата),
+        #: модель образца на экране (либо названный отказ), журнал доверия к её доменам, владение мешем
+        #: (тождество, поколение и отпечаток раскладки точной записи), что меш показывает сейчас и счётчики.
         #: Всё это данные ревизии и записи кнопки: смена ревизии и полный сброс их роняют.
-        self.width_prime = None
         #: Перетаскивание модального инструмента ширины идёт (`begin_adjust` .. `finish_adjust`): только пока оно идёт, действуют точные lean-кадры (WIDTH_REFRESH_LEAN_V1).
         self.width_drag_active = False
         #: `DragOriginV1`: что показывали перед первым точным lean-кадром перетаскивания (к этому возвращает отмена) либо `None`.
@@ -312,18 +311,16 @@ class EnvelopeDebugSessionController:
         """Образцы, модель, журнал доверия, владение мешем и состояние кадра превью меша забыты (ревизия сменилась, сессия сброшена, файл загружен)."""
 
         self.width_displayed = None
-        self.width_aux = ()
         self.width_model = None
         self.width_model_refusal = None
         self.width_trust = None
         self.width_mesh_owner = None
         self.width_layout_generation = 0
         self.width_mesh_preview = None
-        self.width_prime_attempts = 0
         self.width_preview_log = None
 
     def _preview_schedulers(self) -> tuple:
-        return tuple(item for item in (self.alpha_preview, self.width_live, self.width_prime) if item is not None)
+        return tuple(item for item in (self.alpha_preview, self.width_live) if item is not None)
 
     def quiesce_preview(self, reason: str) -> None:
         """Останавливает фоновые счёты (превью alpha и живая ширина) и ждёт конца их потоков (перед кнопкой)."""

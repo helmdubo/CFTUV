@@ -130,6 +130,8 @@ class WeldV1:
     counters: tuple
     #: `(None, исход, деталь)`: находки про весь меш (в предупреждения квитанции).
     warnings: tuple
+    #: `((домен, домен соседа), ...)` закона конца стены (`WallPlanV1.partners`): чьи нормали входят в смещение узлов этого домена.
+    partners: tuple = ()
 
 
 def _dot(left, right) -> float:
@@ -268,6 +270,9 @@ class WallPlanV1:
     fallbacks: int
     worst_factor: float
     reasons: frozenset
+    #: `((домен, домен соседа), ...)`: смещение узла стены этого домена зависит от нормалей вершин ДОМЕНА-СОСЕДА (его нормаль в точке узла смешана вдоль его стены). Аффинность позиции узла от ширины
+    #: поэтому держится, лишь пока нормали соседа одни (плоский сосед); модель превью (`envelope_width_preview_model`) читает эти пары.
+    partners: tuple = ()
 
     @property
     def welded(self) -> int:
@@ -356,6 +361,7 @@ def plan_wall_nodes(domains) -> WallPlanV1:
     lifted = alone = fallbacks = 0
     worst = 0.0
     reasons: set = set()
+    partners: set = set()
     for ordinal, domain in enumerate(domains):
         for chain in walls[ordinal]:
             for at, local in enumerate(chain):
@@ -381,6 +387,7 @@ def plan_wall_nodes(domains) -> WallPlanV1:
                     continue
                 if not twin:
                     lifts[(ordinal, local)] = offset
+                    partners.add((ordinal, other_ordinal))
                     lifted += 1
                     continue
                 head = (ordinal, local)
@@ -388,7 +395,7 @@ def plan_wall_nodes(domains) -> WallPlanV1:
                 classes[head] = classes[(other_ordinal, beyond)] = head
                 miters[head] = offset
                 lifted += 2
-    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons))
+    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons), tuple(sorted(partners)))
 
 
 def weld_vertices(domains, offset: float) -> WeldV1:
@@ -464,6 +471,7 @@ def weld_vertices(domains, offset: float) -> WeldV1:
             (OUTCOME_WALL_MITER_FALLBACK, wall.fallbacks),
         ),
         warnings=tuple(warnings),
+        partners=wall.partners,
     )
 
 

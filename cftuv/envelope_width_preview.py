@@ -55,7 +55,7 @@ from dataclasses import dataclass
 
 PREVIEW_BINARY64_V1 = "PREVIEW_BINARY64_V1"
 
-#: Пока настоящий меш двигает модель (`PREVIEW_MESH_FROM_INTERVAL_V1`), линии считаются только для путей, которые меш НЕ двигает (патч придержан,
+#: Пока настоящий меш двигает модель (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`), линии считаются только для путей, которые меш НЕ двигает (патч придержан,
 #: в карантине, вне интервала либо не в модели вовсе); пропущенные пути названы счётчиком этого имени (`compute_width_preview`, `skip_patches`).
 PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1 = "PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1"
 

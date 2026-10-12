@@ -167,9 +167,13 @@ class MeshArraysV1:
     domain_vertex_index: tuple = ()
     domain_loop_counts: tuple = ()
     domain_tokens: tuple = ()
+    #: По записанным доменам (в порядке `domain_keys`): номера доменов-соседей, чьи нормали входят в смещение узлов стены этого домена (`WeldV1.partners`). В дайджест не входят.
+    domain_partners: tuple = ()
     #: `False` у lean-массивов (WIDTH_REFRESH_LEAN_V1): позиции, грани, UV, владельцы и швы те же побитово, а дайджест, счётчик обхода рёбер, отчёты о плоскости и шве
     #: не считались (`digest` пуст, `offset_counters` и `seam_counters` пусты). Писатель квитанции (`_receipt`) такие массивы не принимает.
     reports: bool = True
+    #: Смещение декали над поверхностью (метры), с которым построены позиции: его читает модель превью ширины (предел ошибки кадра домена-развёртки, `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`). В дайджест не входит.
+    offset: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,8 +380,19 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
         domain_vertex_index=tuple(domain_vertex_index),
         domain_loop_counts=tuple(domain_loop_counts),
         domain_tokens=tuple(domain_tokens),
+        offset=float(offset),
+        domain_partners=_partners_by_domain(weld.partners, len(entries)),
         reports=reports,
     )
+
+
+def _partners_by_domain(partners, count: int) -> tuple:
+    """`WeldV1.partners` (пары `(домен, сосед)`, отсортированы) по доменам: у каждого записанного домена кортеж его соседей."""
+
+    found: dict = {}
+    for owner, other in partners:
+        found.setdefault(owner, []).append(other)
+    return tuple(tuple(found.get(ordinal, ())) for ordinal in range(count))
 
 
 def _structure_token(view) -> str:

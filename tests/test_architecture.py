@@ -419,7 +419,7 @@ def _writer_references(path: Path) -> set[str]:
 def test_the_width_tool_never_writes_the_mesh_from_the_preview_path():
     """Линии превью не пишутся в меш: писатели точного результата зовут только точные пути (кнопка и точный результат живой ширины).
 
-    Превью МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`) пишет в меш другой писатель, `write_preview_geometry`, и о нём — следующий тест.
+    Превью МЕША (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`) пишет в меш другой писатель, `write_preview_geometry`, и о нём — следующий тест.
     """
 
     callers = {}
@@ -551,11 +551,28 @@ def test_a_refuted_domain_reaches_the_trust_ledger_and_the_next_model_is_built_u
     assert "trust" in keywords, "поток точного счёта обязан получить журнал доверия значением"
 
 
-def test_the_preview_model_is_never_called_a_certificate():
-    """Приблизительная модель превью (аудит ad6074f, F4) нигде не названа сертификатом: ни идентификатором, ни строкой исхода или статуса.
+#: Слова, в которых хост вправе называть `certificate`: исход, названный решением владельца (S6a), причины модели про сертификат ядра и ссылки на сам сертификат домена.
+_SANCTIONED_CERTIFICATE_WORDS = frozenset(
+    {
+        "PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1",
+        "DOMAIN_NO_CERTIFICATE",
+        "PARAM_NO_CERTIFICATE",
+        "DOMAIN_SHAPE_MISMATCH",
+        "PARAM_CERTIFICATE_SHAPE_MISMATCH",
+        "PARAM_CERTIFICATE_ALPHA_MISMATCH",
+        "_certificate_slopes",
+        "certificate",
+    }
+)
 
-    Сертифицирован только ИНТЕРВАЛ событий и структуры у ядра (R1); многочлен внутри него, его область доверия и самопроверка — эвристика
-    без доказанной границы ошибки. Имя, которое обещает больше, чем есть, — то, что аудит нашёл и что здесь закрыто исполняемо.
+
+def test_the_preview_model_names_the_certificate_only_as_the_kernel_artifact_and_says_the_structure_is_verified_afterwards():
+    """Модель превью не обещает больше, чем есть (аудит ad6074f, F4; пересмотрено S6a, `PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`).
+
+    Раньше слово «сертификат» было запрещено вовсе: многочлен через образцы — эвристика без границы ошибки. Теперь форму зависимости выпускает ядро: аффинный сертификат одного
+    прогона (`cftuv_envelope.materialize.parametric`), точный внутри заверенного интервала при неизменной структуре. Решения тесселяции, силуэта и митры сварки он НЕ заверяет, и это
+    остаётся апостериорной сверкой. Поэтому слово разрешено ровно в таких местах: исход, причины модели и ссылка на сам сертификат домена (`_SANCTIONED_CERTIFICATE_WORDS`), а КАЖДАЯ строка
+    статуса, которая его называет, обязана тут же сказать, на чём он стоит и что проверяется потом: «affine certificate» и «structure verified afterwards» либо «of one exact run».
     """
 
     assert not (HOST_PACKAGE / "envelope_width_certificate.py").exists(), "модель превью называется `envelope_width_preview_model`"
@@ -589,10 +606,128 @@ def test_the_preview_model_is_never_called_a_certificate():
                 words.append(node.name)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
                 words.append(node.value)
-        called = [word for word in words if "certificate" in word.lower()]
-        assert not called, f"{name} называет приблизительную модель сертификатом: {called}"
+        unsanctioned = []
+        for word in words:
+            if "certificate" not in word.lower() or word in _SANCTIONED_CERTIFICATE_WORDS:
+                continue
+            lowered = word.lower()
+            honest = "affine certificate" in lowered and ("structure verified afterwards" in lowered or "of one exact run" in lowered)
+            constant_name = word == word.upper() and "_" in word and "CERTIFICATE" in word and word in _SANCTIONED_CERTIFICATE_WORDS
+            if not (honest or constant_name):
+                unsanctioned.append(word)
+        assert not unsanctioned, f"{name} называет модель превью сертификатом там, где это не разрешено: {unsanctioned}"
 
 
+FORBIDDEN_PREVIEW_NAMES = frozenset(
+    {
+        "_newton",
+        "request_prime",
+        "ensure_prime",
+        "next_prime_alpha",
+        "note_prime",
+        "wants_prime",
+        "prime_scheduler_of",
+        "width_prime",
+        "width_aux",
+        "width_prime_attempts",
+        "PURPOSE_PRIME",
+        "PRIME_ATTEMPTS",
+        "CURVED_REACH_RATIO",
+        "CHORD_REACH_RATIO",
+        "CURVATURE_NOISE_ULPS",
+    }
+)
+
+
+def test_the_preview_model_is_read_from_the_certificate_never_fitted_and_never_primed():
+    """Форму зависимости от ширины даёт сертификат ядра из ОДНОГО прогона (S6a): подгонки многочлена по образцам, «досягаемости» модели и затравочных прогонов при входе в инструмент больше нет.
+
+    Возврат любого из прежних имён — возврат второго прогона на входе (0.8 с на `building`, 6 с на `cover.008`) и приблизительной формы там, где ядро знает точную.
+    """
+
+    found = []
+    for path in _python_files(HOST_PACKAGE):
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                names.append(node.name)
+            elif isinstance(node, ast.Name):
+                names.append(node.id)
+            elif isinstance(node, ast.Attribute):
+                names.append(node.attr)
+            elif isinstance(node, ast.alias):
+                names.append(node.name)
+            elif isinstance(node, ast.arg):
+                names.append(node.arg)
+            elif isinstance(node, ast.keyword) and node.arg:
+                names.append(node.arg)
+            found += [(path.name, name) for name in names if name in FORBIDDEN_PREVIEW_NAMES]
+    assert not found, f"вернулась подгонка или затравка превью: {sorted(set(found))}"
+
+
+def test_the_affine_certificate_is_computed_after_the_answer_and_never_inside_its_stages():
+    """Сертификат (`materialize.parametric`) считается ПОСЛЕ ответа и на своём бюджете: ни счётчики, ни статьи `EXACT_WORK_*`, ни дайджесты, ни память резки он не двигает.
+
+    Исполняемо: в `_materialize_domain` вызов `certificate_of` стоит ПОСЛЕ вычисления счётчиков (`_counters`), валидации и аудита, а в `parametric.py` резка в боковых точках идёт мимо памяти
+    резки и на `unlimited_reference_budget`, а не на бюджете домена.
+    """
+
+    materialize = REPO_ROOT / "kernel" / "src" / "cftuv_envelope" / "materialize"
+    body = next(node for node in ast.walk(_parse(materialize / "domain.py")) if isinstance(node, ast.FunctionDef) and node.name == "_materialize_domain")
+    where: dict = {}
+    for node in ast.walk(body):
+        if isinstance(node, ast.Call):
+            where.setdefault(_called_names_of(node), node.lineno)
+    assert "certificate_of" in where, "_materialize_domain не зовёт certificate_of"
+    for earlier in ("_counters", "validate_geometry_batch", "audit_batch", "_step_facts"):
+        assert earlier in where, f"_materialize_domain не зовёт {earlier}"
+        assert where["certificate_of"] > where[earlier], f"сертификат считается раньше {earlier}: он мог бы сдвинуть ответ"
+    source = (materialize / "parametric.py").read_text(encoding="utf-8")
+    assert "unlimited_reference_budget" in source and "clip_memo_disabled" in source, "боковые резки идут мимо памяти резки и на своём бюджете"
+
+
+def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_enters_a_committed_result():
+    """PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1: кадр модели (в нём приближённые домены-развёртки) существует только на экране.
+
+    Исполняемо: кадр модели (`evaluate`) зовёт ровно один вход главного потока — `preview_mesh_now` в `envelope_width_mesh_preview.py`; его позиции и UV (`positions_and_uvs`, `shadow_prediction`)
+    читают только сама модель; а `write_preview_geometry` зовут кадр модели (`preview_mesh_now`) и кадры самой базы (`base_frame`: отмена, lean-замена). Точный результат (кнопка, lean-такт, подтверждение) модуль
+    модели не импортирует вовсе: приближённые числа не попадают в `ProductionDomainResultV1`, образец и дайджест.
+    """
+
+    callers: dict = {}
+    for path in _python_files(HOST_PACKAGE):
+        for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call):
+                    name = _called_names_of(node)
+                    if name in ("evaluate", "positions_and_uvs", "shadow_prediction"):
+                        callers.setdefault(name, set()).add((path.name, function.name))
+    assert callers.get("evaluate", set()) >= {("envelope_width_mesh_preview.py", "preview_mesh_now")}
+    assert {item for item in callers["evaluate"] if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers["evaluate"]
+    for name in ("positions_and_uvs", "shadow_prediction"):
+        outside = {item for item in callers.get(name, set()) if item[0] != "envelope_width_preview_model.py"}
+        assert not outside, f"кадр модели ({name}) читает не модель: {sorted(outside)}"
+    importers = sorted(path.name for path in _python_files(HOST_PACKAGE) if _imports_module(path, "envelope_width_preview_model"))
+    assert importers == ["envelope_width_mesh_preview.py"], f"модель превью импортирует не только слой превью: {importers}"
+    frame_writers = set()
+    for path in _python_files(HOST_PACKAGE):
+        for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
+            calls = [node for node in ast.walk(function) if isinstance(node, ast.Call)]
+            if any(_called_names_of(call) == "write_preview_geometry" for call in calls):
+                frame_writers.add((path.name, function.name, any(_called_names_of(call) == "evaluate" for call in calls)))
+    assert {item[:2] for item in frame_writers if item[2]} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, frame_writers
+
+
+def _imports_module(path: Path, module: str) -> bool:
+    """Модуль импортирует `module` относительно пакета (`from .module import ...`) либо по полному имени."""
+
+    for node in ast.walk(_parse(path)):
+        if isinstance(node, ast.ImportFrom) and node.module and (node.module == module or node.module.endswith("." + module)):
+            return True
+        if isinstance(node, ast.Import) and any(alias.name.endswith(module) for alias in node.names):
+            return True
+    return False
 def _called_names_of(call: ast.Call) -> str:
     return call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", "")
 
@@ -611,7 +746,6 @@ _WIDTH_ENTRY_POINTS = (
     ("envelope_width_live.py", "draw_decal_width_rows", "width_problem"),
     ("envelope_width_live.py", "sync_width_field", "width_problem"),
     ("envelope_width_live.py", "follow_active_object", "width_problem"),
-    ("envelope_width_live.py", "ensure_prime", "width_problem"),
     ("envelope_width_live.py", "request_drag_tick", "width_problem"),
     ("envelope_width_live.py", "width_problem", "availability_problem"),
 )

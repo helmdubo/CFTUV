@@ -140,6 +140,7 @@ def produce_domain(
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             decal_topology_law=DecalTopologyLawV1(topology_law),
             digests=not defer,
+            parametric=True,  # аффинный сертификат перетаскивания: `CFTUV_PARAMETRIC=0` в окружении процесса его выключает
         )
         result = stepped.result
         if not result.is_materialized:
@@ -172,6 +173,7 @@ def produce_domain(
             alpha_interval=result.interval,
             structure_digest="" if result.structure is None else result.structure.digest,
             step_path=stepped.path,
+            parametric=result.parametric,
         )
         if defer:
             produced = (lean_result if lean else deferred_result)(produced).with_changes(seconds=time.perf_counter() - started)

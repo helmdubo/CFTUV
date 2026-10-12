@@ -12,6 +12,7 @@ from __future__ import annotations
 import pickle
 import random
 import sys
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -427,6 +428,30 @@ def test_real_workers_are_primed_by_the_cold_press_and_then_answer_by_key_as_the
         assert tuple(run.results) == tuple(sequential[alpha].results)  # ответ последовательного пути, поля сравнения целиком
     cold_bytes = first.counter(PRODUCTION_POOL_BYTES_RECEIVED)
     assert cold_bytes > runs[0][0].counter(PRODUCTION_POOL_BYTES_RECEIVED)  # холодный ответ несёт подготовки, шаг - лишь вид и сжатый батч
+
+
+def test_the_affine_certificate_travels_from_a_real_worker_as_the_sequential_path_made_it(_pool_always):
+    """Сертификат домена едет по трубе вместе с результатом (COMMIT и lean) и равен посчитанному в этом же процессе побитово: наклоны, ширина, причины."""
+
+    bundle = quad_row_bundle(ROW)
+    sequential = _production_run(bundle, alpha=0.4, workers=0)[0]  # последовательный путь закрывает общий пул: эталон считается ДО воркеров
+    _first, controller = _production_run(bundle, alpha=0.25)
+    pooled = _production_run(bundle, controller, alpha=0.4)[0]
+    lean = production.run_production(
+        controller, bundle, EDGES, 0.5, source_object_key="object", source_data_key="mesh", density=None, workers=2, lean=True
+    )
+    assert [item.placement for item in pooled.results] == ["worker"] * ROW and all(item.__dict__.get("lean") for item in lean.results)
+    for index, mine in enumerate(pooled.results):
+        theirs = sequential.results[index]
+        assert mine.parametric is not None and mine.parametric.markers == () and mine.parametric.vertex_count > 0 and mine.parametric.loop_count > 0
+        assert mine.parametric.alpha == theirs.parametric.alpha == Fraction("0.4")
+        assert bytes(mine.parametric.position_slopes) == bytes(theirs.parametric.position_slopes)
+        assert bytes(mine.parametric.loop_slopes) == bytes(theirs.parametric.loop_slopes)
+    for mine in lean.results:  # lean-результат (WIDTH_REFRESH_LEAN_V1) несёт сертификат тоже: модель строится из каждого точного кадра
+        assert mine.parametric is not None and mine.parametric.markers == () and mine.parametric.alpha == Fraction("0.5")
+        assert len(mine.parametric.position_slopes) == 3 * mine.parametric.vertex_count and len(mine.parametric.loop_slopes) == 2 * mine.parametric.loop_count
+    # Лишнего на трубе нет: точные величины режима `exact` в продуктовый сертификат не попадают.
+    assert all(item.parametric.exact is None for item in (*pooled.results, *lean.results))
 
 
 def test_a_cold_reply_carries_the_preparation_bytes_once_and_the_worker_keeps_the_same_preparation():

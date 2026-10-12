@@ -319,10 +319,10 @@ def _decorated_with(path, decorator):
     )
 
 
-def test_the_width_tick_pause_sits_on_the_compute_the_two_applies_and_the_confirm_and_on_nothing_else():
+def test_the_width_tick_pause_sits_on_the_compute_the_apply_and_the_confirm_and_on_nothing_else():
     """Работа тика под паузой, простой между тиками - нет: планировщик, его опрос, заказ и проверка валидности не помечены."""
 
-    assert _decorated_with(HOST / "envelope_width_live.py", "gc_paused_function") == ["_apply", "_apply_prime", "compute"]
+    assert _decorated_with(HOST / "envelope_width_live.py", "gc_paused_function") == ["_apply", "compute"]
     assert _decorated_with(HOST / "envelope_width_session.py", "gc_paused_function") == ["finish_adjust"]
     tree = ast.parse((HOST / "envelope_width_live.py").read_text(encoding="utf-8"))
     begin = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_begin")

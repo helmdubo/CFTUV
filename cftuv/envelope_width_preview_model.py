@@ -1,63 +1,59 @@
-"""Модель превью меша ширины: настоящий меш декали двигается между точными пересчётами, и каждое такое движение названо.
+"""Модель превью меша ширины из аффинного сертификата ядра: настоящий меш декали двигается между точными пересчётами, и каждое такое движение названо.
 
 ЗАЧЕМ. Пока владелец тянет ширину, точный пересчёт стоит секунду и больше, а линии превью (`envelope_width_preview`) — не меш. Модель
 позволяет за миллисекунды писать в СУЩЕСТВУЮЩИЙ меш декали позиции и UV на промежуточной ширине, пока точный счёт идёт в фоне, и точный
-результат потом заменяет превью. Исход назван `PREVIEW_MESH_FROM_INTERVAL_V1`: это ПРИБЛИЗИТЕЛЬНОЕ превью, а не сертифицированная
-геометрия, и каждая доля, в которой оно не сертифицировано, называется (правило 4 `AGENTS.md`).
+результат потом заменяет превью. Исход назван `PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`.
 
-ЧТО ЗАВЕРЕНО, А ЧТО НЕТ (аудит ad6074f, F4; разведено в именах: «сертифицировано» — только первое).
-  ЗАВЕРЕНО (R1, ядро): ИНТЕРВАЛ ширины домена, внутри которого нет событий покрытия и резки и структура домена та же
-  (`AlphaIntervalV1`, статус `CERTIFIED`). Модель его читает и не доказывает заново.
-  НЕ ЗАВЕРЕНО (эвристика этого модуля): ФОРМА зависимости позиций и UV от ширины ВНУТРИ интервала — многочлен через два либо три точных
-  образца (`PreviewModelV1`); доверительная область модели (`reach`, доля ширины базы: 10 % у кривого домена, 3 % у хорды); самопроверка
-  (`deviation`) — выборка в одной точке, а не граница ошибки. Интервал ядра не заверяет тесселяцию, силуэт, позиции источника, станции,
-  UV и диагонали граней; три образца не доказывают аффинность целой функции (дробно-линейный закон `f(a) = 0.01 / (1.11 - a)` ломает
-  любой фиксированный процент досягаемости: аудит приводит ошибку в 50 раз выше порога на 10 % ширины). Доказанных границ ошибки у
-  модели нет, и ни один текст не называет её «сертификатом».
+ОТКУДА ФОРМА. Раньше форму зависимости от ширины подбирали по двум-трём точным прогонам (многочлен через образцы, «досягаемость» модели, затравочные прогоны
+при входе в инструмент). Теперь ядро выпускает её из ОДНОГО прогона: аффинный сертификат (`cftuv_envelope.materialize.parametric`, `ParametricCertificateV1`) несёт
+ТОЧНЫЙ наклон по ширине позиции каждой вершины и произведений `u * alpha`, `v * alpha` каждой петли UV (внутри заверенного интервала с той же структурой они точно аффинны). Модель
+не считает ничего и ничего не подбирает: она читает наклоны из образца точного прогона и складывает их с базой. Затравок нет, вход в инструмент не ждёт
+второго прогона.
 
-ИЗ ЧЕГО СТРОИТСЯ. Из ТОЧНЫХ прогонов продуктового пути, которые уже посчитаны (`PreviewSampleV1`): прогон на экране (база, `alpha0`) и один либо
-два других прогона того же ключа (`alpha1`, `alpha2`). Модель ничего не считает сама и ядра не знает: она читает массивы меша
-(`envelope_production_mesh.MeshArraysV1`) и записанные факты домена (`alpha_interval`, `structure_digest`).
+ЧТО ЗАВЕРЕНО, А ЧТО НЕТ (разведено в именах: «сертифицировано» — только первое).
+  ЗАВЕРЕНО (ядро): ИНТЕРВАЛ ширины домена (`AlphaIntervalV1`, статус `CERTIFIED`: нет событий покрытия и резки) и АФФИННОСТЬ внутри него при неизменной структуре: значение при
+  alpha0 плюс наклон на сдвиг равны точному прогону на сдвинутой ширине ТОЧНО (`SqrtSumV1`, `kernel/tests/parametric_theorem.py`); хост различает только округление binary64
+  (позиция и наклон — по одному округлению точного).
+  НЕ ЗАВЕРЕНО: решения тесселяции, силуэта, положения вершин `src:` у хоста, диагоналей ячейки и закон митры сварки (`interval.UNCERTIFIED`). Структуру домена на другой ширине
+  проверяет СРАВНЕНИЕ апостериори, как раньше (подпись структуры ядра и токен локальных массивов): новый точный прогон судит предсказание модели (`deviation`), опровергнутый домен
+  идёт в карантин (`advance_ledger`), а точный результат в любом случае заменяет превью.
 
-ЧТО В МОДЕЛИ, ПО ДОМЕНУ. Домен смоделирован, когда (1) у него заверенный интервал ширины (`CERTIFIED`), а `alpha1` лежит строго внутри
-интервала БАЗЫ (между ними нет событий покрытия и резки: `AlphaIntervalV1.contains_exact`); (2) его структура в обоих прогонах та же
-(подпись структуры ядра и токен локальных массивов: грани, швы, ссылки вершин). Иначе он назван причиной (`DOMAIN_*`) и остаётся на последней
-точной геометрии. Внутри интервала позиции вершин и произведения `u * alpha`, `v * alpha` у ядра АФФИННЫ по ширине (`kernel/tests/
-test_width_affine_premise.py`), кроме вершин на рёбрах источника под резкой: там положение — дробно-линейная функция ширины (пересечение
-поворачивающейся прямой с неподвижной), и две точки дают лишь хорду. Поэтому при ДВУХ других прогонах модель берёт квадрат через три точки
-(`a1 * dt + a2 * dt^2`, ошибка третьего порядка), при одном — прямую; степень каждого домена записана (`degree`). Позиции меша — позиции
-батча плюс смещение декали, и смещение вдоль нормали вершины в ширину не аффинно (нормаль развёртки меняется): оно входит в ту же подгонку и
-даёт ошибку второго порядка, измеренную, а не заявленную.
+ДОМЕНЫ ОТОБРАЖЕНИЯ (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`, ПРИБЛИЖЁННЫЕ, названы отдельно от точных). Батч домена-развёртки аффинен так же точно, как плоского (ядро отдаёт те же числа и называет домен в
+`approximate`), но хост сдвигает вершины меша вдоль нормалей вершин (нормированная смесь, не рациональная) и митрой сварки. Кадр такого домена — ТОЧНАЯ аффинная часть (`P0 + s * dt`, UV как у
+остальных) плюс смещение, ЗАМОРОЖЕННОЕ на ширине сертификата: меш базы уже несёт смещение при `alpha0`, и оно просто остаётся. Ошибка кадра — изменение смещения за `dt`, порядка `offset * |dn/dalpha| * dt`
+(и митры соседа в узлах стены): метры, не округление. Поэтому такой домен: (1) назван `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1` в исходах модели, в кадре (`approximate_domains`) и в статусе — отдельно от точных;
+(2) живёт не дальше `DISPLAY_APPROXIMATE_REACH_RATIO` доли ширины базы и не дальше, чем ОЦЕНКА его ошибки остаётся в пределе `DISPLAY_APPROXIMATE_ERROR_LIMIT` (0.1 мм):
+`offset * rate * dt * DISPLAY_APPROXIMATE_ERROR_SAFETY` с `rate = |dn/dalpha|` из сертификата (ядро сверило его с конечной разностью собственных нормалей), `_display_reach`; дальше — `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_REACH_END`, и домен
+придержан на последней точной геометрии под этим именем; (3) судится и апостериори по тому же ПРЕДЕЛУ, а не по `DEVIATION_LIMIT_RATIO * alpha`: превысил — карантин журнала под
+именем `PREVIEW_DOMAIN_QUARANTINED_AFTER_REFUTATION`; (4) сосед по стене с такой развёрткой (`partners`) приближён по той же причине (его узлы стены смещает нормаль соседа) и берёт скорость нормали соседа.
+Кадр приближённого домена НИКОГДА не записывается как принятый результат: следующий точный счёт (lean-такт, подтверждение) заменяет его.
 
-ДОВЕРИТЕЛЬНАЯ ОБЛАСТЬ (`reach`). Интервал ядра заверяет структуру, а не форму зависимости, поэтому у модели своя область: квадрат без значимой
-кривизны (добавка на опорных ширинах не выше шума округления, `CURVATURE_NOISE_ULPS`) — аффинный домен, границы нет, кроме интервала; квадрат
-со значимой кривизной — `CURVED_REACH_RATIO` (десять процентов); прямая через две точки кривизны проверить не может — `CHORD_REACH_RATIO`
-(три процента). Это НАЧАЛЬНОЕ ДОВЕРИЕ, а не гарантия: за областью домен придержан под именем `PREVIEW_DOMAIN_BEYOND_MODEL_REACH`, а опровержение
-точным прогоном её СЖИМАЕТ (ниже).
-
-ЖУРНАЛ ДОВЕРИЯ И ПОВТОРНЫЙ ДОПУСК (аудит F5; `TrustLedgerV1`, `advance_ledger`). Домен, предсказание которого точный прогон опроверг
-(`deviation.refuted`), входит в КАРАНТИН: во всех моделях того же ключа образца он придержан под именем `PREVIEW_DOMAIN_QUARANTINED_AFTER_
-REFUTATION` и не двигается. Повторный допуск — по правилу: (1) каждое следующее точное обновление СЧИТАЕТ предсказание карантинного
-домена «в тени» (оно не пишется в меш) на ширине, не равной ни одной опорной ширине модели и лежащей в НОМИНАЛЬНОЙ области домена
-(интервал ядра и десять процентов, а не сжатая область); (2) предсказание в пределах `READMIT_ERROR_FRACTION` предела ошибки на расстоянии от
-базы не меньше `READMIT_MIN_DISTANCE_FRACTION` досягаемости, с которой домен вернётся, — ЧИСТАЯ сверка (у самой базы любая модель чиста);
-`READMIT_CLEAN_CHECKS` таких сверок возвращают домен с СЖАТОЙ областью `min(номинал * 0.5^k, 0.5 * расстояние опровержения)` (`k` — число
-опровержений; аффинный домен теряет освобождение от досягаемости и получает 10 %); (3) повторное опровержение (в том числе в тени) сжимает
-область ещё вдвое, а третье — снимает модель этого домена до следующего нажатия кнопки (`PREVIEW_DOMAIN_ABANDONED_AFTER_REFUTATIONS`).
-Журнал живёт, пока жив ключ образца, и забывается кнопкой «Build Decal Mesh».
+ЧТО НЕ ОБСЛУЖИВАЕТСЯ И ПОЧЕМУ (домен остаётся на последней точной геометрии под ИМЕНЕМ; линии превью показывают контур, а пересчёт ведёт точный путь).
+  * сертификат выпущен на другой ширине, чем образец (`PARAM_CERTIFICATE_ALPHA_MISMATCH`: перенесённый результат несёт наклоны чужой точки);
+  * названные ядром причины сертификата (`PARAM_*`): узел резки не аффинен, интервал не заверен, ... — имя берётся у сертификата;
+  * у результата нет сертификата (`PARAM_NO_CERTIFICATE`: результат перенесён на другую ревизию либо шаг ширины выключен);
+  * две петли одной сваренной вершины дали разные наклоны (`PARAM_WELD_SLOPE_DISAGREES`): сварка по равным позициям при alpha0 не держится на окне;
+  * у соседа по стене нет сертификата, и нормали его вершин неизвестны (`PARAM_NON_AFFINE_WELD_NEIGHBOUR_NORMAL`, закон `WALL_MITER_OFFSET_V1`);
+  * ширина вышла за интервал домена (`PARAM_INTERVAL_END`, в кадре).
 
 ФОРМУЛЫ (ровно как в коде; `dt = alpha - alpha0`, на `dt = 0` ответ — база БИТОВО):
-    позиция = P0 + a1 * dt + a2 * dt^2
-    uv      = uv0 + (e1 + e2 * dt) * dt / alpha        (произведение `uv * alpha` аффинно, поэтому делитель стоит ВНЕ многочлена)
+    позиция = P0 + s * dt                            (s — наклон сертификата, метры на метр; смещение декали над поверхностью — константа у плоского домена)
+    uv      = uv0 + (S - uv0) * dt / alpha            (S — наклон произведения `uv * alpha`: оно аффинно, поэтому делитель стоит ВНЕ многочлена)
 
-ГДЕ ПРЕВЬЮ ЖИВО. Вершина двигается, если ВСЕ домены, которым она принадлежит, смоделированы и не в карантине, а `alpha` строго внутри
-пересечения их областей; петля UV — если жив её домен. Остальные остаются на геометрии базы (последняя точная), и кадр называет их числом
-и номерами патчей. Если не жив ни один домен, кадр отказан именем (`PREVIEW_ALPHA_OUTSIDE_EVERY_INTERVAL` либо
-`PREVIEW_ALL_DOMAINS_QUARANTINED`) и равен базе.
+ГДЕ ПРЕВЬЮ ЖИВО. Вершина двигается, если ВСЕ домены, которым она принадлежит, смоделированы и не в карантине, а `alpha` строго внутри пересечения их интервалов; петля UV — если жив её
+домен. Остальные остаются на геометрии базы (последняя точная), и кадр называет их числом и номерами патчей. Если не жив ни один домен, кадр отказан именем
+(`PREVIEW_ALPHA_OUTSIDE_EVERY_INTERVAL` либо `PREVIEW_ALL_DOMAINS_QUARANTINED`) и равен базе.
 
-САМОПРОВЕРКА (апостериорная). Каждый новый точный прогон (`deviation`) сверяет то, что модель предсказала бы на его ширине, с самим прогоном,
-домен за доменом; домен, отклонение которого выше `DEVIATION_LIMIT_RATIO * alpha`, опровергнут и идёт в журнал доверия. Прогон на ширине,
-которая была опорной для модели, ничего не проверяет (`PREVIEW_CHECK_SAMPLE_NOT_INDEPENDENT`): он воспроизвёл бы точку подгонки.
+ЖУРНАЛ ДОВЕРИЯ И ПОВТОРНЫЙ ДОПУСК (`TrustLedgerV1`, `advance_ledger`). Домен, предсказание которого точный прогон опроверг (`deviation.refuted`), входит в КАРАНТИН: во всех моделях того же
+ключа образца он придержан под именем `PREVIEW_DOMAIN_QUARANTINED_AFTER_REFUTATION` и не двигается. Повторный допуск — по правилу: (1) каждое следующее точное обновление СЧИТАЕТ
+предсказание карантинного домена «в тени» (оно не пишется в меш) на ширине, не равной базе модели и лежащей в НОМИНАЛЬНОЙ области домена (интервал ядра и `READMIT_NOMINAL_REACH_RATIO`
+доли ширины базы); (2) предсказание в пределах `READMIT_ERROR_FRACTION` предела ошибки на расстоянии от базы не меньше `READMIT_MIN_DISTANCE_FRACTION` номинальной области — ЧИСТАЯ сверка;
+`READMIT_CLEAN_CHECKS` таких сверок возвращают домен с СЖАТОЙ областью `min(номинал * 0.5^k, 0.5 * расстояние опровержения)` (`k` — число опровержений); (3) повторное опровержение
+(в том числе в тени) сжимает область ещё вдвое, а третье — снимает модель этого домена до следующего нажатия кнопки (`PREVIEW_DOMAIN_ABANDONED_AFTER_REFUTATIONS`). Журнал живёт, пока
+жив ключ образца, и забывается кнопкой «Build Decal Mesh». У аффинного сертификата опровержение редкость (структура сменилась внутри интервала, а токен не поймал); журнал — страховка.
+
+САМОПРОВЕРКА (апостериорная). Каждый новый точный прогон (`deviation`) сверяет то, что модель предсказала бы на его ширине, с самим прогоном, домен за доменом; домен, отклонение которого
+выше `DEVIATION_LIMIT_RATIO * alpha`, опровергнут и идёт в журнал доверия. Прогон на ширине базы ничего не проверяет (`PREVIEW_CHECK_SAMPLE_NOT_INDEPENDENT`): он воспроизвёл бы базу.
 
 Модуль чистый: ни `bpy`, ни настроек, ни контроллера; его зовут и поток точного счёта (построить), и главный поток (кадр).
 """
@@ -72,14 +68,13 @@ from fractions import Fraction
 
 import numpy as np
 
-PREVIEW_MESH_FROM_INTERVAL_V1 = "PREVIEW_MESH_FROM_INTERVAL_V1"
+PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 = "PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1"
 
-#: Статус заверенного интервала у ядра (`AlphaIntervalV1.status`): единственное, что здесь СЕРТИФИЦИРОВАНО.
+#: Статус заверенного интервала у ядра (`AlphaIntervalV1.status`): единственное, что здесь СЕРТИФИЦИРОВАНО вместе с аффинностью.
 INTERVAL_CERTIFIED = "CERTIFIED"
 
 #: Отказы целой модели и кадра.
 REFUSED_KEY = "PREVIEW_KEY_MISMATCH"
-REFUSED_NO_OTHER_SAMPLE = "PREVIEW_NO_OTHER_EXACT_SAMPLE"
 REFUSED_NO_MODELLED_DOMAIN = "PREVIEW_NO_MODELLED_DOMAIN"
 REFUSED_NO_MODEL = "PREVIEW_NO_MODEL"
 REFUSED_ALPHA = "PREVIEW_ALPHA_NOT_POSITIVE_FINITE"
@@ -87,33 +82,48 @@ REFUSED_OUTSIDE_EVERY_INTERVAL = "PREVIEW_ALPHA_OUTSIDE_EVERY_INTERVAL"
 REFUSED_ALL_QUARANTINED = "PREVIEW_ALL_DOMAINS_QUARANTINED"
 REFUSED_NOT_INDEPENDENT = "PREVIEW_CHECK_SAMPLE_NOT_INDEPENDENT"
 
-#: Исходы домена при построении (`MODELLED` либо причина, по которой домен остаётся на последней точной геометрии).
+#: Исходы домена при построении (`MODELLED` либо причина, по которой домен остаётся на последней точной геометрии). Причины сертификата (`PARAM_*`) приходят от ядра как есть.
 DOMAIN_MODELLED = "MODELLED"
 DOMAIN_NOT_MATERIALIZED = "PREVIEW_DOMAIN_NOT_MATERIALIZED"
 DOMAIN_NO_INTERVAL = "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED"
-DOMAIN_MISSING = "PREVIEW_DOMAIN_MISSING_IN_SAMPLE"
-DOMAIN_OUTSIDE = "PREVIEW_DOMAIN_SAMPLE_OUTSIDE_INTERVAL"
-DOMAIN_STRUCTURE_SWITCH = "PREVIEW_DOMAIN_STRUCTURE_SWITCH"
-#: Исходы домена в кадре.
-DOMAIN_HELD_OUTSIDE = "PREVIEW_DOMAIN_ALPHA_OUTSIDE_INTERVAL"
-DOMAIN_HELD_REACH = "PREVIEW_DOMAIN_BEYOND_MODEL_REACH"
+DOMAIN_NO_CERTIFICATE = "PARAM_NO_CERTIFICATE"
+DOMAIN_SHAPE_MISMATCH = "PARAM_CERTIFICATE_SHAPE_MISMATCH"
+DOMAIN_ALPHA_MISMATCH = "PARAM_CERTIFICATE_ALPHA_MISMATCH"
+DOMAIN_WELD_DISAGREES = "PARAM_WELD_SLOPE_DISAGREES"
+DOMAIN_WELD_PARTNER = "PARAM_NON_AFFINE_WELD_NEIGHBOUR_NORMAL"
+#: Исход домена в кадре: ширина вышла за заверенный интервал домена (концы интервала — события ядра).
+DOMAIN_HELD_OUTSIDE = "PARAM_INTERVAL_END"
 #: Исходы журнала доверия: карантин после опровержения точным прогоном, возврат со сжатой областью, снятие модели домена.
 DOMAIN_QUARANTINED = "PREVIEW_DOMAIN_QUARANTINED_AFTER_REFUTATION"
 DOMAIN_READMITTED = "PREVIEW_DOMAIN_READMITTED_WITH_REDUCED_REACH"
 DOMAIN_ABANDONED = "PREVIEW_DOMAIN_ABANDONED_AFTER_REFUTATIONS"
+#: Имя причины ядра (`ParametricCertificateV1.approximate`), при которой смещение хоста по нормалям вершин делает меш неаффинным при аффинном батче.
+DEVELOPABLE_MARKER = "PARAM_NON_AFFINE_DEVELOPABLE_OFFSET"
+#: Домен ОТОБРАЖЕНИЯ: точная аффинная часть плюс смещение с нормалями, замороженными на ширине сертификата (см. «ДОМЕНЫ ОТОБРАЖЕНИЯ»); исход домена в модели.
+DOMAIN_DISPLAY_APPROXIMATE = "PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1"
+#: Исход домена в кадре: ширина вышла за досягаемость приближённого домена (концы интервала ядра ни при чём).
+DOMAIN_HELD_DISPLAY_REACH = "PREVIEW_DEVELOPABLE_FROZEN_NORMAL_REACH_END"
+#: Исходы, при которых домен ДВИГАЕТСЯ кадром (точный аффинный и приближённый).
+SERVED_OUTCOMES = frozenset({DOMAIN_MODELLED, DOMAIN_DISPLAY_APPROXIMATE})
 
 #: Состояния домена в журнале доверия.
 TRUST_QUARANTINED = "QUARANTINED"
 TRUST_REDUCED = "REDUCED"
 TRUST_ABANDONED = "ABANDONED"
 
-#: Кривизна, добавка которой на опорных ширинах не выше стольких единиц последнего разряда величины, - шум округления, а не кривизна.
-CURVATURE_NOISE_ULPS = 64
-#: Начальная доверительная область модели, доля ширины базы: домен со значимой кривизной (квадрат) и домен, у которого кривизну проверить нечем
-#: (прямая). Это решение хоста о начальном доверии, а не доказанная граница: опровержение сжимает область (`advance_ledger`).
-CURVED_REACH_RATIO = 0.10
-CHORD_REACH_RATIO = 0.03
-_EPSILON = float(np.finfo(np.float64).eps)
+#: Номинальная область домена для ПОВТОРНОГО допуска (доля ширины базы): до опровержения домен живёт во всём интервале ядра, а после него возвращается не дальше этой доли (и сжатой журналом).
+READMIT_NOMINAL_REACH_RATIO = 0.10
+#: Досягаемость приближённого домена (доля ширины базы) и предел его ошибки против точного прогона (метры): замер ±6 % шагами по 0.5 % на полевых развёртках
+#: (`tools/blender_drag_accuracy.py --steps 12`; владелец смотрит ±5 %, запас в один шаг) и решение хоста о том, что глазу ещё неважно; число пишется в запись самопроверки.
+#: Превысил предел — карантин журнала.
+DISPLAY_APPROXIMATE_REACH_RATIO = 0.06
+DISPLAY_APPROXIMATE_ERROR_LIMIT = 1e-4
+#: Запас оценки ошибки кадра домена-развёртки против первого порядка (`offset * |dn/dalpha| * dt`): кривизна нормали и митра узла стены. Замер (`tools/blender_drag_accuracy.py --safety 0 --steps 12`,
+#: 175 записей доменов на `building` (патч 89), `rounded_wall_noise_top` (патчи 3, 4) и `cover.008` (пять патчей), ±6 %): отношение измеренной ошибки к оценке первого порядка не выше 1.000;
+#: запас 1.5 оставляет место кривизне, которую эти сцены не показали.
+DISPLAY_APPROXIMATE_ERROR_SAFETY = 1.5
+#: Отличие наклонов одной сваренной вершины у двух доменов, выше которого сварка не держится на окне (метры на метр): наклоны одной точки — один и тот же точный наклон, округлённый независимо.
+WELD_SLOPE_TOLERANCE = 1e-9
 
 #: Отклонение превью от точного прогона, при котором домен опровергнут: доля ширины (метры у позиций, единицы тайла у UV). Это решение
 #: хоста о том, что глазу ещё неважно (полпроцента ширины полосы), а не допуск ядра; число пишется в запись самопроверки.
@@ -121,7 +131,7 @@ DEVIATION_LIMIT_RATIO = 0.005
 
 #: Правило повторного допуска (см. «ЖУРНАЛ ДОВЕРИЯ»): во сколько раз сжимается область за каждое опровержение, какую долю расстояния
 #: опровержения она не переходит, сколько чистых независимых сверок в тени возвращают домен, какая доля предела ошибки считается чистой,
-#: на каком расстоянии от базы (доля будущей досягаемости) сверка чиста и сколько опровержений снимают модель домена.
+#: на каком расстоянии от базы (доля номинальной области) сверка чиста и сколько опровержений снимают модель домена.
 TRUST_SCALE_PER_REFUTATION = 0.5
 TRUST_CAP_FRACTION = 0.5
 READMIT_CLEAN_CHECKS = 1
@@ -135,7 +145,7 @@ _ALIVE_NEVER_HIGH = -math.inf
 
 @dataclass(frozen=True, slots=True, eq=False)
 class DomainSampleV1:
-    """Домен точного прогона на меше: что нужно модели (вершины меша, петли, интервал, токены структуры)."""
+    """Домен точного прогона на меше: что нужно модели (вершины меша, петли, интервал, токены структуры, наклоны сертификата)."""
 
     patch_id: int
     domain_id: str
@@ -151,6 +161,17 @@ class DomainSampleV1:
     loop_count: int
     #: Домен-значение для точной проверки вхождения (`AlphaIntervalV1`) либо `None`.
     interval: object | None = None
+    #: Наклоны аффинного сертификата ядра: позиции `(вершин, 3)` метры на метр и произведения `uv * alpha` `(петель, 2)`; `None` - сертификата нет либо он назвал причину (`markers`).
+    slopes: object | None = None
+    uv_slopes: object | None = None
+    #: Названные причины, по которым домен не обслуживается (`PARAM_*`); пусто - сертификат с числами.
+    markers: tuple = ()
+    #: Названные причины ядра, по которым меш домена аффинен лишь приближённо при аффинном батче (развёртка: `PARAM_NON_AFFINE_DEVELOPABLE_OFFSET`); числа есть.
+    approximate: tuple = ()
+    #: Скорость поворота нормали смещения домена по ширине (`ParametricCertificateV1.approximate_rate`, 1/м): по ней считается досягаемость кадра (`_display_reach`).
+    approximate_rate: float = 0.0
+    #: Номера доменов (в порядке образца) соседей по стене, чьи нормали входят в смещение узлов этого домена (`MeshArraysV1.domain_partners`).
+    partners: tuple = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -218,6 +239,8 @@ class PreviewSampleV1:
     layout_digest: str = ""
     #: Меш образца в numpy (`MeshImageV1`): из него меш пересобирается на месте, когда раскладка сменилась (точный lean-кадр, отмена после него).
     image: object = None
+    #: Смещение декали над поверхностью (метры), с которым построены позиции образца (`MeshArraysV1.offset`): ошибка кадра домена-развёртки пропорциональна ему (`_display_reach`).
+    offset: float = 0.0
 
     @property
     def vertex_count(self) -> int:
@@ -281,15 +304,12 @@ def empty_ledger(key: tuple) -> TrustLedgerV1:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class PreviewModelV1:
-    """Многочлены позиций и UV по вершинам и петлям базы, окна жизни доменов, исходы доменов и карантин. ПРИБЛИЗИТЕЛЬНАЯ модель."""
+    """Наклоны позиций и UV по вершинам и петлям базы, окна жизни доменов, исходы доменов и карантин: модель ИЗ АФФИННОГО СЕРТИФИКАТА одного точного прогона."""
 
     base: PreviewSampleV1
-    #: Ширины других точных прогонов, на которых построено (одна — прямая, две — квадрат).
-    others: tuple
+    #: Наклон позиции каждой вершины меша (метры на метр) и `d(uv * alpha) / d alpha - uv0` каждой петли: `uv = uv0 + e1 * dt / alpha`.
     a1: object
-    a2: object | None
     e1: object
-    e2: object | None
     vlow: object
     vhigh: object
     #: Число петель UV у каждого домена базы (петли домена лежат в `uvs` подряд, в порядке доменов): по нему живость домена
@@ -297,9 +317,8 @@ class PreviewModelV1:
     loop_counts: object
     dlow: object
     dhigh: object
-    #: `((патч, домен, исход, степень, досягаемость), ...)` по доменам базы: `MODELLED` со степенью 1 (прямая) либо 2 (квадрат) и
-    #: досягаемостью (доля ширины базы либо `None` — только интервал), `QUARANTINED`/`ABANDONED` с той же подгонкой (по ней идёт сверка в
-    #: тени), либо причина со степенью 0.
+    #: `((патч, домен, исход, степень, досягаемость), ...)` по доменам базы: `MODELLED` со степенью 1 (аффинный сертификат) и досягаемостью (`None` — только интервал ядра; после
+    #: возврата из карантина — доля ширины базы), `QUARANTINED`/`ABANDONED` с тем же наклоном (по нему идёт сверка в тени), либо причина со степенью 0.
     rows: tuple
     #: Карантин: булев массив по доменам и по вершинам (`None` — карантина нет). Окна `dlow`/`dhigh` и `vlow`/`vhigh` его не знают: сверка в
     #: тени считает предсказание по ним, а кадр двигает только то, что не в карантине.
@@ -308,6 +327,8 @@ class PreviewModelV1:
     #: Окно ТЕНИ по доменам (интервал ядра и НОМИНАЛЬНАЯ область, не сжатая журналом): где предсказание карантинного домена судится в тени.
     shadow_low: object | None = None
     shadow_high: object | None = None
+    #: Булев массив по доменам: кадр домена приближённый (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`); `None` - таких доменов нет. Остаётся истиной и у домена в карантине.
+    approximate: object | None = None
 
     @property
     def key(self) -> tuple:
@@ -319,30 +340,32 @@ class PreviewModelV1:
 
     @property
     def modelled_domains(self) -> int:
-        return sum(1 for row in self.rows if row[2] == DOMAIN_MODELLED)
+        """Домены, которые модель двигает: точные аффинные и приближённые (последние - `approximate_domains`)."""
+
+        return sum(1 for row in self.rows if row[2] in SERVED_OUTCOMES)
+
+    @property
+    def approximate_domains(self) -> int:
+        return sum(1 for row in self.rows if row[2] == DOMAIN_DISPLAY_APPROXIMATE)
 
     @property
     def domain_count(self) -> int:
         return len(self.rows)
 
-    @property
-    def quadratic_domains(self) -> int:
-        return sum(1 for row in self.rows if row[2] == DOMAIN_MODELLED and row[3] == 2)
-
     def reason_counts(self) -> dict:
         found: dict = {}
         for row in self.rows:
-            if row[2] != DOMAIN_MODELLED:
+            if row[2] not in SERVED_OUTCOMES:
                 found[row[2]] = found.get(row[2], 0) + 1
         return found
 
     @property
     def own_bytes(self) -> int:
-        """Байты самой модели (многочлены, окна, индекс петель, карантин); база считается отдельно: она нужна и без неё."""
+        """Байты самой модели (наклоны, окна, индекс петель, карантин); база считается отдельно: она нужна и без неё."""
 
         arrays = (
-            self.a1, self.a2, self.e1, self.e2, self.vlow, self.vhigh, self.loop_counts, self.dlow, self.dhigh,
-            self.quarantined, self.vertex_quarantined, self.shadow_low, self.shadow_high,
+            self.a1, self.e1, self.vlow, self.vhigh, self.loop_counts, self.dlow, self.dhigh,
+            self.quarantined, self.vertex_quarantined, self.shadow_low, self.shadow_high, self.approximate,
         )
         return int(sum(item.nbytes for item in arrays if item is not None))
 
@@ -364,10 +387,12 @@ class PreviewFrameV1:
     held: tuple
     refusal: str = ""
     seconds: float = 0.0
+    #: Сколько из живых доменов - приближённые (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`); остальные живые точны.
+    approximate_domains: int = 0
 
     @property
     def outcome(self) -> str:
-        return self.refusal or PREVIEW_MESH_FROM_INTERVAL_V1
+        return self.refusal or PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,16 +424,21 @@ class DeviationV1:
 def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV1:
     """Образец точного прогона: `arrays` — массивы меша тех же `results` (`build_mesh_arrays`), `key` — чья это геометрия.
 
-    Домены берутся в порядке меша (`arrays.domain_keys`); запись интервала и подпись структуры читаются из результата домена.
+    Домены берутся в порядке меша (`arrays.domain_keys`); запись интервала, подпись структуры и аффинный сертификат читаются из результата домена. Наклоны сертификата лежат в порядке вида
+    домена (вершины по ключу батча, петли по граням), как и номера вершин меша и петли `uvs`, поэтому выравнивать их не нужно.
     """
 
     by_key = {(item.patch_id, item.domain_id): item for item in results}
     domains = []
     start = 0
+    partners = tuple(getattr(arrays, "domain_partners", ()) or ())
     for number, (patch_id, domain_id) in enumerate(arrays.domain_keys):
         result = by_key[(patch_id, domain_id)]
         interval = getattr(result, "alpha_interval", None)
         count = int(arrays.domain_loop_counts[number])
+        vertices = np.asarray(arrays.domain_vertex_index[number], dtype=np.int32)
+        certificate = getattr(result, "parametric", None)
+        slopes, uv_slopes, markers = _certificate_slopes(certificate, int(vertices.shape[0]), count, alpha_text)
         domains.append(
             DomainSampleV1(
                 patch_id=int(patch_id),
@@ -418,10 +448,16 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
                 status="" if interval is None else str(interval.status),
                 low=float("nan") if interval is None else float(interval.low),
                 high=None if interval is None or interval.high is None else float(interval.high),
-                vertices=np.asarray(arrays.domain_vertex_index[number], dtype=np.int32),
+                vertices=vertices,
                 loop_start=start,
                 loop_count=count,
                 interval=interval,
+                slopes=slopes,
+                uv_slopes=uv_slopes,
+                markers=markers,
+                approximate=tuple(getattr(certificate, "approximate", ()) or ()) if slopes is not None else (),
+                approximate_rate=float(getattr(certificate, "approximate_rate", 0.0) or 0.0) if slopes is not None else 0.0,
+                partners=tuple(int(item) for item in partners[number]) if number < len(partners) else (),
             )
         )
         start += count
@@ -439,7 +475,24 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
         source_revision=str(arrays.source_revision),
         layout_digest=layout_digest_of(image, len(arrays.positions), len(arrays.uvs)),
         image=image,
+        offset=float(getattr(arrays, "offset", 0.0) or 0.0),
     )
+
+
+def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str) -> tuple:
+    """`(наклоны позиций, наклоны произведений uv * alpha, причины)` сертификата домена; чисел нет, когда сертификата нет, он назвал причину, он выпущен на другой ширине, чем образец, либо не сошёлся по размерам с видом домена."""
+
+    if certificate is None:
+        return None, None, (DOMAIN_NO_CERTIFICATE,)
+    if certificate.markers:
+        return None, None, tuple(certificate.markers)
+    if certificate.alpha != Fraction(alpha_text):
+        return None, None, (DOMAIN_ALPHA_MISMATCH,)
+    if certificate.vertex_count != vertices or certificate.loop_count != loops:
+        return None, None, (DOMAIN_SHAPE_MISMATCH,)
+    slopes = np.frombuffer(certificate.position_slopes, dtype=np.float64).reshape(-1, 3)
+    uv_slopes = np.frombuffer(certificate.loop_slopes, dtype=np.float64).reshape(-1, 2)
+    return slopes, uv_slopes, ()
 
 
 # --------------------------------------------------------------------------
@@ -497,70 +550,104 @@ def advance_ledger(ledger: TrustLedgerV1 | None, model: PreviewModelV1 | None, c
 # --------------------------------------------------------------------------
 
 
-def _domain_verdict(base: PreviewSampleV1, domain: DomainSampleV1, other: PreviewSampleV1, lookup: dict) -> tuple[str, object | None]:
-    """`(MODELLED, домен другого прогона)` либо `(причина, None)`: условия модели одного домена по одному другому прогону."""
+def _domain_reason(domain: DomainSampleV1) -> str:
+    """`""` — домен обслуживается; иначе имя причины (без сравнения с другими прогонами: наклоны дал сертификат)."""
 
     if not domain.token:
-        return DOMAIN_NOT_MATERIALIZED, None
+        return DOMAIN_NOT_MATERIALIZED
     if domain.status != INTERVAL_CERTIFIED or domain.interval is None:
-        return DOMAIN_NO_INTERVAL, None
-    twin = lookup.get((domain.patch_id, domain.domain_id))
-    if twin is None:
-        return DOMAIN_MISSING, None
-    if not domain.interval.contains_exact(other.alpha_fraction):
-        return DOMAIN_OUTSIDE, None
-    if twin.token != domain.token or twin.structure != domain.structure or twin.vertices.shape != domain.vertices.shape:
-        return DOMAIN_STRUCTURE_SWITCH, None
-    if twin.loop_count != domain.loop_count:
-        return DOMAIN_STRUCTURE_SWITCH, None
-    return DOMAIN_MODELLED, twin
-
-
-def _newton(first, second, third, alpha0, alpha1, alpha2):
-    """`(a1, a2, кривизна значима)` многочлена `v0 + a1 * dt + a2 * dt^2` через три точки: `third` `None` — прямая (`a2` `None`).
-
-    Вторая разделённая разность аффинной величины — шум округления (`~eps * |v| / шаг^2`), и квадрат на нём дал бы кривизну там, где её
-    нет: добавка `|a2| * шаг1 * шаг2` не выше `CURVATURE_NOISE_ULPS` единиц последнего разряда — шум, и `a2` в нём нулевой.
-    """
-
-    c1 = (second - first) / (alpha1 - alpha0)
-    if third is None:
-        return c1, None, False
-    c2 = (((third - first) / (alpha2 - alpha0)) - c1) / (alpha2 - alpha1)
-    noise = CURVATURE_NOISE_ULPS * _EPSILON * np.maximum(1.0, np.abs(first))
-    significant = np.abs(c2) * abs((alpha1 - alpha0) * (alpha2 - alpha0)) > noise
-    c2 = np.where(significant, c2, 0.0)
-    return c1 + c2 * (alpha0 - alpha1), c2, bool(significant.any())
+        return DOMAIN_NO_INTERVAL
+    if domain.markers:
+        return domain.markers[0]
+    return ""
 
 
 def _trusted_reach(reach, entry: DomainTrustV1 | None):
-    """Начальная область, сжатая записью журнала: `min(номинал * масштаб, предел опровержения)`; аффинный домен получает 10 %."""
+    """Область домена после возврата из карантина: `min(номинал * масштаб, предел опровержения)`; `None` без записи журнала (весь интервал ядра)."""
 
     if entry is None:
         return reach
-    nominal = CURVED_REACH_RATIO if reach is None else reach
+    nominal = READMIT_NOMINAL_REACH_RATIO if reach is None else reach
     return min(nominal * entry.scale, entry.reach_cap)
 
 
-def build_model(base: PreviewSampleV1, others, ledger: TrustLedgerV1 | None = None) -> PreviewModelV1 | PreviewRefusalV1:
-    """Модель базы по другим точным прогонам того же ключа: два ближайших по ширине, если они есть; иначе отказ именем.
+def _weld_conflicts(base: PreviewSampleV1, modelled, slopes_of) -> set:
+    """Номера доменов, у которых хоть одна сваренная вершина получила от другого домена иной наклон (больше `WELD_SLOPE_TOLERANCE`)."""
+
+    count = base.vertex_count
+    low = np.full((count, 3), np.inf)
+    high = np.full((count, 3), -np.inf)
+    for number in modelled:
+        vertices = base.domains[number].vertices
+        np.minimum.at(low, vertices, slopes_of[number])
+        np.maximum.at(high, vertices, slopes_of[number])
+    broken = (high - low).max(axis=1) > WELD_SLOPE_TOLERANCE
+    if not broken.any():
+        return set()
+    return {number for number in modelled if broken[base.domains[number].vertices].any()}
+
+
+def _partner_state(base: PreviewSampleV1, domain: DomainSampleV1) -> tuple:
+    """`(заблокирован, приближён, скорость нормали соседей)` по соседям домена на стене (закон `WALL_MITER_OFFSET_V1`: узел смещается по нормалям ОБОИХ доменов).
+
+    Сосед без сертификата: нормали его вершин неизвестны, домен не обслуживается. Сосед-развёртка (`approximate`): его нормали меняются с шириной, и узлы этого домена смещаются по ним,
+    поэтому и его кадр приближён - по той же причине, что и у соседа (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`), со скоростью нормали соседа.
+    """
+
+    blocked = approximate = False
+    rate = 0.0
+    for other in domain.partners:
+        neighbour = base.domains[other]
+        if DOMAIN_NO_CERTIFICATE in neighbour.markers:
+            blocked = True
+        elif neighbour.approximate:
+            approximate = True
+            rate = max(rate, neighbour.approximate_rate)
+    return blocked, approximate, rate
+
+
+def _display_reach(offset: float, rate: float, alpha: float) -> float:
+    """Досягаемость приближённого домена (доля ширины базы): не больше `DISPLAY_APPROXIMATE_REACH_RATIO` и не дальше, чем оценка ошибки замороженного смещения остаётся в пределе.
+
+    Смещение хоста идёт вдоль нормали вершины, и за сдвиг ширины `dt` оно меняется на `offset * |dn/dalpha| * dt` в первом порядке (скорость - `approximate_rate` сертификата, ядро сверило её
+    с конечной разностью собственных нормалей). Оценка ошибки кадра - это с запасом `DISPLAY_APPROXIMATE_ERROR_SAFETY` (кривизна нормали, митра узла стены). Смещение неизвестно (ноль) - берётся
+    общий потолок; скорость не число либо бесконечна - ноль (домен не двигается и назван).
+    """
+
+    per_width = offset * rate * DISPLAY_APPROXIMATE_ERROR_SAFETY
+    if per_width != per_width:
+        return 0.0
+    if per_width <= 0.0:
+        return DISPLAY_APPROXIMATE_REACH_RATIO
+    return min(DISPLAY_APPROXIMATE_REACH_RATIO, DISPLAY_APPROXIMATE_ERROR_LIMIT / (per_width * alpha))
+
+
+def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> PreviewModelV1 | PreviewRefusalV1:
+    """Модель базы из аффинных сертификатов её доменов; отказ — именем. Ничего не подбирается и других прогонов не нужно.
 
     `ledger` — журнал доверия сессии: домены в карантине (или снятые) построены, но придержаны; вернувшиеся двигаются в сжатой области.
     """
 
-    usable = [item for item in others if item.key == base.key and item.alpha != base.alpha]
-    if not usable:
-        mismatched = any(item.key != base.key for item in others)
-        return PreviewRefusalV1(REFUSED_KEY if mismatched and not any(item.key == base.key for item in others) else REFUSED_NO_OTHER_SAMPLE)
-    usable.sort(key=lambda item: abs(item.alpha - base.alpha))
-    chosen = usable[:2]
-    lookups = [{(item.patch_id, item.domain_id): item for item in sample.domains} for sample in chosen]
     count_v, count_l, count_d = base.vertex_count, base.loop_count, len(base.domains)
     trust_of = ledger.get if ledger is not None and ledger.key == base.key else (lambda _patch, _domain: None)
+    reasons: list = []
+    approximate = np.zeros(count_d, dtype=bool)
+    normal_rate = np.zeros(count_d)
+    for number, domain in enumerate(base.domains):
+        reason = _domain_reason(domain)
+        if not reason:
+            blocked, near_developable, partner_rate = _partner_state(base, domain)
+            reason = DOMAIN_WELD_PARTNER if blocked else ""
+            approximate[number] = bool(domain.approximate) or near_developable
+            normal_rate[number] = max(domain.approximate_rate if domain.approximate else 0.0, partner_rate)
+        reasons.append(reason)
+    live = [number for number, reason in enumerate(reasons) if not reason]
+    slopes_of = {number: base.domains[number].slopes for number in live}
+    conflicts = _weld_conflicts(base, live, slopes_of) if live else set()
+    for number in conflicts:
+        reasons[number] = DOMAIN_WELD_DISAGREES
     a1 = np.zeros((count_v, 3))
-    a2 = np.zeros((count_v, 3))
     e1 = np.zeros((count_l, 2))
-    e2 = np.zeros((count_l, 2))
     dlow = np.full(count_d, _ALIVE_NEVER_LOW)
     dhigh = np.full(count_d, _ALIVE_NEVER_HIGH)
     quarantined = np.zeros(count_d, dtype=bool)
@@ -569,75 +656,37 @@ def build_model(base: PreviewSampleV1, others, ledger: TrustLedgerV1 | None = No
     rows = []
     modelled = []
     alpha0 = base.alpha
-    quadratic = False
     for number, domain in enumerate(base.domains):
-        verdicts = [_domain_verdict(base, domain, other, lookup) for other, lookup in zip(chosen, lookups)]
-        good = [(other, twin) for other, (reason, twin) in zip(chosen, verdicts) if reason == DOMAIN_MODELLED]
-        if not good:
-            reason = verdicts[0][0] if verdicts[0][0] != DOMAIN_MODELLED else verdicts[-1][0]
-            rows.append((domain.patch_id, domain.domain_id, reason, 0, None))
+        if reasons[number]:
+            rows.append((domain.patch_id, domain.domain_id, reasons[number], 0, None))
             continue
-        (first, first_twin), second = good[0], (good[1] if len(good) == 2 else None)
-        alpha1 = first.alpha
-        alpha2 = None if second is None else second[0].alpha
         sl = slice(domain.loop_start, domain.loop_start + domain.loop_count)
-        p0 = base.positions[domain.vertices]
-        step = _newton(
-            p0,
-            first.positions[first_twin.vertices],
-            None if second is None else second[0].positions[second[1].vertices],
-            alpha0,
-            alpha1,
-            alpha2,
-        )
-        a1[domain.vertices] = step[0]
-        if step[1] is not None:
-            a2[domain.vertices] = step[1]
-        u0 = base.uvs[sl]
-        s_first = first.uvs[first_twin.loop_start : first_twin.loop_start + first_twin.loop_count] * alpha1
-        s_second = (
-            None
-            if second is None
-            else second[0].uvs[second[1].loop_start : second[1].loop_start + second[1].loop_count] * alpha2
-        )
-        slope, curve, uv_curved = _newton(u0 * alpha0, s_first, s_second, alpha0, alpha1, alpha2)
-        e1[sl] = slope - u0
-        if curve is not None:
-            e2[sl] = curve
-        degree = 2 if second is not None else 1
-        reach = CHORD_REACH_RATIO if second is None else (CURVED_REACH_RATIO if step[2] or uv_curved else None)
+        a1[domain.vertices] = domain.slopes
+        e1[sl] = domain.uv_slopes - base.uvs[sl]
         entry = trust_of(domain.patch_id, domain.domain_id)
-        nominal_reach = reach
-        reach = _trusted_reach(reach, entry)
-        outcome = DOMAIN_MODELLED
+        near = bool(approximate[number])
+        reach = _trusted_reach(_display_reach(base.offset, float(normal_rate[number]), alpha0) if near else None, entry)
+        outcome = DOMAIN_DISPLAY_APPROXIMATE if near else DOMAIN_MODELLED
         low = domain.low
         high = math.inf if domain.high is None else domain.high
         if entry is not None and entry.state in (TRUST_QUARANTINED, TRUST_ABANDONED):
             outcome = DOMAIN_QUARANTINED if entry.state == TRUST_QUARANTINED else DOMAIN_ABANDONED
             quarantined[number] = True
-            shadow_reach = CURVED_REACH_RATIO if nominal_reach is None else nominal_reach
-            shadow_low[number], shadow_high[number] = max(low, alpha0 * (1.0 - shadow_reach)), min(high, alpha0 * (1.0 + shadow_reach))
+            shadow_low[number], shadow_high[number] = max(low, alpha0 * (1.0 - READMIT_NOMINAL_REACH_RATIO)), min(high, alpha0 * (1.0 + READMIT_NOMINAL_REACH_RATIO))
         if reach is not None:
             low, high = max(low, alpha0 * (1.0 - reach)), min(high, alpha0 * (1.0 + reach))
         dlow[number], dhigh[number] = low, high
-        quadratic = quadratic or degree == 2
-        rows.append((domain.patch_id, domain.domain_id, outcome, degree, reach))
+        rows.append((domain.patch_id, domain.domain_id, outcome, 1, reach))
         modelled.append(number)
     if not modelled:
         return PreviewRefusalV1(REFUSED_NO_MODELLED_DOMAIN, ", ".join(f"{name}={value}" for name, value in sorted(_reasons(rows).items())))
     vlow, vhigh, vertex_quarantined, frozen = _vertex_windows(base, modelled, dlow, dhigh, quarantined)
     a1[frozen] = 0.0
-    a2[frozen] = 0.0
     held_back = bool(quarantined.any())
     return PreviewModelV1(
         base=base,
-        others=tuple(item.alpha for item in chosen),
         a1=a1,
-        # Кривизна нужна на малой доле смещения (`dt^2`, `dt` в сотые доли метра): float32 хранит её с ошибкой ниже
-        # float32-хранилища самого меша, и память модели делится на два.
-        a2=a2.astype(np.float32) if quadratic else None,
         e1=e1,
-        e2=e2.astype(np.float32) if quadratic else None,
         vlow=vlow,
         vhigh=vhigh,
         loop_counts=np.asarray([item.loop_count for item in base.domains], dtype=np.int32),
@@ -648,6 +697,7 @@ def build_model(base: PreviewSampleV1, others, ledger: TrustLedgerV1 | None = No
         vertex_quarantined=vertex_quarantined if held_back else None,
         shadow_low=shadow_low if held_back else None,
         shadow_high=shadow_high if held_back else None,
+        approximate=approximate if approximate[modelled].any() else None,
     )
 
 
@@ -681,7 +731,7 @@ def _vertex_windows(base: PreviewSampleV1, modelled, dlow, dhigh, quarantined):
 def _reasons(rows) -> dict:
     found: dict = {}
     for row in rows:
-        if row[2] != DOMAIN_MODELLED:
+        if row[2] not in SERVED_OUTCOMES:
             found[row[2]] = found.get(row[2], 0) + 1
     return found
 
@@ -729,7 +779,7 @@ def moving_patches_at(model: PreviewModelV1 | None, alpha: float) -> frozenset:
 
 
 def shadow_prediction(model: PreviewModelV1, number: int, alpha: float):
-    """`(позиции вершин домена, UV его петель)` по многочленам модели на ширине `alpha`, как двигался бы домен, будь он допущен.
+    """`(позиции вершин домена, UV его петель)` по наклонам модели на ширине `alpha`, как двигался бы домен, будь он допущен.
 
     Предсказание «в тени» карантинного домена: в кадр оно не идёт, им судится возврат домена (`deviation`). Формулы те же, что у кадра.
     """
@@ -739,11 +789,8 @@ def shadow_prediction(model: PreviewModelV1, number: int, alpha: float):
     dt = alpha - base.alpha
     vertices = domain.vertices
     positions = base.positions[vertices] + model.a1[vertices] * dt
-    if model.a2 is not None:
-        positions = positions + model.a2[vertices] * (dt * dt)
     sl = slice(domain.loop_start, domain.loop_start + domain.loop_count)
-    polynomial = model.e1[sl] if model.e2 is None else model.e1[sl] + model.e2[sl] * dt
-    return positions, base.uvs[sl] + polynomial * (dt / alpha)
+    return positions, base.uvs[sl] + model.e1[sl] * (dt / alpha)
 
 
 def positions_and_uvs(model: PreviewModelV1, alpha: float):
@@ -756,11 +803,8 @@ def positions_and_uvs(model: PreviewModelV1, alpha: float):
         return base.positions, base.uvs, live_domain
     moved = np.where(live_vertex, dt, 0.0)
     positions = base.positions + model.a1 * moved[:, None]
-    if model.a2 is not None:
-        positions = positions + model.a2 * (moved * dt)[:, None]
     scale = np.where(live_loop, dt / alpha, 0.0)
-    polynomial = model.e1 if model.e2 is None else model.e1 + model.e2 * dt
-    uvs = base.uvs + polynomial * scale[:, None]
+    uvs = base.uvs + model.e1 * scale[:, None]
     return positions, uvs, live_domain
 
 
@@ -780,6 +824,7 @@ def evaluate(model: PreviewModelV1 | None, alpha: float) -> PreviewFrameV1:
     held = tuple(_held_reason(model, number, alpha) for number in np.flatnonzero(~live))
     live_count = int(live.sum())
     refusal = _empty_frame_refusal(held) if live_count == 0 else ""
+    approximate_live = 0 if model.approximate is None else int((live & model.approximate).sum())
     return PreviewFrameV1(
         alpha,
         _flat32(positions),
@@ -789,6 +834,7 @@ def evaluate(model: PreviewModelV1 | None, alpha: float) -> PreviewFrameV1:
         held,
         refusal,
         time.perf_counter() - started,
+        approximate_live,
     )
 
 
@@ -801,14 +847,17 @@ def _empty_frame_refusal(held: tuple) -> str:
 
 
 def _held_reason(model: PreviewModelV1, number: int, alpha: float) -> tuple:
-    """`(патч, исход)` придержанного домена: причина из построения, карантин, либо за интервалом ядра, либо за досягаемостью модели."""
+    """`(патч, исход)` придержанного домена: причина из построения, карантин либо ширина за интервалом ядра (концы интервала — события)."""
 
     row = model.rows[number]
-    if row[2] != DOMAIN_MODELLED:
+    if row[2] not in SERVED_OUTCOMES:
         return row[0], row[2]
-    domain = model.base.domains[number]
-    inside_interval = domain.low < alpha and (domain.high is None or alpha < domain.high)
-    return row[0], DOMAIN_HELD_REACH if inside_interval else DOMAIN_HELD_OUTSIDE
+    if row[2] == DOMAIN_DISPLAY_APPROXIMATE:
+        # Кто держит: интервал ядра (концы - события) либо досягаемость приближённого кадра; интервал называется первым, он не зависит от нашей оценки.
+        domain = model.base.domains[number]
+        if domain.low < alpha and (domain.high is None or alpha < domain.high):
+            return row[0], DOMAIN_HELD_DISPLAY_REACH
+    return row[0], DOMAIN_HELD_OUTSIDE
 
 
 def base_frame(sample: PreviewSampleV1) -> PreviewFrameV1:
@@ -841,12 +890,12 @@ def deviation(model: PreviewModelV1 | None, sample: PreviewSampleV1) -> Deviatio
     if sample.key != model.key:
         return DeviationV1(sample.alpha, 0.0, 0.0, 0, 0, -1, (), REFUSED_KEY)
     alpha = sample.alpha
-    if alpha == model.base.alpha or alpha in model.others:
+    if alpha == model.base.alpha:
         return DeviationV1(alpha, 0.0, 0.0, 0, 0, -1, (), REFUSED_NOT_INDEPENDENT)
     distance = abs(alpha - model.base.alpha) / model.base.alpha
     positions, uvs, live = positions_and_uvs(model, alpha)
     twins = {(item.patch_id, item.domain_id): item for item in sample.domains}
-    limit = DEVIATION_LIMIT_RATIO * alpha
+    base_limit = DEVIATION_LIMIT_RATIO * alpha
     worst_position = worst_uv = worst_ratio = 0.0
     worst_patch = -1
     checked = skipped = 0
@@ -875,6 +924,8 @@ def deviation(model: PreviewModelV1 | None, sample: PreviewSampleV1) -> Deviatio
         if twin is None or twin.token != domain.token or twin.vertices.shape != domain.vertices.shape or twin.loop_count != domain.loop_count:
             skipped += 1
             continue
+        # Приближённый домен судится по своему, более строгому пределу (метры): его кадр - не округление, а замороженное смещение.
+        limit = base_limit if model.approximate is None or not model.approximate[number] else min(base_limit, DISPLAY_APPROXIMATE_ERROR_LIMIT)
         if in_shadow:
             position_error, uv_error = errors(domain, twin, *shadow_prediction(model, number, alpha))
             if position_error > limit or uv_error > DEVIATION_LIMIT_RATIO:
@@ -907,26 +958,30 @@ def deviation(model: PreviewModelV1 | None, sample: PreviewSampleV1) -> Deviatio
 
 __all__ = (
     "ABANDON_AFTER_REFUTATIONS",
-    "CHORD_REACH_RATIO",
-    "CURVATURE_NOISE_ULPS",
-    "CURVED_REACH_RATIO",
+    "DEVELOPABLE_MARKER",
     "DEVIATION_LIMIT_RATIO",
+    "DISPLAY_APPROXIMATE_ERROR_LIMIT",
+    "DISPLAY_APPROXIMATE_ERROR_SAFETY",
+    "DISPLAY_APPROXIMATE_REACH_RATIO",
     "DOMAIN_ABANDONED",
+    "DOMAIN_ALPHA_MISMATCH",
+    "DOMAIN_DISPLAY_APPROXIMATE",
+    "DOMAIN_HELD_DISPLAY_REACH",
     "DOMAIN_HELD_OUTSIDE",
-    "DOMAIN_HELD_REACH",
-    "DOMAIN_MISSING",
     "DOMAIN_MODELLED",
     "DOMAIN_NOT_MATERIALIZED",
+    "DOMAIN_NO_CERTIFICATE",
     "DOMAIN_NO_INTERVAL",
-    "DOMAIN_OUTSIDE",
     "DOMAIN_QUARANTINED",
     "DOMAIN_READMITTED",
-    "DOMAIN_STRUCTURE_SWITCH",
+    "DOMAIN_SHAPE_MISMATCH",
+    "DOMAIN_WELD_DISAGREES",
+    "DOMAIN_WELD_PARTNER",
     "DeviationV1",
     "DomainSampleV1",
     "DomainTrustV1",
     "INTERVAL_CERTIFIED",
-    "PREVIEW_MESH_FROM_INTERVAL_V1",
+    "PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1",
     "PreviewFrameV1",
     "PreviewModelV1",
     "PreviewRefusalV1",
@@ -934,20 +989,22 @@ __all__ = (
     "READMIT_CLEAN_CHECKS",
     "READMIT_ERROR_FRACTION",
     "READMIT_MIN_DISTANCE_FRACTION",
+    "READMIT_NOMINAL_REACH_RATIO",
     "REFUSED_ALL_QUARANTINED",
     "REFUSED_ALPHA",
     "REFUSED_KEY",
     "REFUSED_NOT_INDEPENDENT",
     "REFUSED_NO_MODEL",
     "REFUSED_NO_MODELLED_DOMAIN",
-    "REFUSED_NO_OTHER_SAMPLE",
     "REFUSED_OUTSIDE_EVERY_INTERVAL",
+    "SERVED_OUTCOMES",
     "TRUST_ABANDONED",
     "TRUST_CAP_FRACTION",
     "TRUST_QUARANTINED",
     "TRUST_REDUCED",
     "TRUST_SCALE_PER_REFUTATION",
     "TrustLedgerV1",
+    "WELD_SLOPE_TOLERANCE",
     "advance_ledger",
     "base_frame",
     "build_model",
