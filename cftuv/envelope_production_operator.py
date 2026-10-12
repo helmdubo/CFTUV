@@ -60,7 +60,7 @@ from .envelope_production_mesh import (
 )
 from .envelope_pool_prewarm import cancel_pool_prewarm, schedule_pool_prewarm
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
-from .envelope_width_live import remember_build
+from .envelope_width_live import remember_build, tag_view3d_redraw
 from .envelope_width_mesh_preview import build_sample, capture_ownership, note_button_display, sample_key
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
@@ -152,6 +152,41 @@ def _restore_edge_selection(obj, indices) -> None:
     for edge in bm.edges:
         edge.select = edge.index in wanted
     bmesh.update_edit_mesh(obj.data)
+
+
+#: Как часто таймер главного потока спрашивает фоновую проверку первого нажатия (SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1), пока она идёт.
+BYTE_CHECK_POLL_SECONDS = 0.5
+
+
+def _watch_byte_check(controller, scene_name: str) -> None:
+    """Итог фоновой проверки первого нажатия - в строки панели (потоку воркеров свойства Blender трогать нельзя, поэтому таймер главного потока).
+
+    Чистый итог дописывается к строке времени, найденное и оборванное заменяют статус и называют исход (`job.text()`); строки, которые нажатие или другое действие уже переписали, не трогаются.
+    Сам отказ найденного домена от строки не зависит: следующее действие отказывает его (`_scan`).
+    """
+
+    job = controller.byte_check_job
+    settings = getattr(bpy.data.scenes.get(scene_name), SETTINGS_ATTRIBUTE, None)
+    if job is None or settings is None:
+        return
+    shown = (str(settings.status), str(settings.timing))
+
+    def poll():
+        if controller.byte_check_job is not job:
+            return None
+        if not job.finished:
+            return BYTE_CHECK_POLL_SECONDS
+        scene = bpy.data.scenes.get(scene_name)
+        current = getattr(scene, SETTINGS_ATTRIBUTE, None)
+        if current is not None and (str(current.status), str(current.timing)) == shown:
+            if job.state == "CLEAN":
+                current.timing = f"{current.timing} | snapshot byte check: {job.checked} verified"
+            else:
+                current.status = job.text()
+            tag_view3d_redraw()
+        return None
+
+    bpy.app.timers.register(poll, first_interval=BYTE_CHECK_POLL_SECONDS)
 
 
 class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
@@ -282,8 +317,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         except Exception as exc:  # noqa: BLE001 - живая ширина не ломает кнопку
             controller.width_build = None
             print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
-        # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`)
-        # и мягкая находка стоят в них наравне с отказом продуктового пути.
+        # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`) и мягкая находка стоят в них наравне с отказом продуктового пути.
         mesh_settings.status = receipt_status_text(receipt)
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
@@ -295,6 +329,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             {receipt_report_level(receipt)},
             f"Decal mesh: {mesh_settings.status}",
         )
+        _watch_byte_check(controller, context.scene.name)
         return {"FINISHED"}
 
 

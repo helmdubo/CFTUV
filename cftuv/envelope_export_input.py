@@ -298,7 +298,7 @@ def task_inputs(task):
         {int(task.patch_id): task.domain_id},
         export.developable_stretch_budget,
         grid_scale_law=export.grid_scale_law,
-        snapshot_byte_check=None if task.cold is None else task.cold.snapshot_byte_check,
+        snapshot_byte_check=None if task.cold is None or task.cold.snapshot_byte_check is None else task.cold.snapshot_byte_check.for_worker(),
     )
     inputs = TaskInputsV1(None, None, profile, task.task_id, True)
     checked = WorkerSnapshotCheck()

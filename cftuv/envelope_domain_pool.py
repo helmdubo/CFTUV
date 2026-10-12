@@ -555,6 +555,23 @@ def serve_task(task: DomainTaskV1) -> bytes:
         return _reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task)))
 
 
+def serve_message(message) -> bytes:
+    """Кадр ответа на сообщение, которое не задача домена: шаг фоновой проверки (`ByteCheckStepV1`, SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1).
+
+    Шаг идёт под паузой сборщика, как задача. Чужое сообщение - названный отказ ответом (`DomainTaskResultV1.error`), а не молчание: родитель узнает протокол по типу ответа.
+    """
+
+    from .envelope_snapshot_byte_check import ByteCheckStepV1, serve_byte_check
+
+    try:
+        if isinstance(message, ByteCheckStepV1):
+            with gc_paused():
+                return _reply_frame(-1, serve_byte_check(message))
+        return _reply_frame(-1, DomainTaskResultV1(-1, error=f"unknown worker message: {type(message).__name__}"))
+    except Exception:  # noqa: BLE001 - ответ несёт трассу, а не теряет её
+        return _reply_frame(-1, DomainTaskResultV1(-1, error=traceback.format_exc()))
+
+
 # --------------------------------------------------------------------------
 # Тождество окружения: что сверяют родитель и воркер на внешнем интерпретаторе
 # --------------------------------------------------------------------------
@@ -740,7 +757,7 @@ def worker_main() -> None:
         task = read_frame(source)
         if task is None:
             return
-        channel.write(serve_task(task))
+        channel.write(serve_message(task) if not isinstance(task, DomainTaskV1) else serve_task(task))
         channel.flush()
 
 
@@ -1080,6 +1097,9 @@ class DomainPool:
         # Воркер однопоточен по кадрам: два одновременных `run` перемешали бы кадры. Раньше пулом
         # пользовался один главный поток; теперь превью alpha гонит `run` из потока счёта.
         self._run_lock = threading.Lock()
+        #: Сколько прогонов (`run`) ждут замка либо идут: фоновые шаги (`run_idle`) не берут замок, пока их хоть один, и тем уступают следующему действию.
+        self._foreground = 0
+        self._wanted = threading.Condition()
         #: `{ключ привязки задачи: индекс воркера, который её считал}`; индексы воркеров не переиспользуются.
         self._last_worker: dict[str, int] = {}
 
@@ -1254,8 +1274,64 @@ class DomainPool:
         тот и разбирает неполный ответ (`SliderCoveragePool.cover` бросает `CoverageCancelled`).
         """
 
-        with self._run_lock:
-            return self._run_locked(tasks, cancel)
+        with self._wanted:
+            self._foreground += 1  # ДО замка: фоновый шаг, идущий сейчас, дочитывается (не дольше одного шага), следующего он не начнёт
+        try:
+            with self._run_lock:
+                return self._run_locked(tasks, cancel)
+        finally:
+            with self._wanted:
+                self._foreground -= 1
+                self._wanted.notify_all()
+
+    def run_idle(self, message, on_reply, *, stop: threading.Event, timeout: float = 120.0) -> tuple[bool, dict]:
+        """Фоновая работа на простаивающих воркерах: `message` каждому живому воркеру шаг за шагом, пока `on_reply` не скажет «этому больше не надо» (SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1).
+
+        `on_reply(индекс воркера, ответ) -> bool`: `True` - воркеру нужен ещё шаг. Шаг берёт замок прогона и держит его на один обмен с каждым воркером (воркер отвечает за свой бюджет шага, десятки мс);
+        между шагами замок отдан, и пока есть хоть один `run`, шаги не начинаются. `stop` (`threading.Event`) прерывает задачу между шагами. Возвращает `(все воркеры довели, {индекс воркера: причина})`:
+        воркер, умерший посреди задачи, в причинах и закрыт; отсутствие живых воркеров - тоже причина. Воркеры, которых пул пересоздал после начала, в задаче не участвуют: их памяти у задачи нет.
+        """
+
+        frame = encode_frame(message)
+        pending = {item.index for item in self._workers if not item.dead}
+        failures: dict[int, str] = {}
+        while pending and not stop.is_set():
+            with self._wanted:
+                while self._foreground and not stop.is_set():
+                    self._wanted.wait(0.25)
+            if stop.is_set():
+                break
+            with self._run_lock:
+                if self._foreground:
+                    continue
+                batch = [item for item in self._workers if item.index in pending and not item.dead]
+                for index in pending - {item.index for item in batch}:
+                    failures[index] = "the worker is gone"
+                    pending.discard(index)
+                sent = []
+                for worker in batch:
+                    try:
+                        worker.send(frame)
+                        sent.append(worker)
+                    except _WorkerGone as exc:
+                        worker.dead = True
+                        failures[worker.index] = str(exc)
+                        pending.discard(worker.index)
+                for worker in sent:
+                    try:
+                        reply = worker.receive(timeout)
+                    except _WorkerGone as exc:
+                        worker.dead = True
+                        failures[worker.index] = str(exc)
+                        pending.discard(worker.index)
+                        continue
+                    if not on_reply(worker.index, reply):
+                        pending.discard(worker.index)
+                for worker in batch:
+                    if worker.dead:
+                        worker.close(grace=0.5)
+                self._workers = [item for item in self._workers if not item.dead]
+        return (not pending and not failures and not stop.is_set()), failures
 
     def _run_locked(self, tasks, cancel) -> DomainPoolRunV1:
         self.ensure_started()

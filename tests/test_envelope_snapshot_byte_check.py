@@ -120,7 +120,8 @@ def test_the_decision_table():
     assert SnapshotByteCheckPlanV1(MODE_SAMPLE).decision(skipped) == BYTE_CHECK_SKIPPED
     # Снапшот не одного домена выборке не подлежит: проверяется целиком.
     assert SnapshotByteCheckPlanV1(MODE_SAMPLE).decision(None) == BYTE_CHECK_ALL
-    assert {name for name, runs in byte_check.DECISIONS.items() if not runs} == {BYTE_CHECK_SKIPPED, BYTE_CHECK_OFF}
+    # `DEFERRED` (первое нажатие фоном, воркер) круг кодека не гонит сейчас, но и не пропускает: он идёт после кнопки.
+    assert {name for name, runs in byte_check.DECISIONS.items() if not runs} == {BYTE_CHECK_SKIPPED, BYTE_CHECK_OFF, byte_check.BYTE_CHECK_DEFERRED}
 
 
 def test_no_plan_means_the_check_runs_and_nothing_is_recorded():

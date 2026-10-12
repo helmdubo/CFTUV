@@ -132,6 +132,8 @@ class _RunInputsV1:
     served: dict = field(default_factory=dict)
     #: Номера патчей, которых прогон не считает и не называет в итоге вовсе: вызывающий складывает такие домены сам (составной образец инкрементального такта, `envelope_width_composite`). Итог прогона - только остальные домены.
     skipped: frozenset = frozenset()
+    #: SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: домены, чей снапшот воркер отложил на фоновый круг кодека в ЭТОМ прогоне (по одному на каждый ответ с отложенным); общий у повтора лотереи привязки.
+    byte_check_ledger: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -445,12 +447,17 @@ def _scan(run: _RunInputsV1):
     for patch_id in run.patch_ids:
         if patch_id in run.skipped:
             continue
+        domain_id = _typed_value("patch-domain", run.revision, patch_id)
+        refusal = controller.byte_check_refusal(domain_id)
+        if refusal is not None:
+            # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: фон нашёл, что байты снапшота домена не прошли круг кодека; следующее действие отказывает домен тем же исходом, что дала бы проверка на нажатии.
+            entries.append(_DomainEntryV1(patch_id, domain_id, frozenset(run.selected_by_domain[domain_id]), failure=refusal))
+            continue
         result = run.served.get(patch_id)
         if result is not None and result.domain_id in run.selected_by_domain:
             # WIDTH_REFRESH_INCREMENTAL_V1: домен обслужен сертификатом (идентичность домена - у самого результата, он про эту ревизию), ни записей, ни кэшей, ни выгрузки.
             entries.append(_DomainEntryV1(patch_id, result.domain_id, frozenset(run.selected_by_domain[result.domain_id]), cached=result, rebased=True))
             continue
-        domain_id = _typed_value("patch-domain", run.revision, patch_id)
         selected = frozenset(run.selected_by_domain[domain_id])
         record = None if records is None else records.get(patch_id)
         if record is not None and record.selected != selected:

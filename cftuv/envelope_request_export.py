@@ -34,7 +34,6 @@ from .envelope_request_policy import (
 from .envelope_angle_certificate import (
     SnapshotExportRejected,
     certified_reflex_measure,
-    validate_exported_snapshot,
 )
 from .envelope_debug_profile import (
     ANGULAR_STAGE_COUNTERS,
@@ -44,7 +43,7 @@ from .envelope_debug_profile import (
     EnvelopeDomainStage,
     EnvelopeDomainStageReceiptV1,
 )
-from .envelope_snapshot_byte_check import byte_check_decision
+from .envelope_snapshot_byte_check import validate_under_policy
 from .envelope_host_outcomes import (  # noqa: F401 - переэкспорт: имена прежние
     METRIC_STAGE_OUTCOMES,
     EnvelopeDebugHostOutcome,
@@ -2064,8 +2063,8 @@ def build_envelope_analysis_snapshot(
         # полевой отказ прошёл именно здесь — в памяти снапшот был валиден, а
         # выпущенные байты ядро отвергало целиком.
         try:
-            # Круг кодека - на выборке кнопки, на каждом домене вне её (`envelope_snapshot_byte_check`); проверка объекта - всегда.
-            validate_exported_snapshot(kernel, snapshot, byte_check=byte_check_decision(getattr(topology_export, "snapshot_byte_check", None), angular_timing_domain, profile))
+            # Круг кодека - на выборке кнопки, на каждом домене вне её, фоном после кнопки на первом нажатии (`envelope_snapshot_byte_check`); проверка объекта - всегда.
+            validate_under_policy(kernel, snapshot, getattr(topology_export, "snapshot_byte_check", None), angular_timing_domain, profile, getattr(topology_export, "grid_scale_law", None))
         except SnapshotExportRejected as error:
             raise EnvelopeHostAdapterError(
                 EnvelopeDebugHostOutcome(error.outcome_name),

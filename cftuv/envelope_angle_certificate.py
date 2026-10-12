@@ -181,6 +181,16 @@ def validate_exported_snapshot(kernel, snapshot, *, byte_check: bool = True) -> 
     _reject_snapshot(kernel, snapshot, stage="snapshot")
     if not byte_check:
         return None
+    return check_snapshot_bytes(kernel, snapshot)
+
+
+def check_snapshot_bytes(kernel, snapshot) -> bytes:
+    """Проверка БАЙТОВ снапшота: `dumps -> loads -> dumps` (канонические байты - неподвижная точка кодека) и оба валидатора над ДЕКОДИРОВАННЫМ объектом; байты возвращаются.
+
+    Это вторая половина `validate_exported_snapshot` без изменений: ту же функцию зовёт и фоновая проверка первого нажатия
+    (SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1), поэтому её вердикт - тот же отказ с тем же именем исхода и текстом, что дала бы проверка на нажатии.
+    """
+
     payload = kernel.AnalysisSnapshotCodecV1.dumps(snapshot)
     decoded = kernel.AnalysisSnapshotCodecV1.loads(payload)
     if kernel.AnalysisSnapshotCodecV1.dumps(decoded) != payload:
@@ -196,5 +206,6 @@ __all__ = (
     "SnapshotExportRejected",
     "canonical_significant_digits",
     "certified_reflex_measure",
+    "check_snapshot_bytes",
     "validate_exported_snapshot",
 )

@@ -261,6 +261,11 @@ class EnvelopeDebugSessionController:
         # домена, а вход при этих пяти один, поэтому повторное нажатие не строит ни вход, ни ключ заново.
         # Привязка живёт, пока жива ревизия.
         self._content_bindings: dict[tuple, str] = {}
+        # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: фоновая проверка первого нажатия (задача) и домены, чьи байты она не приняла: `{домен: (ревизия, патч, отказ)}`;
+        # следующее действие отказывает их (`_scan`). Домен несёт ревизию, поэтому пометки живут, пока жива ревизия. (Ниже хранилища по содержимому: оно отказывает контроллеру в сериализации первым.)
+        self._byte_check_job = None
+        self._byte_check_refusals: dict[str, tuple] = {}
+        self._byte_check_lock = threading.Lock()
         # Замечания проверки снапшота домена по тождеству снапшота и допуску растяжения запроса: от alpha они
         # не зависят, а запрос к снапшоту собирается на КАЖДОМ нажатии. Запись держит сам снапшот (занятое
         # тождество не уходит другому).
@@ -351,6 +356,54 @@ class EnvelopeDebugSessionController:
     @property
     def content_store(self) -> ContentStoreV1:
         return self._content_store
+
+    @property
+    def byte_check_job(self):
+        """Последняя фоновая проверка первого нажатия (`envelope_byte_check_background.ByteCheckJobV1`) либо `None`."""
+
+        return self._byte_check_job
+
+    def start_byte_check_job(self, job) -> None:
+        """Сессия знает новую задачу фоновой проверки; прежняя, если ещё идёт, остановлена (задача одна)."""
+
+        with self._byte_check_lock:
+            previous, self._byte_check_job = self._byte_check_job, job
+        if previous is not None and previous is not job:
+            previous.stop.set()
+
+    def refuse_byte_checked_domain(self, job, violation) -> None:
+        """Фон нашёл домен, чьи байты не прошли круг кодека: следующее действие отказывает его тем же исходом хоста, что отказала бы проверка на нажатии."""
+
+        from .envelope_host_outcomes import EnvelopeDebugHostOutcome
+        from .envelope_production_scan import released
+        from .envelope_request_export import EnvelopeHostAdapterError
+
+        patch_id, content_key = job.domains.get(violation.domain_id, (None, None))
+        error = released(EnvelopeHostAdapterError(EnvelopeDebugHostOutcome(violation.outcome_name), violation.message, patch_domain_id=violation.patch_domain_id))
+        with self._byte_check_lock:
+            if self._byte_check_job is not job:
+                return  # задачу сменили либо сессию сбросили: пометка про прежнюю ревизию
+            self._byte_check_refusals[violation.domain_id] = (job.revision, patch_id, error)
+        if content_key is not None:
+            self._content_store.forget(content_key)
+
+    def byte_check_refusal(self, domain_id: str):
+        """Отказ домена, помеченный фоновой проверкой, либо `None`."""
+
+        found = self._byte_check_refusals.get(domain_id)
+        return None if found is None else found[2]
+
+    def byte_check_refused_patches(self, revision: str) -> frozenset:
+        """Номера патчей ревизии, чьи домены помечены фоновой проверкой (для подмножества инкрементального такта)."""
+
+        return frozenset(patch for rev, patch, _error in tuple(self._byte_check_refusals.values()) if rev == revision and patch is not None)
+
+    def _drop_byte_check(self) -> None:
+        with self._byte_check_lock:
+            job, self._byte_check_job = self._byte_check_job, None
+            self._byte_check_refusals.clear()
+        if job is not None:
+            job.stop.set()
 
     @property
     def stage_inputs_memo(self) -> StageInputsMemoV1:
@@ -471,6 +524,7 @@ class EnvelopeDebugSessionController:
         self._snapshot_issues.clear()
         self._content_bindings.clear()
         self._queue_session = None
+        self._drop_byte_check()
         self.width_build = None
         self.width_preview = None
         self.width_target = None

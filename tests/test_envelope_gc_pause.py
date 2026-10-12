@@ -178,7 +178,8 @@ def test_the_worker_loop_answers_through_serve_task_and_nowhere_else_pauses_the_
     called = {item.func.id for item in ast.walk(loop) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)}
     assert "serve_task" in called and not {"solve_task", "_reply_frame", "_packed_cold_reply"} & called
     users = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and any(isinstance(item, ast.Name) and item.id == "gc_paused" for item in ast.walk(node))]
-    assert users == ["serve_task"]
+    # Второй владелец паузы - шаг фоновой проверки первого нажатия (`serve_message`, SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1): круг кодека такой же работа воркера, как задача.
+    assert users == ["serve_task", "serve_message"]
 
 
 # --------------------------------------------------------------------------
