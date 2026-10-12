@@ -73,6 +73,10 @@ jobs:
           print('python finished (not reached)')
           "
 
+
+  # Round 1 (12 replicas, 172 800 fork/wait cycles): no exit code 0x80000004, but ONE replica ended with `wait: pid N is not a child of this shell` (twice): msys bash lost a child it had forked,
+  # the same machinery (fork emulation + SIGCHLD delivery) the single step of the failed step must have come out of. Round 2 is bigger and counts such anomalies instead of dying of them,
+  # so that the only way for a step to end red is the death of the shell (exit code -2147483644).
   stress:
     name: bash stress (replica ${{ matrix.replica }})
     runs-on: windows-latest
@@ -80,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        replica: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        replica: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -90,40 +94,36 @@ jobs:
           bash --version | head -1; uname -a
           powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores | Format-List"
       # the construct of the failed step, repeated; four loops at once so that signals of one loop land while another one forks
-      - name: mapfile < <(tr) + python child + wait, 4 loops x 600 rounds (the shell of the failed step; a death of bash ends THIS step with its raw exit code)
+      - name: mapfile < <(tr) + python child + wait, 4 loops x 2500 rounds (the shell of the failed step; a death of bash ends THIS step with its raw exit code)
         run: |
           printf 'tests/a.py\r\ntests/b.py\r\n' > "$RUNNER_TEMP/list.txt"
           loop() {
-            local n=$1 i
-            for i in $(seq 1 600); do
-              mapfile -t F < <(tr -d '\r' < "$RUNNER_TEMP/list.txt")
-              [ "${#F[@]}" -eq 2 ] || { echo "loop $n round $i: ${#F[@]} lines"; return 1; }
+            local n=$1 i anomalies=0
+            for i in $(seq 1 2500); do
+              mapfile -t F < <(tr -d '\r' < "$RUNNER_TEMP/list.txt") || anomalies=$((anomalies + 1))
+              [ "${#F[@]}" -eq 2 ] || anomalies=$((anomalies + 1))
               python -c "pass" &
-              wait $!
+              wait $! || anomalies=$((anomalies + 1))
             done
-            echo "loop $n finished"
+            echo "loop $n finished, anomalies $anomalies"
           }
           start=$SECONDS
           pids=()
           for n in 1 2 3 4; do loop $n & pids+=($!); done
-          rc=0
-          for pid in "${pids[@]}"; do wait "$pid" || rc=$?; done
-          echo "elapsed $((SECONDS - start)) s, rc=$rc"
-          exit $rc
-      - name: SIGCHLD storm, 4 loops of fork-without-exec children x 3000 rounds
+          for pid in "${pids[@]}"; do wait "$pid" || echo "ANOMALY: loop pid $pid ended with $?"; done
+          echo "elapsed $((SECONDS - start)) s"
+      - name: SIGCHLD storm, 6 loops of fork-without-exec children x 12000 rounds
         run: |
           loop() {
-            local n=$1 i
-            for i in $(seq 1 3000); do
+            local n=$1 i anomalies=0
+            for i in $(seq 1 12000); do
               ( : ) &
-              wait $!
+              wait $! || anomalies=$((anomalies + 1))
             done
-            echo "storm $n finished"
+            echo "storm $n finished, anomalies $anomalies"
           }
           start=$SECONDS
           pids=()
-          for n in 1 2 3 4; do loop $n & pids+=($!); done
-          rc=0
-          for pid in "${pids[@]}"; do wait "$pid" || rc=$?; done
-          echo "elapsed $((SECONDS - start)) s, rc=$rc"
-          exit $rc
+          for n in 1 2 3 4 5 6; do loop $n & pids+=($!); done
+          for pid in "${pids[@]}"; do wait "$pid" || echo "ANOMALY: storm pid $pid ended with $?"; done
+          echo "elapsed $((SECONDS - start)) s"
