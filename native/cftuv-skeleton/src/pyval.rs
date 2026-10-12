@@ -337,6 +337,7 @@ impl Val {
             out.clear();
             write_repr(&self.0.kind, &mut out);
             crate::profile::count(crate::profile::Stat::ReprBuilds, 1);
+            crate::profile::count_seen(crate::profile::Stat::ReprRoots, crate::profile::Stat::ReprRootsRepeated, || self.0.hash);
             crate::profile::count(crate::profile::Stat::ReprBytes, out.len() as u64);
             let text: Rc<str> = Rc::from(out.as_str());
             SCRATCH.with(|slot| *slot.borrow_mut() = out);

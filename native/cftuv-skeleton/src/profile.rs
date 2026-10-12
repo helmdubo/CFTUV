@@ -163,9 +163,11 @@ pub enum Stat {
     CompareTimesDecidedByFilter,
     TimeKeys,
     TimeKeysRepeated,
+    ReprRoots,
+    ReprRootsRepeated,
 }
 
-pub const STATS: [(&str, Stat); 15] = [
+pub const STATS: [(&str, Stat); 17] = [
     ("position lookups", Stat::PositionLookups),
     ("position hits", Stat::PositionHits),
     ("exact_point_key calls", Stat::PointKeys),
@@ -181,6 +183,8 @@ pub const STATS: [(&str, Stat); 15] = [
     ("... decided by the filter", Stat::CompareTimesDecidedByFilter),
     ("time keys (memo keys)", Stat::TimeKeys),
     ("... of a time keyed before", Stat::TimeKeysRepeated),
+    ("repr roots", Stat::ReprRoots),
+    ("... structurally equal to an earlier root", Stat::ReprRootsRepeated),
 ];
 
 #[cfg(feature = "profile")]

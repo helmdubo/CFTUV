@@ -334,7 +334,8 @@ mod sampler {
                     *inside.entry(names[0].clone()).or_default() += 1;
                     let callee = if position > 0 { names[position - 1].clone() } else { "(itself)".to_string() };
                     *callees.entry(callee).or_default() += 1;
-                    let caller = names.get(position + 1).cloned().unwrap_or_default();
+                    let short = |text: Option<&String>| text.map_or(String::new(), |name| name.chars().take(60).collect::<String>());
+                    let caller = format!("{}  <-  {}  <-  {}", short(names.get(position + 1)), short(names.get(position + 2)), short(names.get(position + 3)));
                     *callers.entry(caller).or_default() += 1;
                 }
             }
@@ -344,7 +345,7 @@ mod sampler {
                 rows.sort_by_key(|row| std::cmp::Reverse(*row.1));
                 println!("{title}");
                 for (name, number) in rows.into_iter().take(14) {
-                    println!("    {:6.2} %  {}", 100.0 * *number as f64 / total as f64, name.chars().take(130).collect::<String>());
+                    println!("    {:6.2} %  {}", 100.0 * *number as f64 / total as f64, name.chars().take(200).collect::<String>());
                 }
             }
         }
