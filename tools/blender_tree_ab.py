@@ -1047,8 +1047,9 @@ def verify_native(native_path: str, expect_prefix: str) -> dict:
         assert build.startswith(expect_prefix), f"unexpected native build id {build}"
     for stage in ("coverage", "clip", "skeleton", "snap_embedding"):
         assert host[stage] == "available", f"native stage {stage} is {host[stage]}"
-    if os.environ.get("CFTUV_MATERIALIZE_W1_BACKEND", "").strip().upper() == "NATIVE":
-        # the held W1 stage ordered by the environment (the branch side of an A/B of that stage): it must be there, or the A/B compares Python with Python
+    if "materialize_w1" in host and os.environ.get("CFTUV_MATERIALIZE_W1_BACKEND", "").strip().upper() != "PYTHON" and "CFTUV_W1_RECORD_DIR" not in os.environ:
+        # a tree that has the W1 stage orders it natively by default (MATERIALIZE_W1_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation,
+        # or the A/B compares Python with Python (the tree that has no such stage is the base side of an A/B and is not asked)
         assert host.get("materialize_w1") == "available", f"native stage materialize_w1 is {host.get('materialize_w1')}"
     return {"module": str(module.__file__), "build_id": build, "host_native_status": {key: str(value) for key, value in host.items()}}
 
@@ -1353,11 +1354,13 @@ W1_RECORD_ENVIRONMENT = "CFTUV_W1_RECORD_DIR"
 
 def install_w1_recorder():
     """The corpus of W1 of the MATERIALIZE chain (`mesh.exact_mesh`, `mesh.canonical_triangles`) recorded from THIS run: set `CFTUV_W1_RECORD_DIR` to a directory and the two entries are wrapped by the
-    corpus recorder (`tools/native_corpus.py`, the PYTHON stage: the stage orders the oracle unless the tree orders the native one). In-process runs only (`--workers 0`): a pool worker is another process."""
+    corpus recorder (`tools/native_corpus.py`). The stage follows the master switch (NATIVE by default; MATERIALIZE_W1_NATIVE_DEFAULT_V1), and a native stage never calls the oracle the recorder wraps, so the recorder
+    orders the stage to the reference (`CFTUV_MATERIALIZE_W1_BACKEND=PYTHON`, read at every derivation of the orders). In-process runs only (`--workers 0`): a pool worker is another process."""
 
     directory = os.environ.get(W1_RECORD_ENVIRONMENT, "").strip()
     if not directory:
         return None
+    os.environ["CFTUV_MATERIALIZE_W1_BACKEND"] = "PYTHON"
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import cftuv_envelope.materialize.domain as domain_module
     import native_corpus as nc

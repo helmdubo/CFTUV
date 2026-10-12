@@ -1,23 +1,20 @@
 """Бэкенд ядра в хосте: ГЛАВНЫЙ переключатель «Kernel backend», порядки стадий, запись бэкенда на каждом домене и строка журнала.
 
-Ядро умеет считать горячие операции нативно (`cftuv_envelope.backend`: покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha), и выбор бэкенда — НЕ политика
+Ядро умеет считать горячие операции нативно (`cftuv_envelope.backend`: покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha, W1 материализации: точная сетка слитых граней), и выбор бэкенда — НЕ политика
 запроса: ответ побитово один. Поэтому здесь нет ни слова о геометрии. Здесь четыре вещи:
 
 * ГЛАВНЫЙ ПЕРЕКЛЮЧАТЕЛЬ. `kernel_backend` (`PYTHON` | `NATIVE`) — ЕДИНСТВЕННАЯ настройка владельца: она заказывает ВСЕ стадии, которые ядро считает на Rust
-  (покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha и любая будущая стадия). `NATIVE` — каждая стадия считает нативную реализацию там, где она есть
+  (покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha, W1 материализации и любая будущая стадия). `NATIVE` — каждая стадия считает нативную реализацию там, где она есть
   (нет колеса либо порт устарел — стадия считает Python, и строка журнала это называет: `NATIVE_UNAVAILABLE`, `NATIVE_PORT_STALE`, ...; тихого отката нет);
   `PYTHON` — Python-эталон на каждой стадии. Настройка живёт в настройках сцены (`HOTSPOTUV_DecalMeshSettings`), едет в прогон (`run_production`), в задачу пула
   (`DomainTaskV1`) и в запись живой ширины. Умолчание — `NATIVE` (`DEFAULT_KERNEL_BACKEND`, решение владельца 2026-10-07; Python — замороженный эталон и
   именованный откат). СТАРЫЕ СЦЕНЫ: свойство Blender хранит значение только когда его присвоили, поэтому сцена, где `kernel_backend` не трогали, читает умолчание
   `NATIVE`, а сцена с выбранным `PYTHON` остаётся на нём. Порядок `KERNEL_BACKEND_ITEMS` — формат хранения (в сцене лежит индекс): `PYTHON` — 0, `NATIVE` — 1
   (проверяет `tests/blender/test_envelope_kernel_backend_default.py`).
-* СТАДИЯ ПО СРЕДЕ (`STAGE_ENVIRONMENT`). Лист контактов резолвера эффективной alpha (`effective_alpha`) идёт за главным переключателем, как остальные стадии (умолчание `NATIVE`, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1).
-  Среда процесса — НЕ настройка продукта, а крюк A/B и тестов: `CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON` изолирует эту стадию (порядок `run_production` постадийный параметр стадии не несёт), а `NATIVE`
-  подтверждает её. Переменная читается при каждом выводе порядков, задаётся ДО запуска процесса (воркеры пула берут её из среды родителя) и не поднимает стадию над главным переключателем `PYTHON`.
-* УДЕРЖАННЫЕ СТАДИИ (`STAGE_HOLDS`). Стадия, вышедшая в ядро позже остальных, ждёт решения владельца о смене умолчания: пока оно не принято, главный переключатель `NATIVE` её НЕ заказывает (её порядок —
-  `PYTHON`), а нативную заказывает среда процесса (`STAGE_ENVIRONMENT`: A/B дерева и корпус; переменная читается при каждом выводе порядков и обязана быть задана ДО запуска процесса, потому что воркеры пула
-  берут её из среды родителя). Главный переключатель `PYTHON` держит эталон на всех стадиях, удержанных тоже. Удержанная стадия на умолчании в строке журнала и в панели молчит. Снять удержание — убрать стадию
-  из `STAGE_HOLDS`: она пойдёт за главным переключателем, как остальные. Сейчас удержана `materialize_w1` (W1 материализации: точная сетка слитых граней).
+* СТАДИИ ПО СРЕДЕ (`STAGE_ENVIRONMENT`). Лист контактов резолвера эффективной alpha (`effective_alpha`, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1) и W1 материализации (`materialize_w1`: точная сетка слитых граней,
+  MATERIALIZE_W1_NATIVE_DEFAULT_V1) идут за главным переключателем, как остальные стадии (умолчание `NATIVE`). Среда процесса — НЕ настройка продукта, а крюк A/B и тестов:
+  `CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON` и `CFTUV_MATERIALIZE_W1_BACKEND=PYTHON` изолируют свою стадию (порядок `run_production` постадийный параметр стадии не несёт), а `NATIVE` подтверждает её.
+  Переменная читается при каждом выводе порядков, задаётся ДО запуска процесса (воркеры пула берут её из среды родителя) и не поднимает стадию над главным переключателем `PYTHON`.
 * ПОРЯДКИ СТАДИЙ. `stage_orders` — ЕДИНСТВЕННОЕ место, где из главного переключателя выводятся порядки стадий (`StageOrdersV1`). Постадийный выбор остаётся
   ТОЛЬКО в API и инструментах (`run_production(..., skeleton_backend=..., embedding_backend=...)`, A/B-инструменты): `None` значит «как главный переключатель»,
   явное имя — порядок этой стадии. Параметр стадии со значением по умолчанию, отличным от `None`, — дефект (тест
@@ -76,7 +73,7 @@ KERNEL_BACKEND_ITEMS = (
     (
         KERNEL_BACKEND_NATIVE,
         "Native (Rust)",
-        "Default. Every stage runs its native (Rust) implementation where there is one (coverage/clip, skeleton, embedding, effective alpha). "
+        "Default. Every stage runs its native (Rust) implementation where there is one (coverage/clip, skeleton, embedding, effective alpha, materialize W1). "
         "The answer is bitwise the same; a stage the native kernel cannot compute is computed in Python and named in the console",
     ),
 )
@@ -97,9 +94,6 @@ _STATUS_FLAGS = {
     "effective_alpha": "effective_alpha_available",
     "materialize_w1": "materialize_w1_available",
 }
-#: УДЕРЖАННЫЕ СТАДИИ: `{стадия: порядок, пока владелец не снял удержание}`. Главный переключатель `NATIVE` такую стадию не заказывает (её порядок — значение здесь), нативную заказывает среда (`STAGE_ENVIRONMENT`).
-#: `materialize_w1`: точная сетка слитых граней сверена с эталоном на корпусе и в поле; умолчание меняет владелец после полевой сверки.
-STAGE_HOLDS = {"materialize_w1": KERNEL_BACKEND_PYTHON}
 #: Переменная среды, которой A/B и тесты заказывают порядок ОДНОЙ стадии мимо главного переключателя (`PYTHON` | `NATIVE`; крюк инструментов, не настройка продукта): читается только без явного порядка
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
 STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND"}
@@ -143,22 +137,13 @@ def environment_order(stage: str, master: str) -> str:
     return normalize_kernel_backend(ordered) if ordered else master
 
 
-def held_order(stage: str, master: str) -> str:
-    """Порядок удержанной стадии без явного имени: `PYTHON` при главном переключателе `PYTHON`; иначе то, что заказала среда процесса, а без неё — удержание (`STAGE_HOLDS`)."""
-
-    if master == KERNEL_BACKEND_PYTHON:
-        return KERNEL_BACKEND_PYTHON
-    ordered = os.environ.get(STAGE_ENVIRONMENT[stage], "").strip()
-    return normalize_kernel_backend(ordered) if ordered else STAGE_HOLDS[stage]
-
-
 def stage_orders(
     kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None
 ) -> StageOrdersV1:
     """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
     `kernel_backend` — главный переключатель (он же порядок покрытия и резки); `None` у `skeleton_backend`, `embedding_backend`, `effective_alpha_backend` и `materialize_backend` — «как главный переключатель»
-    (стадия со средой — по `environment_order`, удержанная — по `held_order`), явное имя — постадийный порядок (API и инструменты: A/B одной стадии, корпус эталона). Продуктовый путь (кнопка, живая ширина, воркеры пула) постадийного порядка не задаёт.
+    (стадия со средой — по `environment_order`), явное имя — постадийный порядок (API и инструменты: A/B одной стадии, корпус эталона). Продуктовый путь (кнопка, живая ширина, воркеры пула) постадийного порядка не задаёт.
     """
 
     master = normalize_kernel_backend(kernel_backend)
@@ -167,7 +152,7 @@ def stage_orders(
         master if skeleton_backend is None else normalize_kernel_backend(skeleton_backend),
         master if embedding_backend is None else normalize_kernel_backend(embedding_backend),
         environment_order("effective_alpha", master) if effective_alpha_backend is None else normalize_kernel_backend(effective_alpha_backend),
-        held_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
+        environment_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
     )
 
 
@@ -485,8 +470,7 @@ def _tally_segments(summary: BackendSummaryV1, *, reasons: bool) -> list:
         segments.append(
             "python: " + ", ".join(f"{labels[item.stage]} {item.python}" + (_outcomes_text(item.outcomes) if reasons else "") for item in fallen)
         )
-    # удержанная стадия на удержании молчит: она не заказана ни нативно, ни «по эталону»
-    python_ordered = [labels[item.stage] for item in summary.stages if item.requested == KERNEL_BACKEND_PYTHON and STAGE_HOLDS.get(item.stage) != KERNEL_BACKEND_PYTHON]
+    python_ordered = [labels[item.stage] for item in summary.stages if item.requested == KERNEL_BACKEND_PYTHON]
     if python_ordered:
         segments.append("ordered python: " + ", ".join(python_ordered))
     return segments
@@ -531,9 +515,8 @@ def native_status_line(kernel_backend, status) -> tuple:
     `PYTHON`: `Python for all stages` и, что готово нативно.
     """
 
-    shown = [(name, label) for name, label in STAGES if name not in STAGE_HOLDS]  # удержанная стадия панель не касается: владелец её не заказывает
-    ready = [label for name, label in shown if getattr(status, _STATUS_FLAGS[name])]
-    missing = [label for name, label in shown if not getattr(status, _STATUS_FLAGS[name])]
+    ready = [label for name, label in STAGES if getattr(status, _STATUS_FLAGS[name])]
+    missing = [label for name, label in STAGES if not getattr(status, _STATUS_FLAGS[name])]
     if normalize_kernel_backend(kernel_backend) == KERNEL_BACKEND_PYTHON:
         return ("Python for all stages; native ready: " + (", ".join(ready) or "none")), "INFO"
     if not missing:
@@ -570,7 +553,6 @@ __all__ = (
     "SETTING_NAME",
     "STAGES",
     "STAGE_ENVIRONMENT",
-    "STAGE_HOLDS",
     "StageOrdersV1",
     "StageTallyV1",
     "backend_console_lines",
@@ -583,7 +565,6 @@ __all__ = (
     "entered_backend",
     "environment_order",
     "fold_legacy_skeleton_setting",
-    "held_order",
     "kernel_backend_of",
     "ledger_record",
     "legacy_skeleton_choice",
