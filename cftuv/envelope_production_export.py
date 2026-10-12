@@ -149,6 +149,7 @@ from .envelope_production_scan import (  # noqa: F401 - переэкспорт: 
     _scan,
     _slot,
     lean_ready,
+    released,
 )
 from .envelope_production_task import (  # noqa: F401 - переэкспорт: имена прежние
     _domain_of_preparation,
@@ -160,6 +161,7 @@ from .envelope_production_task import (  # noqa: F401 - переэкспорт: 
     solve_production_task,
 )
 from .envelope_snap_retry import retry_snap_lottery
+from .envelope_byte_check_background import deferred_domains, launch as launch_byte_check
 from .envelope_snapshot_byte_check import finish_press, resolve_plan
 from .envelope_scan_memo import remember_inputs
 from .envelope_stretch_lines import developable_stretch_lines  # noqa: F401 - переэкспорт: имя прежнее
@@ -237,6 +239,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     from .envelope_request_export import EnvelopeHostAdapterError
 
     answered = reply is not None and (reply.ok or reply.refused)
+    run.byte_check_ledger.extend(deferred_domains(reply))  # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: сколько снапшотов воркер оставил на фоновый круг кодека
     if answered and entry.export is not None:
         run.hooks.export_adopter(entry.patch_id, reply)
     elif answered:
@@ -257,7 +260,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
                 entry.export_records.append(ledger_record(ledger))
                 if reply is not None and reply.production is not None:
                     entry.export_records.append(reply.production.backend_record)
-                return exc, None
+                return released(exc), None
         entry.export_records.append(ledger_record(ledger))
         entry.built_inputs.append(inputs)
     request = inputs[1]
@@ -750,6 +753,13 @@ def _interval_step_counters(profile, computed) -> None:
     profile.set_counter(PRODUCTION_INTERVAL_VERIFY_MISMATCH, sum(1 for path in paths if path.startswith("VERIFY_MISMATCH")))
 
 
+def _dispatch_work(run: _RunInputsV1, work, pool):
+    """`_dispatch` по доменам, которым нужна работа: готовые подготовки (пикл воркеру) и холодные домены (вход задачи)."""
+
+    ready = [item for item in work if item.prepared is not None or item.carried is not None]
+    return _dispatch(run, ready, [item for item in work if item.prepared is None and item.carried is None], pool)
+
+
 def run_production(
     controller,
     analysis_bundle,
@@ -818,16 +828,24 @@ def run_production(
     )
     builds_before, lazy_before = controller.build_counts, controller.lazy_unpickled
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
+    pool = (
+        get_domain_pool(workers, read_worker_python())
+        if domain_pool is _FROM_SETTINGS
+        else domain_pool
+    )
     topology_export = controller.get_topology_export(
         analysis_bundle, source_object_key, source_data_key, profile=profile
     ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
         silhouette_uv_slide
-    ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha)).with_snapshot_byte_check(resolve_plan(kernel_backend, skeleton_backend, embedding_backend))
+    ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha)).with_snapshot_byte_check(
+        resolve_plan(kernel_backend, skeleton_backend, embedding_backend, defer=hasattr(pool, "run_idle"))
+    )
     stage_memo = controller.stage_inputs_memo
     revision, patch_ids, request_id, selected_by_domain = stage_production_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export, memo=stage_memo
     )
     profile.set_counter(PRODUCTION_STAGE_INPUTS_MEMO_HIT, int(stage_memo.last == STAGE_INPUTS_HIT))
+    refused_by_byte_check = controller.byte_check_refused_patches(revision)  # домены, помеченные фоном: подмножество инкрементального такта их не обслуживает и не пропускает, `_scan` отказывает их
     run = _RunInputsV1(
         controller,
         analysis_bundle,
@@ -848,27 +866,19 @@ def run_production(
         skeleton_backend=skeleton_backend,
         embedding_backend=embedding_backend,
         lean=lean,
-        served=dict(served or {}),
-        skipped=frozenset(int(item) for item in (skipped or ())),
+        served={patch: result for patch, result in dict(served or {}).items() if patch not in refused_by_byte_check},
+        skipped=frozenset(int(item) for item in (skipped or ())) - refused_by_byte_check,
     )
     entries = _scan(run)
     _check_cancel(run)
     cold = any(item.is_cold for item in entries)
     work = [item for item in entries if item.needs_work]
-    pool = (
-        get_domain_pool(workers, read_worker_python())
-        if domain_pool is _FROM_SETTINGS
-        else domain_pool
-    )
     with profile.measure("PRODUCTION_DOMAINS_WALL"):
-        done, refused = _dispatch(
-            run,
-            [item for item in work if item.prepared is not None or item.carried is not None],
-            [item for item in work if item.prepared is None and item.carried is None],
-            pool,
-        )
+        done, refused = _dispatch_work(run, work, pool)
     results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
-    return _production_run(run, entries, results, cold, started, builds_before, lazy_before)
+    produced = _production_run(run, entries, results, cold, started, builds_before, lazy_before)
+    launch_byte_check(run, pool, entries)  # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: отложенный круг кодека идёт фоном ПОСЛЕ нажатия
+    return produced
 
 
 def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_before, lazy_before) -> ProductionRunV1:

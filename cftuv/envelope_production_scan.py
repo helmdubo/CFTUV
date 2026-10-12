@@ -132,6 +132,8 @@ class _RunInputsV1:
     served: dict = field(default_factory=dict)
     #: Номера патчей, которых прогон не считает и не называет в итоге вовсе: вызывающий складывает такие домены сам (составной образец инкрементального такта, `envelope_width_composite`). Итог прогона - только остальные домены.
     skipped: frozenset = frozenset()
+    #: SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: домены, чей снапшот воркер отложил на фоновый круг кодека в ЭТОМ прогоне (по одному на каждый ответ с отложенным); общий у повтора лотереи привязки.
+    byte_check_ledger: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -155,6 +157,23 @@ def lean_ready(run: _RunInputsV1, entry: _DomainEntryV1) -> bool:
     """
 
     return run.lean and entry.prepared is not None and entry.carried is None and not entry.reuse
+
+
+def released(failure):
+    """Исключение-отказ, которое прогон держит ЗНАЧЕНИЕМ, без трассы (`__traceback__` у него и у причин снят): ответ тот же, цикл разорван (PRODUCTION_REFUSAL_WITHOUT_TRACEBACK_V1).
+
+    Трасса поднятого и пойманного исключения держит кадры (`tb_frame` -> `f_back`) всей цепочки вызовов, то есть и кадр `run_production` с его рабочим набором (задачи, ответы воркеров,
+    записи доменов), а отказ лежит в этом же наборе (`refused`, `_DomainEntryV1.failure`): цикл, который не умирает счётчиком ссылок. На `cover.008` пять отказов держали ~110 тыс. объектов
+    до первой сборки мусора (она шла в конце кнопки, 0.36 с). Текст, исход и домен отказа от трассы не зависят.
+    """
+
+    seen = set()
+    node = failure
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        node.__traceback__ = None
+        node = node.__cause__ or node.__context__
+    return failure
 
 
 def _check_cancel(run: _RunInputsV1) -> None:
@@ -302,7 +321,7 @@ def _alpha_refusal(run: _RunInputsV1, facts):
     try:
         refuse_alpha_beyond_reach_facts(facts, request_alpha_decimal(run.alpha))
     except EnvelopeHostAdapterError as exc:
-        return exc
+        return released(exc)
     except (ArithmeticError, TypeError, ValueError):
         return None
     return None
@@ -428,12 +447,17 @@ def _scan(run: _RunInputsV1):
     for patch_id in run.patch_ids:
         if patch_id in run.skipped:
             continue
+        domain_id = _typed_value("patch-domain", run.revision, patch_id)
+        refusal = controller.byte_check_refusal(domain_id)
+        if refusal is not None:
+            # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: фон нашёл, что байты снапшота домена не прошли круг кодека; следующее действие отказывает домен тем же исходом, что дала бы проверка на нажатии.
+            entries.append(_DomainEntryV1(patch_id, domain_id, frozenset(run.selected_by_domain[domain_id]), failure=refusal))
+            continue
         result = run.served.get(patch_id)
         if result is not None and result.domain_id in run.selected_by_domain:
             # WIDTH_REFRESH_INCREMENTAL_V1: домен обслужен сертификатом (идентичность домена - у самого результата, он про эту ревизию), ни записей, ни кэшей, ни выгрузки.
             entries.append(_DomainEntryV1(patch_id, result.domain_id, frozenset(run.selected_by_domain[result.domain_id]), cached=result, rebased=True))
             continue
-        domain_id = _typed_value("patch-domain", run.revision, patch_id)
         selected = frozenset(run.selected_by_domain[domain_id])
         record = None if records is None else records.get(patch_id)
         if record is not None and record.selected != selected:
@@ -461,7 +485,7 @@ def _scan(run: _RunInputsV1):
                     continue
                 inputs = _inputs_of(run, (patch_id, domain_id, selected), lambda _patch, _domain: snapshot)
             except EnvelopeHostAdapterError as exc:
-                entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=exc, export_records=[ledger_record(ledger)]))
+                entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=released(exc), export_records=[ledger_record(ledger)]))
                 continue
         entry = _entry_with_inputs(run, patch_id, domain_id, selected, inputs)
         entry.export_records.append(ledger_record(ledger))

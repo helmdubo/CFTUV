@@ -555,6 +555,23 @@ def serve_task(task: DomainTaskV1) -> bytes:
         return _reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task)))
 
 
+def serve_message(message) -> bytes:
+    """Кадр ответа на сообщение, которое не задача домена: шаг фоновой проверки (`ByteCheckStepV1`, SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1).
+
+    Шаг идёт под паузой сборщика, как задача. Чужое сообщение - названный отказ ответом (`DomainTaskResultV1.error`), а не молчание: родитель узнает протокол по типу ответа.
+    """
+
+    from .envelope_snapshot_byte_check import ByteCheckStepV1, serve_byte_check
+
+    try:
+        if isinstance(message, ByteCheckStepV1):
+            with gc_paused():
+                return _reply_frame(-1, serve_byte_check(message))
+        return _reply_frame(-1, DomainTaskResultV1(-1, error=f"unknown worker message: {type(message).__name__}"))
+    except Exception:  # noqa: BLE001 - ответ несёт трассу, а не теряет её
+        return _reply_frame(-1, DomainTaskResultV1(-1, error=traceback.format_exc()))
+
+
 # --------------------------------------------------------------------------
 # Тождество окружения: что сверяют родитель и воркер на внешнем интерпретаторе
 # --------------------------------------------------------------------------
@@ -671,6 +688,40 @@ def _identity_difference(host: dict, worker: dict) -> tuple[int, str] | None:
     return None
 
 
+#: Исход прогрева воркера: отпечатки кода и бэкенды считаются ДО «готов», а не на первой задаче (WORKER_IDENTITY_PREWARM_V1).
+WORKER_IDENTITY_PREWARMED = "ENVELOPE_DOMAIN_POOL_WORKER_IDENTITY_PREWARMED"
+WORKER_IDENTITY_PREWARM_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_WORKER_IDENTITY_PREWARM_UNAVAILABLE"
+
+
+def warm_worker_identities() -> dict:
+    """Отпечатки кода и идентичность бэкендов ЭТОГО процесса, посчитанные заранее; `{"outcome": ..., "seconds": ...}` уходит в кадр «готов».
+
+    ЗАЧЕМ. Первая задача каждого воркера платила ~0.2-0.3 с одноразовой работы, которая не зависит от домена: отпечаток кода хоста и ядра
+    (`envelope_content_key.code_identity`, sha256 по ~290 файлам: его берёт проверка снапшота и ключ пикла), отпечаток ядра для памяти резки
+    (`materialize.clip_memo.kernel_code_identity`, тот же закон, но свой кэш) и импорт модулей нативного расширения (идентичность бэкенда).
+    На холодной кнопке первые задачи - самые тяжёлые домены, поэтому это лежало на критическом пути стены `building` (12 x 0.2 с процессорных). Теперь это
+    считается в старте воркера, который прячет прогрев пула при регистрации аддона. Значения те же: кэши процесса, результат от порядка не зависит.
+
+    Сбой - названный исход в кадре и строка в stderr воркера, а не падение: первая задача посчитает недостающее сама (ответ тот же).
+    """
+
+    started = time.perf_counter()
+    try:
+        from .envelope_content_key import execution_identity
+
+        execution_identity(DEFAULT_KERNEL_BACKEND)  # отпечаток ядра и хоста (кэш процесса) и идентичность бэкенда: нативное расширение импортируется здесь
+        from cftuv_envelope.backend import native_status
+        from cftuv_envelope.materialize.clip_memo import kernel_code_identity
+
+        kernel_code_identity()
+        native_status()  # расширение и проверка закреплённых файлов: кэш процесса, как у первой задачи
+        outcome = WORKER_IDENTITY_PREWARMED
+    except Exception as exc:  # noqa: BLE001 - прогрев не ломает воркера: именованный исход и строка в stderr
+        outcome = WORKER_IDENTITY_PREWARM_UNAVAILABLE
+        print(f"[CFTUV][EnvelopeDomainPool] {outcome}: {type(exc).__name__}: {exc}; the first task computes it", flush=True)
+    return {"outcome": outcome, "seconds": time.perf_counter() - started}
+
+
 def worker_main() -> None:
     """Цикл воркера: задача на входе, ответ на выходе, до конца stdin."""
 
@@ -701,12 +752,12 @@ def worker_main() -> None:
     # первой задаче.
     importlib.import_module(".envelope_queue_pool", __package__)
     importlib.import_module(".envelope_production_export", __package__)
-    write_frame(channel, ("ready", os.getpid()))
+    write_frame(channel, ("ready", os.getpid(), warm_worker_identities()))
     while True:
         task = read_frame(source)
         if task is None:
             return
-        channel.write(serve_task(task))
+        channel.write(serve_message(task) if not isinstance(task, DomainTaskV1) else serve_task(task))
         channel.flush()
 
 
@@ -730,6 +781,8 @@ class _Worker:
         self.dead = False
         #: Что воркер назвал о себе в `hello` (внешний интерпретатор), иначе пусто.
         self.identity: dict = {}
+        #: Прогрев воркера из кадра «готов» (`warm_worker_identities`): исход и секунды; пусто, если воркер его не прислал.
+        self.prewarm: dict = {}
         #: Зеркало памяти подготовок воркера (те же вложения и порядок вытеснения): ключ без пикла уходит, если воркер его держит.
         self.held = PreparationLruV1()
         #: Сколько байтов ответов прочитано у воркера и во что обошёлся их разбор (потоком-читателем родителя); растёт монотонно.
@@ -1044,12 +1097,21 @@ class DomainPool:
         # Воркер однопоточен по кадрам: два одновременных `run` перемешали бы кадры. Раньше пулом
         # пользовался один главный поток; теперь превью alpha гонит `run` из потока счёта.
         self._run_lock = threading.Lock()
+        #: Сколько прогонов (`run`) ждут замка либо идут: фоновые шаги (`run_idle`) не берут замок, пока их хоть один, и тем уступают следующему действию.
+        self._foreground = 0
+        self._wanted = threading.Condition()
         #: `{ключ привязки задачи: индекс воркера, который её считал}`; индексы воркеров не переиспользуются.
         self._last_worker: dict[str, int] = {}
 
     @property
     def worker_count(self) -> int:
         return sum(not item.dead for item in self._workers)
+
+    @property
+    def worker_prewarms(self) -> tuple:
+        """Прогрев каждого живого воркера, как он назвал его в кадре «готов» (`warm_worker_identities`)."""
+
+        return tuple(dict(item.prewarm) for item in self._workers if not item.dead)
 
     @property
     def external_python(self) -> str:
@@ -1179,6 +1241,7 @@ class DomainPool:
                     reply = worker.receive(timeout=READY_TIMEOUT_SECONDS)
                 if not (isinstance(reply, tuple) and reply[:1] == ("ready",)):
                     raise _WorkerGone(f"unexpected first frame {reply!r}")
+                worker.prewarm = dict(reply[2]) if len(reply) > 2 and isinstance(reply[2], dict) else {}
             except _WorkerGone as exc:
                 failures.append(f"worker failed to start: {exc}")
                 worker.close(grace=0.5)
@@ -1211,8 +1274,64 @@ class DomainPool:
         тот и разбирает неполный ответ (`SliderCoveragePool.cover` бросает `CoverageCancelled`).
         """
 
-        with self._run_lock:
-            return self._run_locked(tasks, cancel)
+        with self._wanted:
+            self._foreground += 1  # ДО замка: фоновый шаг, идущий сейчас, дочитывается (не дольше одного шага), следующего он не начнёт
+        try:
+            with self._run_lock:
+                return self._run_locked(tasks, cancel)
+        finally:
+            with self._wanted:
+                self._foreground -= 1
+                self._wanted.notify_all()
+
+    def run_idle(self, message, on_reply, *, stop: threading.Event, timeout: float = 120.0) -> tuple[bool, dict]:
+        """Фоновая работа на простаивающих воркерах: `message` каждому живому воркеру шаг за шагом, пока `on_reply` не скажет «этому больше не надо» (SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1).
+
+        `on_reply(индекс воркера, ответ) -> bool`: `True` - воркеру нужен ещё шаг. Шаг берёт замок прогона и держит его на один обмен с каждым воркером (воркер отвечает за свой бюджет шага, десятки мс);
+        между шагами замок отдан, и пока есть хоть один `run`, шаги не начинаются. `stop` (`threading.Event`) прерывает задачу между шагами. Возвращает `(все воркеры довели, {индекс воркера: причина})`:
+        воркер, умерший посреди задачи, в причинах и закрыт; отсутствие живых воркеров - тоже причина. Воркеры, которых пул пересоздал после начала, в задаче не участвуют: их памяти у задачи нет.
+        """
+
+        frame = encode_frame(message)
+        pending = {item.index for item in self._workers if not item.dead}
+        failures: dict[int, str] = {}
+        while pending and not stop.is_set():
+            with self._wanted:
+                while self._foreground and not stop.is_set():
+                    self._wanted.wait(0.25)
+            if stop.is_set():
+                break
+            with self._run_lock:
+                if self._foreground:
+                    continue
+                batch = [item for item in self._workers if item.index in pending and not item.dead]
+                for index in pending - {item.index for item in batch}:
+                    failures[index] = "the worker is gone"
+                    pending.discard(index)
+                sent = []
+                for worker in batch:
+                    try:
+                        worker.send(frame)
+                        sent.append(worker)
+                    except _WorkerGone as exc:
+                        worker.dead = True
+                        failures[worker.index] = str(exc)
+                        pending.discard(worker.index)
+                for worker in sent:
+                    try:
+                        reply = worker.receive(timeout)
+                    except _WorkerGone as exc:
+                        worker.dead = True
+                        failures[worker.index] = str(exc)
+                        pending.discard(worker.index)
+                        continue
+                    if not on_reply(worker.index, reply):
+                        pending.discard(worker.index)
+                for worker in batch:
+                    if worker.dead:
+                        worker.close(grace=0.5)
+                self._workers = [item for item in self._workers if not item.dead]
+        return (not pending and not failures and not stop.is_set()), failures
 
     def _run_locked(self, tasks, cancel) -> DomainPoolRunV1:
         self.ensure_started()
@@ -1377,6 +1496,8 @@ __all__ = (
     "MIN_POOL_WORKERS",
     "PoolInterpreterV1",
     "PoolStatsV1",
+    "WORKER_IDENTITY_PREWARMED",
+    "WORKER_IDENTITY_PREWARM_UNAVAILABLE",
     "describe_environment",
     "encode_frame",
     "get_domain_pool",
@@ -1390,6 +1511,7 @@ __all__ = (
     "resolve_python_executable",
     "shutdown_domain_pool",
     "solve_task",
+    "warm_worker_identities",
     "worker_main",
     "write_frame",
 )

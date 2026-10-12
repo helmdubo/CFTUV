@@ -178,7 +178,8 @@ def test_the_worker_loop_answers_through_serve_task_and_nowhere_else_pauses_the_
     called = {item.func.id for item in ast.walk(loop) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)}
     assert "serve_task" in called and not {"solve_task", "_reply_frame", "_packed_cold_reply"} & called
     users = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and any(isinstance(item, ast.Name) and item.id == "gc_paused" for item in ast.walk(node))]
-    assert users == ["serve_task"]
+    # Второй владелец паузы - шаг фоновой проверки первого нажатия (`serve_message`, SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1): круг кодека такой же работа воркера, как задача.
+    assert users == ["serve_task", "serve_message"]
 
 
 # --------------------------------------------------------------------------
@@ -362,3 +363,132 @@ def test_the_width_tick_outcome_is_named():
 
 def test_the_outcome_is_named():
     assert GC_PAUSE_OUTCOME == "GC_PAUSED_DURING_BUTTON_V1"
+
+
+# --------------------------------------------------------------------------
+# GC_FROZEN_AFTER_BUTTON_V1: кнопка замораживает накопленное перед включением сборщика
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _unfrozen():
+    """Тест замораживает объекты процесса: постоянное поколение возвращено сборщику до и после него."""
+
+    gc.unfreeze()
+    yield
+    gc.unfreeze()
+
+
+def test_a_button_block_freezes_what_the_press_accumulated_before_the_collector_comes_back(_unfrozen):
+    from cftuv.envelope_gc_pause import GC_FROZEN_OUTCOME
+
+    assert GC_FROZEN_OUTCOME == "GC_FROZEN_AFTER_BUTTON_V1"
+    gc.enable()
+    keep = []
+    with gc_paused(freeze=True):
+        keep.extend([[index] for index in range(2000)])
+        assert gc.get_freeze_count() == 0
+    assert gc.isenabled()
+    assert gc.get_freeze_count() >= 2000
+
+
+def test_a_plain_block_and_a_collector_that_was_off_freeze_nothing(_unfrozen):
+    gc.enable()
+    with gc_paused():
+        pass
+    assert gc.get_freeze_count() == 0
+    gc.disable()
+    with gc_paused(freeze=True):
+        pass
+    assert gc.get_freeze_count() == 0 and not gc.isenabled()
+
+
+def test_the_outer_block_decides_when_a_nested_block_asks_for_the_freeze(_unfrozen):
+    gc.enable()
+    with gc_paused():
+        with gc_paused(freeze=True):
+            pass
+        assert gc.get_freeze_count() == 0 and not gc.isenabled()
+    assert gc.get_freeze_count() > 0 and gc.isenabled()
+
+
+def test_a_frozen_set_above_the_valve_is_given_back_to_the_collector_instead_of_growing(_unfrozen, monkeypatch):
+    from cftuv import envelope_gc_pause
+
+    gc.enable()
+    with gc_paused(freeze=True):
+        pass
+    assert gc.get_freeze_count() > 0
+    monkeypatch.setattr(envelope_gc_pause, "FREEZE_VALVE_OBJECTS", 1)
+    with gc_paused(freeze=True):
+        pass
+    assert gc.get_freeze_count() == 0 and gc.isenabled()
+
+
+def test_the_button_decorator_requests_the_freeze_and_the_tick_decorator_does_not(_unfrozen):
+    gc.enable()
+
+    @gc_paused_function
+    def tick():
+        return [[0]]
+
+    tick()
+    assert gc.get_freeze_count() == 0
+
+    @gc_paused_call
+    def execute(self, context):
+        return {"FINISHED"}
+
+    execute(None, None)
+    assert gc.get_freeze_count() > 0
+
+
+def test_a_stored_refusal_carries_no_traceback_so_it_closes_no_cycle_with_the_run():
+    """PRODUCTION_REFUSAL_WITHOUT_TRACEBACK_V1: исключение-отказ по значению не держит кадры вызвавшего (цикл `refused` <-> трасса <-> кадр)."""
+
+    from cftuv.envelope_production_scan import released
+
+    class Failure(Exception):
+        pass
+
+    def raise_it():
+        raise Failure("named refusal")
+
+    def caller(release):
+        working_set = [object() for _ in range(5)]
+        refused = {"set": working_set}
+        try:
+            raise_it()
+        except Failure as exc:
+            refused["domain"] = released(exc) if release else exc
+        return refused
+
+    gc.disable()
+    try:
+        gc.collect()
+        refused = caller(release=True)
+        assert refused["domain"].__traceback__ is None and str(refused["domain"]) == "named refusal"
+        del refused
+        assert gc.collect() == 0  # ни одного объекта в цикле: рабочий набор умер счётчиком ссылок
+        # без снятия трассы тот же код оставляет цикл (кадр `caller` держит `refused`, а `refused` - исключение с трассой на этот кадр)
+        refused = caller(release=False)
+        del refused
+        assert gc.collect() > 0
+    finally:
+        gc.enable()
+
+
+def test_the_released_chain_covers_the_cause_and_the_context():
+    from cftuv.envelope_production_scan import released
+
+    def deep():
+        try:
+            raise KeyError("first")
+        except KeyError as first:
+            raise ValueError("second") from first
+
+    try:
+        deep()
+    except ValueError as exc:
+        kept = released(exc)
+    assert kept.__traceback__ is None and kept.__cause__.__traceback__ is None and str(kept) == "second"

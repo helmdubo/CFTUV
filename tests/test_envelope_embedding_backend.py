@@ -97,7 +97,7 @@ def test_worker_export_refusal_or_error_keeps_the_b1_record(monkeypatch, error):
 def _run_stub(**parts):
     return SimpleNamespace(backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="NATIVE", cancel=None,
         revision="r", alpha=.25, alpha_text=".25", request_id="q", density=None, topology_law=production.PRODUCTION_TOPOLOGY_LAW,
-        uv_policy_id=production.PRODUCTION_UV_POLICY, profile=EnvelopeDebugProfileBuilderV1("parent", "QUEUE"), scan_records={}, served={}, skipped=frozenset(), **parts)
+        uv_policy_id=production.PRODUCTION_UV_POLICY, profile=EnvelopeDebugProfileBuilderV1("parent", "QUEUE"), scan_records={}, served={}, skipped=frozenset(), byte_check_ledger=[], **parts)
 
 
 def test_parent_scan_metric_and_inputs_share_one_record(monkeypatch):
@@ -108,7 +108,7 @@ def test_parent_scan_metric_and_inputs_share_one_record(monkeypatch):
     def metric(*args):
         backend.embedding_compute(*ARGS)
         return snapshot
-    controller = SimpleNamespace(get_patch_metric=metric, get_domain_geometry=lambda metric: SimpleNamespace(snapshot=metric))
+    controller = SimpleNamespace(get_patch_metric=metric, get_domain_geometry=lambda metric: SimpleNamespace(snapshot=metric), byte_check_refusal=lambda domain_id: None)
     run = _run_stub(controller=controller, topology_export=object(), patch_ids=(7,),
         selected_by_domain={_typed_value("patch-domain", "r", 7): frozenset()},
         hooks=SimpleNamespace(export_provider=lambda *a: None))

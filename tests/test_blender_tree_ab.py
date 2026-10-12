@@ -163,6 +163,26 @@ def test_the_set_of_domains_the_mesh_the_keys_and_the_run_digests_are_compared()
         assert comparison.differences == [f"[step1] {name} differ"], name
 
 
+def test_domain_counters_are_compared_per_name_so_a_named_counter_can_be_allowed():
+    """Счётчики под доменами сверяются по имени: решение проверки байтов каждого домена, которое правка добавила нарочно, назвать в `--allow-counter` можно, чужое - нет."""
+
+    def with_counters(report, **counters):
+        for press in report["presses"].values():
+            press["profile_domain_counters_by_name"] = dict(counters)
+
+    base, branch = make_report(), make_report()
+    with_counters(base, PRODUCTION_SNAPSHOT_BYTE_CHECK_FIRST_PRESS="a", PRODUCTION_SOMETHING="b")
+    with_counters(branch, PRODUCTION_SNAPSHOT_BYTE_CHECK_DEFERRED="a", PRODUCTION_SOMETHING="b")
+    for press in branch["presses"].values():
+        press["profile_domain_counters"] = "other whole-hash"  # целый хеш другой, но он больше не решает
+    strict = ab.compare_runs(base, branch)
+    assert not strict.identical and any("domain counter PRODUCTION_SNAPSHOT_BYTE_CHECK_FIRST_PRESS differs" in line for line in strict.differences)
+    allowed = ab.compare_runs(base, branch, ("PRODUCTION_SNAPSHOT_BYTE_CHECK_",))
+    assert allowed.identical and any("domain counters named on purpose" in line and "PRODUCTION_SNAPSHOT_BYTE_CHECK_DEFERRED" in line for line in allowed.notes)
+    with_counters(branch, PRODUCTION_SNAPSHOT_BYTE_CHECK_FIRST_PRESS="a", PRODUCTION_SOMETHING="changed")
+    assert any("domain counter PRODUCTION_SOMETHING differs" in line for line in ab.compare_runs(base, branch, ("PRODUCTION_SNAPSHOT_BYTE_CHECK_",)).differences)
+
+
 def test_content_keys_are_compared_as_a_set_whatever_the_order_the_parent_computed_them_in():
     comparison = pair(lambda branch: branch["presses"]["cold"].update(content_keys=[[3, "k3"], [1, "k1"], [2, "k2"]]))
     assert comparison.identical
