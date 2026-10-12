@@ -356,7 +356,19 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
         if press.get("effective_alpha_calls") and any(press["effective_alpha_calls"]):
             out.notes.append(f"[{label}] {side}: effective-alpha pairs computed natively {press['effective_alpha_calls'][0]}, in Python after a named refusal {press['effective_alpha_calls'][1]}")
     _counter_difference(a["profile_counters"], b["profile_counters"], allowed, is_volatile_run_counter, f"[{label}] run profile", out)
-    for name in ("profile_domain_counters", "profile_receipts", "profile_timing_stages"):
+    by_name_a, by_name_b = a.get("profile_domain_counters_by_name"), b.get("profile_domain_counters_by_name")
+    if by_name_a is not None and by_name_b is not None:
+        # Per counter name, so that `--allow-counter` covers the per-domain decisions a change adds on purpose (e.g. the byte-check decision of every domain), listed and never silently ignored.
+        for counter in sorted(set(by_name_a) | set(by_name_b)):
+            if by_name_a.get(counter) != by_name_b.get(counter):
+                if any(counter.startswith(prefix) for prefix in allowed):
+                    out.notes.append(f"[{label}] domain counters named on purpose (--allow-counter) differ: {counter}")
+                else:
+                    out.differences.append(f"[{label}] domain counter {counter} differs")
+        checked = ("profile_receipts", "profile_timing_stages")
+    else:
+        checked = ("profile_domain_counters", "profile_receipts", "profile_timing_stages")
+    for name in checked:
         if a.get(name) != b.get(name):
             out.differences.append(f"[{label}] {name} differ")
     out.presses[label] = {"domains": a["domains"], "materialized": a["materialized"], "outcomes": a["outcomes"], "mesh": a["mesh_hash"][:12], "mesh_counts": a["mesh_counts"], "keys": len(a["content_keys"]),
@@ -1152,6 +1164,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
         "process_counters": counters, "effective_alpha_calls": alpha_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
+        "profile_domain_counters_by_name": {
+            name: _hash(sorted((item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None and item.name == name))
+            for name in sorted({item.name for item in profile.counters if item.patch_domain_id is not None})
+        },
         "profile_receipts": _hash(sorted((str(item.patch_domain_id), str(item.stage)) for item in profile.receipts)),
         "profile_timing_stages": sorted({item.stage for item in profile.timings}),
         "stage_seconds": {name: round(value, 6) for name, value in sorted(profile.stage_totals.items())},  # timing, not an answer: the seconds of every stage the profile timed (EFFECTIVE_ALPHA among them)
