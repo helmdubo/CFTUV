@@ -457,7 +457,7 @@ def test_a_lean_frame_with_the_same_layout_writes_positions_uv_and_owners_and_re
     assert np.array_equal(mesh.uv_layers[0].data.sets[0][1], np.asarray(sample.uvs, dtype=np.float32).reshape(-1))
     assert np.array_equal(mesh.attributes[0].data.sets[0][1], sample.image.face_owner)  # номера владельцев - тот же атрибут граней, что у точной записи
     assert _width_of(world) == sample.alpha  # ширина записи меша - ширина кадра (её читают проверка владения и сверка после истории)
-    assert controller.width_displayed is sample and controller.width_aux == (base,)  # образец на экране заменён, прежний стал вспомогательным
+    assert controller.width_displayed is sample  # образец на экране заменён
     assert controller.width_mesh_owner.sample is sample and controller.width_mesh_owner.generation == 2  # владение снято заново, под образцом кадра
     state = controller.width_mesh_preview
     assert state.outcome == REFRESH_LEAN and state.alpha == 0.27 and state.live == len(base.domains) and state.held == 0
@@ -498,12 +498,12 @@ def test_cancel_returns_what_the_drag_started_from_after_lean_frames_replaced_th
     assert controller.width_drag_origin.displayed is base
     assert preview.lean_exact_now(controller, _exact(0.28)) == ""
     assert controller.width_drag_origin.displayed is base  # второй кадр начало не меняет
-    assert controller.width_displayed.alpha == 0.28 and controller.width_aux[0].alpha == 0.27
+    assert controller.width_displayed.alpha == 0.28
 
     assert preview.finish_drag(controller, restore=True) is True
 
     assert not controller.width_drag_active and controller.width_drag_origin is None
-    assert controller.width_displayed is base and controller.width_aux == () and controller.width_model is model  # образец, вспомогательные, модель - начала перетаскивания
+    assert controller.width_displayed is base and controller.width_model is model  # образец и модель - начала перетаскивания
     assert controller.width_mesh_owner.sample is base and controller.width_mesh_preview is None and _width_of(world) == base.alpha
     assert np.array_equal(mesh.vertices.sets[-1][1], np.asarray(base.positions, dtype=np.float32).reshape(-1))  # меш: позиции базы побитово
     assert np.array_equal(mesh.uv_layers[0].data.sets[-1][1], np.asarray(base.uvs, dtype=np.float32).reshape(-1))
@@ -540,17 +540,17 @@ def test_the_confirm_leaves_the_mesh_as_the_frames_left_it_and_forgets_the_origi
     assert controller.width_displayed.alpha == 0.27  # зафиксированный ответ заменит и это
 
 
-def test_the_origin_holds_what_stood_just_before_the_first_frame_so_a_prime_that_landed_earlier_is_kept(monkeypatch):
+def test_the_origin_holds_what_stood_just_before_the_first_frame_so_a_model_rebuilt_earlier_is_kept(monkeypatch):
     world = _owned(monkeypatch)
     controller, base = world.controller, world.base
     preview.begin_drag(controller)
-    late_aux = (_fold_sample(0.2525)[0],)
-    controller.width_aux = late_aux  # затравка легла уже за время перетаскивания, до первого кадра
+    rebuilt = preview.build_model(base)
+    controller.width_model = rebuilt  # модель образца на экране перестроена за время перетаскивания, до первого кадра
 
     assert preview.lean_exact_now(controller, _exact(0.27)) == ""
     assert preview.finish_drag(controller, restore=True) is True
 
-    assert controller.width_displayed is base and controller.width_aux is late_aux
+    assert controller.width_displayed is base and controller.width_model is rebuilt
 
 
 def test_cancel_without_lean_frames_is_the_old_cancel(monkeypatch):

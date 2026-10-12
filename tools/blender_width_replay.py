@@ -3,15 +3,15 @@
     blender -b E:/testScene.blend --python-exit-code 1 --python tools/blender_width_replay.py -- \\
         --meshes rounded_wall_noise_top:0.25,sagging_wall:0.25,building:0.2239 --workers 8 --density 2 --stretch 42 --out replay.json
 
-Для каждого меша: холодная кнопка «Build Decal Mesh», вход инструмента (`begin_adjust`: затравка модели в фоне), затем фазы:
+Для каждого меша: холодная кнопка «Build Decal Mesh», вход инструмента (`begin_adjust`: модель строится из аффинного сертификата образца кнопки, ни одного прогона), затем фазы:
 
-1. `early_drag` — рука тянет СРАЗУ, не дожидаясь затравки: кадры идут, пока поток затравки считает (борьба за GIL), меш начинает двигаться,
-   когда модель легла (`first_mesh_frame_after_s`); цена событий и самая долгая остановка главного потока;
+1. `early_drag` — рука тянет СРАЗУ после входа: первые кадры идут при только что построенной модели, меш двигается с первого кадра (`first_mesh_frame_after_s`); `tool_entry_ms` —
+   цена входа инструмента (построение модели), цена событий и самая долгая остановка главного потока;
 2. `frames` — воспроизведение перетаскивания (`WidthAdjustSessionV1.handle` -> `apply_step`) по пути вверх на `--up` и назад ниже базы,
    `--frames` кадров с паузой `--frame-ms`; между кадрами шагают таймеры, как их шагал бы главный цикл. `frame_ms` — цена кадра превью меша
    (p50, p95, максимум), `event_ms` — события целиком (линии + меш), `stall_ms_max` — самая долгая остановка главного потока, `live_domains` —
    сколько доменов двигалось и `held_domains_max` — сколько придержано;
-3. `model` — домены, степень, байты приблизительной модели, время до готовности затравки;
+3. `model` — домены, байты модели, время до готовности (вход инструмента);
 4. `deviation` — предсказание модели против ТОЧНОГО прогона на ряде ширин пути (`envelope_width_preview_model.deviation`): наибольшее
    отклонение позиций меша (метры) и UV; `readback_max_abs_m` — меш, прочитанный из Blender (float32), против кадра;
 5. `cancel` — отмена после перетаскивания возвращает меш побитово (`mesh_content_digest` и массивы float32);
@@ -39,6 +39,8 @@ import bmesh
 import bpy
 
 ROOT = Path(__file__).resolve().parents[1]
+#: События руки сразу после входа в инструмент (фаза `early_drag`).
+EARLY_EVENTS = 30
 # SNAPSHOT_BYTE_CHECK_SAMPLED_V1: ворота и замеры этого инструмента проверяют каждый домен целиком (на кнопке продукта по умолчанию выборка).
 os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 
@@ -159,7 +161,7 @@ def _controller():
 
 
 def _schedulers(controller):
-    return [item for item in (controller.width_live, controller.width_prime) if item is not None]
+    return [item for item in (controller.width_live,) if item is not None]
 
 
 def _step_timers(controller, spent):
@@ -173,7 +175,7 @@ def _step_timers(controller, spent):
 
 
 def _settle(controller, *, timeout=600.0):
-    """Таймеры шагают, пока оба планировщика не опустеют."""
+    """Таймеры шагают, пока планировщик не опустеет."""
 
     started = time.perf_counter()
     while any(item.busy for item in _schedulers(controller)):
@@ -201,17 +203,14 @@ def _model_record(controller, started):
         "refusal": None if controller.width_model_refusal is None else controller.width_model_refusal.outcome,
         "domains": None if cert is None else cert.domain_count,
         "modelled": None if cert is None else cert.modelled_domains,
-        "quadratic": None if cert is None else cert.quadratic_domains,
         "own_bytes": None if cert is None else cert.own_bytes,
         "total_bytes": None if cert is None else cert.nbytes,
         "reasons": None if cert is None else cert.reason_counts(),
-        "primes": controller.width_preview_log.primes_requested,
-        "status": controller.width_prime.status_text if controller.width_prime else "",
     }
 
 
 def _early_drag(runtime, base, args, result):
-    """Рука тянет сразу после входа в инструмент: кадры идут, пока считает затравка; ждём, пока модель ляжет."""
+    """Рука тянет сразу после входа в инструмент: модель построена из сертификата образца, кадры идут с первого события (затравок нет)."""
 
     from cftuv.envelope_width_adjust import KIND_MOVE, WidthEventV1
     from cftuv.envelope_width_session import apply_step
@@ -219,7 +218,7 @@ def _early_drag(runtime, base, args, result):
     controller = _controller()
     started = time.perf_counter()
     events, stalls, first_mesh, count = [], [], None, 0
-    while any(item.busy for item in _schedulers(controller)):
+    while count < EARLY_EVENTS:
         tick = time.perf_counter()
         apply_step(bpy.context, runtime, runtime.session.handle(WidthEventV1(KIND_MOVE, base * 0.003 * (count % 8), 0.0)))
         elapsed = (time.perf_counter() - tick) * 1000.0
@@ -234,7 +233,7 @@ def _early_drag(runtime, base, args, result):
     apply_step(bpy.context, runtime, runtime.session.handle(WidthEventV1(KIND_MOVE, 0.0, 0.0)))  # рука вернулась к исходной ширине
     _settle(controller)
     result["early_drag"] = {
-        "frames_before_the_model_settled": count,
+        "events": count,
         "event_ms": _stats(events),
         "stall_ms_max": round(max(stalls), 3) if stalls else 0.0,
         "first_mesh_frame_after_s": None if first_mesh is None else round(first_mesh, 3),
@@ -422,7 +421,6 @@ def _confirm(obj, base, args):
     width = float(settings.envelope_debug_alpha)
     controller.clear()
     controller.width_live = None
-    controller.width_prime = None
     settings.envelope_debug_alpha = width
     _press(obj)
     return {
@@ -438,11 +436,8 @@ def _confirm(obj, base, args):
 def _slider(base, args):
     """Ползунок: каждое значение идёт через калбэк `update` (линии, кадр, заказ точного счёта) под нагрузкой точных прогонов."""
 
-    from cftuv.envelope_width_live import ensure_prime
-
     controller = _controller()
     settings = bpy.context.scene.hotspotuv_settings
-    ensure_prime(bpy.context)
     _settle(controller)
     values = [base * (1.0 + 0.004 * index) for index in range(1, 21)] + [base * (1.0 + 0.004 * index) for index in range(20, -1, -1)]
     changes, timers, frames = [], [], []
@@ -469,9 +464,12 @@ def _replay(obj, base, args, result):
     from cftuv.envelope_width_session import ViewScaleV1, begin_adjust
 
     before, before_arrays = _digest(obj.name), _mesh_arrays(obj.name)  # меш кнопки: отмена обязана вернуть его побитово
+    entered = time.perf_counter()
     runtime = begin_adjust(bpy.context, (0.0, 0.0), ViewScaleV1((0.0, 0.0), 1.0))
+    entry_ms = (time.perf_counter() - entered) * 1000.0
     assert not isinstance(runtime, str), runtime
     cert = _early_drag(runtime, base, args, result)
+    result["early_drag"]["tool_entry_ms"] = round(entry_ms, 3)
     if cert is None:
         result["failure"] = "no preview model: " + str(result["model"]["refusal"])
         return
@@ -491,9 +489,9 @@ def _summary(name, result) -> str:
     early, slider = result["early_drag"], result["slider"]
     return (
         f"REPLAY {name}: frame {frames['frame_ms']} ms, event {frames['event_ms']} ms, stall max {frames['stall_ms_max']} ms, "
-        f"model {model['modelled']}/{model['domains']} domains {model['own_bytes']} B in {model['ready_s']} s, "
+        f"model {model['modelled']}/{model['domains']} domains {model['own_bytes']} B, tool entry {early['tool_entry_ms']} ms, "
         f"max deviation {worst:.3e} m, cancel {result['cancel']['restored_bitwise']}, confirm == cold {result['confirm']['equal_to_cold_button']}\n"
-        f"REPLAY {name}: immediate drag while the prime computes: event {early['event_ms']} ms, stall max {early['stall_ms_max']} ms, "
+        f"REPLAY {name}: immediate drag after the tool entry: event {early['event_ms']} ms, stall max {early['stall_ms_max']} ms, "
         f"first mesh frame after {early['first_mesh_frame_after_s']} s; slider: callback {slider['callback_ms']} ms, "
         f"frame {slider['frame_ms']} ms; exact apply {result['confirm']['exact_apply_ms']} ms\n"
         f"REPLAY {name}: ownership check {result['ownership'].get('check_us')} us per frame, layout read {result['ownership'].get('layout_read_ms')} ms "
@@ -525,7 +523,6 @@ def main() -> None:
             bpy.context.window_manager._cftuv_envelope_debug_session = controller
         controller.clear()
         controller.width_live = None
-        controller.width_prime = None
         settings.envelope_debug_alpha = base
         result = {"alpha": base}
         report["meshes"][name] = result

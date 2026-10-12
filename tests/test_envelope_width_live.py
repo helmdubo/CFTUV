@@ -80,6 +80,7 @@ class _FakeMesh(dict):
         super().__init__(props)
         self.vertices, self.edges = [None] * 4, [None] * 5
         self.loops, self.polygons = _Layout(6), _Layout(2)
+        self.uv_layers = types.SimpleNamespace(get=lambda name: None)  # нет слоя UV: кадр модели такой меш не принимает (`PREVIEW_MESH_NOT_THE_BASE`), модель снимается именем
 
     def as_pointer(self) -> int:
         return id(self)
@@ -524,8 +525,9 @@ def test_five_changes_give_five_previews_and_one_exact_result_equal_to_a_direct_
     owner = world.controller.width_mesh_owner
     assert owner is not None and owner.sample is world.controller.width_displayed and owner.generation == 1
     assert owner.object_pointer == world.decal.as_pointer() and owner.mesh_pointer == world.decal.data.as_pointer()
-    refusals = world.controller.width_preview_log.refusals  # первый точный результат без других образцов: модели не на чем строиться, и это названо
-    assert refusals == {"PREVIEW_NO_OTHER_EXACT_SAMPLE": 1}, refusals
+    # Модель заводит сам первый точный результат (аффинные сертификаты его доменов): второго прогона и затравки не нужно, отказов нет.
+    assert world.controller.width_preview_log.refusals == {} and world.controller.width_model is not None
+    assert world.controller.width_model.base is world.controller.width_displayed and world.controller.width_model.modelled_domains >= 1
 
 
 def test_a_width_change_without_a_build_does_nothing_and_orders_nothing(monkeypatch):
@@ -926,15 +928,15 @@ def test_a_width_tick_computes_and_applies_with_the_collector_off_and_idles_with
     assert len(world.written) == 1
 
 
-@pytest.mark.parametrize("variant", ["commit", "lean", "prime"])
+@pytest.mark.parametrize("variant", ["commit", "lean"])
 def test_the_compute_of_every_kind_of_refresh_runs_with_the_collector_off_and_ends_with_it_on(monkeypatch, _collector_on, variant):
-    """Точный COMMIT (ползунок, подтверждение), точный lean-кадр перетаскивания и затравка модели считаются одной и той же функцией потока - все под паузой."""
+    """Точный COMMIT (ползунок, подтверждение) и точный lean-кадр перетаскивания считаются одной и той же функцией потока - оба под паузой."""
 
     from cftuv.envelope_production_result import REFRESH_LEAN
 
     world = _World(monkeypatch)
     probe = _GcProbe(monkeypatch, real=False)
-    changes = {"commit": {}, "lean": {"grade": REFRESH_LEAN}, "prime": {"purpose": live.PURPOSE_PRIME}}[variant]
+    changes = {"commit": {}, "lean": {"grade": REFRESH_LEAN}}[variant]
     target = dataclasses.replace(live.target_of(world.settings, world.mesh_settings, world.record), **changes)
 
     job = live._begin(world.controller, types.SimpleNamespace(alpha=0.4, payload=target))
@@ -981,21 +983,6 @@ def test_an_apply_that_raises_gives_the_collector_back_and_the_error_reaches_the
 
     assert gc.isenabled()
     assert probe.seen[-1] == ("apply", "MainThread", False)
-
-
-def test_the_apply_of_a_prime_runs_with_the_collector_off_and_gives_it_back(monkeypatch, _collector_on):
-    seen = []
-    monkeypatch.setattr(live, "note_prime", lambda controller, base, run: seen.append(("note_prime", gc.isenabled())) or "")
-    monkeypatch.setattr(live, "request_prime", lambda controller, target: seen.append(("request_prime", gc.isenabled())))
-    job = types.SimpleNamespace(context=types.SimpleNamespace(base=None))
-
-    live._apply_prime(None, types.SimpleNamespace(payload=object()), job, object())
-
-    assert seen == [("note_prime", False), ("request_prime", False)] and gc.isenabled()
-    monkeypatch.setattr(live, "note_prime", lambda controller, base, run: "PRIME_BASE_REPLACED")
-    with pytest.raises(live.PreviewUnavailable):
-        live._apply_prime(None, types.SimpleNamespace(payload=object()), job, object())
-    assert gc.isenabled()  # названный отказ применения выходит из блока, как любое исключение
 
 
 def test_the_confirm_pauses_its_own_body_and_the_commit_job_it_orders_pauses_its_compute_and_apply(monkeypatch, _collector_on):

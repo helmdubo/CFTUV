@@ -1,17 +1,14 @@
-"""Живое превью меша ширины: склейка приблизительной модели (`envelope_width_preview_model`) с Blender, сессией и планировщиками.
+"""Живое превью меша ширины: склейка модели из аффинного сертификата (`envelope_width_preview_model`) с Blender, сессией и планировщиками.
 
 ЧТО ВИДИТ ВЛАДЕЛЕЦ. Пока он тянет ширину (модальный «Adjust Decal Width» либо ползунок), НАСТОЯЩИЙ меш декали двигается каждый кадр: позиции
 и UV пишутся в существующий меш из модели, а точный пересчёт идёт в фоне через тот же планировщик, что и прежде, и его результат
-заменяет превью. Строка статуса называет превью (`PREVIEW_MESH_FROM_INTERVAL_V1`, «approximate, not certified»), придержанные и
-карантинные домены. Сертифицирован только интервал событий и структуры у ядра (R1); модель внутри него — эвристика (шапка модуля модели).
+заменяет превью. Строка статуса называет превью (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`), придержанные и карантинные домены с их причинами (`PARAM_*`).
+Ядро заверяет интервал событий и аффинность внутри него (точное равенство, `kernel/tests/parametric_theorem.py`); решения тесселяции, силуэта и митры сварки модель проверяет апостериори.
 
-ОТКУДА МОДЕЛЬ. Точные прогоны, которые уже посчитаны: на экране лежит ОБРАЗЕЦ (`PreviewSampleV1`: массивы меша и домены прогона, чья
-геометрия сейчас в меше), рядом — до трёх других точных образцов. Модель строит поток точного счёта (`finish_live_run`), НЕ главный
-поток: numpy над массивами меша, домен за доменом. Первую модель после кнопки даёт «затравка» (`prime`): отдельный точный прогон на
-ширине рядом (`PRIME_RELATIVE_STEP`), который в меш НЕ пишется (его результат — образец, а не отображаемая ширина); он запускается
-инструментом при входе (`begin_adjust`), а не кнопкой: кнопка не считает ничего сверх обещанного. Каждый следующий точный результат даёт
-модель сам: прежний образец на экране становится вторым образцом новой. Тот же поток судит прежнюю модель новым точным прогоном
-(`deviation`) и ведёт журнал доверия (`advance_ledger`): опровергнутый домен в карантине, возврат — по правилу (шапка модуля модели).
+ОТКУДА МОДЕЛЬ. Из ОДНОГО точного прогона: на экране лежит ОБРАЗЕЦ (`PreviewSampleV1`: массивы меша и домены прогона, чья геометрия сейчас в меше, вместе с наклонами сертификата ядра), модель
+из него складывает базу и наклон. Никаких затравочных прогонов: вход в инструмент не ждёт ничего, модель строится из образца, который кнопка или точное обновление уже положили на
+экран, при первом кадре (`ensure_model`, миллисекунды numpy), а каждый следующий точный результат заводит модель сам в потоке счёта (`finish_live_run`). Тот же поток судит прежнюю модель новым
+точным прогоном (`deviation`) и ведёт журнал доверия (`advance_ledger`): опровергнутый домен в карантине, возврат — по правилу (шапка модуля модели).
 
 ЧТО ПИШЕТСЯ И ГДЕ. Только позиции и UV, только в СУЩЕСТВУЮЩИЙ меш (`write_preview_geometry`: `foreach_set`, без пересоздания датаблоков, поэтому
 таймеры и модальный оператор не ломают шаг отмены).
@@ -45,8 +42,7 @@ import numpy as np
 
 from .envelope_production_result import REFRESH_LEAN
 from .envelope_width_preview_model import (
-    INTERVAL_CERTIFIED,
-    PREVIEW_MESH_FROM_INTERVAL_V1,
+    PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1,
     DeviationV1,
     PreviewModelV1,
     PreviewRefusalV1,
@@ -61,21 +57,11 @@ from .envelope_width_preview_model import (
     sample_of,
 )
 
-#: Доля ширины, на которую затравка отходит от базы: один шаг, чтобы наклон был локальным, но больше шума округления.
-PRIME_RELATIVE_STEP = 0.005
-PRIME_RELATIVE_STEPS = (PRIME_RELATIVE_STEP, 0.001)
-#: Сколько затравок на образец на экране (вторая даёт квадрат: две другие точки).
-PRIME_ATTEMPTS = 2
-#: Точных образцов вне экрана, которые держит сессия.
-AUX_SAMPLES_LIMIT = 3
-
 MODEL_DROPPED = "PREVIEW_MODEL_DROPPED"
 MODEL_BUILD_FAILED = "PREVIEW_MODEL_BUILD_FAILED"
 DECAL_GONE = "PREVIEW_DECAL_GONE"
 DECAL_IN_EDIT_MODE = "PREVIEW_DECAL_IN_EDIT_MODE"
 MESH_NOT_THE_BASE = "PREVIEW_MESH_NOT_THE_BASE"
-PRIME_BASE_REPLACED = "PREVIEW_BASE_REPLACED_WHILE_PRIMING"
-WAITING = "PREVIEW_WAITING_FOR_MODEL"
 #: Принадлежность меша (F2): владения нет, образец не из этого поколения, объект и датаблок подменены, раскладка изменилась,
 #: геометрию декали изменил не точный путь, шаг истории.
 OWNERSHIP_UNKNOWN = "PREVIEW_MESH_OWNERSHIP_UNKNOWN"
@@ -104,7 +90,6 @@ class PreviewLogV1:
     models: int = 0
     refusals: dict = field(default_factory=dict)
     dropped: dict = field(default_factory=dict)
-    primes_requested: int = 0
     frames: int = 0
     frame_seconds_max: float = 0.0
     frame_seconds_total: float = 0.0
@@ -157,11 +142,10 @@ class PreviewMeshStateV1:
 class DragOriginV1:
     """Что показывали сессия и меш, когда первый точный lean-кадр перетаскивания собрался заменить образец на экране: к этому возвращает отмена.
 
-    Не начало перетаскивания, а момент перед первой заменой: затравка, что легла за время перетаскивания до неё (вспомогательные образцы, модель), принадлежит этому состоянию.
+    Не начало перетаскивания, а момент перед первой заменой: модель, что легла за время перетаскивания до неё, принадлежит этому состоянию.
     """
 
     displayed: PreviewSampleV1 | None
-    aux: tuple
     model: object | None
     model_refusal: object | None
     trust: object | None
@@ -245,32 +229,27 @@ def build_sample(results, arrays, key: tuple, alpha: float) -> PreviewSampleV1:
     return sample_of(results, arrays, key=key, alpha_text=str(float(alpha)))
 
 
-def _model_or_refusal(base, others, ledger):
+def _model_or_refusal(base, ledger):
     try:
-        return build_model(base, tuple(others), ledger)
+        return build_model(base, ledger)
     except Exception as exc:  # noqa: BLE001 - модель не вправе уронить точный результат: исход назван
         return PreviewRefusalV1(MODEL_BUILD_FAILED, f"{type(exc).__name__}: {exc}")
 
 
-def finish_live_run(run, *, alpha, offset, key, displayed, aux, previous, prime, trust=None, lean=False) -> LiveRunV1:
+def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None, lean=False) -> LiveRunV1:
     """Хвост потока точного счёта: массивы меша, образец и модель (всё в потоке, главный поток только применяет).
 
-    `lean=True` (WIDTH_REFRESH_LEAN_V1; так считает затравка и точное lean-обновление): массивы без отчётов (`build_mesh_arrays(reports=False)`: ни дайджеста, ни отчётов о плоскости,
+    `lean=True` (WIDTH_REFRESH_LEAN_V1; так считает точное lean-обновление): массивы без отчётов (`build_mesh_arrays(reports=False)`: ни дайджеста, ни отчётов о плоскости,
     шве и обходе рёбер, геометрия та же побитово). Модель и сверка строятся как у зафиксированного ответа: lean-обновление ставит образец на экране и кормит модель.
 
-    Точный прогон (`prime=False`): сверка предсказания прежней модели с ним (`deviation`), журнал доверия по её итогу (`advance_ledger`:
-    опровергнутый домен — в карантин), модель НОВОГО образца из прежнего образца на экране и вспомогательных, с журналом. Затравка
-    (`prime=True`): её образец — вспомогательный, а модель строится для образца, который на экране сейчас (`displayed`), журнал она не
-    двигает (затравка опорная, а не проверочная).
+    Сверка предсказания прежней модели с этим прогоном (`deviation`), журнал доверия по её итогу (`advance_ledger`: опровергнутый домен — в карантин) и модель НОВОГО образца из его
+    собственных аффинных сертификатов, с журналом. Других прогонов модели не нужно.
     """
 
     from .envelope_production_mesh import build_mesh_arrays
 
     arrays = build_mesh_arrays(run.results, offset, reports=not lean)
     sample = build_sample(run.results, arrays, key, alpha)
-    if prime:
-        model = None if displayed is None else _model_or_refusal(displayed, (sample, *aux), trust)
-        return LiveRunV1(run, arrays, sample, model, None, trust)
     check = None
     events: tuple = ()
     if previous is not None:
@@ -280,8 +259,7 @@ def finish_live_run(run, *, alpha, offset, key, displayed, aux, previous, prime,
         except Exception as exc:  # noqa: BLE001 - сверка не роняет результат
             check = DeviationV1(sample.alpha, 0.0, 0.0, 0, 0, -1, (), f"PREVIEW_CHECK_FAILED:{type(exc).__name__}")
             events = ()
-    others = (() if displayed is None else (displayed,)) + tuple(aux)
-    return LiveRunV1(run, arrays, sample, _model_or_refusal(sample, others, trust), check, trust, events)
+    return LiveRunV1(run, arrays, sample, _model_or_refusal(sample, trust), check, trust, events)
 
 
 # --------------------------------------------------------------------------
@@ -338,19 +316,12 @@ def _record_check(controller, live: LiveRunV1) -> None:
 
 
 def note_exact_display(controller, live: LiveRunV1) -> None:
-    """Точный результат лёг в меш: образец стал экранным, прежний — вспомогательным, модель новая, превью снято, журнал доверия сдвинут.
+    """Точный результат лёг в меш: образец стал экранным, модель новая, превью снято, журнал доверия сдвинут.
 
     Владение мешем (`capture_ownership`) записывает тот, кто писал меш, СРАЗУ после записи: здесь меша нет.
     """
 
     _record_check(controller, live)
-    previous = controller.width_displayed
-    aux = controller.width_aux
-    if previous is not None and previous.key == live.sample.key:
-        aux = (previous, *aux)
-    else:
-        aux = ()
-    controller.width_aux = tuple(item for item in aux if item.alpha != live.sample.alpha and item.key == live.sample.key)[:AUX_SAMPLES_LIMIT]
     controller.width_displayed = live.sample
     controller.width_trust = live.trust
     controller.width_mesh_preview = None
@@ -358,39 +329,34 @@ def note_exact_display(controller, live: LiveRunV1) -> None:
     _count_model(controller, model)
     controller.width_model = model if isinstance(model, PreviewModelV1) else None
     controller.width_model_refusal = model if isinstance(model, PreviewRefusalV1) else None
-    controller.width_prime_attempts = 0
 
 
 def note_button_display(controller, sample: PreviewSampleV1) -> None:
-    """Кнопка записала меш: образец на экране, вспомогательных нет (прежние говорили про другую сборку), модели ещё нет, журнал доверия забыт."""
+    """Кнопка записала меш: образец на экране, модели ещё нет (её строит первый кадр: `ensure_model`), журнал доверия забыт."""
 
     controller.width_displayed = sample
-    controller.width_aux = ()
     controller.width_model = None
     controller.width_model_refusal = None
     controller.width_mesh_preview = None
     controller.width_trust = None
-    controller.width_prime_attempts = 0
 
 
-def note_prime(controller, base: PreviewSampleV1 | None, live: LiveRunV1) -> str:
-    """Затравка посчитана: её образец вспомогательный, модель для базы. Пусто либо причина, по которой образец не принят."""
+def ensure_model(controller) -> bool:
+    """Модель образца на экране есть (`True`): построена тут же из его сертификатов, если её не было и отказа не называли. Главный поток, миллисекунды numpy.
 
-    if controller.width_displayed is not base or base is None:
-        log_of(controller).refuse(PRIME_BASE_REPLACED)
-        return PRIME_BASE_REPLACED
-    if live.sample.key == base.key:
-        controller.width_aux = tuple(
-            item for item in (live.sample, *controller.width_aux) if item.key == base.key
-        )[:AUX_SAMPLES_LIMIT]
-    model = live.model
+    Вход инструмента после кнопки не ждёт ни одного прогона: образец с наклонами уже лежит на экране. Отказ построения назван и остаётся (`PreviewRefusalV1`), второй раз не пробуется.
+    """
+
+    if controller.width_model is not None:
+        return True
+    displayed = controller.width_displayed
+    if displayed is None or controller.width_model_refusal is not None:
+        return False
+    model = _model_or_refusal(displayed, controller.width_trust)
     _count_model(controller, model)
-    if isinstance(model, PreviewModelV1):
-        controller.width_model = model
-        controller.width_model_refusal = None
-    else:
-        controller.width_model_refusal = model
-    return ""
+    controller.width_model = model if isinstance(model, PreviewModelV1) else None
+    controller.width_model_refusal = model if isinstance(model, PreviewRefusalV1) else None
+    return controller.width_model is not None
 
 
 def drop_model(controller, reason: str) -> None:
@@ -409,10 +375,8 @@ def drop_model(controller, reason: str) -> None:
         controller.width_model_refusal = PreviewRefusalV1(name)
     controller.width_model = None
     controller.width_displayed = None
-    controller.width_aux = ()
     controller.width_mesh_preview = None
     controller.width_mesh_owner = None
-    controller.width_prime_attempts = 0
 
 
 def note_history(controller) -> None:
@@ -423,47 +387,6 @@ def note_history(controller) -> None:
     """
 
     drop_model(controller, HISTORY_STEP)
-
-
-def next_prime_alpha(displayed: PreviewSampleV1, aux) -> float | None:
-    """Ширина следующей затравки: рядом с базой, внутри интервалов наибольшего числа доменов; прежние ширины не повторяются.
-
-    Кандидаты — `PRIME_RELATIVE_STEPS` в обе стороны. Вторая затравка предпочитает другую сторону от базы, чем первая, чтобы
-    три точки охватывали базу (квадрат по обе стороны точнее, чем по одну).
-    """
-
-    from fractions import Fraction
-
-    taken = {item.alpha for item in aux} | {displayed.alpha}
-    sides = [1 if item.alpha > displayed.alpha else -1 for item in aux]
-    best = None
-    for step in PRIME_RELATIVE_STEPS:
-        for sign in (1, -1):
-            candidate = float(str(float(displayed.alpha * (1.0 + sign * step))))
-            if candidate <= 0.0 or candidate in taken:
-                continue
-            exact = Fraction(str(candidate))
-            inside = sum(
-                1
-                for domain in displayed.domains
-                if domain.status == INTERVAL_CERTIFIED and domain.interval is not None and domain.interval.contains_exact(exact)
-            )
-            score = (inside, 0 if sign in sides else 1, step)
-            if best is None or score > best[0]:
-                best = (score, candidate)
-    return None if best is None else best[1]
-
-
-def wants_prime(controller) -> bool:
-    """Нужна ли затравка: есть образец на экране своего ключа, модели нет либо она прямая, а попыток меньше `PRIME_ATTEMPTS`."""
-
-    displayed = controller.width_displayed
-    if displayed is None or controller.width_prime_attempts >= PRIME_ATTEMPTS:
-        return False
-    model = controller.width_model
-    if model is None:
-        return True
-    return model.quadratic_domains == 0 and model.modelled_domains > 0 and len(model.others) < 2
 
 
 # --------------------------------------------------------------------------
@@ -630,9 +553,9 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
     Меш, который модель не вправе писать (подмена, правка, Edit, чужое поколение), снимает модель с именем причины и не получает записи.
     """
 
-    model = controller.width_model
-    if model is None:
+    if not ensure_model(controller):
         return None
+    model = controller.width_model
     from .envelope_production_mesh import ProductionWriteError, write_preview_geometry
 
     started = time.perf_counter()
@@ -672,6 +595,7 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
 def moving_now(controller, width: float) -> frozenset:
     """Патчи, которые двигала бы модель на ширине `width`, БЕЗ записи в меш (вход инструмента: ещё ни одного кадра, а линии нужны только там, где меш не движется)."""
 
+    ensure_model(controller)
     return moving_patches_at(controller.width_model, width)
 
 
@@ -713,7 +637,7 @@ def _lay_down(decal, sample, *, same_layout: bool) -> int:
 def lean_exact_now(controller, live) -> str:
     """Точный lean-кадр (WIDTH_REFRESH_LEAN_V1) во время перетаскивания: точный прогон `live` ложится в меш и становится образцом на экране. Пусто - сделано, иначе - имя причины.
 
-    Это то же, что делает применение зафиксированного ответа (`note_exact_display`: образец на экране, прежний - вспомогательный, модель нового образца, сверка и журнал доверия,
+    Это то же, что делает применение зафиксированного ответа (`note_exact_display`: образец на экране, модель нового образца, сверка и журнал доверия,
     владение мешем снято заново), БЕЗ работы, нужной только фиксации: ни квитанции, ни дайджеста меша, ни консоли, ни кэшей. Меш получает ровно то, что записал бы полный путь:
     раскладка та же (равный `layout_digest`) - позиции, UV и номера владельцев граней одной записью, ширина записи - ширина кадра; сменилась (домен сменил структуру) - меш пересобран
     на месте по образу (`rebuild_mesh_from_image`). Проверка владения (`_mesh_problem`) та же, что у кадра модели: чужой меш не получает записи, а модель снимается с названной
@@ -738,7 +662,7 @@ def lean_exact_now(controller, live) -> str:
         return problem
     same_layout = bool(base.layout_digest) and sample.layout_digest == base.layout_digest
     if controller.width_drag_origin is None and controller.width_drag_active:
-        controller.width_drag_origin = DragOriginV1(base, controller.width_aux, controller.width_model, controller.width_model_refusal, controller.width_trust)
+        controller.width_drag_origin = DragOriginV1(base, controller.width_model, controller.width_model_refusal, controller.width_trust)
     try:
         _lay_down(decal, sample, same_layout=same_layout)
     except ProductionWriteError as exc:
@@ -775,7 +699,7 @@ def _restore_origin(controller, origin: DragOriginV1) -> bool:
     except ProductionWriteError as exc:
         drop_model(controller, exc.outcome)
         return False
-    controller.width_displayed, controller.width_aux = base, origin.aux
+    controller.width_displayed = base
     controller.width_model, controller.width_model_refusal, controller.width_trust = origin.model, origin.model_refusal, origin.trust
     controller.width_mesh_preview = None
     capture_ownership(controller, decal, base)
@@ -834,19 +758,18 @@ def status_lines(controller) -> tuple[str, ...]:
             shown = ", ".join(str(item) for item in state.held_patches)
             more = "" if state.held <= len(state.held_patches) else ", ..."
             held = f", {state.held} held at the last exact geometry (patch {shown}{more})"
-        refusal = "" if state.outcome == PREVIEW_MESH_FROM_INTERVAL_V1 else f" REFUSED {state.outcome}:"
+        refusal = "" if state.outcome == PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 else f" REFUSED {state.outcome}:"
         lines.append(
-            f"Mesh {PREVIEW_MESH_FROM_INTERVAL_V1} preview (approximate, not certified):{refusal} width {state.alpha:.4g}, "
+            f"Mesh {PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1} preview (exact affine certificate; structure verified afterwards):{refusal} width {state.alpha:.4g}, "
             f"{state.live} domains moving{held}; the exact result follows"
         )
     model = controller.width_model
-    prime = controller.width_prime
     if model is not None:
         reasons = model.reason_counts()
         extra = "" if not reasons else " (" + ", ".join(f"{name} {count}" for name, count in sorted(reasons.items())) + ")"
         lines.append(
-            f"Preview model (approximate, inside the certified event interval): {model.modelled_domains}/{model.domain_count} domains "
-            f"modelled, {model.quadratic_domains} quadratic, {model.own_bytes / 1024:.0f} KB{extra}"
+            f"Preview model (affine certificate of one exact run, valid inside the certified event interval): {model.modelled_domains}/{model.domain_count} domains "
+            f"modelled, {model.own_bytes / 1024:.0f} KB{extra}"
         )
     elif controller.width_model_refusal is not None:
         refusal = controller.width_model_refusal
@@ -858,13 +781,10 @@ def status_lines(controller) -> tuple[str, ...]:
     log = controller.width_preview_log
     if log is not None and log.last_check:
         lines.append(f"Last exact check: {log.last_check}")
-    if prime is not None and prime.status_text and prime.busy:
-        lines.append(f"Preview model: {prime.status_text}")
     return tuple(lines)
 
 
 __all__ = (
-    "AUX_SAMPLES_LIMIT",
     "DECAL_CHANGED_EXTERNALLY",
     "DECAL_GONE",
     "DECAL_IN_EDIT_MODE",
@@ -883,9 +803,6 @@ __all__ = (
     "MeshOwnershipV1",
     "OWNERSHIP_CAPTURE_FAILED",
     "OWNERSHIP_UNKNOWN",
-    "PRIME_ATTEMPTS",
-    "PRIME_BASE_REPLACED",
-    "PRIME_RELATIVE_STEP",
     "PreviewLogV1",
     "PreviewMeshStateV1",
     "build_sample",
@@ -894,20 +811,18 @@ __all__ = (
     "LEAN_NO_BASE",
     "begin_drag",
     "drop_model",
+    "ensure_model",
     "finish_drag",
     "finish_live_run",
     "lean_exact_now",
     "log_of",
     "moving_now",
-    "next_prime_alpha",
     "note_button_display",
     "note_decal_updates",
     "note_exact_display",
     "note_history",
-    "note_prime",
     "preview_mesh_now",
     "restore_base_mesh",
     "sample_key",
     "status_lines",
-    "wants_prime",
 )

@@ -10,12 +10,12 @@
   заказ точного пересчёта планировщиком, `envelope_width_live`) либо отмена (превью снято, ничего не менялось).
 
 В течение перетаскивания в свойство ширины НИЧЕГО не пишется: меняются линии превью, заголовок и — когда у сессии есть модель —
-позиции и UV настоящего меша декали (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`: приблизительное превью, не сертифицировано).
+позиции и UV настоящего меша декали (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`: аффинный сертификат одного точного прогона; структуру проверяет следующий прогон).
 Линии при живой модели остаются только там, где меш не движется (`envelope_width_live.width_event_preview`, `PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`).
 Меш при этом тот же объект и тот же датаблок (`foreach_set`, ни одного нового датаблока), поэтому отмена возвращает прежний меш ПОБИТОВО
 (`restore_base_mesh`: кадр на ширине базы — сама база), а подтверждение — единственная запись в свойство, один заказ точного счёта и
-один шаг отмены на всё перетаскивание (его кладёт Blender при завершении оператора с флагом UNDO). Вход в инструмент заказывает затравку
-модели (`ensure_prime`), если её ещё нет: точный прогон на соседней ширине в фоне, без записи в меш.
+один шаг отмены на всё перетаскивание (его кладёт Blender при завершении оператора с флагом UNDO). Вход в инструмент ничего не заказывает и не ждёт:
+модель строится из образца на экране при первом кадре (`envelope_width_mesh_preview.ensure_model`, миллисекунды numpy).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from .envelope_gc_pause import gc_paused_function
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
-from .envelope_width_live import ensure_prime, preview_now, request_drag_tick, set_preview, width_event_preview, width_problem
+from .envelope_width_live import preview_now, request_drag_tick, set_preview, width_event_preview, width_problem
 from .envelope_width_mesh_preview import begin_drag, finish_drag, moving_now
 
 NO_VIEW = "Adjust Decal Width needs a 3D View"
@@ -124,7 +124,6 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
     begin_drag(controller)  # пока идёт перетаскивание, действуют точные lean-кадры (`request_drag_tick`, WIDTH_REFRESH_LEAN_V1); запомнено, к чему вернёт отмена
     # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.
     preview_now(controller, start, runtime.offset, moving_now(controller, start))
-    ensure_prime(context)  # у сессии нет модели меша — затравка считается, пока рука доходит до перетаскивания
     return runtime
 
 

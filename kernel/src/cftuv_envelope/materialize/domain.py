@@ -106,6 +106,7 @@ from .interval import alpha_interval, coverage_interval
 from .lift import plane_lift_of
 from .memo import memo_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
+from .parametric import capture_inputs, certificate_of
 from .lift_surface import surface_lift_of
 from .silhouette import SilhouetteInputV1, apply_silhouette
 from .source_lift import (
@@ -168,6 +169,9 @@ class MaterializationV1:
     #: Интервал ширины ТОЛЬКО по событиям покрытия (`interval.coverage_interval`): внутри него покрытие воспроизводится из шаблона
     #: (`materialize.step`). Записанный факт, как `interval`.
     coverage_bounds: object | None = field(default=None, compare=False)
+    #: Аффинный сертификат перетаскивания ширины (`parametric.ParametricCertificateV1`): наклон по ширине каждой вершины и петли UV, причины, по которым его нет. Записанный факт, как `interval`:
+    #: ответа не двигает (счётчики, батч, дайджесты те же побитово). Пусто, когда сертификат не заказан (`materialize_domain(parametric=...)`) и у отказа.
+    parametric: object | None = field(default=None, compare=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -615,6 +619,8 @@ class _Built(NamedTuple):
     lift: object = None
     topology_counters: tuple = ()
     clip_memo: str = ""
+    #: Ссылки на объекты стадий для сертификата перетаскивания (`parametric.ParametricInputsV1`); `None` - сертификат не заказан.
+    parametric_inputs: object = None
 
 
 def _counters(built: _Built, budget):
@@ -800,8 +806,11 @@ def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse):
     return shaped
 
 
-def _assemble(prepared, coverage, request, admission, budget, clock, parts, law, silhouette=False):
-    """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена."""
+def _assemble(prepared, coverage, request, admission, budget, clock, parts, law, silhouette=False, capture=False):
+    """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена.
+
+    `capture` - оставить сертификату перетаскивания ссылки на объекты стадий (`parametric.ParametricInputsV1`, седьмой элемент ответа); ответ от него не зависит.
+    """
 
     items, table, lines, notes, chords = parts
     frame_faces = [
@@ -840,10 +849,13 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
-    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally, _inert_pairs(prepared, silhouette, admission))
+    inert = _inert_pairs(prepared, silhouette, admission)
+    points_before, facts_before, cut_polygons = (points, dict(facts), polygons) if capture else (None, None, None)
+    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally, inert)
     if clipped:
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
+    lifted_names = dict(names) if capture else None
     if cut is not None:
         points = {**points, **cut.snapped, **cut.points}
         # Счёт закона топологии идёт по ТЕССЕЛЯЦИИ (входу резки); режет и называет куски резка, поэтому
@@ -895,6 +907,11 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     if shaped is not None and shaped.note:
         lines.append(shaped.note)
     clock.lap("ASSEMBLE")
+    inputs = (
+        capture_inputs((plane, frame_faces, cycles, cut_polygons, layout, table, rungs), (points_before, points), (facts_before, facts), (coverage.alpha, lattice_alpha, law, admission.lift_law.clips_by_faces, inert), cut, lifted_names)
+        if capture
+        else None
+    )
     return (
         batch,
         frame_faces,
@@ -902,6 +919,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         plane,
         topology,
         "" if cut is None else cut.memo,
+        inputs,
     )
 
 
@@ -940,7 +958,7 @@ def _stations_of(prepared, budget, withdrawn):
     return memo.priced(("stations",), budget, compute)
 
 
-def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False) -> _Built:
+def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False, capture=False) -> _Built:
     withdrawn: frozenset = frozenset()
     while True:
         table, spans = _stations_of(prepared, budget, withdrawn)
@@ -953,9 +971,9 @@ def _build(prepared, coverage, request, admission, budget, clock, law, silhouett
         lines: list[str] = []
         notes: list[str] = []
         try:
-            batch, frame_faces, lift_counters, lift, topology, clip_memo = _assemble(
+            batch, frame_faces, lift_counters, lift, topology, clip_memo, parametric_inputs = _assemble(
                 prepared, coverage, request, admission, budget, clock,
-                (items, table, lines, notes, chords), law, silhouette,
+                (items, table, lines, notes, chords), law, silhouette, capture,
             )
             break
         except MaterializationRefusal as refusal:
@@ -992,6 +1010,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law, silhouett
         lift,
         topology,
         clip_memo,
+        parametric_inputs,
     )
 
 
@@ -1007,6 +1026,7 @@ def materialize_domain(
     decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
     digests: bool = True,
     certify: bool = False,
+    parametric=None,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -1025,6 +1045,8 @@ def materialize_domain(
     дайджесты считает `finalize_digests` тот, кому они нужны. Остальной ответ побитово тот же.
     `certify=True` — записать факты шага ширины (`MaterializationV1.interval` и `.structure`): они читаются из подготовки,
     подъёма и батча, ничего в ответе не двигают (счётчики, батч и дайджесты те же побитово).
+    `parametric` (`parametric.ParametricRequestV1`, нужен `certify=True`) — записать аффинный сертификат перетаскивания ширины (`MaterializationV1.parametric`): наклон по ширине
+    каждой вершины и петли UV из ЭТОГО прогона; считается ПОСЛЕ ответа, на своём бюджете, и ничего в ответе не двигает.
     """
 
     silhouette = decal_topology_law is DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
@@ -1038,6 +1060,7 @@ def materialize_domain(
         silhouette,
         digests,
         certify,
+        parametric,
     )
     return replace(result, decal_topology_law=decal_topology_law)
 
@@ -1069,7 +1092,7 @@ def _step_facts(prepared, coverage, built, admission, batch):
 
 
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False, parametric=None
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -1091,7 +1114,7 @@ def _materialize_domain(
         else exact_work_budget(stage="MATERIALIZE", domain_id=domain_id)
     )
     try:
-        built = _build(prepared, coverage, request, admission, budget, clock, law, silhouette)
+        built = _build(prepared, coverage, request, admission, budget, clock, law, silhouette, certify and parametric is not None)
     except MaterializationRefusal as refusal:
         return _refused(
             refusal.outcome,
@@ -1148,6 +1171,10 @@ def _materialize_domain(
     interval, structure, bounds = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None, None)
     if certify:
         clock.lap("CERTIFY")
+    certificate = None
+    if certify and parametric is not None and built.parametric_inputs is not None:
+        certificate = certificate_of(built.parametric_inputs, batch, interval, parametric, bool(offset_normals), prepared, coverage)
+        clock.lap("PARAMETRIC")
     return MaterializationV1(
         outcome=MaterializationOutcome.MATERIALIZED,
         batch=batch,
@@ -1164,4 +1191,5 @@ def _materialize_domain(
         interval=interval,
         structure=structure,
         coverage_bounds=bounds,
+        parametric=certificate,
     )

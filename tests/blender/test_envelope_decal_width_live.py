@@ -28,8 +28,8 @@
 7. КОЛЬЦО КУПОЛА ПОД СУЖЕННОЙ ДОСЯГАЕМОСТЬЮ: карта купола при умолчании досягаемости отказывает швом, кнопка строит её под
    `alpha * (1 + b)` (0.3 м при ширине 0.25); ширина 0.3 через путь ползунка пересобирает карту под 0.36 м (своя
    карта, а не прежняя 0.3 м), меш применён на месте и ПОБИТОВО равен прямому нажатию в холодной сессии;
-8. ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`, ПРИБЛИЗИТЕЛЬНОЕ, `envelope_width_mesh_preview`): вход инструмента заказывает затравку модели (два точных
-   прогона рядом, в меш не пишутся), настоящий меш двигается каждый кадр перетаскивания (позиции и UV; датаблоки, указатели и свойство ширины
+8. ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`, `envelope_width_mesh_preview`): модель строится из аффинного сертификата образца кнопки при входе инструмента (затравочных
+   прогонов нет), настоящий меш двигается каждый кадр перетаскивания (позиции и UV; датаблоки, указатели и свойство ширины
    меша те же, заказа точного счёта нет), на ширине базы он побитово база, отмена возвращает его побитово, подтверждение даёт точный меш,
    равный холодной кнопке (отклонение превью от него названо числом), а меш чужого состава снимает модель с названной причиной;
 9. ВЛАДЕНИЕ МЕШЕМ (аудит ad6074f, F2): превью пишется только в меш, который записал точный путь. Свои записи (кнопка, кадры, точный результат)
@@ -37,9 +37,9 @@
    (в Object и через Edit с правкой UV), обновление геометрии декали мимо нас и шаг Undo/Redo снимают модель с названной причиной, ничего
    не записав в меш, а точный путь после этого работает как прежде (меш равен холодной кнопке) и заводит владение и модель заново.
 
-10. ТОЧНЫЕ LEAN-КАДРЫ ВО ВРЕМЯ ПЕРЕТАСКИВАНИЯ (WIDTH_REFRESH_LEAN_V1, настройка `drag_exact_ticks`): кадр от паузы руки ложится в меш и заменяет образец на экране, затравка
-    работает без дайджеста массивов, кадры не пополняют кэши, меш кадра равен мешу зафиксированного ответа на той же ширине (по месту и пересборкой по образу), отмена
-    возвращает меш, образец, вспомогательные образцы и модель побитово.
+10. ТОЧНЫЕ LEAN-КАДРЫ ВО ВРЕМЯ ПЕРЕТАСКИВАНИЯ (WIDTH_REFRESH_LEAN_V1, настройка `drag_exact_ticks`): кадр от паузы руки ложится в меш и заменяет образец на экране, кадры
+    не пополняют кэши, меш кадра равен мешу зафиксированного ответа на той же ширине (по месту и пересборкой по образу), отмена
+    возвращает меш, образец и модель побитово.
 
 11. ОТПЕЧАТОК МЕША ИСТОЧНИКА (S5, `envelope_source_check`): запись отвечает, пока байты массивов меша те же; правка вершины даёт полный путь и `SOURCE_CHANGED`.
 
@@ -392,12 +392,12 @@ def _width_property(decal):
 
 
 def _pump_all(*, timeout=120.0):
-    """Таймеры обоих планировщиков (точный счёт и затравка) шагают, пока оба не опустеют."""
+    """Таймер планировщика точного счёта шагает, пока он не опустеет."""
 
     controller = _controller()
     end = time.perf_counter() + timeout
     while True:
-        busy = [item for item in (controller.width_live, controller.width_prime) if item is not None and item.busy]
+        busy = [item for item in (controller.width_live,) if item is not None and item.busy]
         if not busy:
             return
         assert time.perf_counter() < end, "the schedulers did not settle"
@@ -418,10 +418,9 @@ def _mesh_arrays(name):
 
 
 def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result_replaces_it():
-    """ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`): настоящий меш двигается между точными пересчётами, и точный меш потом тот же, что у кнопки.
+    """ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`): настоящий меш двигается между точными пересчётами, и точный меш потом тот же, что у кнопки.
 
-    1. кнопка кладёт образец и владение мешем, модели нет; вход инструмента заказывает ЗАТРАВКУ (точный прогон рядом, в меш не пишет), после неё
-       модель есть (квадрат), а меш и датаблоки те же;
+    1. кнопка кладёт образец и владение мешем, модели нет; вход инструмента строит модель из сертификата образца (ни одного прогона), а меш и датаблоки те же;
     2. перетаскивание теми же функциями, что у оператора: меш двигается КАЖДЫЙ кадр (позиции и UV), датаблоки, указатели и свойство
        ширины меша те же, строка статуса называет превью; кадр в пределах интервала близок к точному (отклонение названо числом);
     3. отмена возвращает меш побитово; подтверждение даёт точный меш, равный холодной кнопке, и новую модель;
@@ -447,23 +446,21 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result
     before = _digest()
     still = _mesh_arrays(DECAL)
 
-    # 1. Вход инструмента: затравка (две подряд), модель, меш не тронут.
+    # 1. Вход инструмента: модель есть сразу (сертификат образца), ни одного прогона, меш не тронут.
     view = ViewScaleV1(pivot=(0.0, 0.0), metres_per_pixel=1.0)
+    entered = time.perf_counter()
     runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
+    entry_seconds = time.perf_counter() - entered
     assert not isinstance(runtime, str), runtime
-    assert controller.width_prime is not None and controller.width_prime.busy, "the tool entry orders the preview-model prime"
-    _pump_all()
     model = controller.width_model
     assert model is not None, controller.width_model_refusal
-    assert model.modelled_domains >= 1 and model.quadratic_domains == model.modelled_domains
-    assert controller.width_prime.counters.applied == 2 and controller.width_prime.counters.failed == 0
-    assert controller.width_live is None or controller.width_live.counters.requested == 0, "the prime never goes through the width order"
+    assert model.modelled_domains >= 1
+    assert controller.width_live is None or (controller.width_live.counters.requested == 0 and not controller.width_live.busy), "the tool entry orders nothing"
     assert _digest() == before and _datablock_counts() == blocks
     assert _width_property(DECAL) == start
-    assert any(line.startswith("Preview model (approximate") for line in _status_lines())
+    assert any(line.startswith("Preview model (affine certificate") for line in _status_lines())
     print(
-        f"PREVIEW MODEL {model.modelled_domains}/{model.domain_count} domains, {model.quadratic_domains} quadratic, "
-        f"{model.own_bytes} B (+{model.base.nbytes} B base)"
+        f"PREVIEW MODEL {model.modelled_domains}/{model.domain_count} domains, {model.own_bytes} B (+{model.base.nbytes} B base), tool entry {entry_seconds * 1000:.1f} ms"
     )
 
     # 2. Перетаскивание: каждый кадр двигает меш; всё остальное на месте.
@@ -472,7 +469,7 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result
         step = runtime.session.handle(WidthEventV1(KIND_MOVE, offset, 0.0))
         apply_step(bpy.context, runtime, step)
         state = controller.width_mesh_preview
-        assert state is not None and state.outcome == "PREVIEW_MESH_FROM_INTERVAL_V1", state
+        assert state is not None and state.outcome == "PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1", state
         frames.append((step.width, _mesh_arrays(DECAL)))
     assert abs(frames[0][0] - (start + 0.002)) < 1e-9 and abs(frames[-1][0] - start) < 1e-9
     moving = [width for width, (co, _uv) in frames[:-1] if not np.array_equal(co, still[0])]
@@ -485,7 +482,7 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result
     assert (controller.width_live is None or controller.width_live.counters.requested == 0), "no exact order during the drag"
     step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.006, 0.0))
     apply_step(bpy.context, runtime, step)
-    assert any("PREVIEW_MESH_FROM_INTERVAL_V1 preview (approximate, not certified)" in line for line in _status_lines())
+    assert any("PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 preview (exact affine certificate" in line for line in _status_lines())
     preview_co, preview_uv = _mesh_arrays(DECAL)
     assert controller.width_mesh_preview.seconds < 0.03, controller.width_mesh_preview.seconds
 
@@ -544,7 +541,7 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result
 
 
 def _lean_tool(*, view=None):
-    """Свежая сцена, кнопка, вход инструмента, затравка: `(контроллер, автомат перетаскивания)`; настройка точных кадров включена."""
+    """Свежая сцена, кнопка, вход инструмента (модель строится из сертификата образца): `(контроллер, автомат перетаскивания)`; настройка точных кадров включена."""
 
     from cftuv.envelope_width_session import ViewScaleV1, begin_adjust
 
@@ -580,12 +577,12 @@ def _lean_tick(width, *, forced):
 def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it():
     """ТОЧНЫЕ LEAN-КАДРЫ ВО ВРЕМЯ ПЕРЕТАСКИВАНИЯ (WIDTH_REFRESH_LEAN_V1, настройка `drag_exact_ticks`), на настоящем меше и настоящем планировщике.
 
-    1. затравка работает lean: её образцы без дайджеста массивов, образец кнопки - с дайджестом;
+    1. образец кнопки несёт дайджест массивов, модель его вход инструмента построил без единого прогона;
     2. кадр, заказанный движением руки (`apply_step`), ложится в меш и заменяет образец на экране; ширина записи меша - ширина кадра; зафиксированной записи нет (кэши
        результатов не пополняются, датаблоки те же);
     3. меш lean-кадра РАВЕН мешу, который даёт зафиксированный ответ на той же ширине (`mesh_content_digest` и массивы float32) - и когда меш записан по месту, и когда раскладка
        принудительно объявлена сменившейся и меш пересобран на месте по образу (`rebuild_mesh_from_image`);
-    4. отмена после кадров возвращает меш, образец, вспомогательные образцы и модель, какими они были к началу перетаскивания, побитово (в обоих случаях).
+    4. отмена после кадров возвращает меш, образец и модель, какими они были к началу перетаскивания, побитово (в обоих случаях).
     """
 
     import numpy as np
@@ -598,8 +595,8 @@ def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
     controller, runtime = _lean_tool()
     settings = _settings()
     start = float(settings.envelope_debug_alpha)
-    assert controller.width_model is not None and controller.width_aux, "the prime built the model"
-    assert controller.width_displayed.arrays_digest and all(item.arrays_digest == "" for item in controller.width_aux), "lean primes carry no arrays digest, the button's sample does"
+    assert controller.width_model is not None, "the tool entry built the model from the certificate of the button's sample"
+    assert controller.width_displayed.arrays_digest, "the button's sample carries the arrays digest"
     origin = controller.width_displayed
     blocks, cached = _datablock_counts(), controller.production_result_count
     step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.004, 0.0))
@@ -607,7 +604,7 @@ def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
     assert controller.width_live is not None and controller.width_live.counters.requested == 1, "the pause of the hand orders an exact tick"
     _pump_all()
     assert controller.width_live.counters.applied == 1 and controller.width_live.counters.failed == 0
-    assert controller.width_displayed is not origin and controller.width_displayed.alpha == step.width and controller.width_aux[0] is origin
+    assert controller.width_displayed is not origin and controller.width_displayed.alpha == step.width
     assert controller.width_mesh_preview is not None and controller.width_mesh_preview.outcome == "WIDTH_REFRESH_LEAN_V1"
     assert _width_property(DECAL) == step.width and _datablock_counts() == blocks
     assert controller.production_result_count == cached, "a lean result is stored in no cache"
@@ -639,12 +636,12 @@ def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
         controller, runtime = _lean_tool()
         settings = _settings()
         entered = controller.width_displayed
-        entered_aux, entered_model = controller.width_aux, controller.width_model
+        entered_model = controller.width_model
         before, still = _digest(), _mesh_arrays(DECAL)
         _lean_tick(float(np.float32(float(settings.envelope_debug_alpha) + 0.004)), forced=forced)
         assert controller.width_displayed is not entered and _digest() != before, "the tick replaced the mesh"
         assert finish_adjust(bpy.context, runtime, confirmed=False) == "CANCELLED"
-        assert controller.width_displayed is entered and controller.width_aux == entered_aux and controller.width_model is entered_model
+        assert controller.width_displayed is entered and controller.width_model is entered_model
         assert controller.width_mesh_preview is None and not controller.width_drag_active and controller.width_drag_origin is None
         assert _digest() == before, ("cancel does not return the mesh", forced)
         returned = _mesh_arrays(DECAL)
@@ -730,7 +727,7 @@ def _manual_layout_change(mesh):
 
 
 def _tool_ready(*, undo=False):
-    """Кнопка, вход инструмента и затравка: у сессии есть модель и владение мешем; depsgraph доложил о нашей записи и ничего не снял."""
+    """Кнопка и вход инструмента: у сессии есть модель и владение мешем; depsgraph доложил о нашей записи и ничего не снял."""
 
     from cftuv.envelope_width_session import ViewScaleV1, begin_adjust
 
@@ -780,7 +777,7 @@ def _the_exact_path_recovers_and_owns_the_mesh_again(controller, runtime, start)
     live = _digest()
     assert controller.width_layout_generation == generation + 1 and controller.width_mesh_owner is not None
     assert controller.width_mesh_owner.sample is controller.width_displayed
-    assert controller.width_model is not None, controller.width_model_refusal  # затравка в конце применения заказала модель заново
+    assert controller.width_model is not None, controller.width_model_refusal  # точный результат завёл модель заново (в потоке счёта)
     bpy.context.view_layer.update()
     assert controller.width_model is not None
     _drag_frame(runtime, 0.007)  # другая ширина, чем на прежних кадрах: автомат не двигает кадр на той же

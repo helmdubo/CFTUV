@@ -347,6 +347,7 @@ def relabel_result(result, revision_to: str, request_to: str, patch_to: int):
         offset_normals_digest=offset_digest,
         structure_digest=structure,
         labels=new_labeling,
+        parametric=None,  # наклоны привязаны к порядку ключей вершин ПРОГОНА; перенос на другую ревизию переименовывает ключи
     )
 
 
