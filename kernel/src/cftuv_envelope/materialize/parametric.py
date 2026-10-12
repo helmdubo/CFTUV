@@ -44,7 +44,6 @@ from fractions import Fraction
 from ..exact_sqrt_sum import SqrtSumV1, unlimited_reference_budget
 from .clip import cut_domain
 from .clip_memo import memo_disabled as clip_memo_disabled
-from .coalesce import point_key
 from .frames import MaterializationRefusal
 from .lift import PlaneLiftV1, enclosure_midpoint, ENCLOSURE_BITS
 from .stations import transverse_root
@@ -178,8 +177,14 @@ def unavailable(alpha: Fraction, scale: int, name: str, detail: str = "") -> Par
 # --------------------------------------------------------------------------
 
 
+def _point_identity(point) -> tuple:
+    """Тождество точки покрытия по канонической записи координат (как `coalesce.point_key`), но из целых: хеш `Fraction` на каждой вершине стоил бы заметной доли цены сертификата."""
+
+    return tuple(tuple((radicand, coefficient.numerator, coefficient.denominator) for radicand, coefficient in coordinate.terms) for coordinate in point)
+
+
 def point_slopes_of(prepared, coverage, templates: dict) -> dict:
-    """`{point_key: (наклон x, наклон y)}` движущихся точек покрытия домена (наклон по alpha РЕШЁТКИ, точный); неподвижные точки в таблицу не входят.
+    """`{тождество точки: (наклон x, наклон y)}` движущихся точек покрытия домена (наклон по alpha РЕШЁТКИ, точный); неподвижные точки в таблицу не входят.
 
     Точка отсечения грани - `A + alpha * B` (`CutPointV1`); её точка при alpha0 - ключ. Две разные точки отсечения с одним ключом и разными наклонами совпали бы лишь при alpha0 (событие
     покрытия), а не на окне: это `PARAM_POINT_SLOPE_AMBIGUOUS`.
@@ -203,7 +208,7 @@ def point_slopes_of(prepared, coverage, templates: dict) -> dict:
             for item, point in zip(pattern.items, covered.points):
                 if type(item) is int:
                     continue
-                key = point_key(point)
+                key = _point_identity(point)
                 slope = (item.slope_x, item.slope_y)
                 known = table.get(key)
                 if known is not None and known != slope:
@@ -279,6 +284,8 @@ def _fact_slopes(frame_faces, cycles, layout, key_slope, rungs, budget) -> dict:
 
     roots: dict = {}
     answers: dict = {}
+    stations: dict = {}
+    transverses: dict = {}
     for frame_face, cycle in zip(frame_faces, cycles):
         region = layout.region_of(frame_face)
         line = frame_face.line
@@ -301,8 +308,12 @@ def _fact_slopes(frame_faces, cycles, layout, key_slope, rungs, budget) -> dict:
             if frame_face.is_fan:
                 station = _ZERO
             else:
-                station = (x1.scaled(run.covector[0]) + y1.scaled(run.covector[1])) * run.inverse_length
-            transverse = (x1.scaled(line.a) + y1.scaled(line.b)) * root
+                station = stations.get((run.run_id, key))
+                if station is None:
+                    station = stations[(run.run_id, key)] = (x1.scaled(run.covector[0]) + y1.scaled(run.covector[1])) * run.inverse_length
+            transverse = transverses.get((id(line), key))
+            if transverse is None:
+                transverse = transverses[(id(line), key)] = (x1.scaled(line.a) + y1.scaled(line.b)) * root
             given[formula] = (station, transverse)
     found: dict = {}
     for slot, given in answers.items():
@@ -547,7 +558,7 @@ def _certificate(inputs, batch, interval, request, prepared, coverage) -> Parame
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
     moving = point_slopes_of(prepared, coverage, request.templates)
     # Точки до резки: наклоны покрытия по ключу вершины; факты до резки: формулы граней.
-    key_slope = {key: moving.get(point_key(point)) for key, point in inputs.points_before.items()} if moving else {}
+    key_slope = {key: moving.get(_point_identity(point)) for key, point in inputs.points_before.items()} if moving else {}
     fact_slope = _fact_slopes(inputs.frame_faces, inputs.cycles, inputs.layout, key_slope, inputs.rungs, budget)
     clip_points: dict = {}
     clip_facts: dict = {}
