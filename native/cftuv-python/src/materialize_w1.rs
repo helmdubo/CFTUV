@@ -39,6 +39,8 @@ use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
 use cftuv_mesh::data::{ChordNames, Face, Law, Line, MeshInput, MeshOutput, Part, Run, Table};
 use cftuv_mesh::error::MeshError;
 use cftuv_mesh::mesh::{canonical_triangles, exact_mesh};
+use cftuv_mesh::tally::Tally;
+use cftuv_mesh::tessellate::{contour_polygons, fan_faces, Contour, Piece, PieceContext, UvMap};
 
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
@@ -50,6 +52,7 @@ pub const TABLE_LIMIT: usize = 8;
 
 const STATUS_REFUSAL: u8 = 11;
 const STATUS_UNSUPPORTED: u8 = 12;
+const STATUS_MISSING_KEY: u8 = 13;
 
 /// `(result, status, detail, counts, articles, changed, timings)`.
 pub type Answer<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], u8, [u64; 5]);
@@ -434,6 +437,7 @@ fn error_status<'py>(py: Python<'py>, pool: &Pool, error: &MeshError, keys: &[cf
             let detail = PyTuple::new(py, [PyString::new(py, "no_triangulation").into_any(), int(whose.face as i64)?, int(whose.part.map_or(-1, |part| part as i64))?, int(*points as i64)?])?;
             (STATUS_REFUSAL, Some(detail))
         }
+        MeshError::MissingFact { region, key } => (STATUS_MISSING_KEY, Some(PyTuple::new(py, [int(i64::from(*region))?, PyString::new(py, &keys[*key as usize].name).into_any()])?)),
         MeshError::Unsupported(text) => (STATUS_UNSUPPORTED, strings(&[text.as_str()])?),
     })
 }
@@ -660,6 +664,148 @@ impl Host {
             notes.append(line)?;
         }
         Ok((built, status, detail, counts.as_array(), articles, changed, [tables_ns, arguments_ns, compute_ns, building_ns, log_ns]))
+    }
+}
+
+// --------------------------------------------------------------------------
+// the seams of the tessellation of one contour (test-only differential entries)
+// --------------------------------------------------------------------------
+
+impl Host {
+    /// ONE contour under the polygon law (`kind` 0: `mesh._contour_polygons`; 1: `mesh._fan_faces`) with the `(s, r)` of its vertices handed over as a map: the part seam of the tessellation, whose
+    /// oracle takes a `uv_of` callable. The answer is the exact-mesh answer with `(polygons, tally items)` as the result. A test entry: no bound classes are needed beyond `SqrtSumV1` and `Fraction`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seam<'py>(
+        &mut self,
+        py: Python<'py>,
+        session: &mut Session,
+        kind: u8,
+        keys: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        uv: &Bound<'py, PyAny>,
+        area: &Bound<'py, PyAny>,
+        owner: &Bound<'py, PyAny>,
+        reverse: bool,
+        exact_plane: bool,
+        unit: &Bound<'py, PyAny>,
+        in_flow: bool,
+        partition: bool,
+        affine_known: bool,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: &Tables<'py>,
+    ) -> PyResult<Answer<'py>> {
+        let given = budget.map_or([0; 6], |(_, articles)| articles);
+        let classes = self.classes()?;
+        let pool = &classes.pool;
+        let read = (|| -> Read<(Vec<String>, Vec<Point>, HashMap<u32, (SqrtSum, SqrtSum), FxBuild>, SqrtSum, Option<(IBig, IBig)>, Rat)> {
+            let names: Vec<String> = keys.try_iter()?.map(|item| text_of(&item?, "a key")).collect::<Read<_>>()?;
+            let mut native = Vec::with_capacity(names.len());
+            for item in points.try_iter()? {
+                native.push(point_of(pool, &item?)?);
+            }
+            if native.len() != names.len() {
+                return unsupported("keys and points must have one length");
+            }
+            let Ok(uv) = uv.cast_exact::<PyDict>() else {
+                return unsupported("uv must be a dict");
+            };
+            let mut index: HashMap<String, u32, FxBuild> = HashMap::default();
+            for (number, name) in names.iter().enumerate() {
+                index.entry(name.clone()).or_insert(number as u32);
+            }
+            let mut values: HashMap<u32, (SqrtSum, SqrtSum), FxBuild> = HashMap::default();
+            for (key, value) in uv.iter() {
+                let name = text_of(&key, "a uv key")?;
+                let Some(number) = index.get(&name) else { continue };
+                values.insert(*number, point_of(pool, &value)?);
+            }
+            let apex = apex_of(pool, owner)?;
+            Ok((names, native, values, sum_of(pool, area, "the doubled area")?, apex, rat_of(pool, unit, "unit")?))
+        })();
+        let (names, native_points, values, area, apex, unit) = match read {
+            Ok(read) => read,
+            Err(Fail::Py(error)) => return Err(error),
+            Err(Fail::Unsupported(text)) => return Ok(unsupported_answer(py, &text, given)?),
+        };
+        // the key numbers are those of the first occurrence of each name (a repeated name is one key, as in the oracle)
+        let mut first: HashMap<&str, u32, FxBuild> = HashMap::default();
+        let ids: Vec<u32> = names.iter().enumerate().map(|(number, name)| *first.entry(name.as_str()).or_insert(number as u32)).collect();
+        let sync_value = match sync {
+            Some(bytes) => Some(Reader::new(bytes, true).get_value().map_err(|error| PyValueError::new_err(format!("the memory sync is not in the wire format: {error}")))?),
+            None => None,
+        };
+        let (cap, articles) = match budget {
+            Some((cap, articles)) => (cap, Some(articles)),
+            None => (None, None),
+        };
+        let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let computing = Instant::now();
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let mut counts = SignCounts::default();
+            let mut tally = Tally::new();
+            let uv = UvMap { values };
+            let cx = PieceContext { uv: &uv, unit: &unit, reverse, exact_plane, partition };
+            let whose = cftuv_mesh::error::Whose { face: 0, part: None };
+            let contour_points: Vec<Pt> = native_points.iter().map(|point| (&point.0, &point.1)).collect();
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
+            let result = if kind == 0 {
+                let piece = Piece { keys: ids.clone(), points: contour_points, area: &area, whose };
+                contour_polygons(&mut ctx, &piece, &cx, &mut tally, in_flow, affine_known)
+            } else {
+                let face = Face {
+                    region: 0,
+                    points: Vec::new(),
+                    area: area.clone(),
+                    apex,
+                    parts: Vec::new(),
+                    line: Line { a: Rat::zero(), b: Rat::zero(), c: SqrtSum::zero(), q: Rat::one() },
+                    run: Rc::new(Run { id: String::new(), origin: (SqrtSum::zero(), SqrtSum::zero()), covector: (Rat::zero(), Rat::zero()), s_origin: SqrtSum::zero(), inverse_length: SqrtSum::zero() }),
+                    fan_station: Some(SqrtSum::zero()),
+                    in_flow: false,
+                };
+                let contour = Contour { keys: ids.clone(), points: contour_points };
+                fan_faces(&mut ctx, &face, whose, &contour, &cx, &mut tally, affine_known)
+            };
+            let articles = run.budget_mut().articles();
+            (result, tally, counts, articles, session.memory.take_log())
+        }));
+        let compute_ns = nanos(computing);
+        let (result, tally, counts, articles, log) = match outcome {
+            Ok(done) => done,
+            Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.seam: native panic: {}", panic_text(&panic)))),
+        };
+        let keys_out: Vec<cftuv_mesh::data::Key> = names.iter().enumerate().map(|(number, name)| cftuv_mesh::data::Key { name: name.clone(), first: (0, number as u32) }).collect();
+        let failure = match &result {
+            Ok(_) => None,
+            Err(error) => Some(error_status(py, &classes.pool, error, &keys_out)?),
+        };
+        if let Some((status, detail)) = &failure {
+            if is_native_only(*status) {
+                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [0, 0, compute_ns, 0, 0]));
+            }
+        }
+        // the tally is the caller's Counter, written in place: what a refusal of the oracle leaves in it stays (the answer carries it either way)
+        let mut tally_items = Vec::with_capacity(tally.items().count());
+        for (name, value) in tally.items() {
+            tally_items.push(PyTuple::new(py, [PyString::new(py, name).into_any(), int_from_ibig(py, &classes.pool, &IBig::from(value))?])?);
+        }
+        let tally_items = PyTuple::new(py, tally_items)?.into_any();
+        let (built, status, detail) = match (&result, failure) {
+            (Ok(faces), _) => {
+                let key_objects: Vec<Bound<'py, PyAny>> = names.iter().map(|name| PyString::new(py, name).into_any()).collect();
+                let mut polygons = Vec::with_capacity(faces.len());
+                for polygon in faces {
+                    let items: Vec<Bound<'py, PyAny>> = polygon.iter().map(|id| key_objects[*id as usize].clone()).collect();
+                    polygons.push(PyTuple::new(py, items)?);
+                }
+                (Some(PyTuple::new(py, [PyTuple::new(py, polygons)?.into_any(), tally_items])?.into_any()), 0, None)
+            }
+            (Err(_), Some((status, detail))) => (Some(PyTuple::new(py, [py.None().into_bound(py), tally_items])?.into_any()), status, detail),
+            (Err(_), None) => return Err(PyRuntimeError::new_err("cftuv_native: a refused seam without an outcome code")),
+        };
+        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
+        Ok((built, status, detail, counts.as_array(), articles, changed, [0, 0, compute_ns, 0, 0]))
     }
 }
 

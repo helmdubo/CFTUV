@@ -217,8 +217,74 @@ def exact_mesh(mirror, frame_faces, region_ids, layout, table, notes, chord_name
         lap("STATIONS_UV")  # the refusal is the tessellation's: the stations were done
     if status == STATUS_REFUSAL:
         _raise_refusal(detail, frame_faces, table)
+    if status == cost.CLIP_STATUS_MISSING_KEY:
+        raise KeyError(tuple(detail))
     cost.OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
     raise cost.NativeMirrorError(f"the native W1 answered the outcome code {status}")
+
+
+def _raise_seam_refusal(detail, owner) -> None:
+    """The `MaterializationRefusal` of a seam (one contour): the owner is that of the piece or of the fan."""
+
+    _exact, _mesh, frames, _coalesce, _stations, _time, admit, _laws = _kernel()
+    outcomes = admit.MaterializationOutcome
+    if detail[0] == "not_closed":
+        raise frames.MaterializationRefusal(outcomes.TESSELLATION_DID_NOT_CLOSE, f"owner {owner}: {detail[3]} differ from the face")
+    if detail[0] == "no_triangulation":
+        raise frames.MaterializationRefusal(outcomes.TESSELLATION_DID_NOT_CLOSE, f"owner {owner}: {detail[3]} contour points")
+    raise pin.NativePortUnsupported(f"the native W1 seam answered a refusal it cannot name: {detail[0]!r}")
+
+
+def _seam(mirror, kind, owner, text_owner, area, cycle, budget, reverse, exact_plane, tally, uv, unit, in_flow, partition, affine_known):
+    """The part seam of the tessellation of ONE contour (`mesh._contour_polygons`, `mesh._fan_faces`) with the `(s, r)` of its vertices in a mapping `uv` (the oracle takes a `uv_of` callable)."""
+
+    started = perf_counter_ns()
+    exact, sync, slow, real = _begin(mirror)
+    state = None if budget is None else (budget.cap, budget.spent_by_article())
+    called = perf_counter_ns()
+    try:
+        result, status, detail, counts, articles, bits, native = mirror._session.w1_seam(
+            kind, [key for key, _point in cycle], [point for _key, point in cycle], dict(uv), area, owner, bool(reverse), bool(exact_plane), unit, bool(in_flow), bool(partition),
+            bool(affine_known), None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real,
+        )
+    except BaseException:
+        mirror.invalidate()
+        raise
+    returned = perf_counter_ns()
+    if status not in cost.ORACLE_STATUSES:
+        mirror.invalidate()
+        mirror.last_w1_timings = (called - started, returned - called, perf_counter_ns() - returned, perf_counter_ns() - started, *native)
+        raise mirror._port_refusal(status, detail)
+    mirror._settle_counts(exact, counts)
+    mirror._settle_articles(exact, budget, articles)
+    mirror._remember(exact, bits, slow)
+    mirror.last_w1_timings = (called - started, returned - called, perf_counter_ns() - returned, perf_counter_ns() - started, *native)
+    polygons, items = result
+    for name, value in items:
+        if name.endswith("_MAX_MILLI_ALPHA"):
+            tally[name] = max(tally[name], value)
+        else:
+            tally[name] += value
+    if status == 0:
+        return polygons
+    if status == STATUS_REFUSAL:
+        _raise_seam_refusal(detail, text_owner)
+    if status == cost.CLIP_STATUS_MISSING_KEY:
+        raise KeyError(detail[1])
+    cost.OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
+    raise cost.NativeMirrorError(f"the native W1 seam answered the outcome code {status}")
+
+
+def contour_polygons(mirror, piece, cycle, budget, reverse, exact_plane, tally, uv, unit=1, in_flow=False, partition=False, affine_known=False):
+    """`mesh._contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit, in_flow, partition, affine_known)`, whole, with `uv` a mapping `key -> (s, r)` (a test seam of the port)."""
+
+    return _seam(mirror, 0, (), piece.owner, piece.doubled_area, cycle, budget, reverse, exact_plane, tally, uv, Fraction(unit), in_flow, partition, affine_known)
+
+
+def fan_faces(mirror, frame_face, cycle, budget, reverse, exact_plane, tally, uv, affine_known=False):
+    """`mesh._fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of, affine_known)`, whole, with `uv` a mapping `key -> (s, r)` (a test seam of the port)."""
+
+    return _seam(mirror, 1, frame_face.face.owner, frame_face.face.owner, frame_face.face.doubled_area, cycle, budget, reverse, exact_plane, tally, uv, Fraction(1), False, False, affine_known)
 
 
 def canonical_triangles(mirror, frame_faces, cycles, budget, reverse):

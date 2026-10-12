@@ -763,6 +763,20 @@ class CostMirror:
 
         return materialize_w1_op.canonical_triangles(self, frame_faces, cycles, budget, reverse)
 
+    def w1_contour_polygons(self, piece, cycle, budget, reverse, exact_plane, tally, uv, unit=1, in_flow=False, partition=False, affine_known=False):
+        """Test seam: `materialize.mesh._contour_polygons` whole, with `uv` a mapping `key -> (s, r)` (see `materialize_w1_op.py`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.contour_polygons(self, piece, cycle, budget, reverse, exact_plane, tally, uv, unit, in_flow, partition, affine_known)
+
+    def w1_fan_faces(self, frame_face, cycle, budget, reverse, exact_plane, tally, uv, affine_known=False):
+        """Test seam: `materialize.mesh._fan_faces` whole, with `uv` a mapping `key -> (s, r)` (see `materialize_w1_op.py`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.fan_faces(self, frame_face, cycle, budget, reverse, exact_plane, tally, uv, affine_known)
+
     def raw_layouts(self) -> dict:
         """`{slot class: raw access engaged}`: a layout the probe did not confirm is read through the attribute protocol (slower, not wrong). Binds both entry points."""
 

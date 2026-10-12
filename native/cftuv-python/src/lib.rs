@@ -353,6 +353,34 @@ impl Session {
         outcome
     }
 
+    /// Test-only seam of the tessellation of ONE contour (`kind` 0: `mesh._contour_polygons`, 1: `mesh._fan_faces`): the same answer as `w1_exact_mesh` with `(polygons, tally items)` as the result.
+    #[allow(clippy::too_many_arguments)]
+    fn w1_seam<'py>(
+        &mut self,
+        py: Python<'py>,
+        kind: u8,
+        keys: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        uv: &Bound<'py, PyAny>,
+        area: &Bound<'py, PyAny>,
+        owner: &Bound<'py, PyAny>,
+        reverse: bool,
+        exact_plane: bool,
+        unit: &Bound<'py, PyAny>,
+        in_flow: bool,
+        partition: bool,
+        affine_known: bool,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_w1::Answer<'py>> {
+        let outcome = self.w1.seam(py, &mut self.inner, kind, keys, points, uv, area, owner, reverse, exact_plane, unit, in_flow, partition, affine_known, sync, budget, &tables);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
     /// Tables the W1 side keeps converted.
     fn w1_cache(&self) -> usize {
         self.w1.cache_size()
@@ -380,6 +408,9 @@ impl Session {
         }
         if let Some((fraction, sqrt_sum, point)) = self.clip.raw_layouts() {
             found.extend([("clip Fraction", fraction), ("clip SqrtSumV1", sqrt_sum), ("LocalPoint3V1", point)]);
+        }
+        if let Some((fraction, sqrt_sum)) = self.w1.raw_layouts() {
+            found.extend([("W1 Fraction", fraction), ("W1 SqrtSumV1", sqrt_sum)]);
         }
         found
     }

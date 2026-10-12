@@ -52,6 +52,9 @@ pub enum MeshError {
     NotClosed { whose: Whose, what: Closure },
     /// `TESSELLATION_DID_NOT_CLOSE`: `owner {owner}: {points} contour points` (no triangulation).
     NoTriangulation { whose: Whose, points: usize },
+    /// `KeyError((region, key))`: a vertex of a contour that the facts of its region do not hold (`uv_values(frame_face, key)` of the oracle). The kernel never builds one; a part of a merged run can
+    /// carry a point of another face, and the oracle's answer to that is this exception, with the partial effects of everything before it.
+    MissingFact { region: u32, key: u32 },
     /// The native port does not cover this input (never an answer; the host must see it).
     Unsupported(String),
 }

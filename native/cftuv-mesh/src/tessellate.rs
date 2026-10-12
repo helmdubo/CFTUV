@@ -135,20 +135,39 @@ fn tessellate_quads(ctx: &mut ExactCtx<'_>, faces: &[Face], contours: &[Contour]
 // the polygon law
 // --------------------------------------------------------------------------
 
-/// The `(s, r)` of the vertices of one region: `uv_values(frame_face, key)`.
+/// Where the `(s, r)` of a vertex comes from: `uv_values(frame_face, key)`. The domain asks its facts; a seam of a single contour (`contour_polygons_seam`) asks a map it was given.
+pub trait UvSource {
+    /// `uv_values(frame_face, key)`: the `(s, r)` of the vertex, or the `KeyError` of the oracle.
+    fn of(&self, key: u32) -> MeshResult<Uv<'_>>;
+
+    /// `[uv_of(key) for key in keys]`: the first missing key is the exception.
+    fn all(&self, keys: &[u32]) -> MeshResult<Vec<Uv<'_>>> {
+        keys.iter().map(|key| self.of(*key)).collect()
+    }
+}
+
+/// The facts of one region of the domain.
 struct UvOf<'s, 'a> {
     stations: &'s Stations<'a>,
     region: u32,
 }
 
-impl UvOf<'_, '_> {
-    fn of(&self, key: u32) -> Uv<'_> {
-        let fact = self.stations.fact(self.region, key).expect("every vertex of a contour has a fact");
-        (&fact.0, &fact.1)
+impl UvSource for UvOf<'_, '_> {
+    fn of(&self, key: u32) -> MeshResult<Uv<'_>> {
+        let fact = self.stations.fact(self.region, key).ok_or(MeshError::MissingFact { region: self.region, key })?;
+        Ok((&fact.0, &fact.1))
     }
+}
 
-    fn all(&self, keys: &[u32]) -> Vec<Uv<'_>> {
-        keys.iter().map(|key| self.of(*key)).collect()
+/// A map `key -> (s, r)` that a seam hands over (the lookup of the oracle's `uv_of`, `KeyError` for a key it does not hold).
+pub struct UvMap {
+    pub values: HashMap<u32, (SqrtSum, SqrtSum), FxBuild>,
+}
+
+impl UvSource for UvMap {
+    fn of(&self, key: u32) -> MeshResult<Uv<'_>> {
+        let value = self.values.get(&key).ok_or(MeshError::MissingFact { region: 0, key })?;
+        Ok((&value.0, &value.1))
     }
 }
 
@@ -158,7 +177,7 @@ fn plane_ring(
     ctx: &mut ExactCtx<'_>,
     points: &[Pt],
     keys: &[u32],
-    uv: &UvOf,
+    uv: &dyn UvSource,
     affine_known: bool,
 ) -> MeshResult<(Option<Vec<usize>>, Option<&'static str>)> {
     let Some(ring) = counter_clockwise_ring(ctx, points)? else {
@@ -174,7 +193,7 @@ fn plane_ring(
         return Ok((None, Some(POLYGON_FACES_TRIANGULATED_NOT_SIMPLE)));
     }
     if !affine_known {
-        let values = uv.all(keys);
+        let values = uv.all(keys)?;
         if !uv_is_affine_in_chart(ctx, points, &values)? {
             return Ok((None, Some(POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE)));
         }
@@ -204,12 +223,12 @@ fn small(value: &IBig) -> MeshResult<u64> {
 }
 
 /// `_bilinear_ring(points, keys, budget, uv_of, unit, tally)`: the ring of a convex strip face with a bilinear UV, or `None`; writes the largest kink.
-fn bilinear_ring(ctx: &mut ExactCtx<'_>, points: &[Pt], keys: &[u32], uv: &UvOf, unit: &Rat, tally: &mut Tally) -> MeshResult<Option<Vec<usize>>> {
+fn bilinear_ring(ctx: &mut ExactCtx<'_>, points: &[Pt], keys: &[u32], uv: &dyn UvSource, unit: &Rat, tally: &mut Tally) -> MeshResult<Option<Vec<usize>>> {
     let Some(ring) = strictly_convex_ring(ctx, points)? else {
         return Ok(None);
     };
     let size = ring.len();
-    let values = uv.all(keys);
+    let values = uv.all(keys)?;
     let defect = uv_affine_defect_milli(ctx, points, &values, unit, 64)?;
     let name = if size == 4 { QUADS_UV_BILINEAR_MAX_MILLI_ALPHA } else { POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA };
     tally.raise_to(name, small(&defect)?);
@@ -233,11 +252,13 @@ fn refused_partition(tally: &mut Tally, reason: &str) {
 }
 
 /// What `_polygon_law_faces` reads for ONE contour besides the contour.
-struct PieceContext<'s, 'a> {
-    uv: UvOf<'s, 'a>,
-    unit: &'s Rat,
-    reverse: bool,
-    exact_plane: bool,
+pub struct PieceContext<'s> {
+    pub uv: &'s dyn UvSource,
+    pub unit: &'s Rat,
+    pub reverse: bool,
+    pub exact_plane: bool,
+    /// The law `CONVEX_PARTITION_BY_DIAGONALS_V1` is on (the product's `partition=True`; a seam may turn it off).
+    pub partition: bool,
 }
 
 /// `_admitted_polygons(faces, coords, node_keys, look, budget, reverse, in_flow, unit, scratch)`: the parts of a partition admitted by the old law of a piece.
@@ -257,10 +278,10 @@ fn admitted_polygons(
         let face_keys: Vec<u32> = nodes.iter().map(|node| keys[*node]).collect();
         let mut ring: Vec<usize> = (0..nodes.len()).collect();
         if nodes.len() > 3 {
-            let (found, named) = plane_ring(ctx, &face_points, &face_keys, &cx.uv, false)?;
+            let (found, named) = plane_ring(ctx, &face_points, &face_keys, cx.uv, false)?;
             let mut found = found;
             if found.is_none() && in_flow && named == Some(POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE) {
-                found = bilinear_ring(ctx, &face_points, &face_keys, &cx.uv, cx.unit, scratch)?;
+                found = bilinear_ring(ctx, &face_points, &face_keys, cx.uv, cx.unit, scratch)?;
                 if found.is_some() {
                     scratch.add(if nodes.len() == 4 { QUADS_UV_BILINEAR } else { POLYGONS_UV_BILINEAR }, 1);
                 }
@@ -293,7 +314,7 @@ fn convex_faces(
     in_flow: bool,
     tally: &mut Tally,
 ) -> MeshResult<Option<Faces>> {
-    let look = cx.uv.all(keys);
+    let look = cx.uv.all(keys)?;
     let mut frames: HashMap<[usize; 3], Frame, FxBuild> = HashMap::default();
     let mut on_map: HashMap<([usize; 3], usize), bool, FxBuild> = HashMap::default();
     let plan = {
@@ -396,31 +417,31 @@ fn convex_faces(
 }
 
 /// One piece of a face under the polygon law: its contour and the area it must close.
-struct Piece<'a> {
-    keys: Vec<u32>,
-    points: Vec<Pt<'a>>,
-    area: &'a SqrtSum,
-    whose: Whose,
+pub struct Piece<'a> {
+    pub keys: Vec<u32>,
+    pub points: Vec<Pt<'a>>,
+    pub area: &'a SqrtSum,
+    pub whose: Whose,
 }
 
 /// `_contour_polygons(piece, cycle, ...)`: the faces of ONE contour under `PLANAR_POLYGONS_V1`: one polygon, or triangles under a name.
-fn contour_polygons(ctx: &mut ExactCtx<'_>, piece: &Piece, cx: &PieceContext, tally: &mut Tally, in_flow: bool, affine_known: bool) -> MeshResult<Faces> {
+pub fn contour_polygons(ctx: &mut ExactCtx<'_>, piece: &Piece, cx: &PieceContext, tally: &mut Tally, in_flow: bool, affine_known: bool) -> MeshResult<Faces> {
     let points = &piece.points;
     let keys = &piece.keys;
     let mut named: Option<&'static str> = None;
     if points.len() > 3 {
         let mut ring: Option<Vec<usize>>;
         if cx.exact_plane {
-            let (found, name) = plane_ring(ctx, points, keys, &cx.uv, affine_known)?;
+            let (found, name) = plane_ring(ctx, points, keys, cx.uv, affine_known)?;
             ring = found;
             named = name;
             if in_flow && ring.is_none() && named == Some(POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE) {
-                ring = bilinear_ring(ctx, points, keys, &cx.uv, cx.unit, tally)?;
+                ring = bilinear_ring(ctx, points, keys, cx.uv, cx.unit, tally)?;
                 if ring.is_some() {
                     named = Some(if points.len() == 4 { QUADS_UV_BILINEAR } else { POLYGONS_UV_BILINEAR });
                 }
             }
-            if ring.is_none() && named == Some(POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE) {
+            if cx.partition && ring.is_none() && named == Some(POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE) {
                 if let Some(parts) = convex_faces(ctx, piece.area, points, keys, cx, in_flow, tally)? {
                     return Ok(parts);
                 }
@@ -459,7 +480,7 @@ fn fan_apex(face: &Face, points: &[Pt]) -> Option<usize> {
 }
 
 /// `_fan_faces(frame_face, cycle, ...)`: the faces of ONE fan under `PLANAR_POLYGONS_V1`.
-fn fan_faces(ctx: &mut ExactCtx<'_>, face: &Face, whose: Whose, contour: &Contour, cx: &PieceContext, tally: &mut Tally, affine_known: bool) -> MeshResult<Faces> {
+pub fn fan_faces(ctx: &mut ExactCtx<'_>, face: &Face, whose: Whose, contour: &Contour, cx: &PieceContext, tally: &mut Tally, affine_known: bool) -> MeshResult<Faces> {
     let (points, keys) = (&contour.points, &contour.keys);
     if points.len() <= 3 {
         return triangle_polygons(ctx, whose, &face.area, points, keys, cx.reverse);
@@ -467,7 +488,7 @@ fn fan_faces(ctx: &mut ExactCtx<'_>, face: &Face, whose: Whose, contour: &Contou
     tally.add(FAN_FACES_CUT_BY_NEIGHBOUR, 1);
     let mut named: Option<&'static str> = None;
     if cx.exact_plane {
-        let (ring, name) = plane_ring(ctx, points, keys, &cx.uv, affine_known)?;
+        let (ring, name) = plane_ring(ctx, points, keys, cx.uv, affine_known)?;
         named = name;
         if let Some(ring) = ring {
             let ring_points: Vec<Pt> = ring.iter().map(|index| points[*index]).collect();
@@ -549,7 +570,8 @@ fn polygon_law_faces(
     let mut result = Vec::with_capacity(input.faces.len());
     for (index, (face, contour)) in input.faces.iter().zip(contours).enumerate() {
         let simple = stations.plain[index];
-        let cx = PieceContext { uv: UvOf { stations, region: face.region }, unit: input.lattice_alpha, reverse: input.chart_cw, exact_plane: input.exact_plane };
+        let uv = UvOf { stations, region: face.region };
+        let cx = PieceContext { uv: &uv, unit: input.lattice_alpha, reverse: input.chart_cw, exact_plane: input.exact_plane, partition: true };
         let whose = Whose { face: index, part: None };
         if face.is_fan() {
             result.push(fan_faces(ctx, face, whose, contour, &cx, tally, simple)?);
