@@ -161,13 +161,14 @@ pub enum Stat {
     PlanDivisorsRepeated,
     CompareTimes,
     CompareTimesDecidedByFilter,
+    CompareTimesRepeated,
     TimeKeys,
     TimeKeysRepeated,
     ReprRoots,
     ReprRootsRepeated,
 }
 
-pub const STATS: [(&str, Stat); 17] = [
+pub const STATS: [(&str, Stat); 18] = [
     ("position lookups", Stat::PositionLookups),
     ("position hits", Stat::PositionHits),
     ("exact_point_key calls", Stat::PointKeys),
@@ -181,6 +182,7 @@ pub const STATS: [(&str, Stat); 17] = [
     ("... of a divisor planned before", Stat::PlanDivisorsRepeated),
     ("compare_times", Stat::CompareTimes),
     ("... decided by the filter", Stat::CompareTimesDecidedByFilter),
+    ("... of a pair of times compared before", Stat::CompareTimesRepeated),
     ("time keys (memo keys)", Stat::TimeKeys),
     ("... of a time keyed before", Stat::TimeKeysRepeated),
     ("repr roots", Stat::ReprRoots),

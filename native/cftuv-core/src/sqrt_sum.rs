@@ -531,22 +531,40 @@ pub fn integer_certified_sign(items: &[(UBig, IBig)], bits: usize) -> Option<i8>
 /// `_filtered_sign`: the sign of `sum a_m sqrt(m)` if what `sign` decides before conjugation decides it.
 /// The counters move as in `SqrtSumV1.sign`; `None` leaves them alone.
 pub fn filtered_sign(items: &[(UBig, IBig)], filter_bits: usize, counts: &mut SignCounts) -> Option<i8> {
+    let (sign, closure) = filter_decision(items, filter_bits)?;
+    counts.close(closure);
+    Some(sign)
+}
+
+/// How a question the filter decides was closed (the counter it moves, with `total`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Closure {
+    RationalZero,
+    RationalNonzero,
+    Enclosure,
+}
+
+impl SignCounts {
+    /// The counters of a sign the filter closed: `total` and the one named by `closure`.
+    pub fn close(&mut self, closure: Closure) {
+        self.total += 1;
+        match closure {
+            Closure::RationalZero => self.closed_rational_zero += 1,
+            Closure::RationalNonzero => self.closed_rational_nonzero += 1,
+            Closure::Enclosure => self.closed_by_enclosure += 1,
+        }
+    }
+}
+
+/// [`filtered_sign`] without the counters: the sign the filter decides and how it closed the question, `None` when it leaves it to the exact path.
+pub fn filter_decision(items: &[(UBig, IBig)], filter_bits: usize) -> Option<(i8, Closure)> {
     if items.is_empty() {
-        counts.total += 1;
-        counts.closed_rational_zero += 1;
-        return Some(0);
+        return Some((0, Closure::RationalZero));
     }
     if items.len() == 1 && items[0].0.is_one() {
-        counts.total += 1;
-        counts.closed_rational_nonzero += 1;
-        return Some(num::signum(&items[0].1));
+        return Some((num::signum(&items[0].1), Closure::RationalNonzero));
     }
-    let certified = integer_certified_sign(items, filter_bits);
-    if certified.is_some() {
-        counts.total += 1;
-        counts.closed_by_enclosure += 1;
-    }
-    certified
+    integer_certified_sign(items, filter_bits).map(|sign| (sign, Closure::Enclosure))
 }
 
 /// `_scaled_difference_parts`: `plus*plus_factor - minus*minus_factor = sum a_m sqrt(m) / D`.

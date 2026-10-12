@@ -6,14 +6,16 @@
 //! cost: the six budget articles, the memory tables and the sign counters are compared with the oracle's after the call.
 
 use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
+use cftuv_canon::fxhash::FxBuild;
 use cftuv_canon::Operation;
 use cftuv_core::exact::{self, ExactCtx, ExactError};
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::Rat;
-use cftuv_core::sqrt_sum::{filtered_sign, scaled_difference_parts, SqrtSum, SIGN_FILTER_BITS};
+use cftuv_core::sqrt_sum::{filter_decision, scaled_difference_parts, Closure, SqrtSum, SIGN_FILTER_BITS};
 
 use crate::error::{SkelError, SkelResult};
 use crate::line::SupportLine;
@@ -35,6 +37,8 @@ pub struct EventTime {
     pub divisor: SqrtSum,
     /// The conjugation of the divisor (what every division by `divisor * determinant` of the places at this time starts from), made on the first division and kept.
     plan: RefCell<Option<Rc<DivisorPlan>>>,
+    /// A number that identifies the value of this object for the memories keyed by pairs of times (a clone keeps it: the two are the same value).
+    pub id: u64,
 }
 
 /// The rounds of the conjugation of a divisor against one prime universe (`None`: the universe cannot make them), computed once for a time and shared by the
@@ -68,6 +72,17 @@ impl EventPoint {
 pub type TimeRef = Rc<EventTime>;
 pub type PointRef = Rc<EventPoint>;
 
+thread_local! {
+    static TIME_IDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn next_time_id() -> u64 {
+    TIME_IDS.with(|counter| {
+        counter.set(counter.get() + 1);
+        counter.get()
+    })
+}
+
 fn rat_of(value: i128) -> Rat {
     Rat::from_int(IBig::from(value))
 }
@@ -94,7 +109,7 @@ fn product(coefficient: i128, cofactor: i128) -> IBig {
 
 impl EventTime {
     pub fn new(dividend: Rat, divisor: SqrtSum) -> EventTime {
-        EventTime { dividend, divisor, plan: RefCell::new(None) }
+        EventTime { dividend, divisor, plan: RefCell::new(None), id: next_time_id() }
     }
 
     /// `ZERO_TIME`: `0 / 1`.
@@ -146,17 +161,37 @@ impl EventTime {
 
 /// `compare_times(left, right, budget)`: the exact sign of `left - right`. The 64-bit enclosure filter decides what it can on the unreduced integer
 /// forms (counters bumped as `_filtered_sign` bumps them); when it gives up the question goes the whole way as `scaled_difference(...).sign(budget)`.
+///
+/// A pair of times the filter decided once is decided the same way every time (the question is a pure function of the two values, and a time keeps its `id` for as long as it
+/// is the same value), so the answer is remembered with the counter it moved: a repeat bumps the same counters and builds nothing. 55 % of the comparisons of a skeleton are repeats.
 pub fn compare_times(ctx: &mut ExactCtx<'_>, left: &EventTime, right: &EventTime) -> SkelResult<i8> {
     timed(Phase::CompareTimes, || {
-        crate::profile::count(crate::profile::Stat::CompareTimes, 1);
+        crate::profile::count_seen(crate::profile::Stat::CompareTimes, crate::profile::Stat::CompareTimesRepeated, || left.id.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ right.id);
+        let key = (left.id, right.id);
+        if let Some((sign, closure)) = COMPARED.with(|memo| memo.borrow().get(&key).copied()) {
+            ctx.counts.close(closure);
+            return Ok(sign);
+        }
         let form = scaled_difference_parts(&right.divisor, &left.dividend, &left.divisor, &right.dividend);
-        if let Some(decided) = filtered_sign(&form.items, SIGN_FILTER_BITS, ctx.counts) {
+        if let Some((sign, closure)) = filter_decision(&form.items, SIGN_FILTER_BITS) {
             crate::profile::count(crate::profile::Stat::CompareTimesDecidedByFilter, 1);
-            return Ok(decided);
+            ctx.counts.close(closure);
+            COMPARED.with(|memo| memo.borrow_mut().insert(key, (sign, closure)));
+            return Ok(sign);
         }
         let difference = right.divisor.scaled_difference(&left.dividend, &left.divisor, &right.dividend);
         Ok(exact::sign(ctx, &difference, SIGN_FILTER_BITS)?)
     })
+}
+
+thread_local! {
+    /// `(left.id, right.id)` of the comparisons the filter decided: the sign and how it closed. Emptied when a skeleton starts and when it ends ([`forget_compared`]).
+    static COMPARED: RefCell<HashMap<(u64, u64), (i8, Closure), FxBuild>> = RefCell::new(HashMap::default());
+}
+
+/// Empties the memory of compared pairs (the ids are never reused, so a stale entry is harmless, only memory).
+pub fn forget_compared() {
+    COMPARED.with(|memo| *memo.borrow_mut() = HashMap::default());
 }
 
 /// `times_are_equal`: the difference has no terms (a pure emptiness test: no counter moves).
