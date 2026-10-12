@@ -168,8 +168,6 @@ mod sampler {
     extern "system" {
         fn SymInitialize(process: Handle, path: *const u8, invade: i32) -> i32;
         fn SymSetOptions(options: u32) -> u32;
-        fn SymLoadModuleEx(process: Handle, file: Handle, image: *const u8, module: *const u8, base: u64, size: u32, data: *mut c_void, flags: u32) -> u64;
-        fn SymGetModuleInfo64(process: Handle, address: u64, info: *mut u8) -> i32;
         fn SymFromAddr(process: Handle, address: u64, displacement: *mut u64, symbol: *mut u8) -> i32;
         fn SymGetLineFromAddr64(process: Handle, address: u64, displacement: *mut u32, line: *mut Line) -> i32;
     }
@@ -353,6 +351,27 @@ mod sampler {
     }
 }
 
+/// The CPU cycles this thread has run (Windows `QueryThreadCycleTime`): unlike the wall clock it does not count the time the thread was preempted, so two builds can be compared
+/// on a machine that other work shares. Zero where the call does not exist.
+#[cfg(windows)]
+fn thread_cycles() -> u64 {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentThread() -> *mut std::ffi::c_void;
+        fn QueryThreadCycleTime(thread: *mut std::ffi::c_void, cycles: *mut u64) -> i32;
+    }
+    let mut cycles = 0u64;
+    unsafe {
+        QueryThreadCycleTime(GetCurrentThread(), &mut cycles);
+    }
+    cycles
+}
+
+#[cfg(not(windows))]
+fn thread_cycles() -> u64 {
+    0
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let text = std::fs::read_to_string(&arguments[1]).expect("the polygons file");
@@ -388,6 +407,7 @@ fn main() {
     let mut lines = Vec::new();
     let mut rows: Vec<(String, String, i64, f64, usize)> = Vec::new();
     let mut by_mesh: std::collections::BTreeMap<String, (f64, usize)> = Default::default();
+    let mut cycles_total = 0u64;
     let mut profile_total: Vec<u64> = vec![0; PHASES.len()];
     let mut stats_total: Vec<u64> = vec![0; STATS.len()];
     #[cfg(windows)]
@@ -399,6 +419,7 @@ fn main() {
             }
         }
         let mut best = f64::MAX;
+        let mut best_cycles = u64::MAX;
         let mut digest = 0u64;
         let mut nodes = 0usize;
         let mut profile: Vec<u64> = Vec::new();
@@ -411,12 +432,14 @@ fn main() {
             let mut counts = SignCounts::default();
             reset();
             reset_stats();
+            let cycles_before = thread_cycles();
             let started = Instant::now();
             let result = {
                 let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
                 build_skeleton(&mut ctx, polygon, options, call.limit)
             };
             let seconds = started.elapsed().as_secs_f64();
+            best_cycles = best_cycles.min(thread_cycles() - cycles_before);
             let articles = run.budget_mut().articles();
             let superlevel = run.budget_mut().superlevel.clone();
             let log = session.memory.take_log();
@@ -438,6 +461,7 @@ fn main() {
         for (slot, value) in profile_total.iter_mut().zip(&profile) {
             *slot += value;
         }
+        cycles_total += best_cycles;
         let entry = by_mesh.entry(call.mesh.clone()).or_insert((0.0, 0));
         entry.0 += best;
         entry.1 += 1;
@@ -450,7 +474,7 @@ fn main() {
     }
     rows.sort_by(|left, right| right.3.total_cmp(&left.3));
     let total: f64 = rows.iter().map(|row| row.3).sum();
-    println!("calls: {}  total best: {:.1} ms", rows.len(), total * 1e3);
+    println!("calls: {}  total best: {:.1} ms  thread cycles (best per call): {:.1} M", rows.len(), total * 1e3, cycles_total as f64 * 1e-6);
     for (mesh, (seconds, count)) in &by_mesh {
         println!("  {mesh:28} {count:5} calls {:9.1} ms", seconds * 1e3);
     }

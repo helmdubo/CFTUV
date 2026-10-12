@@ -16,7 +16,7 @@
 //! A value is built once and shared (`Rc`); the tree is never mutated.
 
 use std::borrow::Cow;
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell, RefCell};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -27,7 +27,7 @@ use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
 use crate::error::{SkelError, SkelResult};
-use crate::repr::{repr_frac, repr_str};
+use crate::repr::{push_ibig, repr_frac, repr_str};
 
 /// A class or a field name: static in the code of the port, owned when it came over the wire.
 pub type Name = Cow<'static, str>;
@@ -38,7 +38,15 @@ pub struct Val(Rc<Node>);
 struct Node {
     hash: u64,
     text: OnceCell<Rc<str>>,
+    /// How many times a text that was being written reached this value without its own text: the first time it is written through (no text is made for it), the
+    /// second makes and keeps its own (see [`write_child`]).
+    visits: Cell<u8>,
     kind: Kind,
+}
+
+thread_local! {
+    /// The buffer a root text is written in (taken for the write and put back, so a text made inside a text brings its own).
+    static SCRATCH: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 enum Kind {
@@ -137,7 +145,7 @@ impl Val {
     fn new(kind: Kind) -> Val {
         crate::profile::count(crate::profile::Stat::ValNew, 1);
         let hash = kind_hash(&kind);
-        Val(Rc::new(Node { hash, text: OnceCell::new(), kind }))
+        Val(Rc::new(Node { hash, text: OnceCell::new(), visits: Cell::new(0), kind }))
     }
 
     pub fn none() -> Val {
@@ -325,16 +333,32 @@ impl Val {
     /// `repr(value)`, byte for byte, computed once per value.
     pub fn repr(&self) -> Rc<str> {
         Rc::clone(self.0.text.get_or_init(|| {
-            let mut out = String::new();
+            let mut out = SCRATCH.with(RefCell::take);
+            out.clear();
             write_repr(&self.0.kind, &mut out);
             crate::profile::count(crate::profile::Stat::ReprBuilds, 1);
             crate::profile::count(crate::profile::Stat::ReprBytes, out.len() as u64);
-            Rc::from(out)
+            let text: Rc<str> = Rc::from(out.as_str());
+            SCRATCH.with(|slot| *slot.borrow_mut() = out);
+            text
         }))
     }
 
     pub fn same(&self, other: &Val) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// The text of a part of a text being written: the part's own text when it has one, else written through into `out` (no allocation, no copy of a copy). A part that is
+/// reached a second time without a text makes its own, so a value that many texts hold is formatted twice at most.
+fn write_child(out: &mut String, item: &Val) {
+    if let Some(text) = item.0.text.get() {
+        out.push_str(text);
+    } else if item.0.visits.get() == 0 {
+        item.0.visits.set(1);
+        write_repr(&item.0.kind, out);
+    } else {
+        out.push_str(&item.repr());
     }
 }
 
@@ -344,7 +368,7 @@ fn write_items(out: &mut String, open: char, close: char, items: &[Val], one_tup
         if index > 0 {
             out.push_str(", ");
         }
-        out.push_str(&item.repr());
+        write_child(out, item);
     }
     if one_tuple && items.len() == 1 {
         out.push(',');
@@ -356,7 +380,7 @@ fn write_repr(kind: &Kind, out: &mut String) {
     match kind {
         Kind::None => out.push_str("None"),
         Kind::Bool(flag) => out.push_str(if *flag { "True" } else { "False" }),
-        Kind::Int(number) => out.push_str(&number.to_string()),
+        Kind::Int(number) => push_ibig(out, number),
         Kind::Str(text) => {
             // ASCII by construction (`Val::str`); the call cannot refuse.
             let _ = repr_str(text, out);
@@ -373,7 +397,7 @@ fn write_repr(kind: &Kind, out: &mut String) {
                 }
                 out.push_str(field);
                 out.push('=');
-                out.push_str(&item.repr());
+                write_child(out, item);
             }
             out.push(')');
         }
@@ -383,7 +407,7 @@ fn write_repr(kind: &Kind, out: &mut String) {
             out.push('.');
             out.push_str(member);
             out.push_str(": ");
-            out.push_str(&value.repr());
+            write_child(out, value);
             out.push('>');
         }
         Kind::Set(items, frozen) => match (items.is_empty(), frozen) {
@@ -405,9 +429,9 @@ fn write_repr(kind: &Kind, out: &mut String) {
                 if index > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&key.repr());
+                write_child(out, key);
                 out.push_str(": ");
-                out.push_str(&item.repr());
+                write_child(out, item);
             }
             out.push('}');
         }
