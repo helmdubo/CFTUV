@@ -601,3 +601,79 @@ def test_real_workers_verify_a_first_press_in_the_background_and_a_second_press_
     finally:
         pool.close()
         shutdown_domain_pool()
+
+
+# --------------------------------------------------------------------------
+# 5. Строка панели: итог фона пишет таймер главного потока
+# --------------------------------------------------------------------------
+
+
+def _operator_watch(monkeypatch):
+    """`_watch_byte_check` оператора, вынутая из дерева разбора (оператор не импортируется без Blender), с подставными `bpy` и панелью."""
+
+    import ast
+    import types
+
+    source = (Path(__file__).resolve().parents[1] / "cftuv" / "envelope_production_operator.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    wanted = [node for node in tree.body if (isinstance(node, ast.FunctionDef) and node.name == "_watch_byte_check") or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "BYTE_CHECK_POLL_SECONDS")]
+    assert len(wanted) == 2
+    settings = types.SimpleNamespace(status="Decal mesh: 5 domains", timing="Decal cold 1.00 s")
+    scene = types.SimpleNamespace(hotspotuv_decal_mesh=settings)
+    timers = []
+    redraws = []
+    bpy = types.SimpleNamespace(data=types.SimpleNamespace(scenes={"Scene": scene}), app=types.SimpleNamespace(timers=types.SimpleNamespace(register=lambda function, first_interval: timers.append(function))))
+    namespace = {"bpy": bpy, "SETTINGS_ATTRIBUTE": "hotspotuv_decal_mesh", "tag_view3d_redraw": lambda: redraws.append(1)}
+    exec(compile(ast.Module(body=wanted, type_ignores=[]), "operator_watch", "exec"), namespace)
+    return namespace["_watch_byte_check"], settings, timers, redraws
+
+
+def _job(state, **fields):
+    job = background.ByteCheckJobV1("tok", IDENTITY, 5, {}, "rev")
+    job.state, job.checked = state, fields.get("checked", 5)
+    job.violations = list(fields.get("violations", ()))
+    job.reason = fields.get("reason", "")
+    return job
+
+
+def test_the_panel_line_follows_the_background_on_the_main_thread_timer(monkeypatch):
+    watch, settings, timers, redraws = _operator_watch(monkeypatch)
+    controller = type("Controller", (), {})()
+    controller.byte_check_job = running = _job(background.STATE_RUNNING, checked=0)
+
+    watch(controller, "Scene")
+    (poll,) = timers
+    assert poll() == 0.5 and settings.timing == "Decal cold 1.00 s"  # задача идёт: ждём
+    running.state, running.checked = background.STATE_CLEAN, 5
+    assert poll() is None and settings.timing.endswith("| snapshot byte check: 5 verified") and settings.status == "Decal mesh: 5 domains" and redraws
+
+    controller.byte_check_job = None
+    watch(controller, "Scene")
+    assert len(timers) == 1  # задачи нет - таймер не заводится
+
+
+def test_a_found_violation_or_an_incomplete_job_replaces_the_status_and_names_the_outcome(monkeypatch):
+    for state, expected in ((background.STATE_VIOLATION, "VIOLATION"), (background.STATE_INCOMPLETE, "INCOMPLETE")):
+        watch, settings, timers, _redraws = _operator_watch(monkeypatch)
+        controller = type("Controller", (), {})()
+        violation = byte_check.ByteCheckViolationV1("d", None, "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID", "m", None)
+        controller.byte_check_job = job = _job(state, violations=[violation] if state == background.STATE_VIOLATION else [], reason="worker died")
+        watch(controller, "Scene")
+        assert timers[0]() is None
+        assert background.BYTE_CHECK_BACKGROUND_OUTCOME in settings.status and expected in settings.status, settings.status
+        assert job.text() == settings.status
+
+
+def test_a_line_another_action_rewrote_or_a_replaced_job_is_left_alone(monkeypatch):
+    watch, settings, timers, _redraws = _operator_watch(monkeypatch)
+    controller = type("Controller", (), {})()
+    controller.byte_check_job = job = _job(background.STATE_CLEAN)
+    watch(controller, "Scene")
+    settings.status = "Decal mesh: a newer press"
+    assert timers[0]() is None and "snapshot byte check" not in settings.timing and settings.status == "Decal mesh: a newer press"
+
+    watch2, settings2, timers2, _ = _operator_watch(monkeypatch)
+    controller.byte_check_job = job
+    watch2(controller, "Scene")
+    controller.byte_check_job = _job(background.STATE_RUNNING)  # другая задача заняла место
+    assert timers2[0]() is None and settings2.timing == "Decal cold 1.00 s"
