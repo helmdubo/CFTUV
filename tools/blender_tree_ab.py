@@ -1339,6 +1339,26 @@ def run_presses(args, report: dict, state: dict) -> None:
         print(f"TREEAB press={label} kind={kind} lean={lean} alpha={alpha} domains={item['domains']} materialized={item['materialized']} keys={len(item['content_keys'])} run={seconds:.2f}s arrays={arrays_seconds:.3f}s", flush=True)
 
 
+W1_RECORD_ENVIRONMENT = "CFTUV_W1_RECORD_DIR"
+
+
+def install_w1_recorder():
+    """The corpus of W1 of the MATERIALIZE chain (`mesh.exact_mesh`, `mesh.canonical_triangles`) recorded from THIS run: set `CFTUV_W1_RECORD_DIR` to a directory and the two entries are wrapped by the
+    corpus recorder (`tools/native_corpus.py`, the PYTHON stage: the stage orders the oracle unless the tree orders the native one). In-process runs only (`--workers 0`): a pool worker is another process."""
+
+    directory = os.environ.get(W1_RECORD_ENVIRONMENT, "").strip()
+    if not directory:
+        return None
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cftuv_envelope.materialize.domain as domain_module
+    import native_corpus as nc
+
+    recorder = nc.Recorder(Path(directory), nc.run_description({"recorded_by": "blender_tree_ab"}), operations=nc.W1_OPERATIONS)
+    domain_module.exact_mesh = recorder.wrap(nc.OP_MESH, nc.ORACLE[nc.OP_MESH])
+    domain_module.canonical_triangles = recorder.wrap(nc.OP_CANONICAL, nc.ORACLE[nc.OP_CANONICAL])
+    return recorder
+
+
 def prepare_pool(args, report: dict, state: dict) -> None:
     from cftuv.envelope_domain_pool import get_domain_pool
     from cftuv.envelope_worker_python import read_worker_python
@@ -1395,6 +1415,7 @@ def worker_main(argv: list[str]) -> int:
         if args.prime_byte_check:
             report["primed_identity"] = _prime_byte_check(kernel_backend_of(mesh_settings))
         state["content_key_module"], state["real_identity"] = record_content_keys(state["keys"])
+        state["w1_recorder"] = install_w1_recorder()
         run_presses(args, report, state)
     except Exception:  # noqa: BLE001 - the traceback is the report
         failure = traceback.format_exc()
@@ -1429,6 +1450,9 @@ def _finish(args, report: dict, state: dict, failure) -> int:
         if not ok:
             failure = "WORKER_ORIGIN_MISMATCH: " + "; ".join(problems[:5])
             print(failure)
+    if state.get("w1_recorder") is not None:
+        state["w1_recorder"].write_index()
+        print(f"W1_RECORDED {len(state['w1_recorder'].rows)} records {state['w1_recorder'].bytes} bytes", flush=True)
     report["failure"] = failure
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     print(f"TREEAB_{'OK' if failure is None else 'FAILED'} case={args.case} label={args.label} workers={args.workers} origins={report.get('worker_origins_ok')}", flush=True)

@@ -3,7 +3,7 @@
     blender -b E:/testScene.blend --python-exit-code 1 --python tools/native_corpus_export.py -- \\
         [--plan "building=0.2239;rounded_wall_noise_top=0.2239,0.5;sagging_wall=0.987,0.2239;2=0.2239,0.5;half_sphere=0.2239,0.5"] \\
         [--series "rounded_wall_noise_top=0.2239;sagging_wall=0.987"] [--steps 0.01,0.001] [--kmax 5] \\
-        [--extension-steps 0.02,0.05,0.1] [--density 2] [--stretch 42] [--out <каталог корпуса>] [--overwrite]
+        [--extension-steps 0.02,0.05,0.1] [--density 2] [--stretch 42] [--operations coverage_clip|w1] [--out <каталог корпуса>] [--overwrite]
 
 Меш считается кнопкой («Build Decal Mesh», `run_production`, последовательно: воркеров нет) на каждой ширине. Две операции ядра,
 которые получат нативные реализации, подменены рекордером (`native_corpus.Recorder`): `wavefront.coverage._coverage_at` и
@@ -54,6 +54,8 @@ def _arguments():
     parser.add_argument("--extension-steps", default=DEFAULT_EXTENSION_STEPS)
     parser.add_argument("--density", type=int, default=2)
     parser.add_argument("--stretch", type=int, default=42)
+    # `w1`: the two entries of W1 of the MATERIALIZE chain (`mesh.exact_mesh`, `mesh.canonical_triangles`) instead of the coverage and the clip
+    parser.add_argument("--operations", choices=("coverage_clip", "w1"), default="coverage_clip")
     parser.add_argument("--out", default="")
     parser.add_argument("--preset", type=int, default=3)
     parser.add_argument("--max-bytes", type=int, default=1_500_000_000)
@@ -260,9 +262,17 @@ def _install(ctx: dict, nc) -> None:
     os.environ["CFTUV_CLIP_MEMO"] = "0"
     nc.clip_memo.MEMO.enabled = False
     recorder = ctx["recorder"]
+    export_module = ctx["export_module"]
+    if ctx["args"].operations == "w1":
+        import cftuv_envelope.materialize.domain as domain_module
+
+        # `domain._assemble` hands the oracle to the dispatcher by its module-level name, so the substitution is seen by the PYTHON backend
+        domain_module.exact_mesh = recorder.wrap(nc.OP_MESH, nc.ORACLE[nc.OP_MESH])
+        domain_module.canonical_triangles = recorder.wrap(nc.OP_CANONICAL, nc.ORACLE[nc.OP_CANONICAL])
+        export_module.produce_domain = _compared_domain(export_module.produce_domain, recorder)
+        return
     nc.coverage._coverage_at = recorder.wrap(nc.OP_COVERAGE, nc.ORACLE[nc.OP_COVERAGE])
     nc.clip.clip_geometry = recorder.wrap(nc.OP_CLIP, nc.ORACLE[nc.OP_CLIP])
-    export_module = ctx["export_module"]
     export_module.produce_domain = _compared_domain(export_module.produce_domain, recorder)
     import cftuv_envelope.materialize.domain as materialize_domain_module
     import cftuv_envelope.wavefront as wavefront
@@ -290,9 +300,10 @@ def main() -> int:
     description = nc.run_description(
         {"blender": bpy.app.version_string, "scene": bpy.data.filepath, "density": args.density, "stretch": args.stretch}
     )
-    ctx["recorder"] = recorder = nc.Recorder(out, description, preset=args.preset, max_bytes=args.max_bytes)
+    operations = nc.W1_OPERATIONS if args.operations == "w1" else nc.OPERATIONS
+    ctx["recorder"] = recorder = nc.Recorder(out, description, preset=args.preset, max_bytes=args.max_bytes, operations=operations)
     _install(ctx, nc)
-    plan, series = parse_plan(args.plan), {name: values[0] for name, values in parse_plan(args.series).items()}
+    plan, series = parse_plan(args.plan), {name: values[0] for name, values in parse_plan(args.series).items() if values}
     steps = [float(item) for item in args.steps.split(",")]
     extension = [float(item) for item in args.extension_steps.split(",") if item]
     failure = None

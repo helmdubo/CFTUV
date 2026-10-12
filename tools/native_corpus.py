@@ -46,6 +46,7 @@ import cftuv_envelope.exact_sqrt_sum as exact  # noqa: E402
 import cftuv_envelope.float_filter as float_filter  # noqa: E402
 import cftuv_envelope.materialize.clip as clip  # noqa: E402
 import cftuv_envelope.materialize.clip_memo as clip_memo  # noqa: E402
+import cftuv_envelope.materialize.mesh as mesh  # noqa: E402
 import cftuv_envelope.wavefront.coverage as coverage  # noqa: E402
 import cftuv_envelope.wavefront.exact_identity as exact_identity  # noqa: E402
 import cftuv_envelope.wavefront.skeleton as skeleton  # noqa: E402
@@ -54,11 +55,22 @@ import cftuv_envelope.wavefront.symbolic_superlevel_coordinator as coordinator  
 OP_COVERAGE = "coverage_at"
 OP_CLIP = "clip_geometry"
 OP_SKELETON = "build_skeleton"
+#: W1 of the MATERIALIZE chain (`materialize.mesh`): the exact mesh of a domain and the second, canonical triangulation of its faces.
+OP_MESH = "exact_mesh"
+OP_CANONICAL = "canonical_triangles"
 #: Операции полевого корпуса покрытия и резки: ровно их воспроизводят замеры (`native_bench`); скелет живёт в своём корпусе (`native_skeleton_*`).
 OPERATIONS = (OP_COVERAGE, OP_CLIP)
 SKELETON_OPERATIONS = (OP_SKELETON,)
+#: Операции корпуса W1 (`native_materialize_w1_*`, `tests/test_native_materialize_w1.py`).
+W1_OPERATIONS = (OP_MESH, OP_CANONICAL)
 #: Операции эталона: берутся в момент импорта, поэтому подмена модулей рекордером (`Recorder.wrap`) их не задевает.
-ORACLE = {OP_COVERAGE: coverage._coverage_at, OP_CLIP: clip.clip_geometry, OP_SKELETON: skeleton.build_skeleton}
+ORACLE = {
+    OP_COVERAGE: coverage._coverage_at,
+    OP_CLIP: clip.clip_geometry,
+    OP_SKELETON: skeleton.build_skeleton,
+    OP_MESH: mesh.exact_mesh,
+    OP_CANONICAL: mesh.canonical_triangles,
+}
 SKELETON_OPTIONS = frozenset({"split_search", "work_budget", "dense_hydration"})
 
 RECORD_MAGIC = b"CFTUVNC1"
@@ -88,6 +100,14 @@ class CorpusError(RuntimeError):
 # --------------------------------------------------------------------------
 # Каноническая запись и состояние процесса
 # --------------------------------------------------------------------------
+
+
+def exception_info(error) -> tuple:
+    """`(type, text)` of the exception of an operation, and the runs of a station conflict when it carries them: the retry loop of the domain reads `MaterializationRefusal.station_conflict`, so it is part of the answer."""
+
+    info = (type(error).__qualname__, str(error))
+    conflict = tuple(getattr(error, "station_conflict", ()) or ())
+    return (*info, conflict) if conflict else info
 
 
 def canonical(value) -> str:
@@ -312,6 +332,13 @@ def unpack_call(op: str, args: tuple, kwargs: dict) -> Call:
     if op == OP_SKELETON:
         (polygon,) = args
         return Call(op, (polygon,), skeleton_kwargs(polygon, kwargs), kwargs.get("work_budget"), None)
+    if op == OP_MESH:
+        # `lap` (the clock of the domain) is not an input of the answer and is not picklable: the record drops it, the replay passes `None`
+        frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, _lap = args
+        return Call(op, (frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, chart_cw, law, exact_plane), {}, budget, None)
+    if op == OP_CANONICAL:
+        frame_faces, cycles, budget, reverse = args
+        return Call(op, (frame_faces, cycles, reverse), {}, budget, None)
     plane, budget = args
     return Call(op, (plane,), dict(kwargs), budget, None)
 
@@ -321,6 +348,12 @@ def invoke(call: Call, function=None):
 
     if call.op == OP_COVERAGE:
         return (function or ORACLE[OP_COVERAGE])(call.args[0], call.args[1], call.budget, call.store)
+    if call.op == OP_MESH:
+        frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, chart_cw, law, exact_plane = call.args
+        return (function or ORACLE[OP_MESH])(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, call.budget, chart_cw, law, exact_plane, None)
+    if call.op == OP_CANONICAL:
+        frame_faces, cycles, reverse = call.args
+        return (function or ORACLE[OP_CANONICAL])(frame_faces, cycles, call.budget, reverse)
     if call.op == OP_SKELETON:
         options = dict(call.kwargs)
         with pinned_level_budget(options.pop("level_budget", None)):
@@ -335,12 +368,30 @@ def answer_view(op: str, result):
         return dataclasses.replace(result, work_budget=None)
     if op == OP_SKELETON:
         return result
+    if op == OP_MESH:
+        # a `Counter` is a dict the canonical writer does not take: its type and its items in first-touch order stand for it
+        tally = result.tally
+        return dataclasses.replace(result, tally=(type(tally).__qualname__, tuple(tally.items())))
+    if op == OP_CANONICAL:
+        return result
     return dataclasses.replace(result, memo="")
+
+
+def answer_fields(op: str, result) -> list:
+    """`[(name, value)]` of the answer view: the fields of a dataclass result, or `result` for one that is not (the canonical triangles are a list)."""
+
+    view = answer_view(op, result)
+    if dataclasses.is_dataclass(view) and not isinstance(view, type):
+        return [(item.name, getattr(view, item.name)) for item in dataclasses.fields(view)]
+    return [("result", view)]
 
 
 def observe(call: Call) -> dict:
     """Что вызов оставил в аргументах: у резки — нормали смещения плоскости (`replay_lifted` ставит их при попадании)."""
 
+    if call.op == OP_MESH:
+        # `notes` is appended in place (the lines of `SOURCE_VERTEX_NAME_DROPPED`), refusal or not
+        return {"notes": canonical(list(call.args[4]))}
     if call.op != OP_CLIP:
         return {}
     normals = getattr(call.args[0], "_normal_by_position", None)
@@ -365,7 +416,7 @@ def execute(call: Call, function=None) -> Outcome:
     try:
         result, error = invoke(call, function), None
     except Exception as exc:  # noqa: BLE001 - исключение операции — часть её исхода
-        result, error = None, (type(exc).__qualname__, str(exc))
+        result, error = None, exception_info(exc)
     seconds = time.perf_counter() - started
     return Outcome(result, error, capture_state(call.budget, call.store), observe(call), seconds)
 
@@ -424,10 +475,9 @@ def _compare_results(op: str, expected, actual) -> list:
     if type(left) is not type(right):
         return [Difference("result", f"type {type(left).__qualname__} != {type(right).__qualname__}")]
     found = []
-    for item in dataclasses.fields(left):
-        first, second = getattr(left, item.name), getattr(right, item.name)
+    for (name, first), (_name, second) in zip(answer_fields(op, expected), answer_fields(op, actual)):
         if canonical(first) != canonical(second):
-            found.append(Difference(f"result.{item.name}", _locate(first, second)))
+            found.append(Difference(f"result.{name}", _locate(first, second)))
     return found
 
 
@@ -505,10 +555,9 @@ def answer_digest(op: str, result) -> str:
     """sha256 канонической записи ответа (по полям): дешёвая проверка равенства результата."""
 
     digest = hashlib.sha256()
-    view = answer_view(op, result)
-    for item in dataclasses.fields(view):
-        digest.update(item.name.encode())
-        digest.update(canonical(getattr(view, item.name)).encode())
+    for name, value in answer_fields(op, result):
+        digest.update(name.encode())
+        digest.update(canonical(value).encode())
     return digest.hexdigest()
 
 
@@ -706,12 +755,16 @@ def result_shape(op: str, result) -> dict:
         }
     if op == OP_SKELETON:
         return {"nodes": len(result.nodes), "levels": result.levels, "obligations": len(result.proof_obligations)}
+    if op == OP_CANONICAL:
+        return {"faces": len(result), "vertices": sum(len(triangle) for face in result for triangle in face)}
     return {"faces": len(result.polygons), "vertices": len(result.points)}
 
 
 def input_shape(call: Call) -> dict:
     """Числа входа для индекса (у скелета — размеры полигона и условия вызова); у прочих операций пусто."""
 
+    if call.op in W1_OPERATIONS:
+        return {"merged_faces": len(call.args[0])}
     if call.op != OP_SKELETON:
         return {}
     polygon = call.args[0]
@@ -731,6 +784,8 @@ def outcome_label(op: str, result, error) -> str:
         return f"raised:{type(error).__qualname__}"
     if op == OP_SKELETON:
         return str(result.outcome.value)
+    if op in W1_OPERATIONS:
+        return "MESH" if op == OP_MESH else "CANONICAL"
     return str(result.outcome.value) if op == OP_COVERAGE else "CLIPPED"
 
 
@@ -840,7 +895,7 @@ class Recorder:
 
     def _write(self, call: Call, before: StateV1, blob: bytes, result, error, seconds: float) -> None:
         op = call.op
-        info = None if error is None else (type(error).__qualname__, str(error))
+        info = None if error is None else exception_info(error)
         outcome = Outcome(result, info, capture_state(call.budget, call.store), observe(call), seconds)
         payload = make_payload(op, before, blob, outcome)
         self.sequence += 1
