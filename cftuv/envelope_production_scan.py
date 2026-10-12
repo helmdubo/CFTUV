@@ -130,6 +130,8 @@ class _RunInputsV1:
     lean: bool = False
     #: WIDTH_REFRESH_INCREMENTAL_V1: `{номер патча: результат, сдвинутый сертификатом на ширину прогона}` доменов, которых прогон не считает (`_scan` кладёт их в записи как готовые); остальные считаются как всегда.
     served: dict = field(default_factory=dict)
+    #: Номера патчей, которых прогон не считает и не называет в итоге вовсе: вызывающий складывает такие домены сам (составной образец инкрементального такта, `envelope_width_composite`). Итог прогона - только остальные домены.
+    skipped: frozenset = frozenset()
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -424,6 +426,8 @@ def _scan(run: _RunInputsV1):
 
     entries = []
     for patch_id in run.patch_ids:
+        if patch_id in run.skipped:
+            continue
         result = run.served.get(patch_id)
         if result is not None and result.domain_id in run.selected_by_domain:
             # WIDTH_REFRESH_INCREMENTAL_V1: домен обслужен сертификатом (идентичность домена - у самого результата, он про эту ревизию), ни записей, ни кэшей, ни выгрузки.

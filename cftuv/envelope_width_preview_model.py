@@ -62,7 +62,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from itertools import chain
 from fractions import Fraction
 
@@ -244,6 +244,8 @@ class PreviewSampleV1:
     #: `{номер патча: результат домена}` прогонов, из которых сложен образец: ИХ сдвигает аффинный сертификат, когда инкрементальный такт (WIDTH_REFRESH_INCREMENTAL_V1) обслуживает домен, а не
     #: считает его заново. Домены без сертификата с числами сюда не входят (сдвигать нечем). Результат домена - прежний прогон на СВОЕЙ ширине (`certificate.alpha`), не копия, сдвинутая ранее.
     origins: object = None
+    #: Раскладочные справочники образца (номер домена по патчу, домены по общей ссылке вершины, соседи по стене наоборот): считаются один раз и переходят к образцам той же раскладки (`envelope_width_composite`).
+    cache: dict = field(default_factory=dict)
 
     @property
     def vertex_count(self) -> int:
@@ -438,31 +440,16 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
     start = 0
     partners = tuple(getattr(arrays, "domain_partners", ()) or ())
     for number, (patch_id, domain_id) in enumerate(arrays.domain_keys):
-        result = by_key[(patch_id, domain_id)]
-        interval = getattr(result, "alpha_interval", None)
         count = int(arrays.domain_loop_counts[number])
-        vertices = np.asarray(arrays.domain_vertex_index[number], dtype=np.int32)
-        certificate = getattr(result, "parametric", None)
-        slopes, uv_slopes, markers = _certificate_slopes(certificate, int(vertices.shape[0]), count, alpha_text)
         domains.append(
-            DomainSampleV1(
-                patch_id=int(patch_id),
-                domain_id=str(domain_id),
+            domain_sample_of(
+                by_key[(patch_id, domain_id)],
                 token=str(arrays.domain_tokens[number]),
-                structure=str(getattr(result, "structure_digest", "")),
-                status="" if interval is None else str(interval.status),
-                low=float("nan") if interval is None else float(interval.low),
-                high=None if interval is None or interval.high is None else float(interval.high),
-                vertices=vertices,
+                vertices=np.asarray(arrays.domain_vertex_index[number], dtype=np.int32),
                 loop_start=start,
                 loop_count=count,
-                interval=interval,
-                slopes=slopes,
-                uv_slopes=uv_slopes,
-                markers=markers,
-                approximate=tuple(getattr(certificate, "approximate", ()) or ()) if slopes is not None else (),
-                approximate_rate=float(getattr(certificate, "approximate_rate", 0.0) or 0.0) if slopes is not None else 0.0,
                 partners=tuple(int(item) for item in partners[number]) if number < len(partners) else (),
+                alpha_text=alpha_text,
             )
         )
         start += count
@@ -484,6 +471,33 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
         image=image,
         offset=float(getattr(arrays, "offset", 0.0) or 0.0),
         origins=origins,
+    )
+
+
+def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_count: int, partners: tuple, alpha_text: str) -> DomainSampleV1:
+    """Домен образца по результату домена: запись интервала, подпись структуры, наклоны сертификата (либо названные причины) и положение домена в меше (`vertices`, петли, соседи по стене)."""
+
+    interval = getattr(result, "alpha_interval", None)
+    certificate = getattr(result, "parametric", None)
+    slopes, uv_slopes, markers = _certificate_slopes(certificate, int(vertices.shape[0]), int(loop_count), alpha_text)
+    return DomainSampleV1(
+        patch_id=int(result.patch_id),
+        domain_id=str(result.domain_id),
+        token=str(token),
+        structure=str(getattr(result, "structure_digest", "")),
+        status="" if interval is None else str(interval.status),
+        low=float("nan") if interval is None else float(interval.low),
+        high=None if interval is None or interval.high is None else float(interval.high),
+        vertices=vertices,
+        loop_start=int(loop_start),
+        loop_count=int(loop_count),
+        interval=interval,
+        slopes=slopes,
+        uv_slopes=uv_slopes,
+        markers=markers,
+        approximate=tuple(getattr(certificate, "approximate", ()) or ()) if slopes is not None else (),
+        approximate_rate=float(getattr(certificate, "approximate_rate", 0.0) or 0.0) if slopes is not None else 0.0,
+        partners=tuple(partners),
     )
 
 
@@ -586,20 +600,74 @@ def _trusted_reach(reach, entry: DomainTrustV1 | None):
     return min(nominal * entry.scale, entry.reach_cap)
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class _EntriesV1:
+    """Раскладка образца как плоские массивы: пары `(домен, вершина меша)` подряд по доменам и порядок вершин для свёрток по вершине (считается один раз на раскладку, лежит в `PreviewSampleV1.cache`)."""
+
+    domain: object
+    vertex: object
+    #: Начало записей каждого домена (длина доменов + 1) и число записей на вершину меша.
+    bounds: object
+    total: object
+    #: Порядок записей по вершине (устойчивый), начала групп в нём и вершина каждой группы: свёртка по вершине без `ufunc.at`.
+    order: object
+    starts: object
+    groups: object
+
+
+def _entries_of(base: PreviewSampleV1) -> _EntriesV1:
+    found = base.cache.get("entries")
+    if found is None:
+        lengths = np.fromiter((item.vertices.shape[0] for item in base.domains), dtype=np.int64, count=len(base.domains))
+        vertex = np.concatenate([item.vertices for item in base.domains]).astype(np.int64) if len(base.domains) else np.zeros(0, dtype=np.int64)
+        bounds = np.zeros(len(base.domains) + 1, dtype=np.int64)
+        np.cumsum(lengths, out=bounds[1:])
+        order = np.argsort(vertex, kind="stable")
+        ordered = vertex[order]
+        starts = np.flatnonzero(np.concatenate(([True], ordered[1:] != ordered[:-1]))) if ordered.size else np.zeros(0, dtype=np.int64)
+        found = base.cache["entries"] = _EntriesV1(
+            domain=np.repeat(np.arange(len(base.domains), dtype=np.int64), lengths),
+            vertex=vertex,
+            bounds=bounds,
+            total=np.bincount(vertex, minlength=base.vertex_count),
+            order=order,
+            starts=starts,
+            groups=ordered[starts] if ordered.size else np.zeros(0, dtype=np.int64),
+        )
+    return found
+
+
+def _scatter_last(target, indices, values) -> None:
+    """`target[indices] = values`, а у повторяющегося индекса остаётся ПОСЛЕДНЕЕ значение (порядок записей), без зависимости от порядка обхода внутри numpy."""
+
+    if indices.size == 0:
+        return
+    order = np.argsort(indices, kind="stable")
+    ordered = indices[order]
+    last = np.concatenate((ordered[1:] != ordered[:-1], [True]))
+    target[ordered[last]] = values[order][last]
+
+
 def _weld_conflicts(base: PreviewSampleV1, modelled, slopes_of) -> set:
     """Номера доменов, у которых хоть одна сваренная вершина получила от другого домена иной наклон (больше `WELD_SLOPE_TOLERANCE`)."""
 
-    count = base.vertex_count
-    low = np.full((count, 3), np.inf)
-    high = np.full((count, 3), -np.inf)
+    entries = _entries_of(base)
+    chosen = np.zeros(len(base.domains), dtype=bool)
+    slopes = np.zeros((entries.vertex.shape[0], 3))
     for number in modelled:
-        vertices = base.domains[number].vertices
-        np.minimum.at(low, vertices, slopes_of[number])
-        np.maximum.at(high, vertices, slopes_of[number])
-    broken = (high - low).max(axis=1) > WELD_SLOPE_TOLERANCE
-    if not broken.any():
+        chosen[number] = True
+        slopes[entries.bounds[number] : entries.bounds[number + 1]] = slopes_of[number]
+    valid = chosen[entries.domain]
+    if not valid.any():
         return set()
-    return {number for number in modelled if broken[base.domains[number].vertices].any()}
+    low = np.minimum.reduceat(np.where(valid[:, None], slopes, np.inf)[entries.order], entries.starts, axis=0)
+    high = np.maximum.reduceat(np.where(valid[:, None], slopes, -np.inf)[entries.order], entries.starts, axis=0)
+    broken_group = (high - low).max(axis=1) > WELD_SLOPE_TOLERANCE
+    if not broken_group.any():
+        return set()
+    broken = np.zeros(base.vertex_count, dtype=bool)
+    broken[entries.groups] = broken_group
+    return set(np.unique(entries.domain[broken[entries.vertex] & valid]).tolist())
 
 
 def _partner_state(base: PreviewSampleV1, domain: DomainSampleV1) -> tuple:
@@ -644,6 +712,7 @@ def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> P
     """
 
     count_v, count_l, count_d = base.vertex_count, base.loop_count, len(base.domains)
+    loop_counts = np.asarray([item.loop_count for item in base.domains], dtype=np.int32)
     trust_of = ledger.get if ledger is not None and ledger.key == base.key else (lambda _patch, _domain: None)
     reasons: list = []
     approximate = np.zeros(count_d, dtype=bool)
@@ -662,7 +731,6 @@ def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> P
     for number in conflicts:
         reasons[number] = DOMAIN_WELD_DISAGREES
     a1 = np.zeros((count_v, 3))
-    e1 = np.zeros((count_l, 2))
     dlow = np.full(count_d, _ALIVE_NEVER_LOW)
     dhigh = np.full(count_d, _ALIVE_NEVER_HIGH)
     quarantined = np.zeros(count_d, dtype=bool)
@@ -675,9 +743,6 @@ def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> P
         if reasons[number]:
             rows.append((domain.patch_id, domain.domain_id, reasons[number], 0, None))
             continue
-        sl = slice(domain.loop_start, domain.loop_start + domain.loop_count)
-        a1[domain.vertices] = domain.slopes
-        e1[sl] = domain.uv_slopes - base.uvs[sl]
         entry = trust_of(domain.patch_id, domain.domain_id)
         near = bool(approximate[number])
         reach = _trusted_reach(_display_reach(base.offset, float(normal_rate[number]), alpha0) if near else None, entry)
@@ -695,6 +760,17 @@ def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> P
         modelled.append(number)
     if not modelled:
         return PreviewRefusalV1(REFUSED_NO_MODELLED_DOMAIN, ", ".join(f"{name}={value}" for name, value in sorted(_reasons(rows).items())))
+    entries = _entries_of(base)
+    slope_entries = np.zeros((entries.vertex.shape[0], 3))
+    uv_slopes = np.zeros((count_l, 2))
+    is_modelled = np.zeros(count_d, dtype=bool)
+    for number in modelled:
+        domain = base.domains[number]
+        is_modelled[number] = True
+        slope_entries[entries.bounds[number] : entries.bounds[number + 1]] = domain.slopes
+        uv_slopes[domain.loop_start : domain.loop_start + domain.loop_count] = domain.uv_slopes
+    _scatter_last(a1, entries.vertex[is_modelled[entries.domain]], slope_entries[is_modelled[entries.domain]])
+    e1 = np.where(np.repeat(is_modelled, loop_counts)[:, None], uv_slopes - base.uvs, 0.0)
     vlow, vhigh, vertex_quarantined, frozen = _vertex_windows(base, modelled, dlow, dhigh, quarantined)
     a1[frozen] = 0.0
     held_back = bool(quarantined.any())
@@ -704,7 +780,7 @@ def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> P
         e1=e1,
         vlow=vlow,
         vhigh=vhigh,
-        loop_counts=np.asarray([item.loop_count for item in base.domains], dtype=np.int32),
+        loop_counts=loop_counts,
         dlow=dlow,
         dhigh=dhigh,
         rows=tuple(rows),
@@ -724,21 +800,19 @@ def _vertex_windows(base: PreviewSampleV1, modelled, dlow, dhigh, quarantined):
     """
 
     count_v = base.vertex_count
-    total = np.zeros(count_v, dtype=np.int32)
-    alive = np.zeros(count_v, dtype=np.int32)
+    entries = _entries_of(base)
+    chosen = np.zeros(len(base.domains), dtype=bool)
+    chosen[list(modelled)] = True
+    valid = chosen[entries.domain]
+    alive = np.bincount(entries.vertex[valid], minlength=count_v)
     vlow = np.full(count_v, -math.inf)
     vhigh = np.full(count_v, math.inf)
+    if entries.starts.size:
+        vlow[entries.groups] = np.maximum.reduceat(np.where(valid, dlow[entries.domain], -math.inf)[entries.order], entries.starts)
+        vhigh[entries.groups] = np.minimum.reduceat(np.where(valid, dhigh[entries.domain], math.inf)[entries.order], entries.starts)
     vertex_quarantined = np.zeros(count_v, dtype=bool)
-    live_set = set(modelled)
-    for number, domain in enumerate(base.domains):
-        np.add.at(total, domain.vertices, 1)
-        if number in live_set:
-            np.add.at(alive, domain.vertices, 1)
-            np.maximum.at(vlow, domain.vertices, dlow[number])
-            np.minimum.at(vhigh, domain.vertices, dhigh[number])
-            if quarantined[number]:
-                vertex_quarantined[domain.vertices] = True
-    frozen = alive != total
+    vertex_quarantined[entries.vertex[valid & quarantined[entries.domain]]] = True
+    frozen = alive != entries.total
     vlow[frozen], vhigh[frozen] = _ALIVE_NEVER_LOW, _ALIVE_NEVER_HIGH
     return vlow, vhigh, vertex_quarantined, frozen
 
@@ -1036,6 +1110,7 @@ __all__ = (
     "base_frame",
     "build_model",
     "deviation",
+    "domain_sample_of",
     "empty_ledger",
     "evaluate",
     "held_name",

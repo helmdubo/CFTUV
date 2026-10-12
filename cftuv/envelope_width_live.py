@@ -575,7 +575,7 @@ def _begin(controller, request):
                 skeleton_backend=skeleton_backend,
                 embedding_backend=embedding_backend,
                 lean=lean,
-                served=None if plan is None else plan.served,
+                skipped=None if plan is None else plan.served,
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc

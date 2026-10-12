@@ -667,7 +667,7 @@ def _dump_of(patches=(1, 2, 3), shift=None, **hashes):
             data[f"pos_{patch}"] = data[f"pos_{patch}"] + shift[patch]
     data["mesh_positions"] = np.arange(30, dtype=float).reshape(10, 3)
     data["mesh_uvs"] = np.arange(20, dtype=float).reshape(10, 2) / 7.0
-    record = {"faces_hash": "f", "seams_hash": "s", "tokens_hash": "t", "owners_hash": "o"}
+    record = {"faces_hash": "f", "seams_hash": "s", "tokens_hash": "t", "owners_hash": "o", "owner_partition_hash": "p", "face_domain_hash": "d"}
     record.update(hashes)
     return data, record
 
@@ -685,7 +685,7 @@ def _incremental_pair(served=(1, 2), base_dump=None, branch_dump=None, mutate=No
         press["dump"] = dict(record, path=f"{side}.npz")
     for row in branch["presses"]["incr1"]["rows"]:
         row["served"] = row["patch"] in served
-    branch["presses"]["incr1"]["plan"] = plan or {"mode": ab.REFRESH_INCREMENTAL, "reason": "", "served": len(served), "held": {}, "approximate": 0}
+    branch["presses"]["incr1"]["plan"] = plan or {"mode": ab.REFRESH_INCREMENTAL, "reason": "", "served": len(served), "held": {}, "approximate": [], "composite": True, "fallback": ""}
     if mutate is not None:
         mutate(base, branch, dumps)
     return ab.compare_runs(base, branch, load=lambda path: dumps[path])
@@ -707,7 +707,7 @@ def test_a_served_domain_is_compared_within_rounding_and_a_computed_one_bit_for_
 
     assert near.identical and near.presses["incr1"]["served_max"]["position"] == pytest.approx(5e-10)
     assert not far.identical and any("patch 1 (served) position deviates" in line for line in far.differences)
-    assert not computed.identical and any("patch 3 (computed) position is not bit-identical" in line for line in computed.differences)
+    assert not computed.identical and any("patch 3 (computed) position is not the exact mesh" in line for line in computed.differences)
 
 
 def test_a_served_domain_whose_structure_flipped_is_a_named_note_and_a_failure_only_if_the_mesh_layout_is_unexplained():
@@ -753,15 +753,20 @@ def test_the_mesh_positions_of_an_incremental_press_are_compared_with_the_displa
 
     assert _incremental_pair(mutate=move_mesh(5e-10)).identical
     assert not _incremental_pair(mutate=move_mesh(5e-6)).identical
-    approximate = {"mode": ab.REFRESH_INCREMENTAL, "reason": "", "served": 2, "held": {}, "approximate": 1}
+    approximate = {"mode": ab.REFRESH_INCREMENTAL, "reason": "", "served": 2, "held": {}, "approximate": [1], "composite": True, "fallback": ""}
     assert _incremental_pair(mutate=move_mesh(5e-6), plan=approximate).identical
     assert not _incremental_pair(mutate=move_mesh(5e-4), plan=approximate).identical
+    near_partner = _incremental_pair(branch_dump=_dump_of(shift={1: 5e-5}), plan=approximate)  # домен 1 приближённый: кадр с замороженной нормалью, предел 1e-4
+    assert near_partner.identical and not _incremental_pair(branch_dump=_dump_of(shift={2: 5e-5}), plan=approximate).identical  # у точного домена предел - округление
+    assert _incremental_pair(branch_dump=_dump_of(shift={3: 5e-5}), plan=approximate).identical  # посчитанный сосед приближённого сварен по его замороженным нормалям
 
 
 def test_the_owner_ordinals_of_the_served_domains_are_a_label_not_a_failure():
     comparison = _incremental_pair(branch_dump=_dump_of(owners_hash="stale ordinals"))
 
     assert comparison.identical and any("owner ordinals" in note for note in comparison.notes) and comparison.presses["incr1"]["mesh_compare"]["owners_equal"] is False
+    split = _incremental_pair(branch_dump=_dump_of(owner_partition_hash="another partition"))  # а разбиение граней на группы владения - факт, и оно обязано совпасть
+    assert not split.identical and any("partition of the faces into owner groups" in line for line in split.differences)
 
 
 def test_an_incremental_press_that_the_policy_made_a_full_lean_tick_is_compared_like_a_lean_tick():
@@ -783,6 +788,14 @@ def test_an_incremental_drag_is_cold_incr_ticks_and_a_confirm_each_at_the_next_w
     assert ab.parse_presses("cold,incr,incr,confirm", 0.2239) == [
         ("cold", "cold", 0.2239), ("incr1", "incr", 0.2261), ("incr2", "incr", 0.2283), ("confirm1", "confirm", 0.2305),
     ]
+
+
+def test_the_view_hash_of_a_computed_domain_is_an_answer_field():
+    assert "view_hash" in ab.ANSWER_FIELDS
+    comparison = _incremental_pair(mutate=lambda base, branch, dumps: row_of(branch, "incr1", 3).update(view_hash="another view"))
+    assert not comparison.identical and any("patch 3 view_hash" in line for line in comparison.differences)
+    served = _incremental_pair(mutate=lambda base, branch, dumps: row_of(branch, "incr1", 1).update(view_hash="another view"))
+    assert served.identical  # у обслуженного домена вид - прежнего прогона: он не ответ тика
 
 
 def test_the_domain_rows_name_the_domains_the_certificate_served():

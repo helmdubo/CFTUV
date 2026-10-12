@@ -17,6 +17,11 @@
 кэшируются раздельно; перенос между ревизиями проверяет identity/labeling.
 Отказ входа, отказ ядра, исключение и пропажа ответа всегда именованы.
 
+ПОДМНОЖЕСТВО ИНКРЕМЕНТАЛЬНОГО ТАКТА (WIDTH_REFRESH_INCREMENTAL_V1, только `lean=True`). `served` - `{номер патча: результат}` доменов, которых прогон НЕ считает: результаты прежнего прогона, сдвинутые аффинным сертификатом на ширину
+прогона (`envelope_width_rebase`); `skipped` - номера патчей, которых прогон не считает и в итоге не называет (вызывающий складывает их сам: составной образец, `envelope_width_composite`). Такие домены не сканируются, не уходят воркерам и
+не ложатся в кэши; остальные считаются как у lean-прогона, а подмножество всегда идёт в пул, когда он есть. Домен, чья идентичность в этой ревизии не найдена, считается как обычно (подмена молча не делается). Итог -
+`refresh=REFRESH_INCREMENTAL`, число обслуженных и посчитанных - в профиле (`PRODUCTION_REFRESH_INCREMENTAL_*`).
+
 Модуль держит сторону РОДИТЕЛЯ после сканирования: досчёт холодных доменов, пересылку воркерам, доведение результата до прогона и сам
 `run_production`. Остальное вынесено ПЕРЕНОСОМ без изменения поведения (PRODUCTION_EXPORT_SPLIT_V1) и переэкспортируется отсюда: тип
 результата и имена (`envelope_production_result`), воркер (`envelope_production_task`), сканирование (`envelope_production_scan`).
@@ -508,7 +513,7 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
     sent_cold = list(cold) if domain_pool is not None else []
     # WIDTH_REFRESH_INCREMENTAL_V1: подмножество (домены вне сертификата) всегда идёт в пул, когда он есть: мало байт подготовок значит мало доменов, а не то, что пересылка не окупится (замер: пул быстрее и на
     # четырёх доменах), и родитель считал бы их последовательно в потоке рядом с главным.
-    if not (sent_cold or run.served or _worth_the_pool(shipped)):
+    if not (sent_cold or run.served or run.skipped or _worth_the_pool(shipped)):
         shipped = []
     tasks = _worker_tasks(run, ready, shipped, sent_cold) if (shipped or sent_cold) else []
     pooled, failure = (
@@ -768,6 +773,7 @@ def run_production(
     embedding_backend: str | None = None,
     lean: bool = False,
     served: dict | None = None,
+    skipped=None,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -788,9 +794,7 @@ def run_production(
     и счётчики материализатора те же побитово; зафиксированный ответ даёт только прогон с `lean=False`. Домены без готовой подготовки этой ревизии (холодные, с переносом
     из хранилища) идут полным путём в том же прогоне, и профиль называет их число (`PRODUCTION_REFRESH_LEAN_FULL_DOMAINS`).
 
-    `served` (WIDTH_REFRESH_INCREMENTAL_V1; только вместе с `lean=True`) - `{номер патча: результат}` доменов, которых прогон НЕ считает: результаты прежнего прогона, сдвинутые аффинным сертификатом на ширину
-    прогона (`envelope_width_rebase`). Они не сканируются, не уходят воркерам и не ложатся в кэши; остальные домены считаются как у lean-прогона, а подмножество всегда идёт в пул, когда он есть. Домен, чья
-    идентичность в этой ревизии не найдена, считается как обычно (подмена молча не делается). Итог - `refresh=REFRESH_INCREMENTAL`, число обслуженных и посчитанных - в профиле.
+    `served` / `skipped` (WIDTH_REFRESH_INCREMENTAL_V1, только с `lean=True`): домены, которых прогон не считает; описание - в шапке модуля `envelope_width_incremental`.
     """
 
     from .envelope_chart_band import policy_alpha
@@ -802,7 +806,7 @@ def run_production(
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
     if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
         raise ValueError(f"unknown decal topology law {topology_law!r}")
-    if served and not lean:
+    if (served or skipped) and not lean:
         raise ValueError("served domains (WIDTH_REFRESH_INCREMENTAL_V1) belong to a lean run: a committed answer is computed whole")
     # Поток превью alpha считает на тех же подготовках, что и эта кнопка: сперва стоп и ожидание.
     if quiesce:
@@ -845,6 +849,7 @@ def run_production(
         embedding_backend=embedding_backend,
         lean=lean,
         served=dict(served or {}),
+        skipped=frozenset(int(item) for item in (skipped or ())),
     )
     entries = _scan(run)
     _check_cancel(run)
@@ -875,10 +880,11 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
     record_unpickled(profile, lazy_before, run.controller.lazy_unpickled)
     _record_content_counters(profile, run, entries)
     rebased = sum(1 for entry in entries if entry.rebased)
+    omitted = sum(1 for patch_id in run.patch_ids if patch_id in run.skipped)
     if run.lean:
         _record_lean_counters(profile, results)
-    if rebased:
-        profile.set_counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED, rebased)
+    if rebased or omitted:
+        profile.set_counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED, rebased + omitted)
         profile.set_counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED, len(entries) - rebased)
     return ProductionRunV1(
         results=tuple(results),
@@ -890,11 +896,12 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
         selected_by_patch=tuple(
             (int(patch_id), tuple(sorted(run.selected_by_domain[domains[patch_id]])))
             for patch_id in run.patch_ids
+            if patch_id in domains
         ),
         kernel_backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
-        refresh=REFRESH_INCREMENTAL if rebased else (REFRESH_LEAN if run.lean else REFRESH_COMMIT),
+        refresh=REFRESH_INCREMENTAL if rebased or omitted else (REFRESH_LEAN if run.lean else REFRESH_COMMIT),
     )
 
 

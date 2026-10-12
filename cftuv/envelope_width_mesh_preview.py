@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -57,6 +57,7 @@ from .envelope_width_incremental import (
     next_state,
     verification_reason,
 )
+from .envelope_width_composite import compose_sample
 from .envelope_width_rebase import rebase_result
 from .envelope_width_preview_model import (
     DISPLAY_APPROXIMATE_ERROR_LIMIT,
@@ -141,8 +142,11 @@ class PreviewLogV1:
     incremental_ticks: int = 0
     incremental_served: int = 0
     incremental_recomputed: int = 0
-    incremental_rebase_seconds_total: float = 0.0
+    incremental_plan_seconds_total: float = 0.0
     incremental_full: dict = field(default_factory=dict)
+    #: Из инкрементальных тактов: сколько сложены в numpy (`envelope_width_composite`) и сколько собраны из сдвинутых результатов всех доменов под названной причиной.
+    incremental_composite: int = 0
+    incremental_fallback: dict = field(default_factory=dict)
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -290,40 +294,43 @@ def plan_tick(grade, displayed, model, state, alpha: float) -> IncrementalPlanV1
     if not displayed.origins:
         return full_plan(REASON_NO_ORIGINS)
     started = time.perf_counter()
-    alpha_text = str(float(alpha))
     live = served_mask(model, alpha)
-    served: dict = {}
-    originals: dict = {}
+    origins = displayed.origins
+    served: list = []
     held: dict = {}
     for number, domain in enumerate(displayed.domains):
         patch_id = domain.patch_id
         if not live[number]:
             held[patch_id] = held_name(model, number, alpha)
-            continue
-        origin = displayed.origins.get(patch_id)
-        if origin is None:
+        elif patch_id not in origins:
             held[patch_id] = HELD_NOT_IN_BASE
-            continue
-        moved, why = rebase_result(origin, alpha_text)
-        if moved is None:
-            held[patch_id] = why
-            continue
-        served[patch_id] = moved
-        originals[patch_id] = origin
+        else:
+            served.append(patch_id)
     domains = len(displayed.domains)
     if len(served) < INCREMENTAL_MIN_SERVED_SHARE * domains:
         return full_plan(REASON_FEW_SERVED, domains)
-    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", served, originals, held, domains, time.perf_counter() - started)
+    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started)
 
 
-def _composite_origins(results, plan: IncrementalPlanV1) -> dict:
+def rebase_served(plan: IncrementalPlanV1, displayed: PreviewSampleV1, alpha: float) -> dict:
+    """`{патч: результат, сдвинутый сертификатом на ширину alpha}` обслуженных доменов плана (путь без составного образца: все результаты нужны `build_mesh_arrays`). Домен, который сдвинуть нечем, - названная ошибка: он уже не считался."""
+
+    alpha_text = str(float(alpha))
+    moved = {}
+    for patch_id in plan.served:
+        shifted, why = rebase_result(displayed.origins[patch_id], alpha_text)
+        if shifted is None:
+            raise RuntimeError(f"{why}: the served domain of patch {patch_id} cannot be moved by its slopes")
+        moved[patch_id] = shifted
+    return moved
+
+
+def _composite_origins(displayed: PreviewSampleV1, results, plan: IncrementalPlanV1) -> dict:
     """Результаты, которые хранит образец инкрементального такта: у обслуженных домена - его ПРЕЖНИЙ результат (следующий такт сдвигает его, а не сдвинутую копию: ошибка округления не копится), у посчитанных - новый."""
 
-    origins = {}
+    origins = {patch_id: displayed.origins[patch_id] for patch_id in plan.served}
     for item in results:
-        if item.placement == PLACEMENT_REBASED:
-            origins[int(item.patch_id)] = plan.originals[item.patch_id]
-        elif item.is_materialized:
+        if item.placement != PLACEMENT_REBASED and item.is_materialized:
             certificate = getattr(item, "parametric", None)
             if certificate is not None and not certificate.markers and certificate.vertex_count > 0:
                 origins[int(item.patch_id)] = item
@@ -345,9 +352,16 @@ def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None,
 
     from .envelope_production_mesh import build_mesh_arrays
 
-    arrays = build_mesh_arrays(run.results, offset, reports=not lean)
     incremental = plan is not None and plan.incremental
-    sample = build_sample(run.results, arrays, key, alpha, _composite_origins(run.results, plan) if incremental else None)
+    if incremental:
+        composite = compose_sample(displayed, previous, run.results, alpha=alpha, offset=offset)
+        if not isinstance(composite, str):
+            # Образец сложен из образца на экране (обслуженные двигает модель, посчитанные ложатся поверх): массивов меша у такта нет, их держит образец.
+            return LiveRunV1(run, None, composite.sample, _model_or_refusal(composite.sample, trust), None, trust, (), replace(plan, composite=True))
+        plan = replace(plan, fallback=composite)  # составить не вышло: путь этапа A (результаты ВСЕХ доменов: сдвинутые обслуженные и посчитанные), причина названа
+        run = replace(run, results=(*run.results, *rebase_served(plan, displayed, alpha).values()))
+    arrays = build_mesh_arrays(run.results, offset, reports=not lean)
+    sample = build_sample(run.results, arrays, key, alpha, _composite_origins(displayed, run.results, plan) if incremental else None)
     check = None
     events: tuple = ()
     if previous is not None and not incremental:
@@ -790,7 +804,11 @@ def lean_exact_now(controller, live) -> str:
         log.incremental_ticks += 1
         log.incremental_served += len(plan.served)
         log.incremental_recomputed += len(recomputed)
-        log.incremental_rebase_seconds_total += plan.rebase_seconds
+        log.incremental_plan_seconds_total += plan.seconds
+        if plan.composite:
+            log.incremental_composite += 1
+        else:
+            log.incremental_fallback[plan.fallback] = log.incremental_fallback.get(plan.fallback, 0) + 1
     else:
         controller.width_mesh_preview = PreviewMeshStateV1(
             sample.alpha, len(sample.domains), 0, (), REFRESH_LEAN, seconds, 1 if previous is None else previous.serial + 1

@@ -710,11 +710,14 @@ def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_ent
                         callers.setdefault(name, set()).add((path.name, function.name))
     assert callers.get("evaluate", set()) >= {("envelope_width_mesh_preview.py", "preview_mesh_now")}
     assert {item for item in callers["evaluate"] if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers["evaluate"]
+    # Составной образец инкрементального такта (WIDTH_REFRESH_INCREMENTAL_V1, `envelope_width_composite`) - второй читатель кадра модели: обслуженные домены он двигает тем же `positions_and_uvs`, что кадр мыши, и ничего не пишет в
+    # меш (меш пишет только `lean_exact_now` через `_lay_down`); поэтому он единственный, кроме слоя превью, кому разрешено знать модель.
+    readers = {"positions_and_uvs": {("envelope_width_composite.py", "compose_sample")}, "shadow_prediction": set()}
     for name in ("positions_and_uvs", "shadow_prediction"):
-        outside = {item for item in callers.get(name, set()) if item[0] != "envelope_width_preview_model.py"}
+        outside = {item for item in callers.get(name, set()) if item[0] != "envelope_width_preview_model.py"} - readers[name]
         assert not outside, f"кадр модели ({name}) читает не модель: {sorted(outside)}"
     importers = sorted(path.name for path in _python_files(HOST_PACKAGE) if _imports_module(path, "envelope_width_preview_model"))
-    assert importers == ["envelope_width_mesh_preview.py"], f"модель превью импортирует не только слой превью: {importers}"
+    assert importers == ["envelope_width_composite.py", "envelope_width_mesh_preview.py"], f"модель превью импортирует не только слой превью и составной образец: {importers}"
     frame_writers = set()
     for path in _python_files(HOST_PACKAGE):
         for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
@@ -739,7 +742,7 @@ def test_only_the_live_tick_serves_domains_by_the_certificate_and_only_the_rebas
             name = _called_names_of(node)
             if name == "rebased_result":
                 makers.add(path.name)
-            if name == "run_production" and any(keyword.arg == "served" for keyword in node.keywords):
+            if name == "run_production" and any(keyword.arg in ("served", "skipped") for keyword in node.keywords):
                 servers.add(path.name)
     assert makers == {"envelope_width_rebase.py"}, makers
     assert servers == {"envelope_width_live.py"}, servers
@@ -748,6 +751,8 @@ def test_only_the_live_tick_serves_domains_by_the_certificate_and_only_the_rebas
         assert not leaked, f"{name} импортирует {sorted(leaked)}: сдвиг и политика сверки чистые (их зовёт поток счёта)"
     source = (HOST_PACKAGE / "envelope_width_incremental.py").read_text(encoding="utf-8")
     assert "time" not in _imported_roots(HOST_PACKAGE / "envelope_width_incremental.py"), "политика сверки считает значения (путь ширины, число тактов), а не часы"
+    leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / "envelope_width_composite.py")
+    assert not leaked, f"составной образец импортирует {sorted(leaked)}: он чистый (его зовёт поток счёта)"
     assert "INCREMENTAL_VERIFY_AFTER_TICKS" in source and "INCREMENTAL_VERIFY_AFTER_DISTANCE" in source
 
 
@@ -760,7 +765,7 @@ def test_a_tick_that_serves_domains_is_never_a_committed_answer():
     export = _parse(HOST_PACKAGE / "envelope_production_export.py")
     run_production = next(node for node in ast.walk(export) if isinstance(node, ast.FunctionDef) and node.name == "run_production")
     guard = [node for node in ast.walk(run_production) if isinstance(node, ast.If) and "served" in {item.id for item in ast.walk(node.test) if isinstance(item, ast.Name)} and "lean" in {item.id for item in ast.walk(node.test) if isinstance(item, ast.Name)}]
-    assert guard and any(isinstance(item, ast.Raise) for item in ast.walk(guard[0])), "served без lean не отказан"
+    assert guard and any(isinstance(item, ast.Raise) for item in ast.walk(guard[0])), "served / skipped без lean не отказан"
     result = _parse(HOST_PACKAGE / "envelope_production_result.py")
     maker = next(node for node in ast.walk(result) if isinstance(node, ast.FunctionDef) and node.name == "rebased_result")
     assert any(isinstance(node, ast.keyword) and node.arg == "lean" for node in ast.walk(maker)), "копия не помечена lean"

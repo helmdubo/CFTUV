@@ -150,6 +150,7 @@ def retry_snap_lottery(run, entries, results, pool, *, scan, dispatch, collect):
         registered=[],
         scan_records={},
         served={},  # повтор лотереи - про отказавшие домены, подмножество incremental-прогона (WIDTH_REFRESH_INCREMENTAL_V1) к нему не относится
+        skipped=frozenset(),
     )
     retry_entries = scan(retry)
     work = [item for item in retry_entries if item.needs_work]

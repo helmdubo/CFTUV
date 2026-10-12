@@ -60,17 +60,19 @@ class IncrementalStateV1:
 class IncrementalPlanV1:
     """Решение одного тика: инкрементальный (`REFRESH_INCREMENTAL`) либо полный lean (`REFRESH_LEAN`, `reason` называет почему), обслуженные домены и причины остальных.
 
-    `served` - `{патч: результат, сдвинутый сертификатом на ширину тика}` (идёт в `run_production(served=...)`), `originals` - их прежние результаты (образец следующего тика сдвигает ИХ, а не копии: ошибка
-    округления не копится), `held` - `{патч: имя}` доменов, которые тик считает заново.
+    `served` - номера патчей доменов, которые обслуживает сертификат (они идут в `run_production(skipped=...)`: тик их не считает и не сканирует), `held` - `{патч: имя}` доменов, которые тик считает заново.
+    `composite` - образец тика сложен в numpy (`envelope_width_composite`: обслуженные двигает модель, посчитанные ложатся поверх), `fallback` - название причины, по которой составить его не вышло и образец собран
+    из сдвинутых результатов всех доменов (`rebase_served` + `build_mesh_arrays`: тот же ответ, дороже). `seconds` - цена решения тика.
     """
 
     mode: str
     reason: str = ""
-    served: dict = None
-    originals: dict = None
+    served: frozenset = frozenset()
     held: dict = None
     domains: int = 0
-    rebase_seconds: float = 0.0
+    seconds: float = 0.0
+    composite: bool = False
+    fallback: str = ""
 
     @property
     def incremental(self) -> bool:
@@ -80,7 +82,7 @@ class IncrementalPlanV1:
 def full_plan(reason: str, domains: int = 0) -> IncrementalPlanV1:
     """Полный lean-такт под названной причиной (он же сверка): ничего не обслуживается."""
 
-    return IncrementalPlanV1(REFRESH_LEAN, reason, {}, {}, {}, domains)
+    return IncrementalPlanV1(REFRESH_LEAN, reason, frozenset(), {}, domains)
 
 
 def incremental_enabled() -> bool:

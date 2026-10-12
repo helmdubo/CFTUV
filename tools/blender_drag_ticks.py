@@ -73,6 +73,10 @@ LAPS = (
     ("cftuv.envelope_width_mesh_preview", "rebase_result", "plan.rebase"),
     ("cftuv.envelope_width_mesh_preview", "build_sample", "tail.sample"),
     ("cftuv.envelope_width_mesh_preview", "_composite_origins", "tail.origins"),
+    ("cftuv.envelope_width_mesh_preview", "compose_sample", "tail.compose"),
+    ("cftuv.envelope_width_composite", "_weld_into", "tail.compose.weld"),
+    ("cftuv.envelope_width_composite", "_reference_index", "tail.compose.refindex"),
+    ("cftuv.envelope_width_composite", "_rows_after", "tail.compose.rows"),
     ("cftuv.envelope_production_export", "_dispatch", "dispatch"),
     ("cftuv.envelope_width_mesh_preview", "build_model", "tail.model"),
     ("cftuv.envelope_width_mesh_preview", "deviation", "tail.deviation"),
@@ -367,8 +371,8 @@ class Session:
         lap_record = laps.snapshot()  # before the shadow refresh: its laps are not this tick's
         plan = getattr(live_run, "plan", None)
         record_plan = None if plan is None else {
-            "mode": plan.mode, "reason": plan.reason, "served": len(plan.served or {}), "held": len(plan.held or {}), "held_reasons": dict(Counter((plan.held or {}).values())),
-            "rebase_seconds": round(plan.rebase_seconds, 6),
+            "mode": plan.mode, "reason": plan.reason, "served": len(plan.served or ()), "held": len(plan.held or {}), "held_reasons": dict(Counter((plan.held or {}).values())),
+            "seconds": round(plan.seconds, 6), "composite": plan.composite, "fallback": plan.fallback,
         }
         shadow_record = self.shadow(alpha, live_run) if (shadow and plan is not None and plan.incremental) else None
         return {
@@ -383,47 +387,49 @@ class Session:
 
 
 def shadow_difference(applied, exact) -> dict:
-    """The incremental tick (`applied`, a `LiveRunV1`) against the full lean refresh of the same width (`exact`): per domain, nothing hidden.
+    """The incremental tick (`applied`, a `LiveRunV1`) against the full lean refresh of the same width (`exact`): per domain of the MESH SAMPLE, nothing hidden.
 
-    A SERVED domain is one the tick moved by its certificate (`placement == certificate`); its structure digest is the one of the verification base, so a digest that differs from the exact one is a FLIP the tick could not see.
-    Position / UV deviations are those of the domain views (batch coordinates, metres / tile units); `arrays` compares the mesh arrays of the two (same layout only)."""
+    The computed domains are the ones the tick's run returned (placement other than `certificate`); every other domain of the sample was served (moved by the certificate, or by the model frame in the composite).
+    A served domain's structure digest is the one of the verification base, so a digest that differs from the exact one is a FLIP the tick could not see. Positions and UV are those of the sample (mesh coordinates,
+    after the weld and the offset; metres / tile units) at the domain's own vertices and loops; `arrays` compares the whole mesh arrays when the layout is the same."""
 
     import numpy as np
 
-    inc = {int(item.patch_id): item for item in applied.run.results}
-    full = {int(item.patch_id): item for item in exact.run.results}
-    served = sorted(patch for patch, item in inc.items() if item.placement == "certificate")
+    computed = {int(item.patch_id) for item in applied.run.results if item.placement != "certificate"}
+    inc = {item.patch_id: item for item in applied.sample.domains}
+    full = {item.patch_id: item for item in exact.sample.domains}
     flips, position_served, uv_served, position_recomputed, uv_recomputed, recomputed_different = [], 0.0, 0.0, 0.0, 0.0, []
-    for patch, item in inc.items():
+    for patch, domain in inc.items():
         other = full.get(patch)
-        if other is None or item.view is None or other.view is None or item.view.vertices is None or other.view.vertices is None:
+        if other is None:
+            recomputed_different.append(patch)
             continue
-        flipped = item.structure_digest != other.structure_digest
-        if patch in served and flipped:
+        flipped = domain.structure != other.structure
+        if patch not in computed and flipped:
             flips.append(patch)
-        same_shape = len(item.view.vertices.positions) == len(other.view.vertices.positions) and len(item.view.uvs) == len(other.view.uvs)
-        if not same_shape:
-            if patch not in served:
+        if domain.vertices.shape != other.vertices.shape or domain.loop_count != other.loop_count:
+            if patch in computed:
                 recomputed_different.append(patch)
             continue
-        position = float(np.max(np.abs(np.asarray(item.view.vertices.positions) - np.asarray(other.view.vertices.positions)), initial=0.0))
-        uv = float(np.max(np.abs(np.asarray(item.view.uvs) - np.asarray(other.view.uvs)), initial=0.0))
-        if patch in served:
-            if not flipped:
-                position_served, uv_served = max(position_served, position), max(uv_served, uv)
-        else:
+        position = float(np.max(np.abs(applied.sample.positions[domain.vertices] - exact.sample.positions[other.vertices]), initial=0.0))
+        uv = float(np.max(np.abs(applied.sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count] - exact.sample.uvs[other.loop_start : other.loop_start + other.loop_count]), initial=0.0))
+        if patch in computed:
             position_recomputed, uv_recomputed = max(position_recomputed, position), max(uv_recomputed, uv)
-            if position or uv or item.structure_digest != other.structure_digest or item.counters != other.counters:
+            if position or uv or flipped:
                 recomputed_different.append(patch)
+        elif not flipped:
+            position_served, uv_served = max(position_served, position), max(uv_served, uv)
     same_layout = applied.sample.layout_digest == exact.sample.layout_digest
     arrays = {"same_layout": same_layout}
     if same_layout:
         arrays["position_max"] = float(np.max(np.abs(applied.sample.positions - exact.sample.positions), initial=0.0))
         arrays["uv_max"] = float(np.max(np.abs(applied.sample.uvs - exact.sample.uvs), initial=0.0))
         arrays["owners_equal"] = bool(np.array_equal(applied.sample.image.face_owner, exact.sample.image.face_owner))
+    plan = getattr(applied, "plan", None)
     return {
-        "served": len(served), "recomputed": len(inc) - len(served), "flipped_served": flips, "served_position_max": position_served, "served_uv_max": uv_served,
+        "served": len(inc) - len(computed & set(inc)), "recomputed": len(computed), "flipped_served": flips, "served_position_max": position_served, "served_uv_max": uv_served,
         "recomputed_position_max": position_recomputed, "recomputed_uv_max": uv_recomputed, "recomputed_different": recomputed_different, "arrays": arrays,
+        "composite": None if plan is None else bool(plan.composite), "fallback": None if plan is None else plan.fallback,
     }
 
 

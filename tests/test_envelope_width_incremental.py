@@ -4,12 +4,15 @@
 
 1. СДВИГ СЕРТИФИКАТОМ. Результат домена, сдвинутый его аффинным сертификатом на новую ширину (`rebase_result`), равен точному lean-прогону на этой ширине: позиции и UV вида - с отклонением не больше
    `EXACT_TOLERANCE`, грани, швы, ссылки, владельцы и подпись структуры те же; на нулевом сдвиге вид - тот же объект. Копия помечена (lean, размещение `certificate`), у неё нет батча, и она не ложится ни в какой кэш.
-2. ПОДМНОЖЕСТВО. `run_production(served=...)` не сканирует, не пересылает и не кэширует обслуженные домены, всегда отправляет остальные в пул (даже когда байтов подготовок мало) и считает их ТЕМ ЖЕ путём, что lean-такт:
-   посчитанные домены побитово равны полному lean-прогону на той же ширине. Класс прогона и счётчики названы; обслуженный домен чужой ревизии не подменяется (считается как обычно); без `lean` подмножество отказано.
+2. ПОДМНОЖЕСТВО. `run_production(skipped=...)` (этап B) и `run_production(served=...)` (этап A, результаты сдвинуты) не сканируют, не пересылают и не кэшируют обслуженные домены, всегда отправляют остальные в пул
+   (даже когда байтов подготовок мало) и считают их ТЕМ ЖЕ путём, что lean-такт: посчитанные домены побитово равны полному lean-прогону на той же ширине. Класс прогона и счётчики названы; обслуженный домен чужой
+   ревизии не подменяется (считается как обычно); без `lean` подмножество отказано.
 3. РЕШЕНИЕ ТИКА (`plan_tick`). Обслуживается ровно то, что двигает кадр модели; остальным домены названа причина; полный такт (сверка) назван причиной: нет записи сверки, число тактов, путь ширины, нет модели, чужая
    модель, мало обслуженных, переключатель выключен. Запись сверки пишет кнопка и полный такт, инкрементальный такт её только считает.
 4. ОБРАЗЕЦ ТАКТА. Образец хранит ПРЕЖНИЕ результаты обслуженных доменов (следующий такт сдвигает их, а не копии), сверка предсказания (`deviation`) в инкрементальном такте не идёт и журнал доверия не меняется,
    модель строится из составного образца и равна точному прогону на ширине такта, а цепочка тактов не копит ошибку.
+4a. СОСТАВНОЙ ОБРАЗЕЦ (этап B, `envelope_width_composite`). Обслуженные домены двигает кадр модели, посчитанные ложатся поверх точными, позиции общих вершин и узлов стены - из сварки группы; образец равен образцу этапа A
+   (результаты всех доменов, `build_mesh_arrays`) с точностью округления, раскладка та же, справочники раскладки переходят к следующему образцу. Составить его не вышло - название причины, и тик собирается путём этапа A с тем же ответом.
 5. ЗАПРЕТ. Инкрементальный такт не ложится в зафиксированный ответ: подтверждение (COMMIT) на той же ширине побитово равно прямому прогону после любого числа тактов.
 """
 
@@ -94,7 +97,7 @@ def flat():
     return with_revision(quad_row_bundle(ROW), "flat")
 
 
-def _press(controller, bundle, alpha, *, lean=False, served=None, pool=None):
+def _press(controller, bundle, alpha, *, lean=False, served=None, skipped=None, pool=None):
     return run_production(
         controller,
         bundle,
@@ -107,6 +110,7 @@ def _press(controller, bundle, alpha, *, lean=False, served=None, pool=None):
         domain_pool=pool,
         lean=lean,
         served=served,
+        skipped=skipped,
     )
 
 
@@ -131,7 +135,7 @@ class _Session:
 
         c = self.controller
         plan = self.plan(alpha) if plan is None else plan
-        run = _press(c, self.bundle, alpha, lean=True, served=plan.served, pool=pool)
+        run = _press(c, self.bundle, alpha, lean=True, skipped=plan.served, pool=pool)
         live = preview.finish_live_run(
             run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=c.width_trust, lean=True, plan=plan
         )
@@ -146,6 +150,17 @@ _RECORDED_NUMBERS = re.compile(r"NANOMETRES|MILLI|MILLICELLS|EXACT_WORK|_MAX_|DE
 
 def _decisions(counters):
     return tuple(item for item in counters if not _RECORDED_NUMBERS.search(item[0]))
+
+
+def _quarantine(session, patch_id):
+    """Домен под карантином журнала доверия (опровергнут прежним точным прогоном): модель его не двигает, и тик считает его заново, хотя интервал ядра ширину содержит."""
+
+    c = session.controller
+    domain = next(item for item in c.width_displayed.domains if item.patch_id == patch_id)
+    ledger = pm.TrustLedgerV1(c.width_displayed.key, {(patch_id, domain.domain_id): pm.DomainTrustV1(pm.TRUST_QUARANTINED, 1, 0.5, 0.1)})
+    c.width_trust = ledger
+    c.width_model = pm.build_model(c.width_displayed, ledger)
+    return session
 
 
 def _view_difference(first, second):
@@ -223,14 +238,33 @@ def test_a_result_that_cannot_be_moved_is_refused_by_name(flat):
 # ==========================================================================
 
 
-def test_the_subset_run_computes_only_the_domains_the_certificate_does_not_serve_and_they_equal_the_full_lean_run(clipped):
+def test_the_skipped_run_computes_only_the_domains_the_certificate_does_not_serve_and_names_nothing_else(clipped):
     session = _Session(clipped)
     alpha = 1.999  # за интервалом домена 4 (1.9943), внутри интервалов остальных
     plan = session.plan(alpha)
-    assert plan.incremental and sorted(plan.served) == [0, 1, 2, 3] and plan.held == {4: pm.DOMAIN_HELD_OUTSIDE}
+    assert plan.incremental and plan.served == frozenset({0, 1, 2, 3}) and plan.held == {4: pm.DOMAIN_HELD_OUTSIDE}
 
     pool = InProcessPool()
-    subset = _press(session.controller, clipped, alpha, lean=True, served=plan.served, pool=pool)
+    subset = _press(session.controller, clipped, alpha, lean=True, skipped=plan.served, pool=pool)
+    full = _press(session.controller, clipped, alpha, lean=True)
+
+    assert subset.refresh == REFRESH_INCREMENTAL and [item.patch_id for item in subset.results] == [4]
+    assert pool.kinds == ["production"], "в пул ушёл один домен: подмножество не пересылает обслуженные"
+    assert subset.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED) == 4 and subset.counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED) == 1
+    assert subset.selected_by_patch == tuple(item for item in full.selected_by_patch if item[0] == 4)
+    twin = next(item for item in full.results if item.patch_id == 4)
+    assert subset.results[0].view == twin.view and subset.results[0].counters == twin.counters and subset.results[0].structure_digest == twin.structure_digest
+    assert "WIDTH_REFRESH_INCREMENTAL_V1 4 served by the certificate, 1 recomputed" in production_timing_text(subset)
+
+
+def test_the_subset_run_with_served_results_computes_only_the_domains_the_certificate_does_not_serve_and_they_equal_the_full_lean_run(clipped):
+    session = _Session(clipped)
+    alpha = 1.999
+    plan = session.plan(alpha)
+    served = preview.rebase_served(plan, session.controller.width_displayed, alpha)
+
+    pool = InProcessPool()
+    subset = _press(session.controller, clipped, alpha, lean=True, served=served, pool=pool)
     full = _press(session.controller, clipped, alpha, lean=True)
 
     assert subset.refresh == REFRESH_INCREMENTAL and full.refresh == REFRESH_LEAN
@@ -261,30 +295,31 @@ def test_a_small_subset_goes_to_the_pool_where_a_small_full_batch_stays_in_the_p
     pool_full = InProcessPool()
     _press(session.controller, clipped, 1.999, lean=True, pool=pool_full)
     pool_subset = InProcessPool()
-    _press(session.controller, clipped, 1.999, lean=True, served=plan.served, pool=pool_subset)
+    _press(session.controller, clipped, 1.999, lean=True, skipped=plan.served, pool=pool_subset)
     assert pool_full.kinds == [] and pool_subset.kinds == ["production"]
 
 
 def test_without_a_pool_the_subset_is_computed_in_the_parent_with_the_same_answer(clipped):
     session = _Session(clipped)
     plan = session.plan(1.999)
-    parent = _press(session.controller, clipped, 1.999, lean=True, served=plan.served)
-    pooled = _press(session.controller, clipped, 1.999, lean=True, served=plan.served, pool=InProcessPool())
-    assert [item.view for item in parent.results if item.placement != PLACEMENT_REBASED] == [item.view for item in pooled.results if item.placement != PLACEMENT_REBASED]
-    assert [item.placement for item in parent.results].count(PLACEMENT_REBASED) == 4
+    parent = _press(session.controller, clipped, 1.999, lean=True, skipped=plan.served)
+    pooled = _press(session.controller, clipped, 1.999, lean=True, skipped=plan.served, pool=InProcessPool())
+    assert [item.view for item in parent.results] == [item.view for item in pooled.results] and [item.patch_id for item in parent.results] == [4]
 
 
 def test_a_served_set_belongs_to_a_lean_run_only(clipped):
     session = _Session(clipped)
     plan = session.plan(1.999)
     with pytest.raises(ValueError, match="lean run"):
-        _press(session.controller, clipped, 1.999, served=plan.served)
+        _press(session.controller, clipped, 1.999, skipped=plan.served)
+    with pytest.raises(ValueError, match="lean run"):
+        _press(session.controller, clipped, 1.999, served=preview.rebase_served(plan, session.controller.width_displayed, 1.999))
 
 
 def test_a_served_result_of_another_revision_is_not_substituted_the_domain_is_computed(clipped):
     session = _Session(clipped)
     plan = session.plan(1.999)
-    foreign = dict(plan.served)
+    foreign = dict(preview.rebase_served(plan, session.controller.width_displayed, 1.999))
     foreign[0] = foreign[0].with_changes(domain_id="patch-domain:another-revision")
     run = _press(session.controller, clipped, 1.999, lean=True, served=foreign)
     by_patch = {item.patch_id: item for item in run.results}
@@ -306,8 +341,9 @@ def test_the_plan_serves_what_the_model_frame_moves_and_names_why_the_rest_is_re
     assert far.incremental and sorted(far.served) == [0, 1, 2] and far.held == {3: pm.DOMAIN_HELD_DISPLAY_REACH, 4: pm.DOMAIN_HELD_DISPLAY_REACH}
     model = session.controller.width_model
     assert [bool(item) for item in pm.served_mask(model, 0.27)] == [True, True, True, False, False]
-    assert far.originals == {patch: session.run.results[patch] for patch in far.served}  # сдвигаются прежние результаты, не копии
-    assert all(item.placement == PLACEMENT_REBASED for item in far.served.values())
+    moved = preview.rebase_served(far, session.controller.width_displayed, 0.27)
+    assert sorted(moved) == [0, 1, 2] and all(item.placement == PLACEMENT_REBASED for item in moved.values())
+    assert far.served == frozenset({0, 1, 2}) and far.seconds > 0.0 and not far.composite and far.fallback == ""
 
 
 def test_a_tick_that_did_not_order_incrementality_has_no_plan(flat):
@@ -329,7 +365,7 @@ def test_a_tick_is_a_full_lean_tick_under_a_named_reason_when_the_verification_i
     session = _Session(flat)
     mutate(session.controller)
     plan = session.plan(0.2501)
-    assert not plan.incremental and plan.mode == REFRESH_LEAN and plan.reason == expected and plan.served == {} and plan.held == {}
+    assert not plan.incremental and plan.mode == REFRESH_LEAN and plan.reason == expected and plan.served == frozenset() and plan.held == {}
 
 
 def test_a_sample_without_results_to_move_is_a_full_tick_by_name(flat):
@@ -395,26 +431,41 @@ def test_the_ticks_count_up_to_the_period_and_the_next_one_is_the_verification(f
 # ==========================================================================
 
 
-def test_the_sample_of_an_incremental_tick_keeps_the_previous_results_of_the_served_domains_and_judges_nothing(clipped):
-    session = _Session(clipped)
+def test_the_sample_of_an_incremental_tick_keeps_the_previous_results_of_the_served_domains_and_judges_nothing(unfolded):
+    session = _Session(unfolded)
     controller = session.controller
     before_trust, before_model = controller.width_trust, controller.width_model
-    live = session.tick(1.999)
+    live = session.tick(0.27)  # домены-развёртки 3 и 4 за досягаемостью приближённого кадра: считаются заново, структура та же
 
-    assert live.plan.incremental and live.check is None and live.trust_events == () and live.trust is before_trust
-    assert sorted(live.sample.origins) == [0, 1, 2, 3, 4]
-    for patch in range(4):
+    assert live.plan.incremental and live.plan.composite and live.check is None and live.trust_events == () and live.trust is before_trust and live.arrays is None
+    assert sorted(live.sample.origins) == [0, 1, 2, 3, 4] and sorted(item.patch_id for item in live.run.results) == [3, 4]
+    for patch in range(3):
         assert live.sample.origins[patch] is session.run.results[patch]  # прежний результат на своей ширине, не сдвинутая копия
-    assert live.sample.origins[4] is not session.run.results[4] and live.sample.origins[4].placement != PLACEMENT_REBASED
+    for patch in (3, 4):
+        assert live.sample.origins[patch] is not session.run.results[patch] and live.sample.origins[patch].placement != PLACEMENT_REBASED
     assert controller.width_displayed is live.sample and controller.width_model is live.model and live.model is not before_model
     assert controller.width_incremental == incremental.IncrementalStateV1(1, ALPHA)
 
 
-def test_the_composite_sample_equals_the_exact_lean_sample_of_the_width_and_the_model_frame_predicts_the_next_one(clipped):
+def test_a_domain_that_changes_its_structure_on_the_way_makes_the_composite_name_it_and_the_tick_is_still_exact(clipped):
+    """Домен 4 (резка) на ширине 1.999 лежит за концом своего интервала (1.9943): структура другая (6 вершин против 5). Составной образец отказан именем, образец собран путём этапа A, а ответ - точный прогон."""
+
     session = _Session(clipped)
-    alpha = 1.999
+    live = session.tick(1.999)
+    exact_run = _press(session.controller, clipped, 1.999, lean=True)
+    exact = preview.build_sample(exact_run.results, production_mesh.build_mesh_arrays(exact_run.results, OFFSET, reports=False), KEY, 1.999)
+
+    assert live.plan.incremental and not live.plan.composite and live.plan.fallback == "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED" and live.arrays is not None
+    assert live.sample.layout_digest == exact.layout_digest and live.sample.layout_digest != session.sample.layout_digest
+    assert np.max(np.abs(live.sample.positions - exact.positions)) <= EXACT_TOLERANCE and np.max(np.abs(live.sample.uvs - exact.uvs)) <= EXACT_TOLERANCE
+
+
+def test_the_composite_sample_equals_the_exact_lean_sample_of_the_width_and_the_model_frame_predicts_the_next_one(unfolded):
+    session = _Session(unfolded)
+    alpha = 0.27
     live = session.tick(alpha)
-    full_run = _press(session.controller, clipped, alpha, lean=True)
+    assert live.plan.composite
+    full_run = _press(session.controller, unfolded, alpha, lean=True)
     full_arrays = production_mesh.build_mesh_arrays(full_run.results, OFFSET, reports=False)
     full = preview.build_sample(full_run.results, full_arrays, KEY, alpha)
 
@@ -423,9 +474,93 @@ def test_the_composite_sample_equals_the_exact_lean_sample_of_the_width_and_the_
     assert [item.token for item in live.sample.domains] == [item.token for item in full.domains]
     assert [item.structure for item in live.sample.domains] == [item.structure for item in full.domains]
     model_frame = pm.positions_and_uvs(live.model, alpha * 0.9995)
-    nearby = _press(session.controller, clipped, alpha * 0.9995, lean=True)
+    nearby = _press(session.controller, unfolded, alpha * 0.9995, lean=True)
     nearby_arrays = production_mesh.build_mesh_arrays(nearby.results, OFFSET, reports=False)
-    assert np.max(np.abs(model_frame[0] - np.asarray(nearby_arrays.positions))) <= 1e-6  # домены, которые модель двигает, лежат на точном; придержанный остаётся на геометрии образца
+    assert np.max(np.abs(model_frame[0] - np.asarray(nearby_arrays.positions))) <= 1e-4  # приближённые домены (замороженная нормаль) не дальше предела их кадра
+
+
+@pytest.mark.parametrize("case", ["unfolded 0.27", "quarantined middle domain 0.2502", "quarantined first domain 0.2502", "quarantined last domain 0.2502"])
+def test_the_composite_sample_equals_the_stage_a_sample_and_names_nothing_it_did_not_do(unfolded, flat, case):
+    """Составной образец (numpy) и образец этапа A (результаты всех доменов, `build_mesh_arrays`) - один ответ с точностью округления: позиции, UV, раскладка, токены, строки доменов."""
+
+    if case.startswith("unfolded"):
+        bundle, alpha = unfolded, 0.27
+    else:
+        bundle, alpha = flat, 0.2502
+    for _once in (case,):
+        session = _Session(bundle)
+        if case.startswith("quarantined"):
+            _quarantine(session, {"middle": 2, "first": 0, "last": ROW - 1}[case.split()[1]])
+        c = session.controller
+        plan = session.plan(alpha)
+        assert plan.incremental and len(plan.held) in (1, 2)
+        run = _press(c, bundle, alpha, lean=True, skipped=plan.served)
+        composite = preview.finish_live_run(run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=plan)
+        assert composite.plan.composite and composite.plan.fallback == ""
+        stage_a = _press(c, bundle, alpha, lean=True, served=preview.rebase_served(plan, c.width_displayed, alpha))
+        arrays = production_mesh.build_mesh_arrays(stage_a.results, OFFSET, reports=False)
+        reference = preview.build_sample(stage_a.results, arrays, KEY, alpha)
+        assert composite.sample.layout_digest == reference.layout_digest
+        assert np.max(np.abs(composite.sample.positions - reference.positions)) <= EXACT_TOLERANCE
+        assert np.max(np.abs(composite.sample.uvs - reference.uvs)) <= EXACT_TOLERANCE
+        assert [(item.patch_id, item.token, item.structure, item.status, item.low, item.high) for item in composite.sample.domains] == [
+            (item.patch_id, item.token, item.structure, item.status, item.low, item.high) for item in reference.domains
+        ]
+        for mine, theirs in zip(composite.sample.domains, reference.domains):
+            assert np.array_equal(mine.vertices, theirs.vertices) and mine.markers == theirs.markers and mine.partners == theirs.partners
+            if mine.slopes is not None:
+                assert np.allclose(mine.slopes, theirs.slopes, atol=1e-12) and np.allclose(mine.uv_slopes, theirs.uv_slopes, atol=1e-12)
+        assert composite.sample.cache is c.width_displayed.cache  # справочники раскладки переходят к образцу той же раскладки
+        assert composite.model.base is composite.sample
+        assert sorted(item.patch_id for item in run.results) == sorted(plan.held)
+
+
+def test_a_composite_that_cannot_be_made_is_named_and_the_tick_is_built_the_stage_a_way_with_the_same_answer(clipped, monkeypatch):
+    from cftuv import envelope_width_composite as composite_module
+
+    session = _Session(clipped)
+    c = session.controller
+    alpha = 1.999
+    plan = session.plan(alpha)
+    run = _press(c, clipped, alpha, lean=True, skipped=plan.served)
+    kept = preview.finish_live_run(run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=plan)
+    monkeypatch.setattr(preview, "compose_sample", lambda *args, **kwargs: composite_module.COMPOSITE_WELD_CHANGED)
+    fell = preview.finish_live_run(run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=plan)
+
+    assert fell.plan.fallback == composite_module.COMPOSITE_WELD_CHANGED and not fell.plan.composite and fell.arrays is not None and fell.arrays.reports is False
+    assert np.max(np.abs(fell.sample.positions - kept.sample.positions)) <= EXACT_TOLERANCE and fell.sample.layout_digest == kept.sample.layout_digest
+    assert sorted(fell.sample.origins) == sorted(kept.sample.origins) == [0, 1, 2, 3, 4] and sorted(item.patch_id for item in fell.run.results) == [0, 1, 2, 3, 4]
+    assert [item.placement for item in fell.run.results].count(PLACEMENT_REBASED) == 4
+
+
+@pytest.mark.parametrize(
+    "change, expected",
+    [
+        ("token", "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED"),
+        ("refused", "INCREMENTAL_COMPOSITE_DOMAIN_SET_CHANGED"),
+        ("missing", "INCREMENTAL_COMPOSITE_HELD_NOT_RECOMPUTED"),
+        ("new", "INCREMENTAL_COMPOSITE_DOMAIN_SET_CHANGED"),
+    ],
+)
+def test_the_composite_names_what_changed_in_the_layout_of_the_tick(clipped, monkeypatch, change, expected):
+    from cftuv import envelope_width_composite as composite_module
+
+    session = _Session(clipped)
+    c = session.controller
+    alpha = 1.999
+    plan = session.plan(alpha)
+    run = _press(c, clipped, alpha, lean=True, skipped=plan.served)
+    results = list(run.results)
+    if change == "token":
+        monkeypatch.setattr(composite_module, "structure_token_of", lambda view: "another structure")
+    elif change == "refused":
+        results = [item.with_changes(outcome="SOME_REFUSAL") for item in results]
+    elif change == "missing":
+        results = []
+    elif change == "new":
+        results = [results[0].with_changes(patch_id=99)]
+    outcome = composite_module.compose_sample(c.width_displayed, c.width_model, results, alpha=alpha, offset=OFFSET)
+    assert outcome == expected
 
 
 def test_a_chain_of_incremental_ticks_does_not_accumulate_the_error_and_always_moves_the_original_results(flat):
@@ -447,7 +582,7 @@ def test_the_arrays_of_an_incremental_tick_differ_from_the_full_tick_only_in_rou
     session = _Session(clipped)
     alpha = 1.999
     plan = session.plan(alpha)
-    run = _press(session.controller, clipped, alpha, lean=True, served=plan.served)
+    run = _press(session.controller, clipped, alpha, lean=True, served=preview.rebase_served(plan, session.controller.width_displayed, alpha))
     arrays = production_mesh.build_mesh_arrays(run.results, OFFSET, reports=False)
     full = production_mesh.build_mesh_arrays(_press(session.controller, clipped, alpha, lean=True).results, OFFSET, reports=False)
     assert arrays.faces == full.faces and arrays.seam_edges == full.seam_edges and arrays.face_domain == full.face_domain
@@ -504,8 +639,8 @@ def test_the_tool_orders_the_drag_tick_as_incremental_and_the_tick_after_the_but
     assert len(calls) == 1
     tick = calls[0]
     assert tick.plan.incremental and sorted(tick.plan.served) == list(range(ROW)) and tick.plan.held == {}
-    assert tick.run.refresh == REFRESH_INCREMENTAL and tick.run.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED) == ROW
-    assert tick.arrays.reports is False and tick.check is None  # lean-массивы; сверка предсказания не идёт
+    assert tick.run.refresh == REFRESH_INCREMENTAL and tick.run.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED) == ROW and tick.run.results == ()
+    assert tick.plan.composite and tick.arrays is None and tick.check is None  # образец сложен из образца на экране; сверка предсказания не идёт
     assert world.written == []  # зафиксированной записи нет
 
 
@@ -556,7 +691,7 @@ def test_an_incremental_frame_is_laid_down_like_a_lean_frame_and_named_in_the_st
     world = _owned(monkeypatch)
     controller = world.controller
     controller.width_incremental = incremental.IncrementalStateV1(1, 0.25)
-    plan = incremental.IncrementalPlanV1(REFRESH_INCREMENTAL, "", {0: object()}, {0: object()}, {1: pm.DOMAIN_HELD_OUTSIDE}, 2, 0.004)
+    plan = incremental.IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset({0}), {1: pm.DOMAIN_HELD_OUTSIDE}, 2, 0.004, composite=True)
     results = [SimpleNamespace(patch_id=0, placement=PLACEMENT_REBASED), SimpleNamespace(patch_id=1, placement="worker")]
     frame = _exact(0.27)
     frame = SimpleNamespace(**{**vars(frame), "plan": plan, "run": SimpleNamespace(results=results)})
@@ -567,7 +702,7 @@ def test_an_incremental_frame_is_laid_down_like_a_lean_frame_and_named_in_the_st
     assert state.outcome == REFRESH_INCREMENTAL and (state.live, state.held, state.held_patches) == (1, 1, (1,)) and controller.width_displayed is frame.sample
     assert controller.width_incremental == incremental.IncrementalStateV1(2, 0.25)  # такт добавлен к счёту, ширина сверки прежняя
     log = preview.log_of(controller)
-    assert (log.incremental_ticks, log.incremental_served, log.incremental_recomputed, log.incremental_full) == (1, 1, 1, {})
+    assert (log.incremental_ticks, log.incremental_served, log.incremental_recomputed, log.incremental_full, log.incremental_composite, log.incremental_fallback) == (1, 1, 1, {}, 1, {})
     lines = preview.status_lines(controller)
     assert lines[0].startswith("Mesh WIDTH_REFRESH_INCREMENTAL_V1: width 0.27, 1 domains moved by the affine certificate (structure verified afterwards), 1 recomputed exactly (patch 1)")
     assert "checked by the next full tick" in lines[0] and any("Incremental ticks WIDTH_REFRESH_INCREMENTAL_V1: 1 incremental" in line for line in lines)
@@ -577,3 +712,94 @@ def test_an_incremental_frame_is_laid_down_like_a_lean_frame_and_named_in_the_st
     assert preview.lean_exact_now(controller, full) == ""
     assert controller.width_incremental == incremental.IncrementalStateV1(0, 0.28) and controller.width_mesh_preview.outcome == REFRESH_LEAN
     assert preview.log_of(controller).incremental_full == {incremental.REASON_PERIOD_TICKS: 1}
+
+
+# ==========================================================================
+# 7. Построение модели без `ufunc.at` (общий путь всех тактов): тот же ответ, что у прежнего построчного
+# ==========================================================================
+
+
+def _reference_weld_conflicts(base, modelled, slopes_of) -> set:
+    """Прежняя реализация `_weld_conflicts` (построчная, `ufunc.at`) дословно: образец для сравнения."""
+
+    count = base.vertex_count
+    low = np.full((count, 3), np.inf)
+    high = np.full((count, 3), -np.inf)
+    for number in modelled:
+        vertices = base.domains[number].vertices
+        np.minimum.at(low, vertices, slopes_of[number])
+        np.maximum.at(high, vertices, slopes_of[number])
+    broken = (high - low).max(axis=1) > pm.WELD_SLOPE_TOLERANCE
+    if not broken.any():
+        return set()
+    return {number for number in modelled if broken[base.domains[number].vertices].any()}
+
+
+def _reference_vertex_windows(base, modelled, dlow, dhigh, quarantined):
+    """Прежняя реализация `_vertex_windows` (построчная, `ufunc.at`) дословно."""
+
+    count_v = base.vertex_count
+    total = np.zeros(count_v, dtype=np.int32)
+    alive = np.zeros(count_v, dtype=np.int32)
+    vlow = np.full(count_v, -np.inf)
+    vhigh = np.full(count_v, np.inf)
+    vertex_quarantined = np.zeros(count_v, dtype=bool)
+    live_set = set(modelled)
+    for number, domain in enumerate(base.domains):
+        np.add.at(total, domain.vertices, 1)
+        if number in live_set:
+            np.add.at(alive, domain.vertices, 1)
+            np.maximum.at(vlow, domain.vertices, dlow[number])
+            np.minimum.at(vhigh, domain.vertices, dhigh[number])
+            if quarantined[number]:
+                vertex_quarantined[domain.vertices] = True
+    frozen = alive != total
+    vlow[frozen], vhigh[frozen] = np.inf, -np.inf
+    return vlow, vhigh, vertex_quarantined, frozen
+
+
+def _random_sample(rng, domains=14, vertices=40):
+    """Образец из случайных доменов с общими вершинами (по несколько доменов на вершину); у части доменов свой наклон на общей вершине (сварка не держится)."""
+
+    shared_slope = rng.normal(size=(vertices, 3))
+    rows, start = [], 0
+    for number in range(domains):
+        picked = np.sort(rng.choice(vertices, size=int(rng.integers(3, 9)), replace=False)).astype(np.int32)
+        slopes = shared_slope[picked].copy()
+        if number % 5 == 4:
+            slopes[0] += 1e-3  # этот домен расходится с остальными на первой вершине
+        loops = int(picked.shape[0]) + int(rng.integers(0, 3))
+        rows.append(
+            pm.DomainSampleV1(number, f"d{number}", "t", "s", "CERTIFIED", 0.1, 2.0, picked, start, loops, None, slopes, rng.normal(size=(loops, 2)), (), (), 0.0, ())
+        )
+        start += loops
+    return pm.PreviewSampleV1(("k",), "0.5", 0.5, rng.normal(size=(vertices, 3)), rng.normal(size=(start, 2)), tuple(rows), "", "rev")
+
+
+def test_the_model_windows_and_the_weld_conflicts_equal_the_per_domain_reference_on_random_layouts():
+    rng = np.random.default_rng(20261012)
+    for _case in range(40):
+        base = _random_sample(rng)
+        count = len(base.domains)
+        modelled = [number for number in range(count) if rng.random() < 0.8]
+        slopes_of = {number: base.domains[number].slopes for number in modelled}
+        assert pm._weld_conflicts(base, modelled, slopes_of) == _reference_weld_conflicts(base, modelled, slopes_of)
+        dlow, dhigh = rng.random(count), 1.0 + rng.random(count)
+        quarantined = rng.random(count) < 0.2
+        found = pm._vertex_windows(base, modelled, dlow, dhigh, quarantined)
+        wanted = _reference_vertex_windows(base, modelled, dlow, dhigh, quarantined)
+        for mine, theirs in zip(found, wanted):
+            assert np.array_equal(mine, theirs)
+
+
+def test_the_slopes_and_the_uv_offsets_of_the_model_are_those_of_a_per_domain_assignment(flat, unfolded):
+    for bundle in (flat, unfolded):
+        session = _Session(bundle)
+        sample, model = session.controller.width_displayed, session.controller.width_model
+        a1, e1 = np.zeros((sample.vertex_count, 3)), np.zeros((sample.loop_count, 2))
+        for number, domain in enumerate(sample.domains):
+            if model.rows[number][3]:
+                a1[domain.vertices] = domain.slopes
+                e1[domain.loop_start : domain.loop_start + domain.loop_count] = domain.uv_slopes - sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count]
+        a1[model.vlow == np.inf] = 0.0  # замороженная вершина (общая с несмоделированным доменом) не двигается
+        assert np.array_equal(model.e1, e1) and np.array_equal(model.a1, a1)

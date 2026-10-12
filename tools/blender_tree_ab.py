@@ -19,10 +19,11 @@ INPUTS
                      (digests of the batch are not computed by a lean tick); the confirm is compared like any press, so a lean tick must leave no trace in the committed answer.
                      `incr` (WIDTH_REFRESH_INCREMENTAL_V1) is the tick the tool orders while dragging when the tree has `envelope_width_mesh_preview.plan_tick`: the tree's policy decides whether it is
                      incremental (the domains the certificate serves are moved by it, the rest computed) or a full lean tick (a verification); a tree without it runs a lean tick. An incremental press is
-                     compared with the other tree's lean tick of the same width as: every domain the tick COMPUTED bit-identical (answer fields, counters, view positions and UV), every domain the certificate
-                     SERVED within `SERVED_TOLERANCE` of the exact view (a served domain whose structure digest differs from the exact one is a FLIP: listed in the notes and in the press record, not a failure,
-                     it is what the verification policy exists for), the mesh layout (faces, seams, domain tokens) the same unless a flip, the mesh positions within `SERVED_TOLERANCE` (`DISPLAY_TOLERANCE` where
-                     a developable domain moves by its frozen normals), the owner ordinals of the served domains label-only.
+                     compared with the other tree's lean tick of the same width as: every domain the tick COMPUTED bit-identical (answer fields, counters, the hash of its view), every domain the certificate
+                     SERVED within `SERVED_TOLERANCE` of the exact mesh coordinates (`DISPLAY_TOLERANCE` for the display-approximate developable domains and their wall partners: they move by FROZEN offset
+                     normals; a served domain whose structure digest differs from the exact one is a FLIP: listed in the notes and in the press record, not a failure, it is what the verification policy exists for),
+                     the mesh layout (faces, seams, domain tokens) the same unless a flip, the mesh positions within the same tolerances, the owner ordinals of the served domains label-only (the partition of the faces
+                     into owner groups is compared: it must be the same).
   --native-path      a directory that holds the `cftuv_native` package, put ahead of everything in BOTH trees and in the pool workers; without it the extension is the one Blender can import.
   --env KEY=VALUE    environment for every Blender (e.g. `CFTUV_SNAPSHOT_BYTE_CHECK=all`), the same for both trees.
   --keys-may-differ  the content keys of the two sides are not compared (listed in the notes): the identity of the executor of a stage is part of a key, so two settings of one tree differ in every key by construction.
@@ -76,7 +77,7 @@ PINNED_IDENTITY = ("0123456789abcdef", "fedcba9876543210")
 #: Fields of a domain row that are the PRODUCT'S ANSWER.
 ANSWER_FIELDS = (
     "outcome", "detail", "content_digest", "semantic_digest", "diagnostics", "normal", "offset_normals_digest", "vertex_normals_hash",
-    "decal_topology_law", "chart_orientation", "structure_digest",
+    "decal_topology_law", "chart_orientation", "structure_digest", "view_hash",
 )
 #: Fields a WIDTH_REFRESH_LEAN_V1 domain does not carry (no batch to digest): skipped when either side's row is lean, and counted in the notes.
 LEAN_UNCARRIED_FIELDS = ("content_digest", "semantic_digest", "vertex_normals_hash")
@@ -379,66 +380,73 @@ def compare_incremental_press(label: str, a: dict, b: dict, allowed: tuple, out:
     if set(rows_a) != set(rows_b):
         out.differences.append(f"[{label}] DOMAIN SET: only base {sorted(set(rows_a) - set(rows_b))[:20]}, only branch {sorted(set(rows_b) - set(rows_a))[:20]}")
     common = sorted(set(rows_a) & set(rows_b))
-    served = [patch for patch in common if rows_b[patch].get("served")]
-    computed = [patch for patch in common if patch not in set(served)]
+    served = {patch for patch in common if rows_b[patch].get("served")}
+    computed = [patch for patch in common if patch not in served]
+    approximate = set((b.get("plan") or {}).get("approximate", ()))
     out.domains_compared += len(common)
     for name in ("domains", "materialized", "outcomes"):
         if a[name] != b[name]:
             out.differences.append(f"[{label}] run {name}: base {a[name]} != branch {b[name]}")
-    for patch in served:
+    for patch in sorted(served):
         if rows_a[patch]["outcome"] != rows_b[patch]["outcome"]:
             out.differences.append(f"[{label}] patch {patch} (served) outcome: base {rows_a[patch]['outcome']} != branch {rows_b[patch]['outcome']}")
-    # the computed domains: the answer of a full lean tick, field by field
+    # the computed domains: the answer of a full lean tick, field by field (the hash of the view makes it bit for bit)
     _compare_rows(label, {"rows": [rows_a[p] for p in computed]}, {"rows": [rows_b[p] for p in computed]}, tuple(allowed), out)
-    flips = [patch for patch in served if rows_a[patch]["structure_digest"] != rows_b[patch]["structure_digest"]]
+    flips = [patch for patch in sorted(served) if rows_a[patch]["structure_digest"] != rows_b[patch]["structure_digest"]]
     if flips:
         out.notes.append(f"[{label}] FLIP: {len(flips)} served domains whose structure on this width differs from the one the tick carried (the verification finds them): {flips[:20]}")
     served_max = {"position": 0.0, "uv": 0.0}
     computed_max = {"position": 0.0, "uv": 0.0}
-    mesh = {"same_layout": None, "position_max": None, "uv_max": None, "owners_equal": None}
+    mesh = {"same_layout": None, "position_max": None, "uv_max": None, "owners_equal": None, "owner_partition_equal": None}
     if a.get("dump") and b.get("dump"):
         first, second = load(a["dump"]["path"]), load(b["dump"]["path"])
         for patch in common:
-            keys = (f"pos_{patch}", f"uv_{patch}")
-            if any(key not in first or key not in second for key in keys):
-                continue
-            for kind, key in (("position", keys[0]), ("uv", keys[1])):
+            for kind, key in (("position", f"pos_{patch}"), ("uv", f"uv_{patch}")):
+                if key not in first or key not in second:
+                    continue
                 x, y = first[key], second[key]
                 if x.shape != y.shape:
                     if patch not in flips:
                         out.differences.append(f"[{label}] patch {patch} {kind}: shape {x.shape} != {y.shape} without a flip")
                     continue
                 gap = float(abs(x - y).max()) if x.size else 0.0
-                if patch in set(served):
+                limit = DISPLAY_TOLERANCE if (patch in approximate and kind == "position") else SERVED_TOLERANCE
+                if patch in served:
                     if patch in flips:
                         continue
                     served_max[kind] = max(served_max[kind], gap)
-                    if gap > SERVED_TOLERANCE:
-                        out.differences.append(f"[{label}] patch {patch} (served) {kind} deviates from the exact view by {gap:.3e} > {SERVED_TOLERANCE:g}")
+                    if gap > limit:
+                        out.differences.append(f"[{label}] patch {patch} (served) {kind} deviates from the exact mesh by {gap:.3e} > {limit:g}")
                 else:
                     computed_max[kind] = max(computed_max[kind], gap)
-                    if gap != 0.0:
-                        out.differences.append(f"[{label}] patch {patch} (computed) {kind} is not bit-identical to the full lean tick: {gap:.3e}")
-        for name in ("faces_hash", "seams_hash", "tokens_hash"):
+                    # a computed domain next to a display-approximate partner is welded against the partner's FROZEN normals: its mesh coordinates may differ from the exact weld by the display limit
+                    allowed_gap = DISPLAY_TOLERANCE if (approximate and kind == "position") else 0.0
+                    if gap > allowed_gap:
+                        out.differences.append(f"[{label}] patch {patch} (computed) {kind} is not the exact mesh: {gap:.3e} > {allowed_gap:g}")
+        for name in ("faces_hash", "seams_hash", "tokens_hash", "face_domain_hash"):
             if a["dump"].get(name) != b["dump"].get(name) and not flips:
                 out.differences.append(f"[{label}] mesh {name}: base {a['dump'].get(name)} != branch {b['dump'].get(name)} without a flip")
         mesh["same_layout"] = all(a["dump"].get(name) == b["dump"].get(name) for name in ("faces_hash", "seams_hash", "tokens_hash"))
         if mesh["same_layout"] and "mesh_positions" in first and "mesh_positions" in second and first["mesh_positions"].shape == second["mesh_positions"].shape:
             mesh["position_max"] = float(abs(first["mesh_positions"] - second["mesh_positions"]).max()) if first["mesh_positions"].size else 0.0
             mesh["uv_max"] = float(abs(first["mesh_uvs"] - second["mesh_uvs"]).max()) if first["mesh_uvs"].size else 0.0
-            limit = DISPLAY_TOLERANCE if (b.get("plan") or {}).get("approximate") else SERVED_TOLERANCE
+            limit = DISPLAY_TOLERANCE if approximate else SERVED_TOLERANCE
             if mesh["position_max"] > limit:
                 out.differences.append(f"[{label}] mesh positions deviate by {mesh['position_max']:.3e} (limit {limit:g})")
             if mesh["uv_max"] > SERVED_TOLERANCE:
                 out.differences.append(f"[{label}] mesh UV deviate by {mesh['uv_max']:.3e} > {SERVED_TOLERANCE:g}")
             mesh["owners_equal"] = a["dump"].get("owners_hash") == b["dump"].get("owners_hash")
+            mesh["owner_partition_equal"] = a["dump"].get("owner_partition_hash") == b["dump"].get("owner_partition_hash")
+            if mesh["owner_partition_equal"] is False and not flips:
+                out.differences.append(f"[{label}] the partition of the faces into owner groups differs without a flip")
     else:
         out.notes.append(f"[{label}] no arrays dump on one side: the positions of the served and computed domains were not compared")
     if mesh["owners_equal"] is False:
-        out.notes.append(f"[{label}] label-only: the owner ordinals (cftuv_owner) of the served domains are those of the verification base")
+        out.notes.append(f"[{label}] label-only: the owner ordinals (cftuv_owner) of the served domains are those of the verification base (the partition into owner groups is the same)")
     out.presses[label] = {
         "domains": a["domains"], "materialized": a["materialized"], "outcomes": a["outcomes"], "mesh": "incremental", "mesh_counts": b["mesh_counts"], "keys": 0, "kind": "incr", "lean": True,
         "served": len(served), "computed": len(computed), "flips": flips, "served_max": served_max, "computed_max": computed_max, "mesh_compare": mesh,
+        "composite": (b.get("plan") or {}).get("composite"), "fallback": (b.get("plan") or {}).get("fallback", ""),
     }
 
 
@@ -1061,6 +1069,21 @@ def _hash(value) -> str:
     return hashlib.sha256(repr(value).encode("utf-8")).hexdigest()[:16]
 
 
+def view_hash(item) -> str:
+    """The hash of the view of a materialized domain (positions, normals, refs, faces, UV, owners, seams): two results with the same hash lay down the same mesh. Empty for a refusal. A tree without a view hashes nothing."""
+
+    if not item.is_materialized:
+        return ""
+    try:
+        from cftuv.envelope_production_view import build_domain_view
+    except ImportError:
+        return ""
+    view = getattr(item, "view", None) or build_domain_view(item)
+    if view.vertices is None:
+        return ""
+    return _hash((view.vertices.positions, view.vertices.normals, view.vertices.refs, view.faces, view.uvs, view.owners, view.seams))
+
+
 def domain_rows(run) -> list:
     rows = []
     for item in run.results:
@@ -1074,7 +1097,7 @@ def domain_rows(run) -> list:
             "offset_normals_digest": item.offset_normals_digest, "vertex_normals_hash": "" if lean else _hash(item.vertex_normals), "decal_topology_law": item.decal_topology_law,
             "chart_orientation": item.chart_orientation, "step_path": getattr(item, "step_path", ABSENT), "placement": str(item.placement),
             "structure_digest": item.structure_digest, "clip_memo": getattr(item, "clip_memo", ABSENT), "ran": None if record is None else record.ran, "lean": lean,
-            "served": getattr(item, "placement", "") == PLACEMENT_REBASED,
+            "served": getattr(item, "placement", "") == PLACEMENT_REBASED, "view_hash": view_hash(item),
             "effective_alpha_ran": None if record is None else (getattr(record, "effective_alpha_ran", None) or None),
             "effective_alpha_calls": None if record is None else [getattr(record, "effective_alpha_native_calls", 0), getattr(record, "effective_alpha_python_calls", 0)],
         })
@@ -1128,43 +1151,56 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     }
 
 
-def dump_press(run, arrays, path: Path) -> dict:
-    """The arrays of a press for `compare_incremental_press`: the batch positions and UV of every domain view, the mesh positions and UV, and the hashes of the layout (faces, seams, domain tokens, owner ordinals)."""
+def dump_press(sample, path: Path) -> dict:
+    """The arrays of a press for `compare_incremental_press`, from the mesh SAMPLE (the same object in both trees): the mesh positions and UV of every domain at its own vertices and loops, the whole mesh arrays,
+    and the hashes of the layout (faces, seams, domain tokens) and of the owner ordinals and their partition."""
 
     import numpy as np
 
-    from cftuv.envelope_production_view import build_domain_view
-
     arrays_out = {}
-    for item in run.results:
-        if not item.is_materialized:
-            continue
-        view = getattr(item, "view", None) or build_domain_view(item)
-        if view.vertices is None:
-            continue
-        arrays_out[f"pos_{int(item.patch_id)}"] = np.asarray(view.vertices.positions, dtype=np.float64).reshape(-1, 3)
-        arrays_out[f"uv_{int(item.patch_id)}"] = np.asarray(view.uvs, dtype=np.float64).reshape(-1, 2)
-    arrays_out["mesh_positions"] = np.asarray(arrays.positions, dtype=np.float64).reshape(-1, 3)
-    arrays_out["mesh_uvs"] = np.asarray(arrays.uvs, dtype=np.float64).reshape(-1, 2)
+    for domain in sample.domains:
+        arrays_out[f"pos_{domain.patch_id}"] = np.ascontiguousarray(sample.positions[domain.vertices])
+        arrays_out[f"uv_{domain.patch_id}"] = np.ascontiguousarray(sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count])
+    arrays_out["mesh_positions"], arrays_out["mesh_uvs"] = np.asarray(sample.positions), np.asarray(sample.uvs)
     np.savez(path, **arrays_out)
+    image = sample.image
+    partition = {}
+    canonical = []
+    for patch, owner in zip(image.face_domain.tolist(), image.face_owner.tolist()):
+        canonical.append(partition.setdefault((patch, owner), len(partition)))
     return {
-        "path": str(path), "faces_hash": _hash(arrays.faces), "seams_hash": _hash(arrays.seam_edges), "tokens_hash": _hash(arrays.domain_tokens), "owners_hash": _hash(arrays.face_owner),
-        "face_domain_hash": _hash(arrays.face_domain),
+        "path": str(path), "faces_hash": _hash((image.face_starts.tolist(), image.face_vertices.tolist())), "seams_hash": _hash(image.seams.tolist()), "tokens_hash": _hash([item.token for item in sample.domains]),
+        "owners_hash": _hash(image.face_owner.tolist()), "owner_partition_hash": _hash(canonical), "face_domain_hash": _hash(image.face_domain.tolist()),
     }
 
 
-def track_live_state(controller, preview, run, arrays, kind: str, alpha: float, plan, lean: bool, offset: float) -> None:
-    """The sample, the model and the verification record the product keeps after each refresh, so that an `incr` press has what it needs (a tree with `plan_tick` only)."""
+def complete_rows(item: dict, sample, plan) -> None:
+    """The rows of an incremental press name the domains the tick COMPUTED; the served ones are in the sample. Rows for them (flagged `served`, the structure digest of the verification base) make the press a whole."""
+
+    have = {row["patch"] for row in item["rows"]}
+    for domain in sample.domains:
+        if domain.patch_id in plan.served and domain.patch_id not in have:
+            item["rows"].append({"patch": domain.patch_id, "domain_id": domain.domain_id, "outcome": "MATERIALIZED", "detail": "", "structure_digest": domain.structure, "served": True, "counters_all": {}, "lean": True})
+    item["rows"].sort(key=lambda row: row["patch"])
+    outcomes: dict = {}
+    for row in item["rows"]:
+        outcomes[row["outcome"]] = outcomes.get(row["outcome"], 0) + 1
+    item["domains"], item["outcomes"], item["materialized"] = len(item["rows"]), outcomes, outcomes.get("MATERIALIZED", 0)
+
+
+def track_live_state(controller, preview, run, arrays, kind: str, alpha: float, plan, lean: bool, offset: float):
+    """The sample, the model and the verification record the product keeps after each refresh, so that an `incr` press has what it needs (a tree with `plan_tick` only). The live run (`None` after the cold press)."""
 
     key = ("tree-ab",)
     if kind == "cold":
         preview.note_button_display(controller, preview.build_sample(run.results, arrays, key, alpha))
-        return
+        return None
     preview.ensure_model(controller)
     live = preview.finish_live_run(
         run, alpha=alpha, offset=offset, key=key, displayed=controller.width_displayed, previous=controller.width_model, trust=controller.width_trust, lean=lean, plan=plan,
     )
     preview.note_exact_display(controller, live)
+    return live
 
 
 def record_content_keys(key_log: list):
@@ -1249,12 +1285,12 @@ def run_presses(args, report: dict, state: dict) -> None:
         lean = kind in ("tick", "incr") and lean_supported
         counters_before = process_counters()
         plan = None
-        approximate = 0
+        approximate = ()
         started = time.perf_counter()
         with pause:
             if kind == "incr" and incremental_supported:
                 live_preview.ensure_model(controller)
-                approximate = getattr(controller.width_model, "approximate_domains", 0)
+                approximate = tuple(row[0] for row in getattr(controller.width_model, "rows", ()) if row[2] == "PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1")
                 plan = live_preview.plan_tick(
                     export_module.REFRESH_INCREMENTAL, controller.width_displayed, controller.width_model, controller.width_incremental, alpha,
                 )
@@ -1262,7 +1298,7 @@ def run_presses(args, report: dict, state: dict) -> None:
                 controller, bundle, frozenset(selected), alpha, source_object_key=key, source_data_key=data_key, density=args.density,
                 developable_stretch_budget=envelope_stretch_budget(args.stretch), silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=args.workers if args.workers >= 2 else 0, kernel_backend=kernel_backend_of(mesh_settings), **({"lean": True} if lean else {}),
-                **({"served": plan.served} if plan is not None and plan.incremental else {}),
+                **({"skipped": plan.served} if plan is not None and plan.incremental else {}),
             )
         seconds = time.perf_counter() - started
         counters = counters_delta(counters_before, process_counters()) if args.workers < 2 else None  # a pool worker keeps its own counters
@@ -1273,12 +1309,18 @@ def run_presses(args, report: dict, state: dict) -> None:
         arrays_seconds = time.perf_counter() - arrays_started
         report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:], counters, kind=kind, lean=lean, arrays_seconds=arrays_seconds)
         item = report["presses"][label]
-        if kind in ("tick", "incr"):
-            item["dump"] = dump_press(run, arrays, Path(args.out).with_suffix("").parent / f"{Path(args.out).stem}_{label}.npz")
+        live_run = track_live_state(controller, live_preview, run, arrays, kind, alpha, plan, lean, float(mesh_settings.offset)) if incremental_supported else None
+        sample = live_run.sample if live_run is not None else (live_preview.build_sample(run.results, arrays, ("tree-ab",), alpha) if live_preview is not None and kind in ("tick", "incr") else None)
+        if kind in ("tick", "incr") and sample is not None:
+            item["dump"] = dump_press(sample, Path(args.out).with_suffix("").parent / f"{Path(args.out).stem}_{label}.npz")
         if plan is not None:
-            item["plan"] = {"mode": plan.mode, "reason": plan.reason, "served": len(plan.served), "held": dict(plan.held), "domains": plan.domains, "rebase_seconds": plan.rebase_seconds, "approximate": approximate}
-        if incremental_supported:
-            track_live_state(controller, live_preview, run, arrays, kind, alpha, plan, lean, float(mesh_settings.offset))
+            item["plan"] = {
+                "mode": plan.mode, "reason": plan.reason, "served": len(plan.served), "held": {str(patch): name for patch, name in plan.held.items()}, "domains": plan.domains, "seconds": plan.seconds,
+                "composite": plan.composite, "fallback": plan.fallback, "approximate": list(approximate),
+            }
+            if plan.incremental and live_run is not None:
+                complete_rows(item, live_run.sample, plan)
+                item["plan"].update(composite=live_run.plan.composite, fallback=live_run.plan.fallback)
         print(f"TREEAB press={label} kind={kind} lean={lean} alpha={alpha} domains={item['domains']} materialized={item['materialized']} keys={len(item['content_keys'])} run={seconds:.2f}s arrays={arrays_seconds:.3f}s", flush=True)
 
 
