@@ -1201,6 +1201,56 @@ def test_a_ready_worker_imports_no_kernel_module_for_its_first_domain():
     assert completed.stdout.decode().strip().endswith("LATE []")
 
 
+def test_a_ready_worker_has_its_code_identities_before_its_first_task():
+    """WORKER_IDENTITY_PREWARM_V1: отпечатки кода (хост + ядро, кэш процесса) и память резки считаются в старте воркера, не в секундах первого домена.
+
+    Первая задача каждого воркера платила ~0.2-0.3 с (sha256 по ~290 файлам дважды и импорт расширения). Чистый интерпретатор: после
+    `warm_worker_identities` оба кэша заполнены, и повторные вызовы ничего не считают.
+    """
+
+    script = "\n".join(
+        (
+            "from cftuv.envelope_domain_pool import warm_worker_identities",
+            "from cftuv.envelope_content_key import _fingerprint_once",
+            "from cftuv_envelope.materialize.clip_memo import kernel_code_identity",
+            "assert _fingerprint_once.cache_info().currsize == 0 and kernel_code_identity.cache_info().currsize == 0",
+            "report = warm_worker_identities()",
+            "print('REPORT', report['outcome'], _fingerprint_once.cache_info().currsize, kernel_code_identity.cache_info().currsize)",
+        )
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join((str(KERNEL_SRC.parents[1]), str(KERNEL_SRC)))
+    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, env=environment, timeout=300)
+    assert completed.returncode == 0, completed.stderr.decode(errors="replace")
+    assert completed.stdout.decode().strip().endswith(f"REPORT {pool_module.WORKER_IDENTITY_PREWARMED} 2 1")
+
+
+def test_a_worker_that_cannot_prewarm_names_it_and_stays_usable(monkeypatch, capsys):
+    from cftuv import envelope_content_key
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("no identity today")
+
+    monkeypatch.setattr(envelope_content_key, "execution_identity", broken)
+
+    report = pool_module.warm_worker_identities()
+
+    assert report["outcome"] == pool_module.WORKER_IDENTITY_PREWARM_UNAVAILABLE
+    assert pool_module.WORKER_IDENTITY_PREWARM_UNAVAILABLE in capsys.readouterr().out
+
+
+def test_real_workers_report_their_prewarm_in_the_ready_frame():
+    pool = get_domain_pool(2)
+    pool.ensure_started()
+    try:
+        reports = pool.worker_prewarms
+        assert len(reports) == 2
+        assert all(item["outcome"] == pool_module.WORKER_IDENTITY_PREWARMED for item in reports), reports
+        assert all(item["seconds"] >= 0.0 for item in reports)
+    finally:
+        shutdown_domain_pool()
+
+
 def test_shutdown_stops_every_worker_process():
     pool = get_domain_pool(2)
     pool.ensure_started()

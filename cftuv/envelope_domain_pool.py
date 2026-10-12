@@ -671,6 +671,40 @@ def _identity_difference(host: dict, worker: dict) -> tuple[int, str] | None:
     return None
 
 
+#: Исход прогрева воркера: отпечатки кода и бэкенды считаются ДО «готов», а не на первой задаче (WORKER_IDENTITY_PREWARM_V1).
+WORKER_IDENTITY_PREWARMED = "ENVELOPE_DOMAIN_POOL_WORKER_IDENTITY_PREWARMED"
+WORKER_IDENTITY_PREWARM_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_WORKER_IDENTITY_PREWARM_UNAVAILABLE"
+
+
+def warm_worker_identities() -> dict:
+    """Отпечатки кода и идентичность бэкендов ЭТОГО процесса, посчитанные заранее; `{"outcome": ..., "seconds": ...}` уходит в кадр «готов».
+
+    ЗАЧЕМ. Первая задача каждого воркера платила ~0.2-0.3 с одноразовой работы, которая не зависит от домена: отпечаток кода хоста и ядра
+    (`envelope_content_key.code_identity`, sha256 по ~290 файлам: его берёт проверка снапшота и ключ пикла), отпечаток ядра для памяти резки
+    (`materialize.clip_memo.kernel_code_identity`, тот же закон, но свой кэш) и импорт модулей нативного расширения (идентичность бэкенда).
+    На холодной кнопке первые задачи - самые тяжёлые домены, поэтому это лежало на критическом пути стены `building` (12 x 0.2 с процессорных). Теперь это
+    считается в старте воркера, который прячет прогрев пула при регистрации аддона. Значения те же: кэши процесса, результат от порядка не зависит.
+
+    Сбой - названный исход в кадре и строка в stderr воркера, а не падение: первая задача посчитает недостающее сама (ответ тот же).
+    """
+
+    started = time.perf_counter()
+    try:
+        from .envelope_content_key import execution_identity
+
+        execution_identity(DEFAULT_KERNEL_BACKEND)  # отпечаток ядра и хоста (кэш процесса) и идентичность бэкенда: нативное расширение импортируется здесь
+        from cftuv_envelope.backend import native_status
+        from cftuv_envelope.materialize.clip_memo import kernel_code_identity
+
+        kernel_code_identity()
+        native_status()  # расширение и проверка закреплённых файлов: кэш процесса, как у первой задачи
+        outcome = WORKER_IDENTITY_PREWARMED
+    except Exception as exc:  # noqa: BLE001 - прогрев не ломает воркера: именованный исход и строка в stderr
+        outcome = WORKER_IDENTITY_PREWARM_UNAVAILABLE
+        print(f"[CFTUV][EnvelopeDomainPool] {outcome}: {type(exc).__name__}: {exc}; the first task computes it", flush=True)
+    return {"outcome": outcome, "seconds": time.perf_counter() - started}
+
+
 def worker_main() -> None:
     """Цикл воркера: задача на входе, ответ на выходе, до конца stdin."""
 
@@ -701,7 +735,7 @@ def worker_main() -> None:
     # первой задаче.
     importlib.import_module(".envelope_queue_pool", __package__)
     importlib.import_module(".envelope_production_export", __package__)
-    write_frame(channel, ("ready", os.getpid()))
+    write_frame(channel, ("ready", os.getpid(), warm_worker_identities()))
     while True:
         task = read_frame(source)
         if task is None:
@@ -730,6 +764,8 @@ class _Worker:
         self.dead = False
         #: Что воркер назвал о себе в `hello` (внешний интерпретатор), иначе пусто.
         self.identity: dict = {}
+        #: Прогрев воркера из кадра «готов» (`warm_worker_identities`): исход и секунды; пусто, если воркер его не прислал.
+        self.prewarm: dict = {}
         #: Зеркало памяти подготовок воркера (те же вложения и порядок вытеснения): ключ без пикла уходит, если воркер его держит.
         self.held = PreparationLruV1()
         #: Сколько байтов ответов прочитано у воркера и во что обошёлся их разбор (потоком-читателем родителя); растёт монотонно.
@@ -1052,6 +1088,12 @@ class DomainPool:
         return sum(not item.dead for item in self._workers)
 
     @property
+    def worker_prewarms(self) -> tuple:
+        """Прогрев каждого живого воркера, как он назвал его в кадре «готов» (`warm_worker_identities`)."""
+
+        return tuple(dict(item.prewarm) for item in self._workers if not item.dead)
+
+    @property
     def external_python(self) -> str:
         return self._external_python
 
@@ -1179,6 +1221,7 @@ class DomainPool:
                     reply = worker.receive(timeout=READY_TIMEOUT_SECONDS)
                 if not (isinstance(reply, tuple) and reply[:1] == ("ready",)):
                     raise _WorkerGone(f"unexpected first frame {reply!r}")
+                worker.prewarm = dict(reply[2]) if len(reply) > 2 and isinstance(reply[2], dict) else {}
             except _WorkerGone as exc:
                 failures.append(f"worker failed to start: {exc}")
                 worker.close(grace=0.5)
@@ -1377,6 +1420,8 @@ __all__ = (
     "MIN_POOL_WORKERS",
     "PoolInterpreterV1",
     "PoolStatsV1",
+    "WORKER_IDENTITY_PREWARMED",
+    "WORKER_IDENTITY_PREWARM_UNAVAILABLE",
     "describe_environment",
     "encode_frame",
     "get_domain_pool",
@@ -1390,6 +1435,7 @@ __all__ = (
     "resolve_python_executable",
     "shutdown_domain_pool",
     "solve_task",
+    "warm_worker_identities",
     "worker_main",
     "write_frame",
 )
