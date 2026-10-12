@@ -120,7 +120,7 @@ def _synthetic_batch(alpha, *, free, fixed, faces, refs, uv_axis):
     )
 
 
-def _certificate(batch, slopes, uv_axis, *, alpha, markers=()):
+def _certificate(batch, slopes, uv_axis, *, alpha, markers=(), approximate=(), rate=0.0):
     """Сертификат домена такого вида, какой выпускает ядро: наклоны позиций в порядке ключей батча и наклоны `u * alpha`, `v * alpha` по петлям граней (`slopes`: ключ -> наклон позиции)."""
 
     keys = sorted(item.vert_key.value for item in batch.vertices)
@@ -135,15 +135,19 @@ def _certificate(batch, slopes, uv_axis, *, alpha, markers=()):
             count += 1
     exact_alpha = Fraction(str(float(alpha)))
     if markers:
-        return SimpleNamespace(markers=tuple(markers), alpha=exact_alpha, vertex_count=0, loop_count=0, position_slopes=array("d"), loop_slopes=array("d"))
-    return SimpleNamespace(markers=(), alpha=exact_alpha, vertex_count=len(keys), loop_count=count, position_slopes=positions, loop_slopes=loops)
+        return SimpleNamespace(markers=tuple(markers), approximate=(), alpha=exact_alpha, vertex_count=0, loop_count=0, position_slopes=array("d"), loop_slopes=array("d"))
+    return SimpleNamespace(
+        markers=(), approximate=tuple(approximate), approximate_rate=rate, alpha=exact_alpha, vertex_count=len(keys), loop_count=count, position_slopes=positions, loop_slopes=loops,
+    )
 
 
 def _interval(alpha, low=0.1, high=0.6, status=CERTIFIED):
     return AlphaIntervalV1(status, "", float(alpha), float(low), float(high), 0, 0)
 
 
-def _fold_results(alpha, *, wall_interval=None, wall_token_suffix="", wall_markers=(), floor_markers=(), wall_slope=WALL_SLOPE, certificates=True):
+def _fold_results(
+    alpha, *, wall_interval=None, wall_token_suffix="", wall_markers=(), floor_markers=(), wall_slope=WALL_SLOPE, certificates=True, floor_approximate=(), wall_approximate=(), floor_rate=0.0
+):
     """Пол (`z = 0`) и стена (`y = 0`) делят ребро `a-b` исходника (ссылки `location:src:`): свободные вершины движутся с шириной."""
 
     refs = {"a": "location:src:A", "b": "location:src:B"}
@@ -163,8 +167,10 @@ def _fold_results(alpha, *, wall_interval=None, wall_token_suffix="", wall_marke
         refs=refs,
         uv_axis=(0, 2),
     )
-    floor_certificate = _certificate(floor, {"c": FLOOR_SLOPE, "d": FLOOR_SLOPE}, (0, 1), alpha=alpha, markers=floor_markers) if certificates else None
-    wall_certificate = _certificate(wall, {"e": wall_slope, "f": wall_slope}, (0, 2), alpha=alpha, markers=wall_markers) if certificates else None
+    floor_certificate = (
+        _certificate(floor, {"c": FLOOR_SLOPE, "d": FLOOR_SLOPE}, (0, 1), alpha=alpha, markers=floor_markers, approximate=floor_approximate, rate=floor_rate) if certificates else None
+    )
+    wall_certificate = _certificate(wall, {"e": wall_slope, "f": wall_slope}, (0, 2), alpha=alpha, markers=wall_markers, approximate=wall_approximate) if certificates else None
     return [
         ProductionDomainResultV1(
             0, "floor", MATERIALIZED, floor, normal=(0.0, 0.0, 1.0), source_normal=(0.0, 0.0, 1.0),
@@ -345,21 +351,127 @@ def test_two_domains_that_give_one_welded_vertex_two_slopes_are_both_named_and_h
     assert f"{pm.DOMAIN_WELD_DISAGREES}=2" in refusal.detail
 
 
-def test_a_neighbour_with_vertex_normals_makes_the_wall_nodes_of_this_domain_unservable():
-    """Закон `WALL_MITER_OFFSET_V1`: узел стены смещается по нормалям СОСЕДА; нормали развёртки меняются с шириной, и позиция узла не аффинна."""
+def test_a_neighbour_without_a_certificate_makes_the_wall_nodes_of_this_domain_unservable():
+    """Закон `WALL_MITER_OFFSET_V1`: узел стены смещается по нормалям СОСЕДА; у соседа без сертификата они неизвестны, и позиция узла не доказана."""
 
-    results = _fold_results(0.25, floor_markers=(pm.DEVELOPABLE_MARKER,))
+    results = _fold_results(0.25)
+    results[0] = results[0].with_changes(parametric=None)
     arrays = production_mesh.build_mesh_arrays(results, OFFSET)
     arrays = dataclasses.replace(arrays, domain_partners=((), (0,)))  # у стены сосед по стене - пол
     sample = preview.build_sample(results, arrays, ("fold",), 0.25)
     assert sample.domains[1].partners == (0,)
     model = pm.build_model(sample)
-    assert isinstance(model, pm.PreviewRefusalV1) and f"{pm.DOMAIN_WELD_PARTNER}=1" in model.detail and f"{pm.DEVELOPABLE_MARKER}=1" in model.detail
+    assert isinstance(model, pm.PreviewRefusalV1) and f"{pm.DOMAIN_WELD_PARTNER}=1" in model.detail and f"{pm.DOMAIN_NO_CERTIFICATE}=1" in model.detail
     # Плоский сосед ничего не меняет: его нормаль одна, смесь вдоль стены постоянна.
     flat = _fold_results(0.25)
     flat_arrays = dataclasses.replace(production_mesh.build_mesh_arrays(flat, OFFSET), domain_partners=((), (0,)))
     ok = pm.build_model(preview.build_sample(flat, flat_arrays, ("fold",), 0.25))
-    assert isinstance(ok, pm.PreviewModelV1) and ok.modelled_domains == 2
+    assert isinstance(ok, pm.PreviewModelV1) and ok.modelled_domains == 2 and ok.approximate_domains == 0 and ok.approximate is None
+
+
+# --------------------------------------------------------------------------
+# 1b. PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1: развёртка двигается приближённо, и это названо
+# --------------------------------------------------------------------------
+
+
+def _display_fold(alpha=0.25, **kwargs):
+    """Складка, у которой пол - развёртка (ядро назвало его `approximate`, числа есть): плоская стена - точный домен."""
+
+    return _fold_sample(alpha, floor_approximate=(pm.DEVELOPABLE_MARKER,), **kwargs)[0]
+
+
+def test_a_developable_domain_is_served_as_display_approximate_and_named_apart_from_the_exact_ones():
+    base = _display_fold()
+    assert base.domains[0].approximate == (pm.DEVELOPABLE_MARKER,) and base.domains[0].markers == () and base.domains[1].approximate == ()
+    assert base.domains[0].slopes is not None, "the numbers of a developable domain are the exact affine part of its batch"
+    model = pm.build_model(base)
+    assert isinstance(model, pm.PreviewModelV1)
+    assert [row_[2] for row_ in model.rows] == [pm.DOMAIN_DISPLAY_APPROXIMATE, pm.DOMAIN_MODELLED] == ["PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1", "MODELLED"]
+    assert model.modelled_domains == 2 and model.approximate_domains == 1 and model.reason_counts() == {}
+    assert list(model.approximate) == [True, False]
+    assert model.rows[0][4] == pm.DISPLAY_APPROXIMATE_REACH_RATIO and model.rows[1][4] is None
+    frame = pm.evaluate(model, 0.26)
+    assert frame.refusal == "" and frame.live_domains == 2 and frame.approximate_domains == 1 and frame.held == ()
+    # Точная аффинная часть: складка синтетики аффинна, смещение у неё постоянно, поэтому кадр равен точному прогону.
+    exact, _ = _fold_sample(0.26, floor_approximate=(pm.DEVELOPABLE_MARKER,))
+    position_error, uv_error = _max_error(model, exact)
+    assert position_error < 1e-12 and uv_error < 1e-12
+    # Модель без развёрток не знает приближённых доменов.
+    plain = pm.build_model(_fold_sample(0.25)[0])
+    assert plain.approximate is None and plain.approximate_domains == 0 and pm.evaluate(plain, 0.26).approximate_domains == 0
+
+
+def test_the_display_approximate_domain_is_held_beyond_its_reach_by_name_while_the_exact_one_keeps_moving():
+    model = pm.build_model(_display_fold())
+    inside = 0.25 * (1.0 + 0.8 * pm.DISPLAY_APPROXIMATE_REACH_RATIO)
+    beyond = 0.25 * (1.0 + 1.5 * pm.DISPLAY_APPROXIMATE_REACH_RATIO)
+    assert pm.evaluate(model, inside).live_domains == 2
+    frame = pm.evaluate(model, beyond)
+    assert frame.live_domains == 1 and frame.approximate_domains == 0
+    assert frame.held == ((0, pm.DOMAIN_HELD_DISPLAY_REACH),) and pm.DOMAIN_HELD_DISPLAY_REACH == "PREVIEW_DEVELOPABLE_FROZEN_NORMAL_REACH_END"
+    # Ниже базы то же: досягаемость симметрична.
+    assert pm.evaluate(model, 0.25 * (1.0 - 1.5 * pm.DISPLAY_APPROXIMATE_REACH_RATIO)).held == ((0, pm.DOMAIN_HELD_DISPLAY_REACH),)
+
+
+def test_the_reach_of_a_display_approximate_domain_follows_the_error_estimate_of_its_own_normal_rate():
+    """Оценка ошибки кадра - `offset * rate * dt * запас`; досягаемость - доля ширины базы, на которой оценка ещё в пределе (метры), не выше общего потолка."""
+
+    alpha = 0.25
+    reach = 0.02
+    rate = pm.DISPLAY_APPROXIMATE_ERROR_LIMIT / (pm.DISPLAY_APPROXIMATE_ERROR_SAFETY * OFFSET * reach * alpha)
+    base = _fold_sample(alpha, floor_approximate=(pm.DEVELOPABLE_MARKER,), floor_rate=rate)[0]
+    assert base.offset == OFFSET and base.domains[0].approximate_rate == rate
+    model = pm.build_model(base)
+    assert model.rows[0][4] == pytest.approx(reach) and model.rows[1][4] is None
+    estimate = lambda share: OFFSET * rate * (alpha * share) * pm.DISPLAY_APPROXIMATE_ERROR_SAFETY  # noqa: E731
+    assert estimate(0.99 * reach) < pm.DISPLAY_APPROXIMATE_ERROR_LIMIT < estimate(1.01 * reach)
+    assert pm.evaluate(model, alpha * (1.0 + 0.99 * reach)).approximate_domains == 1
+    far = pm.evaluate(model, alpha * (1.0 + 1.01 * reach))
+    assert far.approximate_domains == 0 and far.held == ((0, pm.DOMAIN_HELD_DISPLAY_REACH),) and far.live_domains == 1
+    # Нормали не движутся (скорость ноль) либо смещение неизвестно (ноль): общий потолок; скорость бесконечна либо не число: домен назван и не двигается.
+    assert pm._display_reach(OFFSET, 0.0, alpha) == pm.DISPLAY_APPROXIMATE_REACH_RATIO == pm._display_reach(0.0, 5.0, alpha)
+    assert pm._display_reach(OFFSET, float("inf"), alpha) == 0.0 and pm._display_reach(OFFSET, float("nan"), alpha) == 0.0
+    assert pm._display_reach(OFFSET, 1e-9, alpha) == pm.DISPLAY_APPROXIMATE_REACH_RATIO  # потолок не поднимается
+    stopped = pm.build_model(_fold_sample(alpha, floor_approximate=(pm.DEVELOPABLE_MARKER,), floor_rate=float("inf"))[0])
+    assert pm.evaluate(stopped, alpha * 1.001).held == ((0, pm.DOMAIN_HELD_DISPLAY_REACH),)
+    # Сосед по стене берёт скорость нормали соседа-развёртки.
+    results = _fold_results(alpha, floor_approximate=(pm.DEVELOPABLE_MARKER,), floor_rate=rate)
+    arrays = dataclasses.replace(production_mesh.build_mesh_arrays(results, OFFSET), domain_partners=((), (0,)))
+    partner = pm.build_model(preview.build_sample(results, arrays, ("fold",), alpha))
+    assert partner.rows[1][4] == pytest.approx(reach)
+
+
+def test_a_display_approximate_domain_is_judged_by_its_own_limit_in_metres_and_goes_to_quarantine_by_the_same_ledger():
+    approximate_model = pm.build_model(_display_fold())
+    exact_model = pm.build_model(_fold_sample(0.25)[0])
+    shifted, _ = _fold_sample(0.26, floor_approximate=(pm.DEVELOPABLE_MARKER,))
+    own = np.setdiff1d(shifted.domains[0].vertices, shifted.domains[1].vertices)
+    assert own.size
+    positions = np.array(shifted.positions)
+    positions[own, 2] += 3e-4  # больше предела приближённого домена (1e-4 м), меньше общего (0.5 % ширины = 1.3 мм)
+    perturbed = dataclasses.replace(shifted, positions=positions)
+    assert 3e-4 > pm.DISPLAY_APPROXIMATE_ERROR_LIMIT and 3e-4 < pm.DEVIATION_LIMIT_RATIO * 0.26
+    check = pm.deviation(approximate_model, perturbed)
+    assert check.refuted == (0,) and check.worst_ratio > 1.0
+    assert pm.deviation(exact_model, perturbed).refuted == (), "the same error is within the limit of an exact domain"
+    ledger, events = pm.advance_ledger(None, approximate_model, check)
+    assert events == ((0, "floor", pm.DOMAIN_QUARANTINED),)
+    rebuilt = pm.build_model(shifted, ledger)
+    assert rebuilt.rows[0][2] == pm.DOMAIN_QUARANTINED and list(rebuilt.approximate) == [True, False], "a quarantined domain stays display-approximate for its shadow check"
+    assert pm.evaluate(rebuilt, 0.26).held == ((0, pm.DOMAIN_QUARANTINED),)
+
+
+def test_the_partner_of_a_display_approximate_neighbour_is_display_approximate_by_the_same_cause():
+    """Узлы стены смещает нормаль соседа-развёртки: их кадр приближён по той же причине, что кадр соседа (`WALL_MITER_OFFSET_V1`)."""
+
+    results = _fold_results(0.25, floor_approximate=(pm.DEVELOPABLE_MARKER,))
+    arrays = dataclasses.replace(production_mesh.build_mesh_arrays(results, OFFSET), domain_partners=((), (0,)))
+    sample = preview.build_sample(results, arrays, ("fold",), 0.25)
+    assert sample.domains[1].partners == (0,) and sample.domains[1].approximate == ()
+    model = pm.build_model(sample)
+    assert [row_[2] for row_ in model.rows] == [pm.DOMAIN_DISPLAY_APPROXIMATE, pm.DOMAIN_DISPLAY_APPROXIMATE]
+    assert list(model.approximate) == [True, True] and model.approximate_domains == 2 and model.modelled_domains == 2
+    assert pm.evaluate(model, 0.26).approximate_domains == 2
 
 
 # --------------------------------------------------------------------------
@@ -1052,6 +1164,19 @@ def test_the_preview_status_names_the_certificate_and_says_the_structure_is_veri
     controller.width_model = None
     controller.width_model_refusal = pm.PreviewRefusalV1("PREVIEW_NO_MODELLED_DOMAIN")
     assert preview.status_lines(controller)[-1] == "Preview model: none (PREVIEW_NO_MODELLED_DOMAIN) - the line overlay only"
+
+
+def test_the_status_names_display_approximate_domains_apart_from_the_exact_ones_and_the_state_counts_them(monkeypatch):
+    world = _owned(monkeypatch, samples=(_display_fold(),))
+    state = preview.preview_mesh_now(world.controller, 0.26)
+    assert state.live == 2 and state.approximate == 1 and state.held == 0
+    text = "\n".join(preview.status_lines(world.controller))
+    assert "(1 exact affine, 1 display-approximate PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1:" in text and "error limit 0.1 mm" in text
+    assert "(1 exact, 1 display-approximate PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1)" in text
+    # Ширина за досягаемостью: приближённый домен придержан под своим именем, точный двигается, в статусе приближённых уже нет.
+    far = preview.preview_mesh_now(world.controller, 0.25 * (1.0 + 1.5 * pm.DISPLAY_APPROXIMATE_REACH_RATIO))
+    assert far.live == 1 and far.approximate == 0 and far.held == 1
+    assert "display-approximate" not in "\n".join(preview.status_lines(world.controller)).split("Preview model")[0]
 
 
 # --------------------------------------------------------------------------

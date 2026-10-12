@@ -203,7 +203,7 @@ def probe(args, tree, report) -> None:
             continue
         kw = {**kw, "digests": False}
         certificate = first.result.parametric
-        for name in ("PARAM_ABSENT",) if certificate is None else (certificate.markers or ("AFFINE",)):
+        for name in ("PARAM_ABSENT",) if certificate is None else (certificate.markers or certificate.approximate or ("AFFINE",)):
             markers[name] += 1
         without, with_certificate = overhead_of(prepared, alpha_text, kw, real_step, args.repeats)
         spent_without, spent_with, measured = spent_without + without, spent_with + with_certificate, measured + 1

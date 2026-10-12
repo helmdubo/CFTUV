@@ -3,7 +3,7 @@
 Один модуль для двух читателей: тесты ядра (`test_parametric_certificate.py`, фикстуры) и полевой зонд (`tools/...` и `E:\\cftuv_s6a\\field_theorem.py`, домены `building`,
 `cover.008`, `rounded_wall_noise_top`). Равенство ТОЧНОЕ: `SqrtSumV1` каноничен, поэтому равные величины равны побитово; допусков нет.
 
-Что сравнивается для домена, у которого нет названных причин (`markers` пусто; у развёртки допустима единственная `PARAM_NON_AFFINE_DEVELOPABLE_OFFSET`: позиции ДО смещения аффинны, а
+Что сравнивается для домена, у которого нет названных причин (`markers` пусто; у развёртки в `approximate` стоит `PARAM_NON_AFFINE_DEVELOPABLE_OFFSET`: позиции батча ДО смещения аффинны, а
 смещение идёт мимо ядра):
 * точка карты каждой вершины (единицы решётки): `point(alpha1) == point(alpha0) + наклон * (alpha1 - alpha0) * scale`;
 * точный подъём точки (метры, без позиции хоста `src:` и переноса узлов: это константы): `position(alpha1) == position(alpha0) + наклон * (alpha1 - alpha0)`;
@@ -15,8 +15,6 @@
 from __future__ import annotations
 
 from fractions import Fraction
-
-DEVELOPABLE_MARKER = "PARAM_NON_AFFINE_DEVELOPABLE_OFFSET"
 
 #: Исходы сравнения.
 JUDGED = "JUDGED"
@@ -32,9 +30,9 @@ def decimal_text(alpha: Fraction, digits: int = 12) -> str:
 
 
 def usable(certificate) -> bool:
-    """Сертификат с точными числами: без причин либо только с развёрткой (позиции до смещения)."""
+    """Сертификат с точными числами: без причин отказа (развёртка с `approximate` тоже: позиции батча до смещения)."""
 
-    return certificate is not None and certificate.exact is not None and set(certificate.markers) <= {DEVELOPABLE_MARKER}
+    return certificate is not None and certificate.exact is not None and not certificate.markers
 
 
 def theorem_differences(base_step, other_step, alpha0: Fraction, alpha1: Fraction):
@@ -81,7 +79,7 @@ def float_errors(base_step, other_step, alpha0: Fraction, alpha1: Fraction):
 
     base, other = base_step.result, other_step.result
     certificate = base.parametric
-    if certificate is None or certificate.markers and set(certificate.markers) != {DEVELOPABLE_MARKER}:
+    if certificate is None or certificate.markers:
         return None
     delta = float(alpha1 - alpha0)
     alpha_first, alpha_second = float(alpha0), float(alpha1)

@@ -177,14 +177,46 @@ def test_the_certificate_spends_no_exact_work_outside_its_own_budget(name, build
     assert work and work == [item for item in without.result.counters if item[0].startswith("EXACT_WORK_")]
 
 
-def test_a_developable_domain_is_named_not_served():
+def test_a_developable_domain_carries_its_numbers_and_is_named_approximate():
+    """PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1: позиции батча развёртки аффинны и отдаются числами, смещение хоста по нормалям - нет, и это названо в `approximate`, а не в `markers`."""
+
     prepared = developable(df.quarter_cylinder)
     plain = step(prepared, "0.7", CERTIFIED_LAWS, exact=False)
-    assert plain.result.parametric.markers == (parametric.PARAM_DEVELOPABLE_OFFSET,)
-    assert plain.result.parametric.vertex_count == 0 and not plain.result.parametric.is_affine
-    # Точный режим считает числа (теорема о позициях до смещения), но название остаётся.
+    found = plain.result.parametric
+    assert found.markers == () and found.approximate == (parametric.PARAM_DEVELOPABLE_OFFSET,)
+    assert found.vertex_count > 0 and found.loop_count > 0 and not found.is_affine
+    assert len(found.position_slopes) == 3 * found.vertex_count and len(found.loop_slopes) == 2 * found.loop_count
+    # Точный режим несёт те же float-числа плюс точные величины для теоремы.
     judged = step(prepared, "0.7", CERTIFIED_LAWS)
-    assert judged.result.parametric.markers == (parametric.PARAM_DEVELOPABLE_OFFSET,) and judged.result.parametric.vertex_count > 0
+    assert judged.result.parametric.approximate == found.approximate and judged.result.parametric.exact is not None
+    assert list(judged.result.parametric.position_slopes) == list(found.position_slopes)
+
+
+@pytest.mark.parametrize("name,build,alpha", [("quarter", lambda: developable(df.quarter_cylinder), "0.7"), ("fold", lambda: developable(df.fold_strip), "0.3"), ("slant", lambda: developable(df.slant_fold), "0.7")])
+def test_the_normal_rate_of_a_developable_domain_is_the_first_order_derivative_of_its_own_offset_normals(name, build, alpha):
+    """`approximate_rate` (1/м) - наибольшая `|d n / d alpha|` нормалей смещения движущихся вершин: сверка с конечной разностью НОРМАЛЕЙ САМОГО ЯДРА на двух ширинах одной структуры."""
+
+    import math
+
+    prepared = build()
+    delta = Fraction(1, 10_000)
+    base = step(prepared, alpha, CERTIFIED_LAWS, exact=False)
+    other = step(prepared, theorem.decimal_text(Fraction(alpha) + delta, 6), CERTIFIED_LAWS, exact=False)
+    assert base.result.structure.digest == other.result.structure.digest, f"{name}: the structure changed between the two widths"
+    first, second = dict(base.result.vertex_normals), dict(other.result.vertex_normals)
+    keys = sorted(set(first) & set(second))
+    measured = max(math.dist(first[key], second[key]) for key in keys) / float(delta)
+    rate = base.result.parametric.approximate_rate
+    assert rate > 0.0, f"{name}: the normals of the domain do not move, nothing to compare"
+    assert abs(measured - rate) <= 0.02 * rate + 1e-6, (name, measured, rate)
+    # Аффинный домен нормалей смещения по вершинам не несёт.
+    assert step(field("building_002_point_contact_v1"), "0.25", HOST_LAWS, exact=False).result.parametric.approximate_rate == 0.0
+
+
+def test_an_affine_domain_names_nothing_approximate():
+    prepared = field("building_002_point_contact_v1")
+    found = step(prepared, str(prepared.requested_alpha.value), HOST_LAWS, exact=False).result.parametric
+    assert found.markers == () and found.approximate == () and found.is_affine
 
 
 def test_an_uncertified_window_is_named():

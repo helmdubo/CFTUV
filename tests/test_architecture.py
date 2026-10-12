@@ -685,6 +685,49 @@ def test_the_affine_certificate_is_computed_after_the_answer_and_never_inside_it
         assert where["certificate_of"] > where[earlier], f"сертификат считается раньше {earlier}: он мог бы сдвинуть ответ"
     source = (materialize / "parametric.py").read_text(encoding="utf-8")
     assert "unlimited_reference_budget" in source and "clip_memo_disabled" in source, "боковые резки идут мимо памяти резки и на своём бюджете"
+
+
+def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_enters_a_committed_result():
+    """PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1: кадр модели (в нём приближённые домены-развёртки) существует только на экране.
+
+    Исполняемо: кадр модели (`evaluate`) зовёт ровно один вход главного потока — `preview_mesh_now` в `envelope_width_mesh_preview.py`; его позиции и UV (`positions_and_uvs`, `shadow_prediction`)
+    читают только сама модель; а `write_preview_geometry` зовут кадр модели (`preview_mesh_now`) и кадры самой базы (`base_frame`: отмена, lean-замена). Точный результат (кнопка, lean-такт, подтверждение) модуль
+    модели не импортирует вовсе: приближённые числа не попадают в `ProductionDomainResultV1`, образец и дайджест.
+    """
+
+    callers: dict = {}
+    for path in _python_files(HOST_PACKAGE):
+        for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call):
+                    name = _called_names_of(node)
+                    if name in ("evaluate", "positions_and_uvs", "shadow_prediction"):
+                        callers.setdefault(name, set()).add((path.name, function.name))
+    assert callers.get("evaluate", set()) >= {("envelope_width_mesh_preview.py", "preview_mesh_now")}
+    assert {item for item in callers["evaluate"] if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers["evaluate"]
+    for name in ("positions_and_uvs", "shadow_prediction"):
+        outside = {item for item in callers.get(name, set()) if item[0] != "envelope_width_preview_model.py"}
+        assert not outside, f"кадр модели ({name}) читает не модель: {sorted(outside)}"
+    importers = sorted(path.name for path in _python_files(HOST_PACKAGE) if _imports_module(path, "envelope_width_preview_model"))
+    assert importers == ["envelope_width_mesh_preview.py"], f"модель превью импортирует не только слой превью: {importers}"
+    frame_writers = set()
+    for path in _python_files(HOST_PACKAGE):
+        for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
+            calls = [node for node in ast.walk(function) if isinstance(node, ast.Call)]
+            if any(_called_names_of(call) == "write_preview_geometry" for call in calls):
+                frame_writers.add((path.name, function.name, any(_called_names_of(call) == "evaluate" for call in calls)))
+    assert {item[:2] for item in frame_writers if item[2]} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, frame_writers
+
+
+def _imports_module(path: Path, module: str) -> bool:
+    """Модуль импортирует `module` относительно пакета (`from .module import ...`) либо по полному имени."""
+
+    for node in ast.walk(_parse(path)):
+        if isinstance(node, ast.ImportFrom) and node.module and (node.module == module or node.module.endswith("." + module)):
+            return True
+        if isinstance(node, ast.Import) and any(alias.name.endswith(module) for alias in node.names):
+            return True
+    return False
 def _called_names_of(call: ast.Call) -> str:
     return call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", "")
 

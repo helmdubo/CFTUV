@@ -47,6 +47,7 @@ def _arguments():
     parser.add_argument("--steps", type=int, default=10)
     parser.add_argument("--rel", type=float, default=0.005)
     parser.add_argument("--repeats", type=int, default=20)
+    parser.add_argument("--safety", type=float, default=None, help="override DISPLAY_APPROXIMATE_ERROR_SAFETY (0 = the display-approximate domains live to the flat reach ceiling: the whole sweep is measured)")
     parser.add_argument("--out", required=True)
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
 
@@ -139,26 +140,52 @@ def judge_tick(model, base, sample, alpha):
 
     positions, uvs, live = pm.positions_and_uvs(model, alpha)
     twins = {(item.patch_id, item.domain_id): item for item in sample.domains}
+    # The tree under test may not know display-approximate domains (the base tree): no such attribute, no such class.
+    near = getattr(model, "approximate", None)
+    held_reason = {}
+    if not live.all():
+        # `evaluate` names every held domain, in the order of the non-live domains (reach end, interval end, a reason of the build).
+        frame = pm.evaluate(model, alpha)
+        held_reason = {int(index): reason for index, (_patch, reason) in zip(np.flatnonzero(~live), frame.held)}
     errors_position, errors_uv, switched, held, reasons = [], [], 0, 0, {}
+    exact_position, near_position, near_uv, near_domains = [], [], [], []
     for index, domain in enumerate(base.domains):
         if not live[index]:
             held += 1
             row = model.rows[index]
-            reason = row[2] if row[2] != pm.DOMAIN_MODELLED else "OUTSIDE_INTERVAL_OR_REACH"
+            served = getattr(pm, "SERVED_OUTCOMES", (pm.DOMAIN_MODELLED,))
+            reason = held_reason.get(index) if row[2] in served else row[2]
+            reason = reason or "OUTSIDE_INTERVAL_OR_REACH"
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         twin = twins.get((domain.patch_id, domain.domain_id))
         if twin is None or twin.token != domain.token or twin.structure != domain.structure or twin.vertices.shape != domain.vertices.shape or twin.loop_count != domain.loop_count:
             switched += 1
             continue
-        errors_position.append(float(np.max(np.abs(positions[domain.vertices] - sample.positions[twin.vertices]), initial=0.0)))
+        position_error = float(np.max(np.abs(positions[domain.vertices] - sample.positions[twin.vertices]), initial=0.0))
         mine = uvs[domain.loop_start : domain.loop_start + domain.loop_count]
         exact = sample.uvs[twin.loop_start : twin.loop_start + twin.loop_count]
-        errors_uv.append(float(np.max(np.abs(mine - exact), initial=0.0)))
+        uv_error = float(np.max(np.abs(mine - exact), initial=0.0))
+        errors_position.append(position_error)
+        errors_uv.append(uv_error)
+        if near is not None and near[index]:
+            near_position.append(position_error)
+            near_uv.append(uv_error)
+            near_domains.append(
+                {
+                    "patch": domain.patch_id, "max_position_m": position_error, "max_uv": uv_error, "rate": getattr(domain, "approximate_rate", None),
+                    "reach": model.rows[index][4], "offset": getattr(base, "offset", None), "dt": alpha - base.alpha,
+                }
+            )
+        else:
+            exact_position.append(position_error)
     return {
         "domains": len(base.domains), "live": int(live.sum()), "held": held, "live_switched": switched, "judged": len(errors_position),
         "max_position_m": max(errors_position, default=0.0), "max_uv": max(errors_uv, default=0.0),
         "p50_position_m": percentile(errors_position, 0.5), "p99_position_m": percentile(errors_position, 0.99), "held_reasons": reasons,
+        # Exact affine domains and display-approximate ones (PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1) apart: the second class is bounded by a limit, the first is rounding.
+        "exact_judged": len(exact_position), "exact_max_position_m": max(exact_position, default=0.0),
+        "approx_judged": len(near_position), "approx_max_position_m": max(near_position, default=0.0), "approx_max_uv": max(near_uv, default=0.0), "approx_domains": near_domains,
     }
 
 
@@ -175,7 +202,8 @@ def run_ticks(session, model, base):
             ticks.append({"pattern": pattern, "rel": rel, "alpha": alpha, **record})
             print(
                 f"ACC {pattern} {rel:+.3f} live={record['live']}/{record['domains']} switched={record['live_switched']} judged={record['judged']} "
-                f"max_pos={record['max_position_m']:.3e} max_uv={record['max_uv']:.3e}",
+                f"max_pos={record['max_position_m']:.3e} max_uv={record['max_uv']:.3e} exact_pos={record['exact_max_position_m']:.3e} "
+                f"approx({record['approx_judged']})_pos={record['approx_max_position_m']:.3e}",
                 flush=True,
             )
     return ticks
@@ -197,18 +225,34 @@ def probe(args, tree, report) -> None:
     import cftuv.envelope_width_mesh_preview as preview
     import cftuv.envelope_width_preview_model as pm
 
+    if args.safety is not None and hasattr(pm, "DISPLAY_APPROXIMATE_ERROR_SAFETY"):
+        pm.DISPLAY_APPROXIMATE_ERROR_SAFETY = args.safety
+    report["safety"] = getattr(pm, "DISPLAY_APPROXIMATE_ERROR_SAFETY", None)
     session = Session(args, tree)
     started = time.perf_counter()
     run, arrays = session.exact(args.alpha, lean=False)
     report["cold_seconds"] = time.perf_counter() - started
     base = preview.build_sample(run.results, arrays, KEY, args.alpha)
     report["domains"] = len(base.domains)
+    import gc
+
+    collections_before = [item["collections"] for item in gc.get_stats()]
     entered = time.perf_counter()
     model, prime_runs = build_tool_entry_model(session, base)
     report["tool_entry_seconds"], report["prime_runs"], report["model_class"] = time.perf_counter() - entered, prime_runs, type(model).__name__
+    # Where a slow entry comes from: collections of the cyclic collector inside the call (a generation-2 pass over the heap of a big scene costs hundreds of ms) and the steady-state cost.
+    report["tool_entry_gc_collections"] = [after["collections"] - before for before, after in zip(collections_before, gc.get_stats())]
+    repeats = []
+    for _ in range(3):
+        begun = time.perf_counter()
+        pm.build_model(base)
+        repeats.append(time.perf_counter() - begun)
+    report["tool_entry_repeat_seconds"] = repeats
     if not isinstance(model, pm.PreviewModelV1):
         raise RuntimeError(f"no model: {getattr(model, 'outcome', model)}")
-    report["model"] = {"modelled": model.modelled_domains, "domains": model.domain_count, "reasons": model.reason_counts(), "own_bytes": model.own_bytes}
+    report["model"] = {
+        "modelled": model.modelled_domains, "approximate": getattr(model, "approximate_domains", 0), "domains": model.domain_count, "reasons": model.reason_counts(), "own_bytes": model.own_bytes,
+    }
     report["ticks"] = run_ticks(session, model, base)
     report["frame_ms"] = frame_cost(model, report["ticks"], args.repeats)
     print("ACC frame ms", report["frame_ms"], "tool entry s", round(report["tool_entry_seconds"], 3), "prime runs", prime_runs, flush=True)

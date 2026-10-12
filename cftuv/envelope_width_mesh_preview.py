@@ -4,6 +4,8 @@
 и UV пишутся в существующий меш из модели, а точный пересчёт идёт в фоне через тот же планировщик, что и прежде, и его результат
 заменяет превью. Строка статуса называет превью (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`), придержанные и карантинные домены с их причинами (`PARAM_*`).
 Ядро заверяет интервал событий и аффинность внутри него (точное равенство, `kernel/tests/parametric_theorem.py`); решения тесселяции, силуэта и митры сварки модель проверяет апостериори.
+Домены-развёртки двигаются приближённо и названы отдельно (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`: точные наклоны, смещение по нормалям, замороженным на ширине образца; предел ошибки
+`DISPLAY_APPROXIMATE_ERROR_LIMIT`, досягаемость `DISPLAY_APPROXIMATE_REACH_RATIO`): такой кадр только на экране, точный результат (lean-такт, подтверждение) заменяет его и записывается как прежде.
 
 ОТКУДА МОДЕЛЬ. Из ОДНОГО точного прогона: на экране лежит ОБРАЗЕЦ (`PreviewSampleV1`: массивы меша и домены прогона, чья геометрия сейчас в меше, вместе с наклонами сертификата ядра), модель
 из него складывает базу и наклон. Никаких затравочных прогонов: вход в инструмент не ждёт ничего, модель строится из образца, который кнопка или точное обновление уже положили на
@@ -42,6 +44,8 @@ import numpy as np
 
 from .envelope_production_result import REFRESH_LEAN
 from .envelope_width_preview_model import (
+    DISPLAY_APPROXIMATE_ERROR_LIMIT,
+    DOMAIN_DISPLAY_APPROXIMATE,
     PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1,
     DeviationV1,
     PreviewModelV1,
@@ -136,6 +140,8 @@ class PreviewMeshStateV1:
     seconds: float
     serial: int
     moving: frozenset = frozenset()
+    #: Сколько из `live` доменов приближённые (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`: точная аффинная часть плюс замороженное смещение); остальные живые точны.
+    approximate: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -583,6 +589,7 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
         seconds,
         1 if previous is None else previous.serial + 1,
         moving,
+        frame.approximate_domains,
     )
     controller.width_mesh_preview = state
     log = log_of(controller)
@@ -759,17 +766,25 @@ def status_lines(controller) -> tuple[str, ...]:
             more = "" if state.held <= len(state.held_patches) else ", ..."
             held = f", {state.held} held at the last exact geometry (patch {shown}{more})"
         refusal = "" if state.outcome == PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 else f" REFUSED {state.outcome}:"
+        near = ""
+        if state.approximate:
+            near = (
+                f" ({state.live - state.approximate} exact affine, {state.approximate} display-approximate {DOMAIN_DISPLAY_APPROXIMATE}: "
+                f"exact slopes, offset normals frozen at the last exact width, error limit {DISPLAY_APPROXIMATE_ERROR_LIMIT * 1000:g} mm)"
+            )
         lines.append(
             f"Mesh {PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1} preview (exact affine certificate; structure verified afterwards):{refusal} width {state.alpha:.4g}, "
-            f"{state.live} domains moving{held}; the exact result follows"
+            f"{state.live} domains moving{near}{held}; the exact result follows"
         )
     model = controller.width_model
     if model is not None:
         reasons = model.reason_counts()
         extra = "" if not reasons else " (" + ", ".join(f"{name} {count}" for name, count in sorted(reasons.items())) + ")"
+        approximate = model.approximate_domains
+        split = "" if not approximate else f" ({model.modelled_domains - approximate} exact, {approximate} display-approximate {DOMAIN_DISPLAY_APPROXIMATE})"
         lines.append(
             f"Preview model (affine certificate of one exact run, valid inside the certified event interval): {model.modelled_domains}/{model.domain_count} domains "
-            f"modelled, {model.own_bytes / 1024:.0f} KB{extra}"
+            f"modelled{split}, {model.own_bytes / 1024:.0f} KB{extra}"
         )
     elif controller.width_model_refusal is not None:
         refusal = controller.width_model_refusal

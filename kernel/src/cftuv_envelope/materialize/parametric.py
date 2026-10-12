@@ -17,13 +17,17 @@
 
 ЧТО НЕ АФФИННО, и это названо (`PARAM_NON_AFFINE_*`, `PARAM_*`): домен тогда НЕ обслуживается моделью хоста и остаётся на последней точной геометрии (контур показывает линия превью, а
 пересчёт ведёт lean-такт). Ничего не молчит: причина лежит в `markers` сертификата.
-* смещение вдоль нормалей вершин у домена-развёртки (`PARAM_NON_AFFINE_DEVELOPABLE_OFFSET`): нормаль - нормированная смесь, не рациональная;
 * узел резки либо факт на нём не аффинен по трём значениям (`PARAM_NON_AFFINE_CLIP_NODE`, `PARAM_NON_AFFINE_CLIP_FACT`), структура резки в боковых точках другая
   (`PARAM_CLIP_STRUCTURE_CHANGED`), либо резка в боковой точке отказала (`PARAM_CLIP_REFUSED`);
 * вершина на ребре треугольника источника, уходящая с него (`PARAM_NON_AFFINE_LIFT_ON_EDGE`: излом подъёма);
 * два ответа на вершину совпали при alpha0, но их наклоны различны (`PARAM_IDENTITY_AT_POINT`: тождество выполняется в точке, а не на окне);
 * точка покрытия с двумя наклонами (`PARAM_POINT_SLOPE_AMBIGUOUS`);
 * шаблон покрытия или контуры покрытия не доступны (`PARAM_TEMPLATE_UNAVAILABLE`, `PARAM_CONTOURS_UNAVAILABLE`), интервал не заверен (`PARAM_WINDOW_NOT_CERTIFIED`).
+
+ДОМЕН-РАЗВЁРТКА (`approximate`, не `markers`). Позиции его батча ДО смещения аффинны так же точно, как у плоского домена (теорема проверена на полевых развёртках), но хост сдвигает вершины
+вдоль нормалей вершин (`SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`, нормированная смесь трёх нормалей углов треугольника: не рациональная) и митрой сварки. Ядро отдаёт те же числа
+и называет такой домен в `approximate` (`PARAM_NON_AFFINE_DEVELOPABLE_OFFSET`): он аффинен ТОЛЬКО по батчу, меш хоста на сдвинутой ширине аффинен лишь приближённо. Что с этим делает
+хост (смещение с нормалями, замороженными на ширине сертификата, предел ошибки и имя), решает хост (`envelope_width_preview_model`), не ядро.
 
 ЧЕГО СЕРТИФИКАТ НЕ ЗАВЕРЯЕТ: решения тесселяции, силуэта, положения вершин `src:` у хоста и диагоналей ячейки (`interval.UNCERTIFIED`) он не доказывает - они проверяются
 апостериори сравнением подписи структуры (`structure.batch_structure`) и токена локальных массивов, как раньше.
@@ -34,6 +38,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 from array import array
@@ -145,7 +150,8 @@ class ParametricCertificateV1:
 
     `position_slopes` - `d позиция / d alpha` (метры на метр), по три на вершину в порядке ключей батча (по `vert_key`); `loop_slopes` - по два на петлю UV: `d(u * alpha) / d alpha`
     и `d(v * alpha) / d alpha` (безразмерные), в порядке граней батча и их `uv_facts`. Позиция при `alpha + d`: `позиция + наклон * d`; `u` при `alpha + d`: `(u * alpha + наклон * d) / (alpha + d)`.
-    `markers` пусто - домен аффинен (внутри заверенного интервала и той же структуры); иначе перечень `PARAM_*`, и массивы пусты.
+    `markers` пусто - батч домена аффинен (внутри заверенного интервала и той же структуры); иначе перечень `PARAM_*`, и массивы пусты. `approximate` - названные причины, по которым МЕШ хоста
+    аффинен лишь приближённо при аффинном батче (развёртка: смещение по нормалям вершин, `PARAM_NON_AFFINE_DEVELOPABLE_OFFSET`); числа в этом случае есть.
     """
 
     law: str
@@ -160,10 +166,13 @@ class ParametricCertificateV1:
     #: Числа сборки (для записи и замеров): узлы резки по трём значениям, вершины с ненулевым наклоном и т. п.
     counters: tuple = ()
     exact: ExactParametricV1 | None = field(default=None)
+    approximate: tuple = ()
+    #: Только у домена с `approximate`: наибольшая скорость поворота нормали смещения по ширине (`|d n / d alpha|`, 1/м) среди движущихся вершин, первый порядок; ноль - нормали не движутся.
+    approximate_rate: float = 0.0
 
     @property
     def is_affine(self) -> bool:
-        return not self.markers
+        return not self.markers and not self.approximate
 
 
 def unavailable(alpha: Fraction, scale: int, name: str, detail: str = "") -> ParametricCertificateV1:
@@ -251,6 +260,30 @@ def _triangle_slope(triangle, slope, scale: int) -> tuple:
         )
         for axis in range(3)
     )
+
+
+def _normal_rate(plane, triangle, point, slope, scale: int) -> float:
+    """Скорость поворота нормали смещения вершины по ширине, `|d n / d alpha|` (1/м), первый порядок: нормаль - нормированная смесь `N = sum w_k n_k` трёх нормалей углов треугольника (закон
+    `SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`, веса `w_k = e_k / twice_area` те же, что в `lift_known`), веса аффинны по ширине, поэтому `N' = sum w'_k n_k`, а `n' = (N' - n (n . N')) / |N|`.
+
+    Это float-оценка для ПРЕДЕЛА ошибки кадра хоста (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`), а не часть ответа: ответов она не решает. Нулевая смесь - бесконечная скорость (ядро такую нормаль отказывает).
+    """
+
+    if not triangle.normals:
+        return 0.0
+    divisor = float(triangle.twice_area)
+    values = plane.values_in(triangle, point)
+    slopes = [_edge_slope(triangle.chart[index], triangle.chart[(index + 1) % 3], slope) for index in range(3)]
+    weights = [_float(values[index]) / divisor for index in (1, 2, 0)]
+    rates = [_float(slopes[index]) * scale / divisor for index in (1, 2, 0)]
+    mixed = [sum(w * n[axis] for w, n in zip(weights, triangle.normals)) for axis in range(3)]
+    moved = [sum(r * n[axis] for r, n in zip(rates, triangle.normals)) for axis in range(3)]
+    length = math.sqrt(sum(item * item for item in mixed))
+    if not length > 0.0:
+        return math.inf
+    unit = [item / length for item in mixed]
+    along = sum(a * b for a, b in zip(unit, moved))
+    return math.sqrt(sum((m - u * along) ** 2 for m, u in zip(moved, unit))) / length
 
 
 def _leaves_edge(triangle, point, slope) -> bool:
@@ -542,19 +575,18 @@ def certificate_of(inputs: ParametricInputsV1, batch, interval, request: Paramet
 
     alpha, scale = inputs.alpha, inputs.scale
     try:
-        # У домена-развёртки позиции до смещения аффинны, но смещение идёт по нормали вершины (не рациональной): домен не обслуживается. Числа считает только точный режим (теорема).
-        if developable and not request.exact:
-            raise ParametricRefusal(PARAM_DEVELOPABLE_OFFSET)
         if interval is None or interval.status != "CERTIFIED":
             raise ParametricRefusal(PARAM_WINDOW_NOT_CERTIFIED, "" if interval is None else f"{interval.status} {interval.reason}".strip())
-        found = _certificate(inputs, batch, interval, request, prepared, coverage)
-        return replace(found, markers=(PARAM_DEVELOPABLE_OFFSET,)) if developable else found
+        found = _certificate(inputs, batch, interval, request, prepared, coverage, developable)
+        # У домена-развёртки позиции до смещения аффинны, но смещение идёт по нормали вершины (не рациональной): числа есть, домен назван в `approximate`.
+        return replace(found, approximate=(PARAM_DEVELOPABLE_OFFSET,)) if developable else found
     except ParametricRefusal as refusal:
         return unavailable(alpha, scale, refusal.name, refusal.detail)
 
 
-def _certificate(inputs, batch, interval, request, prepared, coverage) -> ParametricCertificateV1:
+def _certificate(inputs, batch, interval, request, prepared, coverage, developable: bool = False) -> ParametricCertificateV1:
     scale = inputs.scale
+    normal_rate = 0.0
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
     moving = point_slopes_of(prepared, coverage, request.templates)
     # Точки до резки: наклоны покрытия по ключу вершины; факты до резки: формулы граней.
@@ -594,6 +626,8 @@ def _certificate(inputs, batch, interval, request, prepared, coverage) -> Parame
                 if _leaves_edge(triangle, point, slope):
                     raise ParametricRefusal(PARAM_LIFT_ON_EDGE, f"vertex {key}")
                 values = _triangle_slope(triangle, slope, scale)
+                if developable:
+                    normal_rate = max(normal_rate, _normal_rate(plane, triangle, point, slope, scale))
             position_slopes.extend(_float(item) for item in values)
             positions_exact = values
         if request.exact:
@@ -651,6 +685,7 @@ def _certificate(inputs, batch, interval, request, prepared, coverage) -> Parame
         loops,
         (("PARAMETRIC_MOVING_VERTICES", moving_vertices), ("PARAMETRIC_CLIP_NODE_SLOPES", len(clip_points)), ("PARAMETRIC_CLIP_FACT_SLOPES", len(clip_facts))),
         exact,
+        approximate_rate=normal_rate,
     )
 
 
