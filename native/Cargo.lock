@@ -87,10 +87,20 @@ dependencies = [
  "cftuv-clip",
  "cftuv-core",
  "cftuv-embedding",
+ "cftuv-radical",
  "cftuv-skeleton",
  "mimalloc",
  "pyo3",
  "sha2",
+]
+
+[[package]]
+name = "cftuv-radical"
+version = "0.1.0"
+dependencies = [
+ "dashu-base",
+ "dashu-int",
+ "mimalloc",
 ]
 
 [[package]]
