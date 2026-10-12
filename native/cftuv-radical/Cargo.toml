@@ -1,0 +1,15 @@
+[package]
+name = "cftuv-radical"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+# `SquareRootRem`: the perfect-square decision of the class merge is one `sqrt_rem` (dashu-int re-exports only `SquareRoot`); already in the lock through dashu-int
+dashu-base = "0.6"
+
+# Only for `examples/replay.rs`: the extension runs on mimalloc, so the example times the crate under the allocator it ships with.
+[dev-dependencies]
+mimalloc = { version = "0.1", default-features = false }

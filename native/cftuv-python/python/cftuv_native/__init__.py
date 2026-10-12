@@ -24,6 +24,9 @@
 переводится один раз, пара идёт по четырём текстам; чистый лист без состояния; контракт — `effective_alpha_op.py`): пару, которую порт не несёт, он отказывает по имени ДО вычисления (`NativePortUnsupported`),
 и её считает эталон со своими счётами и своим резервным путём через sympy.
 
+`radical_v2_eval` — не стадия продукта, а ВОЗМОЖНОСТЬ расширения (`native_status()["radical_v2"]`, закрепление `reference/radical_v2.py`): программа операций над `RadicalSumV2` (`native/cftuv-radical`, побитовое
+зеркало эталона S2 — цены, отказы, тексты, провода) для сверки с эталоном и замеров; хост её не зовёт, потребитель появится с переносом ядра плотности на Rust. Контракт программы — `tools/native_radical_v2_corpus.py`.
+
 Отказ целой операции бывает двух видов (`NATIVE_REFUSALS`, `cost.ORACLE_STATUSES`). Исход ЭТАЛОНА (`MaterializationRefusal`, `ExactCanonicalizationWorkBudgetExhausted`,
 `OverflowError`, `ValueError`, `ZeroDivisionError`, `KeyError`, ...) оставляет частичные эффекты ровно так, как их оставляет исключение Python. Отказ ПОРТА
 (`NativePortStale`, `NativeUnsupportedPython`, `NativePortUnsupported` — в том числе поздний, посреди вычисления —, `NativeDivisionDiverged`) оставляет ВСЁ видимое из
@@ -78,6 +81,7 @@ __all__ = (
     "prime_universe_remembered",
     "radical",
     "radical_sum",
+    "radical_v2_eval",
     "reset_slot_counters",
     "run_number_ops",
     "sign",
@@ -181,7 +185,7 @@ def tree_digest(native_root) -> str:
 
 
 def native_status() -> dict:
-    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`, `effective_alpha`).
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`, `effective_alpha`) and the capability `radical_v2` (the mirror of the `RadicalSumV2` oracle, not a product stage).
 
     `unsupported_python` only below the floor (`pin.MINIMUM_PYTHON`, 3.11); the ports are tested on 3.11 and 3.13 (`pin.TESTED_PYTHON`) and nothing in their
     answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
@@ -300,6 +304,18 @@ def last_w1_timings() -> tuple:
     """Nanoseconds of the last W1 call of the default mirror: `(sync in, native call, post, total, tables, arguments, compute, result, memory log)`."""
 
     return default_mirror().last_w1_timings
+
+
+def radical_v2_eval(program, *, passes: int = 0, inner: int = 1) -> tuple:
+    """`(outcomes, run_ns, timings)` of a PROGRAM over `RadicalSumV2` (`native/cftuv-radical`, the mirror of `reference/radical_v2.py`): the test and bench entry of the capability `radical_v2`.
+
+    `program` is a sequence of instruction tuples and `outcomes` one outcome tuple per instruction, both defined in `tools/native_radical_v2_corpus.py` (and in `cftuv_radical::program`). `run_ns` is the
+    time the extension took to RUN the program (decoding and encoding excluded); with `passes > 0` `timings` holds the nanoseconds of each instruction (the best of `passes` passes, each instruction
+    executed `inner` times in a row), else `None`. A defect of the program is a `ValueError`; a stale pin (`reference/radical_v2.py` moved past the mirror) is the named `NativePortStale`.
+    """
+
+    pin.require("radical_v2")
+    return _core.radical_v2_eval(program, passes, inner)
 
 
 def last_skeleton_timings() -> tuple:

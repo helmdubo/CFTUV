@@ -86,8 +86,8 @@ def test_the_pin_holds_a_digest_for_exactly_the_files_the_operations_mirror():
 
 @needs_matching_tree
 def test_the_pin_matches_the_tree_it_was_made_from():
-    assert pin.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
+    assert pin.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
+    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
     assert pin.fingerprint("clip") != pin.fingerprint("coverage")
     assert pin.fingerprint("clip") == pin.fingerprint("clip", KERNEL)
 
@@ -175,7 +175,7 @@ def _tamper(monkeypatch, name: str):
 def test_a_stale_clip_port_refuses_by_name_before_it_touches_any_state(monkeypatch):
     _record, call = _a_call()
     _tamper(monkeypatch, CLIP_ONLY)
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": f"stale({CLIP_ONLY})", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
+    assert cftuv_native.native_status() == {"coverage": "available", "clip": f"stale({CLIP_ONLY})", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
     before = nc.capture_state(call.budget, None), dict(call.args[0]._normal_by_position)
     mirror = cftuv_native.new_mirror()
     with pytest.raises(cftuv_native.NativePortStale) as caught:
@@ -188,18 +188,18 @@ def test_a_stale_clip_port_refuses_by_name_before_it_touches_any_state(monkeypat
     assert mirror._session.clip_cache() == 0, "a refused call converted nothing"
     monkeypatch.undo()
     pin.refresh()
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
+    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
     assert mirror.clip_geometry(call.args[0], call.budget, **call.kwargs).note, "the same session answers once the tree matches the pin again"
 
 
 @needs_matching_tree
 def test_an_edit_to_one_operations_file_does_not_stale_the_other(monkeypatch):
     _tamper(monkeypatch, COVERAGE_ONLY)
-    assert cftuv_native.native_status() == {"coverage": f"stale({COVERAGE_ONLY})", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
+    assert cftuv_native.native_status() == {"coverage": f"stale({COVERAGE_ONLY})", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
     _record, call = _a_call()
     assert cftuv_native.new_mirror().clip_geometry(call.args[0], call.budget, **call.kwargs).note
     _tamper(monkeypatch, CLIP_ONLY)
-    assert cftuv_native.native_status() == {"coverage": f"stale({COVERAGE_ONLY})", "clip": f"stale({CLIP_ONLY})", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
+    assert cftuv_native.native_status() == {"coverage": f"stale({COVERAGE_ONLY})", "clip": f"stale({CLIP_ONLY})", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
 
 
 @needs_matching_tree
@@ -208,7 +208,7 @@ def test_a_stale_skeleton_port_refuses_by_name_before_it_touches_any_state_and_t
 
     polygon = PolygonV1.build([(0, 0), (4, 0), (4, 4), (0, 4)])
     _tamper(monkeypatch, SKELETON_ONLY)
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": f"stale({SKELETON_ONLY})", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}
+    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": f"stale({SKELETON_ONLY})", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available"}
     budget = exact.exact_work_budget(stage="PREPARE", domain_id="stale-skeleton", superlevel="", cap=1 << 20)
     before = nc.capture_state(budget, None)
     with pytest.raises(cftuv_native.NativePortStale, match="wavefront/symbolic_runtime_commit.py") as caught:
@@ -227,7 +227,7 @@ def test_a_stale_skeleton_port_refuses_by_name_before_it_touches_any_state_and_t
 def test_an_embedding_oracle_edit_stales_only_embedding_before_argument_conversion(monkeypatch):
     _tamper(monkeypatch, "_embedding.py")
     assert cftuv_native.native_status() == {
-        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "stale(_embedding.py)", "effective_alpha": "available", "materialize_w1": "available",
+        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "stale(_embedding.py)", "effective_alpha": "available", "materialize_w1": "available", "radical_v2": "available",
     }
     # Негодные аргументы не должны маскировать именованный отказ по настоящему дайджесту файла.
     with pytest.raises(cftuv_native.NativePortStale, match="_embedding.py"):
@@ -238,7 +238,7 @@ def test_an_embedding_oracle_edit_stales_only_embedding_before_argument_conversi
 def test_an_edit_to_the_pair_leaf_stales_only_effective_alpha_and_a_float_filter_edit_stales_it_with_the_stages_that_share_the_filters(monkeypatch):
     _tamper(monkeypatch, "reference/boundary_native.py")
     assert cftuv_native.native_status() == {
-        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "stale(reference/boundary_native.py)", "materialize_w1": "available",
+        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "stale(reference/boundary_native.py)", "materialize_w1": "available", "radical_v2": "available",
     }
     monkeypatch.undo()
     _tamper(monkeypatch, "float_filter.py")
@@ -282,7 +282,7 @@ def test_an_interpreter_below_the_floor_is_a_named_refusal_not_a_fallback(monkey
     _record, call = _a_call()
     monkeypatch.setattr(pin, "MINIMUM_PYTHON", (99, 0))
     pin.refresh()
-    assert cftuv_native.native_status() == {"coverage": "unsupported_python", "clip": "unsupported_python", "skeleton": "unsupported_python", "snap_embedding": "unsupported_python", "effective_alpha": "unsupported_python"}
+    assert cftuv_native.native_status() == {"coverage": "unsupported_python", "clip": "unsupported_python", "skeleton": "unsupported_python", "snap_embedding": "unsupported_python", "effective_alpha": "unsupported_python", "materialize_w1": "unsupported_python", "radical_v2": "unsupported_python"}
     state = nc.capture_state(call.budget, None)
     with pytest.raises(cftuv_native.NativeUnsupportedPython, match="needs CPython 99.0 or newer"):
         cftuv_native.new_mirror().clip_geometry(call.args[0], call.budget, **call.kwargs)
@@ -301,10 +301,10 @@ def test_the_verdict_is_computed_once_per_process_and_forgotten_on_refresh(monke
     pin.refresh()
     for _ in range(5):
         pin.native_status()
-    assert sorted(calls) == ["clip", "coverage", "effective_alpha", "materialize_w1", "skeleton", "snap_embedding"]
+    assert sorted(calls) == ["clip", "coverage", "effective_alpha", "materialize_w1", "radical_v2", "skeleton", "snap_embedding"]
     pin.refresh()
     pin.native_status()
-    assert len(calls) == 12
+    assert len(calls) == 14
 
 
 # --------------------------------------------------------------------------
