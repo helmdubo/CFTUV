@@ -59,8 +59,9 @@ Decal Mesh»), а активный объект меняется. Инструм
 а подтверждение пересчитывает и записывает зафиксированный ответ, отмена возвращает меш и образцы, какими они были перед первым кадром.
 
 ИНКРЕМЕНТАЛЬНЫЙ ТАКТ (WIDTH_REFRESH_INCREMENTAL_V1, `envelope_width_incremental`). Такты перетаскивания (`request_drag_tick`) заказываются как инкрементальные: lean-такт, который считает заново только домены, чей аффинный сертификат ширину не
-обслуживает (интервал ядра кончился, карантин, нет сертификата), а остальные берёт из прежних результатов, сдвинутых сертификатом на ширину такта (`envelope_width_rebase`). Структура обслуженных доменов не заверена, поэтому политика сверки
-периодически (число тактов, секунды, мало обслуженных) делает такт ПОЛНЫМ lean-тактом, а подтверждение всегда COMMIT. `CFTUV_INCREMENTAL=0` возвращает прежние lean-такты.
+обслуживает (интервал ядра кончился, карантин, нет сертификата), а остальные не считает вовсе: образец такта складывается из образца на экране (`envelope_width_composite`: обслуженные двигает кадр модели, посчитанные ложатся поверх точными;
+не сложился - название причины и путь из сдвинутых результатов всех доменов, `envelope_width_rebase`). Структура обслуженных доменов не заверена, поэтому политика сверки (путь ширины от сверки, число тактов, мало обслуженных) делает такт ПОЛНЫМ
+lean-тактом, а подтверждение всегда COMMIT; сверку, которую рука прервала, `_begin` отмечает, и тики не запираются. `CFTUV_INCREMENTAL=0` возвращает прежние lean-такты.
 
 ПАУЗА СБОРЩИКА (GC_PAUSED_DURING_WIDTH_TICK_V1, `envelope_gc_pause`). Циклический сборщик родителя стоит на паузе ровно на работе тика, а не на простое между ними: счёт в потоке (`compute`:
 тот же для точного заказа и подтверждения), применение на главном потоке (`_apply`) и подтверждение инструмента (`envelope_width_session.finish_adjust`). Сборщик общий
@@ -79,6 +80,7 @@ from .envelope_alpha_preview import (
     ThreadedPreviewJob,
 )
 from .envelope_gc_pause import gc_paused_function
+from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, mark_attempt, verification_reason
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
@@ -551,6 +553,8 @@ def _begin(controller, request):
     displayed, previous = controller.width_displayed, controller.width_model
     trust = controller.width_trust
     state = controller.width_incremental  # запись сверки читает главный поток: поток счёта получает её значением
+    if grade == REFRESH_INCREMENTAL and state is not None and verification_reason(state, alpha) in (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE):
+        controller.width_incremental = mark_attempt(state)  # сверку начали: прервёт её рука - повтор не раньше чем через `INCREMENTAL_RETRY_AFTER_TICKS` тактов (поток считает по записи ДО отметки)
     offset = float(target.offset)
     key = sample_key(record, offset)
 

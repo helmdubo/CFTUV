@@ -41,6 +41,9 @@
     не пополняют кэши, меш кадра равен мешу зафиксированного ответа на той же ширине (по месту и пересборкой по образу), отмена
     возвращает меш, образец и модель побитово.
 
+10a. ИНКРЕМЕНТАЛЬНЫЕ ТАКТЫ (WIDTH_REFRESH_INCREMENTAL_V1, `drag_exact_ticks` по умолчанию заказывает именно их): такт считает заново только домены вне сертификата, образец складывается из образца на экране; меш такта равен
+    мешу зафиксированного ответа на той же ширине с точностью float32, кэши не пополняются, сверку делает полный lean-такт под названной причиной, а подтверждение - зафиксированный ответ; отмена возвращает меш побитово.
+
 11. ОТПЕЧАТОК МЕША ИСТОЧНИКА (S5, `envelope_source_check`): запись отвечает, пока байты массивов меша те же; правка вершины даёт полный путь и `SOURCE_CHANGED`.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
@@ -585,12 +588,16 @@ def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
     4. отмена после кадров возвращает меш, образец и модель, какими они были к началу перетаскивания, побитово (в обоих случаях).
     """
 
+    import os
+
     import numpy as np
 
     from cftuv.envelope_width_adjust import KIND_MOVE, WidthEventV1
     from cftuv.envelope_width_mesh_preview import finish_drag
     from cftuv.envelope_width_session import apply_step, finish_adjust
 
+    # Эта секция держит класс WIDTH_REFRESH_LEAN_V1 (тик по умолчанию - инкрементальный, `CFTUV_INCREMENTAL=0` возвращает lean): инкрементальный - в следующей секции.
+    os.environ["CFTUV_INCREMENTAL"] = "0"
     # 1-2. Кадр от паузы руки.
     controller, runtime = _lean_tool()
     settings = _settings()
@@ -654,6 +661,72 @@ def _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
         assert preview_mesh_now(controller, entered.alpha * 1.001) is not None
     log = dataclasses.asdict(controller.width_preview_log)
     print(f"LEAN FRAMES (last session): {log['lean_frames']} frames, {log['lean_rebuilds']} rebuilds in place, {log['lean_origin_restores']} origin restores; refusals {log['refusals']}")
+    _decal_settings().drag_exact_ticks = False
+    os.environ.pop("CFTUV_INCREMENTAL", None)
+
+
+def _run_incremental_ticks_serve_by_the_certificate_and_the_confirm_is_the_commit():
+    """ИНКРЕМЕНТАЛЬНЫЕ ТАКТЫ (WIDTH_REFRESH_INCREMENTAL_V1) на настоящем меше и настоящем планировщике.
+
+    1. такт, заказанный инструментом после кнопки, - инкрементальный (запись сверки пишет кнопка), если сертификат обслуживает домены сцены, иначе полный lean-такт под названной причиной; кэши не пополняются, датаблоки те же;
+    2. меш такта равен мешу зафиксированного ответа на той же ширине с точностью float32, а подтверждение - зафиксированный ответ (его считает полный путь, ничего из тактов в нём нет);
+    3. сверка: после `INCREMENTAL_VERIFY_AFTER_TICKS` тактов следующий - полный lean-такт под именем `INCREMENTAL_VERIFY_PERIOD_TICKS`, и он стирает счёт;
+    4. отмена после тактов возвращает меш и образец к началу перетаскивания побитово.
+    """
+
+    import numpy as np
+
+    from cftuv import envelope_width_incremental as policy
+    from cftuv.envelope_width_mesh_preview import finish_drag
+    from cftuv.envelope_width_session import finish_adjust
+
+    INCREMENTAL, LEAN = "WIDTH_REFRESH_INCREMENTAL_V1", "WIDTH_REFRESH_LEAN_V1"
+    default_minimum = policy.INCREMENTAL_MIN_DOMAINS
+    policy.INCREMENTAL_MIN_DOMAINS = 0  # сцена теста мала (правило малого выделения вернуло бы полные lean-такты): реальный путь инкрементального такта проверяется на ней
+    # 1-2. Один такт: он равен зафиксированному ответу той же ширины.
+    controller, runtime = _lean_tool()
+    settings = _settings()
+    start = float(settings.envelope_debug_alpha)
+    assert controller.width_incremental == policy.IncrementalStateV1(0, start), "the button writes the verification record"
+    blocks, cached = _datablock_counts(), controller.production_result_count
+    width = float(np.float32(start * 1.004))
+    _lean_tick(width, forced=False)
+    first = controller.width_mesh_preview.outcome
+    assert first in (INCREMENTAL, LEAN), first
+    assert controller.width_displayed.alpha == width and _width_property(DECAL) == width and _datablock_counts() == blocks
+    assert controller.production_result_count == cached, "a tick is stored in no cache"
+    log = dataclasses.asdict(controller.width_preview_log)
+    if first == INCREMENTAL:
+        assert log["incremental_ticks"] == 1 and any("Incremental ticks" in line for line in _status_lines()), _status_lines()
+    else:
+        assert log["incremental_full"], "a full tick under a name"
+    tick_arrays = _mesh_arrays(DECAL)
+    finish_drag(controller, restore=False)
+    settings.envelope_debug_alpha = width
+    _pump_all()
+    assert controller.width_live.counters.failed == 0
+    committed = _mesh_arrays(DECAL)
+    assert np.max(np.abs(committed[0] - tick_arrays[0])) <= 2e-6 and np.max(np.abs(committed[1] - tick_arrays[1])) <= 2e-6, ("the tick is not the committed mesh", first)
+    print(f"INCREMENTAL TICK ({first}) == COMMITTED MESH at width {width:.6f} within float32; the confirm is the commit")
+    # 3. Сверка по числу тактов.
+    controller, runtime = _lean_tool()
+    start = float(_settings().envelope_debug_alpha)
+    entered, before, still = controller.width_displayed, _digest(), _mesh_arrays(DECAL)
+    outcomes = []
+    for index in range(policy.INCREMENTAL_VERIFY_AFTER_TICKS + 1):
+        _lean_tick(float(np.float32(start * (1.0 + 0.001 * (index + 1)))), forced=False)
+        outcomes.append(controller.width_mesh_preview.outcome)
+    log = dataclasses.asdict(controller.width_preview_log)
+    print(f"INCREMENTAL TICKS: outcomes {outcomes}; incremental {log['incremental_ticks']}, composite {log['incremental_composite']}, fallbacks {log['incremental_fallback']}, full {log['incremental_full']}")
+    if INCREMENTAL in outcomes[:-1]:
+        assert outcomes[:-1] == [INCREMENTAL] * policy.INCREMENTAL_VERIFY_AFTER_TICKS and outcomes[-1] == LEAN, outcomes
+        assert log["incremental_full"] == {policy.REASON_PERIOD_TICKS: 1}, log["incremental_full"]
+        assert controller.width_incremental.ticks == 0, "the verification clears the count"
+    # 4. Отмена.
+    assert finish_adjust(bpy.context, runtime, confirmed=False) == "CANCELLED"
+    assert controller.width_displayed is entered and _digest() == before and np.array_equal(_mesh_arrays(DECAL)[0], still[0])
+    print("CANCEL AFTER INCREMENTAL TICKS returned the mesh bit for bit")
+    policy.INCREMENTAL_MIN_DOMAINS = default_minimum
     _decal_settings().drag_exact_ticks = False
 
 
@@ -1203,6 +1276,7 @@ def _main():
     _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result_replaces_it()
     _run_the_preview_mesh_belongs_only_to_the_mesh_the_exact_path_wrote()
     _run_exact_ticks_while_dragging_replace_the_mesh_and_the_cancel_returns_it()
+    _run_incremental_ticks_serve_by_the_certificate_and_the_confirm_is_the_commit()
     _run_the_source_check_follows_the_bytes_of_the_mesh()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
     _run_the_tool_belongs_to_the_active_objects_own_decal()

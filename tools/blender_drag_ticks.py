@@ -90,6 +90,9 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--case", default="building")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--grade", default="commit", choices=("commit", "lean", "incremental"))
+    parser.add_argument("--policy-ticks", type=int, default=None, help="override INCREMENTAL_VERIFY_AFTER_TICKS of the tree (evidence runs for the verification period)")
+    parser.add_argument("--policy-distance", type=float, default=None, help="override INCREMENTAL_VERIFY_AFTER_DISTANCE of the tree")
+    parser.add_argument("--policy-min-domains", type=int, default=None, help="override INCREMENTAL_MIN_DOMAINS of the tree (0 lets a small selection take the incremental path)")
     parser.add_argument("--shadow", action="store_true", help="incremental only: after every tick, outside its time, a full lean refresh at the same width (never applied) and the difference between the two")
     parser.add_argument("--ticks", type=int, default=20)
     parser.add_argument("--confirms", type=int, default=3)
@@ -399,6 +402,8 @@ def shadow_difference(applied, exact) -> dict:
     inc = {item.patch_id: item for item in applied.sample.domains}
     full = {item.patch_id: item for item in exact.sample.domains}
     flips, position_served, uv_served, position_recomputed, uv_recomputed, recomputed_different = [], 0.0, 0.0, 0.0, 0.0, []
+    flipped_position, flipped_shape_changed, reordered = 0.0, [], []
+    worst = None
     for patch, domain in inc.items():
         other = full.get(patch)
         if other is None:
@@ -410,15 +415,26 @@ def shadow_difference(applied, exact) -> dict:
         if domain.vertices.shape != other.vertices.shape or domain.loop_count != other.loop_count:
             if patch in computed:
                 recomputed_different.append(patch)
+            elif flipped:
+                flipped_shape_changed.append(patch)
             continue
         position = float(np.max(np.abs(applied.sample.positions[domain.vertices] - exact.sample.positions[other.vertices]), initial=0.0))
-        uv = float(np.max(np.abs(applied.sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count] - exact.sample.uvs[other.loop_start : other.loop_start + other.loop_count]), initial=0.0))
+        # The order of the faces of a batch can change from width to width under the same structure digest (it sorts the rings): the token (faces in order) then differs. The loops are then the same set in another
+        # order, so a loop-by-loop comparison of the UV means nothing; the vertices are ordered by key and stay comparable.
+        order_changed = domain.token != other.token and not flipped
+        if order_changed:
+            reordered.append(patch)
+        uv = 0.0 if order_changed else float(np.max(np.abs(applied.sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count] - exact.sample.uvs[other.loop_start : other.loop_start + other.loop_count]), initial=0.0))
         if patch in computed:
             position_recomputed, uv_recomputed = max(position_recomputed, position), max(uv_recomputed, uv)
             if position or uv or flipped:
                 recomputed_different.append(patch)
         elif not flipped:
             position_served, uv_served = max(position_served, position), max(uv_served, uv)
+            if worst is None or position > worst["position"]:
+                worst = {"patch": int(patch), "position": position, "approximate": bool(domain.approximate), "rate": float(domain.approximate_rate), "normal_alpha": float(getattr(domain, "normal_alpha", float("nan"))), "partners": [int(item) for item in domain.partners]}
+        else:
+            flipped_position = max(flipped_position, position)
     same_layout = applied.sample.layout_digest == exact.sample.layout_digest
     arrays = {"same_layout": same_layout}
     if same_layout:
@@ -427,7 +443,7 @@ def shadow_difference(applied, exact) -> dict:
         arrays["owners_equal"] = bool(np.array_equal(applied.sample.image.face_owner, exact.sample.image.face_owner))
     plan = getattr(applied, "plan", None)
     return {
-        "served": len(inc) - len(computed & set(inc)), "recomputed": len(computed), "flipped_served": flips, "served_position_max": position_served, "served_uv_max": uv_served,
+        "served": len(inc) - len(computed & set(inc)), "recomputed": len(computed), "flipped_served": flips, "flipped_position_max": flipped_position, "flipped_shape_changed": flipped_shape_changed, "reordered_served": [patch for patch in reordered if patch not in computed], "served_position_max": position_served, "served_position_worst": worst, "served_uv_max": uv_served,
         "recomputed_position_max": position_recomputed, "recomputed_uv_max": uv_recomputed, "recomputed_different": recomputed_different, "arrays": arrays,
         "composite": None if plan is None else bool(plan.composite), "fallback": None if plan is None else plan.fallback,
     }
@@ -498,6 +514,16 @@ def main() -> int:
             raise RuntimeError("this tree has no WIDTH_REFRESH_LEAN_V1 (WidthLiveTargetV1.grade)")
         if args.grade == "incremental" and not hasattr(session.live, "DRAG_GRADES"):
             raise RuntimeError("this tree has no WIDTH_REFRESH_INCREMENTAL_V1 (envelope_width_live.DRAG_GRADES)")
+        if args.grade == "incremental":
+            import cftuv.envelope_width_incremental as policy
+
+            if args.policy_ticks is not None:
+                policy.INCREMENTAL_VERIFY_AFTER_TICKS = args.policy_ticks
+            if args.policy_distance is not None:
+                policy.INCREMENTAL_VERIFY_AFTER_DISTANCE = args.policy_distance
+            if args.policy_min_domains is not None:
+                policy.INCREMENTAL_MIN_DOMAINS = args.policy_min_domains
+            report["policy"] = {"ticks": policy.INCREMENTAL_VERIFY_AFTER_TICKS, "distance": policy.INCREMENTAL_VERIFY_AFTER_DISTANCE, "retry": policy.INCREMENTAL_RETRY_AFTER_TICKS, "min_served_share": policy.INCREMENTAL_MIN_SERVED_SHARE, "min_domains": policy.INCREMENTAL_MIN_DOMAINS}
         report["cold_press_s"] = round(session.cold_press(), 4)
         if args.mode == "object" and session.bpy.context.mode != "OBJECT":
             session.bpy.ops.object.mode_set(mode="OBJECT")

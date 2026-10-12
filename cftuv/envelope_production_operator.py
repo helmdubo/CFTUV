@@ -115,9 +115,9 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         name="Exact ticks while dragging",
         default=False,
         description=(
-            "While Adjust Decal Width is dragged, order an exact refresh at the pointer width whenever the hand pauses (WIDTH_REFRESH_LEAN_V1): "
-            "the decal shows the exact positions and UV instead of the approximate model, without the checks and reports of a commit; "
-            "confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. Off by default: the worker pool is busy while it runs"
+            "While Adjust Decal Width is dragged, order an exact refresh at the pointer width whenever the hand pauses (WIDTH_REFRESH_INCREMENTAL_V1): "
+            "only the domains the affine certificate does not serve are recomputed, the rest move by the certificate and are verified by a full refresh (WIDTH_REFRESH_LEAN_V1) every few ticks; "
+            "no checks or reports of a commit. Confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. Off by default: the worker pool is busy while it runs"
         ),
     )
     status: StringProperty(name="Decal Mesh Status", default="")

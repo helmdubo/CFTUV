@@ -55,6 +55,7 @@ from .envelope_width_incremental import (
     IncrementalStateV1,
     full_plan,
     next_state,
+    selection_reason,
     verification_reason,
 )
 from .envelope_width_composite import compose_sample
@@ -293,6 +294,9 @@ def plan_tick(grade, displayed, model, state, alpha: float) -> IncrementalPlanV1
         return full_plan(REASON_MODEL_FOREIGN)
     if not displayed.origins:
         return full_plan(REASON_NO_ORIGINS)
+    reason = selection_reason(len(displayed.domains))
+    if reason:
+        return full_plan(reason, len(displayed.domains))
     started = time.perf_counter()
     live = served_mask(model, alpha)
     origins = displayed.origins
@@ -357,7 +361,9 @@ def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None,
         composite = compose_sample(displayed, previous, run.results, alpha=alpha, offset=offset)
         if not isinstance(composite, str):
             # Образец сложен из образца на экране (обслуженные двигает модель, посчитанные ложатся поверх): массивов меша у такта нет, их держит образец.
-            return LiveRunV1(run, None, composite.sample, _model_or_refusal(composite.sample, trust), None, trust, (), replace(plan, composite=True))
+            return LiveRunV1(
+                run, None, composite.sample, _model_or_refusal(composite.sample, trust), None, trust, (), replace(plan, composite=True, seconds=plan.seconds + composite.seconds)
+            )
         plan = replace(plan, fallback=composite)  # составить не вышло: путь этапа A (результаты ВСЕХ доменов: сдвинутые обслуженные и посчитанные), причина названа
         run = replace(run, results=(*run.results, *rebase_served(plan, displayed, alpha).values()))
     arrays = build_mesh_arrays(run.results, offset, reports=not lean)

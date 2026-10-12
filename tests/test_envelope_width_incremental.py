@@ -73,9 +73,11 @@ def _no_pool_outlives_the_module():
 
 @pytest.fixture(autouse=True)
 def _no_distance_limit(monkeypatch):
-    """Большинство тестов делают большие прыжки ширины (8 раз, 8 %), чтобы вывести домен за интервал или досягаемость: правило пути ширины от сверки в них выключено, а своё правило держит его тест."""
+    """Большинство тестов делают большие прыжки ширины (8 раз, 8 %), чтобы вывести домен за интервал или досягаемость: правило пути ширины от сверки в них выключено, а своё правило держит его тест.
+    Ряды тестов - пять доменов: правило малого выделения (`INCREMENTAL_MIN_DOMAINS`) в них тоже выключено, а своё держит его тест."""
 
     monkeypatch.setattr(incremental, "INCREMENTAL_VERIFY_AFTER_DISTANCE", 1e9)
+    monkeypatch.setattr(incremental, "INCREMENTAL_MIN_DOMAINS", 0)
 
 
 @pytest.fixture(scope="module")
@@ -385,6 +387,19 @@ def test_the_path_of_the_width_from_the_verification_is_a_reason_of_its_own(flat
         assert not plan.incremental and plan.reason == incremental.REASON_PERIOD_DISTANCE
 
 
+def test_a_small_selection_is_a_full_lean_tick_by_name(flat, monkeypatch):
+    """Малое выделение (меньше `INCREMENTAL_MIN_DOMAINS` доменов): полный lean-такт на нём дёшев и сам сверяет, а переломы структуры там частые (замер `rounded_wall_noise_top`: домен меняет тесселяцию уже на 0.25-1 % ширины)."""
+
+    session = _Session(flat)
+    assert session.plan(0.2501).incremental
+    monkeypatch.setattr(incremental, "INCREMENTAL_MIN_DOMAINS", ROW + 1)
+    plan = session.plan(0.2501)
+    assert not plan.incremental and plan.reason == incremental.REASON_SMALL_SELECTION and plan.domains == ROW and plan.served == frozenset()
+    monkeypatch.setattr(incremental, "INCREMENTAL_MIN_DOMAINS", ROW)
+    assert session.plan(0.2501).incremental  # порог - нижняя граница включительно
+    assert incremental.selection_reason(incremental.INCREMENTAL_MIN_DOMAINS - 1) == incremental.REASON_SMALL_SELECTION and incremental.selection_reason(incremental.INCREMENTAL_MIN_DOMAINS) == ""
+
+
 def test_a_tick_that_serves_too_few_domains_is_a_full_tick_that_verifies_for_free(unfolded, monkeypatch):
     session = _Session(unfolded)
     monkeypatch.setattr(incremental, "INCREMENTAL_MIN_SERVED_SHARE", 0.7)
@@ -479,18 +494,32 @@ def test_the_composite_sample_equals_the_exact_lean_sample_of_the_width_and_the_
     assert np.max(np.abs(model_frame[0] - np.asarray(nearby_arrays.positions))) <= 1e-4  # приближённые домены (замороженная нормаль) не дальше предела их кадра
 
 
-@pytest.mark.parametrize("case", ["unfolded 0.27", "quarantined middle domain 0.2502", "quarantined first domain 0.2502", "quarantined last domain 0.2502"])
-def test_the_composite_sample_equals_the_stage_a_sample_and_names_nothing_it_did_not_do(unfolded, flat, case):
-    """Составной образец (numpy) и образец этапа A (результаты всех доменов, `build_mesh_arrays`) - один ответ с точностью округления: позиции, UV, раскладка, токены, строки доменов."""
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unfolded 0.27",
+        "flat quarantined 2",
+        "flat quarantined 0",
+        "flat quarantined 4",
+        "clipped quarantined 4",
+        "clipped quarantined 3",
+        "unfolded quarantined 1",
+    ],
+)
+def test_the_composite_sample_equals_the_stage_a_sample_and_names_nothing_it_did_not_do(unfolded, clipped, flat, case):
+    """Составной образец (numpy) и образец этапа A (результаты всех доменов, `build_mesh_arrays`) - один ответ с точностью округления: позиции, UV, раскладка, токены, строки доменов.
 
-    if case.startswith("unfolded"):
-        bundle, alpha = unfolded, 0.27
-    else:
-        bundle, alpha = flat, 0.2502
+    Домены под карантином журнала доверия и домены-развёртки за досягаемостью считаются заново при неизменной структуре; соседи по общей вершине и по стене (`clipped`, `unfolded`: домены 3 и 4 - соседи по стене)
+    входят в группу сварки, и их вершины принимаются из неё.
+    """
+
+    name = case.split()[0]
+    bundle = {"unfolded": unfolded, "clipped": clipped, "flat": flat}[name]
+    alpha = 0.27 if case == "unfolded 0.27" else 0.2502
     for _once in (case,):
         session = _Session(bundle)
-        if case.startswith("quarantined"):
-            _quarantine(session, {"middle": 2, "first": 0, "last": ROW - 1}[case.split()[1]])
+        if "quarantined" in case:
+            _quarantine(session, int(case.split()[2]))
         c = session.controller
         plan = session.plan(alpha)
         assert plan.incremental and len(plan.held) in (1, 2)
@@ -501,6 +530,7 @@ def test_the_composite_sample_equals_the_stage_a_sample_and_names_nothing_it_did
         arrays = production_mesh.build_mesh_arrays(stage_a.results, OFFSET, reports=False)
         reference = preview.build_sample(stage_a.results, arrays, KEY, alpha)
         assert composite.sample.layout_digest == reference.layout_digest
+        assert np.array_equal(composite.sample.image.face_owner, reference.image.face_owner) and np.array_equal(composite.sample.image.seams, reference.image.seams)
         assert np.max(np.abs(composite.sample.positions - reference.positions)) <= EXACT_TOLERANCE
         assert np.max(np.abs(composite.sample.uvs - reference.uvs)) <= EXACT_TOLERANCE
         assert [(item.patch_id, item.token, item.structure, item.status, item.low, item.high) for item in composite.sample.domains] == [
@@ -803,3 +833,117 @@ def test_the_slopes_and_the_uv_offsets_of_the_model_are_those_of_a_per_domain_as
                 e1[domain.loop_start : domain.loop_start + domain.loop_count] = domain.uv_slopes - sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count]
         a1[model.vlow == np.inf] = 0.0  # замороженная вершина (общая с несмоделированным доменом) не двигается
         assert np.array_equal(model.e1, e1) and np.array_equal(model.a1, a1)
+
+
+# ==========================================================================
+# 8. Прерванная сверка: рука её отменяет, и инкрементальные такты не запираются
+# ==========================================================================
+
+
+def test_an_interrupted_verification_does_not_lock_the_incremental_ticks_and_is_retried_later():
+    state = incremental.IncrementalStateV1(incremental.INCREMENTAL_VERIFY_AFTER_TICKS, ALPHA)
+    assert incremental.verification_reason(state, ALPHA) == incremental.REASON_PERIOD_TICKS
+    marked = incremental.mark_attempt(state)
+    assert marked.attempted_at == state.ticks and incremental.verification_reason(marked, ALPHA) == ""  # сверку начали и прервали: тик снова инкрементальный
+    later = incremental.IncrementalStateV1(state.ticks + incremental.INCREMENTAL_RETRY_AFTER_TICKS, ALPHA, marked.attempted_at)
+    assert incremental.verification_reason(later, ALPHA) == incremental.REASON_PERIOD_TICKS  # повтор
+    one_more = incremental.next_state(marked, incremental.IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(), {}, 1), ALPHA)
+    assert one_more == incremental.IncrementalStateV1(state.ticks + 1, ALPHA, marked.attempted_at)  # инкрементальный такт попытку не стирает
+    done = incremental.next_state(marked, incremental.full_plan(incremental.REASON_PERIOD_TICKS), 0.26)
+    assert done == incremental.IncrementalStateV1(0, 0.26) and done.attempted_at is None  # завершённая сверка её стирает
+    far = incremental.mark_attempt(incremental.IncrementalStateV1(1, ALPHA))
+    assert incremental.verification_reason(far, ALPHA * 1.5) == ""  # путь ширины: та же отметка
+
+
+def test_the_tool_marks_the_start_of_a_verification_and_a_cancelled_one_is_not_asked_for_again_at_once(monkeypatch):
+    calls: list = []
+    world = _drag_world(monkeypatch, calls=calls)
+    controller = _after_the_button(world)
+    controller.width_incremental = incremental.IncrementalStateV1(incremental.INCREMENTAL_VERIFY_AFTER_TICKS, 0.25)
+
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    live.settle_width_live(controller)  # полный такт (сверка); подмена `lean_exact_now` его не применяет, как отмена
+    assert calls[0].plan.reason == incremental.REASON_PERIOD_TICKS and not calls[0].plan.incremental
+    assert controller.width_incremental.attempted_at == incremental.INCREMENTAL_VERIFY_AFTER_TICKS
+
+    assert live.request_drag_tick(world.context, controller, 0.251)
+    live.settle_width_live(controller)
+    assert calls[1].plan.incremental  # сверка прервана: ширину обновляет инкрементальный такт
+    controller.width_incremental = incremental.IncrementalStateV1(
+        incremental.INCREMENTAL_VERIFY_AFTER_TICKS + incremental.INCREMENTAL_RETRY_AFTER_TICKS, 0.25, incremental.INCREMENTAL_VERIFY_AFTER_TICKS
+    )
+    assert live.request_drag_tick(world.context, controller, 0.2515)
+    live.settle_width_live(controller)
+    assert calls[2].plan.reason == incremental.REASON_PERIOD_TICKS  # повтор сверки
+
+
+def test_the_scatter_keeps_the_last_value_of_a_repeated_index_whatever_the_order_inside_numpy():
+    target = np.zeros((6, 2))
+    indices = np.array([4, 1, 4, 1, 1, 3])
+    values = np.arange(12, dtype=float).reshape(6, 2)
+    pm._scatter_last(target, indices, values)
+    expected = np.zeros((6, 2))
+    for at, row in zip(indices, values):
+        expected[at] = row
+    assert np.array_equal(target, expected)
+    pm._scatter_last(target, np.zeros(0, dtype=np.int64), np.zeros((0, 2)))  # пустая запись ничего не делает
+
+
+# ==========================================================================
+# 9. Нормали приближённого домена заморожены на ширине ПРЕЖНЕГО прогона, а не образца тика
+# ==========================================================================
+
+
+def test_a_display_approximate_domain_is_served_only_within_the_reach_of_the_width_its_normals_were_frozen_at(unfolded):
+    """Образец инкрементального такта хранит строку обслуженного домена как была: у развёртки нормали смещения заморожены на ширине ПРЕЖНЕГО прогона (0.25), хотя ширина образца уже 0.255. Досягаемость приближённого кадра (6 %)
+    считается от ширины заморозки: 0.27 лежит в 6 % от образца (0.255), но в 8 % от 0.25, и развёртка с соседом по стене обязаны считаться заново, иначе ошибка смещения вышла бы за предел `DISPLAY_APPROXIMATE_ERROR_LIMIT`."""
+
+    session = _Session(unfolded)
+    first = session.tick(0.255)
+    assert first.plan.composite and sorted(first.plan.served) == [0, 1, 2, 3, 4]  # 2 % от 0.25: все обслужены
+    sample = session.controller.width_displayed
+    assert sample.alpha == 0.255 and [round(item.normal_alpha, 6) for item in sample.domains] == [0.25] * ROW  # строки обслуженных те же, нормали заморожены на 0.25
+    plan = session.plan(0.27)
+    assert plan.incremental and plan.held == {3: pm.DOMAIN_HELD_DISPLAY_REACH, 4: pm.DOMAIN_HELD_DISPLAY_REACH} and plan.served == frozenset({0, 1, 2})
+    second = session.tick(0.27, plan=plan)
+    assert second.plan.composite
+    refreshed = {item.patch_id: item for item in second.sample.domains}
+    assert refreshed[0].normal_alpha == 0.25 and refreshed[3].normal_alpha == 0.27 and refreshed[4].normal_alpha == 0.27  # посчитанные заново заморожены на новой ширине
+    exact_run = _press(session.controller, unfolded, 0.27, lean=True)
+    exact = preview.build_sample(exact_run.results, production_mesh.build_mesh_arrays(exact_run.results, OFFSET, reports=False), KEY, 0.27)
+    assert np.max(np.abs(second.sample.positions - exact.positions)) <= pm.DISPLAY_APPROXIMATE_ERROR_LIMIT
+
+
+def test_the_frozen_width_of_the_normals_survives_the_stage_a_sample_and_a_chain_of_rebased_ticks(unfolded, monkeypatch):
+    """Образец, собранный по сдвинутым результатам (запасной путь: слой раскладки не сошёлся), несёт сертификат НОВОЙ ширины, а нормали смещения у развёртки те же, что у результата прогона: `normal_alpha` строки - ширина прогона, не тика,
+    иначе досягаемость приближённого кадра пошла бы от тика к тику (замер `building`, домен 89: ошибка выросла до 1.14e-4 при пределе 1e-4)."""
+
+    from cftuv import envelope_width_composite as composite_module
+
+    session = _Session(unfolded)
+    c = session.controller
+    with monkeypatch.context() as patch:
+        patch.setattr(preview, "compose_sample", lambda *args, **kwargs: composite_module.COMPOSITE_WELD_CHANGED)
+        for alpha in (0.2525, 0.255, 0.2575):
+            live = session.tick(alpha)
+            assert live.plan.fallback == composite_module.COMPOSITE_WELD_CHANGED and sorted(live.plan.served) == [0, 1, 2, 3, 4]
+            rebased = {item.patch_id: item for item in live.run.results}
+            assert all(item.placement == PLACEMENT_REBASED and float(item.parametric.alpha) == pytest.approx(alpha) for item in rebased.values())
+            assert rebased[3].normals_alpha == ALPHA  # нормали заморожены на ширине прогона кнопки
+            approximate = [item for item in c.width_displayed.domains if item.approximate]
+            assert approximate and all(item.normal_alpha == ALPHA for item in approximate)
+    plan = session.plan(0.27)  # 8 % от 0.25: за досягаемостью, хотя от образца (0.2575) только 4.8 %
+    assert plan.incremental and plan.held == {3: pm.DOMAIN_HELD_DISPLAY_REACH, 4: pm.DOMAIN_HELD_DISPLAY_REACH}
+    exact_run = _press(c, unfolded, 0.2575, lean=True)
+    exact = preview.build_sample(exact_run.results, production_mesh.build_mesh_arrays(exact_run.results, OFFSET, reports=False), KEY, 0.2575)
+    assert np.max(np.abs(c.width_displayed.positions - exact.positions)) <= pm.DISPLAY_APPROXIMATE_ERROR_LIMIT
+
+
+def test_a_domain_whose_own_normals_are_current_keeps_the_window_of_the_sample(unfolded):
+    """На ширине образца центр досягаемости - ширина образца: окна те же, что до введения `normal_alpha` (кнопка и полный такт)."""
+
+    session = _Session(unfolded)
+    sample, model = session.controller.width_displayed, session.controller.width_model
+    assert all(item.normal_alpha == sample.alpha for item in sample.domains)
+    reach = pm.DISPLAY_APPROXIMATE_REACH_RATIO
+    assert model.dlow[3] == pytest.approx(sample.alpha * (1.0 - reach)) and model.dhigh[3] == pytest.approx(sample.alpha * (1.0 + reach))

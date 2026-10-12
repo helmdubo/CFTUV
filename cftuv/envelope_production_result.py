@@ -265,6 +265,9 @@ class ProductionDomainResultV1:
     #: `WIDTH_REFRESH_LEAN_V1` (`lean_result`): вид посчитан, а батча, нормалей вершин и дайджеста содержимого НЕТ ПО ПОСТРОЕНИЮ (чтение - `LeanResultError`).
     #: Такой результат не ложится ни в какой кэш и не переносится на другую ревизию: он про одно обновление ширины, а не про зафиксированный ответ.
     lean: bool = field(default=False, compare=False)
+    #: Ширина, на которой заморожены нормали смещения вершин результата, когда она не ширина его сертификата: сдвинутая копия (`rebased_result`) несёт вид и сертификат новой ширины, а нормали у неё
+    #: те же, что у результата прежнего прогона, поэтому приближённый кадр домена-развёртки считает досягаемость от ширины ПРОГОНА, а не тика. `0.0` - ширина сертификата.
+    normals_alpha: float = field(default=0.0, compare=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -407,7 +410,8 @@ def rebased_result(result: ProductionDomainResultV1, *, view, certificate) -> Pr
     for name in _LAZY_FIELDS:
         state.pop(name, None)
     state.pop("heavy", None)
-    state.update(view=view, parametric=certificate, lean=True, placement=PLACEMENT_REBASED, seconds=0.0, clip_memo="", step_path="REBASED")
+    frozen_at = float(getattr(result, "normals_alpha", 0.0) or result.parametric.alpha)
+    state.update(view=view, parametric=certificate, lean=True, placement=PLACEMENT_REBASED, seconds=0.0, clip_memo="", step_path="REBASED", normals_alpha=frozen_at)
     copy = object.__new__(type(result))
     copy.__dict__.update(state)
     return copy

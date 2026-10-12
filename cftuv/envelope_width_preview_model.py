@@ -172,6 +172,9 @@ class DomainSampleV1:
     approximate_rate: float = 0.0
     #: Номера доменов (в порядке образца) соседей по стене, чьи нормали входят в смещение узлов этого домена (`MeshArraysV1.domain_partners`).
     partners: tuple = ()
+    #: Ширина, при которой посчитаны нормали смещения домена (`normals_alpha` его результата, а без неё ширина сертификата); `nan` - ширина образца. Образец инкрементального такта (`envelope_width_composite`) хранит строки обслуженных доменов как были, поэтому у домена-развёртки
+    #: нормали заморожены на ширине ПРЕЖНЕГО прогона, а не образца: досягаемость приближённого кадра (`_display_reach`) считается от неё.
+    normal_alpha: float = float("nan")
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -498,6 +501,7 @@ def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_coun
         approximate=tuple(getattr(certificate, "approximate", ()) or ()) if slopes is not None else (),
         approximate_rate=float(getattr(certificate, "approximate_rate", 0.0) or 0.0) if slopes is not None else 0.0,
         partners=tuple(partners),
+        normal_alpha=float(getattr(result, "normals_alpha", 0.0) or certificate.alpha) if slopes is not None else float("nan"),
     )
 
 
@@ -689,6 +693,16 @@ def _partner_state(base: PreviewSampleV1, domain: DomainSampleV1) -> tuple:
     return blocked, approximate, rate
 
 
+def _normal_sources(base: PreviewSampleV1, domain: DomainSampleV1) -> list:
+    """`[(скорость нормали, ширина, на которой нормали заморожены), ...]` приближённых источников смещения домена: его собственные нормали (развёртка) и нормали соседей по стене, которые тоже развёртки."""
+
+    found = []
+    for item in (domain, *(base.domains[other] for other in domain.partners)):
+        if item.approximate:
+            found.append((item.approximate_rate, base.alpha if item.normal_alpha != item.normal_alpha else item.normal_alpha))
+    return found
+
+
 def _display_reach(offset: float, rate: float, alpha: float) -> float:
     """Досягаемость приближённого домена (доля ширины базы): не больше `DISPLAY_APPROXIMATE_REACH_RATIO` и не дальше, чем оценка ошибки замороженного смещения остаётся в пределе.
 
@@ -755,6 +769,12 @@ def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> P
             shadow_low[number], shadow_high[number] = max(low, alpha0 * (1.0 - READMIT_NOMINAL_REACH_RATIO)), min(high, alpha0 * (1.0 + READMIT_NOMINAL_REACH_RATIO))
         if reach is not None:
             low, high = max(low, alpha0 * (1.0 - reach)), min(high, alpha0 * (1.0 + reach))
+        if near:
+            # Нормали обслуженного домена могли быть заморожены на ширине ПРЕЖНЕГО прогона (образец инкрементального такта хранит его строку как была): кадр не дальше досягаемости от неё (на ширине образца окно то же).
+            for rate, frozen in _normal_sources(base, domain):
+                if frozen != alpha0:
+                    span = _display_reach(base.offset, rate, frozen)
+                    low, high = max(low, frozen * (1.0 - span)), min(high, frozen * (1.0 + span))
         dlow[number], dhigh[number] = low, high
         rows.append((domain.patch_id, domain.domain_id, outcome, 1, reach))
         modelled.append(number)

@@ -398,11 +398,18 @@ def compare_incremental_press(label: str, a: dict, b: dict, allowed: tuple, out:
     served_max = {"position": 0.0, "uv": 0.0}
     computed_max = {"position": 0.0, "uv": 0.0}
     mesh = {"same_layout": None, "position_max": None, "uv_max": None, "owners_equal": None, "owner_partition_equal": None}
+    reordered: list = []
     if a.get("dump") and b.get("dump"):
         first, second = load(a["dump"]["path"]), load(b["dump"]["path"])
+        # The order of the faces of a batch can change from width to width under the SAME structure digest (the digest sorts the rings), and the token (faces in order) then differs: the served domain keeps the order
+        # of its verification base. Such a domain is the same set of faces in another order: its loops are not comparable one by one, the layout hashes differ without any geometric difference.
+        tokens_a, tokens_b = a["dump"].get("domain_tokens", {}), b["dump"].get("domain_tokens", {})
+        reordered = [patch for patch in sorted(served) if patch not in flips and tokens_a.get(str(patch)) != tokens_b.get(str(patch))]
+        if reordered:
+            out.notes.append(f"[{label}] label-only: {len(reordered)} served domains keep the face order of their verification base (the structure digest is the same): {reordered[:20]}")
         for patch in common:
             for kind, key in (("position", f"pos_{patch}"), ("uv", f"uv_{patch}")):
-                if key not in first or key not in second:
+                if key not in first or key not in second or (kind == "uv" and patch in reordered):
                     continue
                 x, y = first[key], second[key]
                 if x.shape != y.shape:
@@ -424,7 +431,7 @@ def compare_incremental_press(label: str, a: dict, b: dict, allowed: tuple, out:
                     if gap > allowed_gap:
                         out.differences.append(f"[{label}] patch {patch} (computed) {kind} is not the exact mesh: {gap:.3e} > {allowed_gap:g}")
         for name in ("faces_hash", "seams_hash", "tokens_hash", "face_domain_hash"):
-            if a["dump"].get(name) != b["dump"].get(name) and not flips:
+            if a["dump"].get(name) != b["dump"].get(name) and not flips and not reordered:
                 out.differences.append(f"[{label}] mesh {name}: base {a['dump'].get(name)} != branch {b['dump'].get(name)} without a flip")
         mesh["same_layout"] = all(a["dump"].get(name) == b["dump"].get(name) for name in ("faces_hash", "seams_hash", "tokens_hash"))
         if mesh["same_layout"] and "mesh_positions" in first and "mesh_positions" in second and first["mesh_positions"].shape == second["mesh_positions"].shape:
@@ -445,7 +452,7 @@ def compare_incremental_press(label: str, a: dict, b: dict, allowed: tuple, out:
         out.notes.append(f"[{label}] label-only: the owner ordinals (cftuv_owner) of the served domains are those of the verification base (the partition into owner groups is the same)")
     out.presses[label] = {
         "domains": a["domains"], "materialized": a["materialized"], "outcomes": a["outcomes"], "mesh": "incremental", "mesh_counts": b["mesh_counts"], "keys": 0, "kind": "incr", "lean": True,
-        "served": len(served), "computed": len(computed), "flips": flips, "served_max": served_max, "computed_max": computed_max, "mesh_compare": mesh,
+        "served": len(served), "computed": len(computed), "flips": flips, "reordered": reordered, "served_max": served_max, "computed_max": computed_max, "mesh_compare": mesh,
         "composite": (b.get("plan") or {}).get("composite"), "fallback": (b.get("plan") or {}).get("fallback", ""),
     }
 
@@ -1171,6 +1178,7 @@ def dump_press(sample, path: Path) -> dict:
     return {
         "path": str(path), "faces_hash": _hash((image.face_starts.tolist(), image.face_vertices.tolist())), "seams_hash": _hash(image.seams.tolist()), "tokens_hash": _hash([item.token for item in sample.domains]),
         "owners_hash": _hash(image.face_owner.tolist()), "owner_partition_hash": _hash(canonical), "face_domain_hash": _hash(image.face_domain.tolist()),
+        "domain_tokens": {str(item.patch_id): item.token for item in sample.domains},
     }
 
 
@@ -1276,6 +1284,13 @@ def run_presses(args, report: dict, state: dict) -> None:
         live_preview = None
     incremental_supported = lean_supported and live_preview is not None and hasattr(live_preview, "plan_tick")  # WIDTH_REFRESH_INCREMENTAL_V1; an older tree runs `incr` as a lean tick
     report["incremental_supported"] = incremental_supported
+    if incremental_supported:
+        # The tool's own override of the small-selection rule (`--env CFTUV_AB_MIN_DOMAINS=0`): a five-domain scene takes the incremental path only when it is asked to.
+        import cftuv.envelope_width_incremental as policy_module
+
+        if os.environ.get("CFTUV_AB_MIN_DOMAINS") is not None and hasattr(policy_module, "INCREMENTAL_MIN_DOMAINS"):
+            policy_module.INCREMENTAL_MIN_DOMAINS = int(os.environ["CFTUV_AB_MIN_DOMAINS"])
+        report["incremental_policy"] = {name: getattr(policy_module, name, None) for name in ("INCREMENTAL_VERIFY_AFTER_TICKS", "INCREMENTAL_VERIFY_AFTER_DISTANCE", "INCREMENTAL_MIN_DOMAINS")}
     report["presses"] = {}
     for label, kind in zip(state["labels"], state["kinds"]):
         alpha = state["alphas"][label]

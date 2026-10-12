@@ -801,3 +801,23 @@ def test_the_view_hash_of_a_computed_domain_is_an_answer_field():
 def test_the_domain_rows_name_the_domains_the_certificate_served():
     assert ab.PLACEMENT_REBASED == "certificate" and ab.REFRESH_INCREMENTAL == "WIDTH_REFRESH_INCREMENTAL_V1"
     assert all(prefix.startswith("PRODUCTION_") for prefix in ab.INCREMENTAL_COUNTER_PREFIXES)
+
+
+def test_a_served_domain_that_keeps_the_face_order_of_its_base_is_a_label_not_a_failure():
+    """Порядок граней пакета меняется от ширины к ширине при ТОЙ ЖЕ подписи структуры (она сортирует кольца): токен другой, подпись та же. Обслуженный домен хранит порядок своей базы: петли не сравниваются по номеру,
+    хеши раскладки разные, а геометрии отличия нет."""
+
+    def reorder(base, branch, dumps):
+        dumps["branch.npz"]["uv_1"] = dumps["branch.npz"]["uv_1"][::-1].copy()  # те же петли в другом порядке
+
+    base_dump, branch_dump = _dump_of(), _dump_of(faces_hash="other order", tokens_hash="other tokens")
+    base_dump[1]["domain_tokens"] = {"1": "t1", "2": "t2", "3": "t3"}
+    branch_dump[1]["domain_tokens"] = {"1": "reordered", "2": "t2", "3": "t3"}
+    comparison = _incremental_pair(base_dump=base_dump, branch_dump=branch_dump, mutate=reorder)
+
+    assert comparison.identical, comparison.differences
+    assert comparison.presses["incr1"]["reordered"] == [1] and any("keep the face order" in note for note in comparison.notes)
+    flipped = _incremental_pair(base_dump=base_dump, branch_dump=branch_dump, mutate=lambda base, branch, dumps: (reorder(base, branch, dumps), row_of(branch, "incr1", 1).update(structure_digest="another")))
+    assert flipped.identical and flipped.presses["incr1"]["flips"] == [1] and flipped.presses["incr1"]["reordered"] == []  # перелом структуры - не перестановка
+    unexplained = _incremental_pair(branch_dump=_dump_of(faces_hash="other faces"))
+    assert not unexplained.identical  # раскладка разошлась, а токены те же: ничем не объяснено
