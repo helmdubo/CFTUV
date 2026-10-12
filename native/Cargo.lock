@@ -79,6 +79,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cftuv-mesh"
+version = "0.1.0"
+dependencies = [
+ "cftuv-canon",
+ "cftuv-clip",
+ "cftuv-core",
+ "dashu-int",
+]
+
+[[package]]
 name = "cftuv-python"
 version = "0.1.0"
 dependencies = [
@@ -87,6 +97,7 @@ dependencies = [
  "cftuv-clip",
  "cftuv-core",
  "cftuv-embedding",
+ "cftuv-mesh",
  "cftuv-skeleton",
  "mimalloc",
  "pyo3",

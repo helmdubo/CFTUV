@@ -1,0 +1,12 @@
+[package]
+name = "cftuv-mesh"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+cftuv-canon = { path = "../cftuv-canon" }
+cftuv-clip = { path = "../cftuv-clip" }
+cftuv-core = { path = "../cftuv-core" }
