@@ -12,6 +12,7 @@
 //! `_pick_prime`. They slot in on top of [`SqrtSum::sign_prefilter`], [`integer_form`], [`reduced_form`],
 //! [`multiply_integer_items`], [`scaled_by_reciprocal`] and [`conjugate_items`].
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::sync::OnceLock;
 
@@ -66,16 +67,45 @@ impl IntForm {
     /// The value `sum a_m sqrt(m) / L` as a [`SqrtSum`]: radicands ascending, zero numerators dropped. Nothing is normalised here: the
     /// canonical `Fraction(a_m, L)` terms of the value are made when somebody asks for them ([`SqrtSum::terms`]), and its identity
     /// (lowest terms, one gcd chain for the whole value) when somebody asks for that ([`SqrtSum::canonical_form`]).
+    ///
+    /// Taken to lowest terms here (one gcd chain) unless a [`LazyReduction`] is alive on this thread: then the form is kept as it is and the chain is paid by the value that
+    /// is asked for its identity (`canonical_form`, so also `terms`) and by no other. The skeleton works that way: most of the values it makes (the quotients of a division,
+    /// the products, the sums) are only added, multiplied and signed once or twice, and the chain cost more than the smaller numbers saved (the sign filter reads the same
+    /// enclosure of a form and of any positive multiple of it).
     pub fn into_sqrt_sum(self) -> SqrtSum {
         let IntForm { mut common, mut items } = self;
         if !items.windows(2).all(|pair| pair[0].0 < pair[1].0) {
             items.sort_by(|left, right| left.0.cmp(&right.0));
         }
         items.retain(|(_, value)| !value.is_zero());
+        if LAZY_REDUCTION.with(Cell::get) {
+            return SqrtSum::from_sorted_form(common, items, false);
+        }
         // Taken to lowest terms here, at the price of one gcd chain (the canonical terms would cost a gcd per term, and only the values that
         // leave the core pay for those): every later operation works on the smallest numbers the value has, and its identity is at hand.
         reduce_in_place(&mut common, &mut items);
         SqrtSum::from_sorted_form(common, items, true)
+    }
+}
+
+thread_local! {
+    static LAZY_REDUCTION: Cell<bool> = const { Cell::new(false) };
+}
+
+/// While it lives, `IntForm::into_sqrt_sum` of this thread keeps the form it is given instead of taking it to lowest terms (the value is the same; only the cost moves).
+pub struct LazyReduction {
+    previous: bool,
+}
+
+impl LazyReduction {
+    pub fn begin() -> LazyReduction {
+        LazyReduction { previous: LAZY_REDUCTION.with(|flag| flag.replace(true)) }
+    }
+}
+
+impl Drop for LazyReduction {
+    fn drop(&mut self) {
+        LAZY_REDUCTION.with(|flag| flag.set(self.previous));
     }
 }
 

@@ -335,7 +335,8 @@ mod sampler {
                     let callee = if position > 0 { names[position - 1].clone() } else { "(itself)".to_string() };
                     *callees.entry(callee).or_default() += 1;
                     let short = |text: Option<&String>| text.map_or(String::new(), |name| name.chars().take(60).collect::<String>());
-                    let caller = format!("{}  <-  {}  <-  {}", short(names.get(position + 1)), short(names.get(position + 2)), short(names.get(position + 3)));
+                    let outer = names.iter().rposition(|name| name.contains(focus)).unwrap_or(position);
+                    let caller = format!("{}  <-  {}  <-  {}", short(names.get(outer + 1)), short(names.get(outer + 2)), short(names.get(outer + 3)));
                     *callers.entry(caller).or_default() += 1;
                 }
             }

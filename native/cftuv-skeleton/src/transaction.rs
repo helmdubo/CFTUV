@@ -9,6 +9,7 @@
 //! cost-bearing operations. `level_limit` is the oracle's LIVE `level_budget(polygon)` and `BuilderOptions::march_steps` the live `march_budget` (see `builder`).
 
 use cftuv_core::exact::ExactCtx;
+use cftuv_core::sqrt_sum::LazyReduction;
 
 use crate::builder::{Builder, BuilderOptions, RunEnd, Step, Transaction};
 use crate::commit::{materialize_symbolic_runtime_commit, plan_symbolic_runtime_commit};
@@ -54,6 +55,8 @@ pub fn build_skeleton(ctx: &mut ExactCtx<'_>, polygon: Polygon, options: Builder
     }
     forget_compared();
     let _forget = Forget;
+    // the values of a skeleton are signed and multiplied on, rarely asked for their identity: they are kept as they are made, not taken to lowest terms (see `LazyReduction`)
+    let _lazy = LazyReduction::begin();
     let mut builder = Builder::new(ctx, polygon, options)?;
     match builder.run(ctx, level_limit, &mut SuperlevelTransaction)? {
         RunEnd::Finished(skeleton) => Ok(*skeleton),
