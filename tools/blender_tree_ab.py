@@ -84,7 +84,7 @@ LEAN_UNCARRIED_FIELDS = ("content_digest", "semantic_digest", "vertex_normals_ha
 #: Counters a lean run adds or moves on purpose: its own class counters, and the registration in the content store (a lean result is never stored).
 LEAN_COUNTER_PREFIXES = ("PRODUCTION_REFRESH_LEAN", "PRODUCTION_CONTENT_REGISTERED")
 #: Fields that say HOW the answer was reached (counted and listed, never a failure).
-LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran")
+LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran", "materialize_ran")
 #: Counters whose value depends on which worker a domain landed on; each group is compared by its sum.
 SCHEDULING_GROUPS = {
     "interval path": lambda name: name == "PRODUCTION_INTERVAL_FAST_HITS" or name.startswith("PRODUCTION_INTERVAL_FALLBACK_"),
@@ -355,6 +355,9 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
     for side, press in (("base", a), ("branch", b)):
         if press.get("effective_alpha_calls") and any(press["effective_alpha_calls"]):
             out.notes.append(f"[{label}] {side}: effective-alpha pairs computed natively {press['effective_alpha_calls'][0]}, in Python after a named refusal {press['effective_alpha_calls'][1]}")
+    for side, press in (("base", a), ("branch", b)):
+        if press.get("materialize_calls") and any(press["materialize_calls"]):
+            out.notes.append(f"[{label}] {side}: W1 (exact mesh) calls computed natively {press['materialize_calls'][0]}, in Python after a named refusal {press['materialize_calls'][1]}")
     _counter_difference(a["profile_counters"], b["profile_counters"], allowed, is_volatile_run_counter, f"[{label}] run profile", out)
     for name in ("profile_domain_counters", "profile_receipts", "profile_timing_stages"):
         if a.get(name) != b.get(name):
@@ -1044,6 +1047,10 @@ def verify_native(native_path: str, expect_prefix: str) -> dict:
         assert build.startswith(expect_prefix), f"unexpected native build id {build}"
     for stage in ("coverage", "clip", "skeleton", "snap_embedding"):
         assert host[stage] == "available", f"native stage {stage} is {host[stage]}"
+    if "materialize_w1" in host and os.environ.get("CFTUV_MATERIALIZE_W1_BACKEND", "").strip().upper() != "PYTHON" and "CFTUV_W1_RECORD_DIR" not in os.environ:
+        # a tree that has the W1 stage orders it natively by default (MATERIALIZE_W1_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation,
+        # or the A/B compares Python with Python (the tree that has no such stage is the base side of an A/B and is not asked)
+        assert host.get("materialize_w1") == "available", f"native stage materialize_w1 is {host.get('materialize_w1')}"
     return {"module": str(module.__file__), "build_id": build, "host_native_status": {key: str(value) for key, value in host.items()}}
 
 
@@ -1107,6 +1114,8 @@ def domain_rows(run) -> list:
             "served": getattr(item, "placement", "") == PLACEMENT_REBASED, "view_hash": view_hash(item),
             "effective_alpha_ran": None if record is None else (getattr(record, "effective_alpha_ran", None) or None),
             "effective_alpha_calls": None if record is None else [getattr(record, "effective_alpha_native_calls", 0), getattr(record, "effective_alpha_python_calls", 0)],
+            "materialize_ran": None if record is None else (getattr(record, "materialize_ran", None) or None),
+            "materialize_calls": None if record is None else [getattr(record, "materialize_native_calls", 0), getattr(record, "materialize_python_calls", 0)],
         })
     return sorted(rows, key=lambda row: row["patch"])
 
@@ -1147,9 +1156,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
         outcomes[row["outcome"]] = outcomes.get(row["outcome"], 0) + 1
     profile = run.profile
     alpha_calls = [sum(row["effective_alpha_calls"][index] for row in rows if row.get("effective_alpha_calls")) for index in (0, 1)]
+    materialize_calls = [sum(row["materialize_calls"][index] for row in rows if row.get("materialize_calls")) for index in (0, 1)]
     return {
         "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
-        "process_counters": counters, "effective_alpha_calls": alpha_calls,
+        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_receipts": _hash(sorted((str(item.patch_domain_id), str(item.stage)) for item in profile.receipts)),
@@ -1339,6 +1349,28 @@ def run_presses(args, report: dict, state: dict) -> None:
         print(f"TREEAB press={label} kind={kind} lean={lean} alpha={alpha} domains={item['domains']} materialized={item['materialized']} keys={len(item['content_keys'])} run={seconds:.2f}s arrays={arrays_seconds:.3f}s", flush=True)
 
 
+W1_RECORD_ENVIRONMENT = "CFTUV_W1_RECORD_DIR"
+
+
+def install_w1_recorder():
+    """The corpus of W1 of the MATERIALIZE chain (`mesh.exact_mesh`, `mesh.canonical_triangles`) recorded from THIS run: set `CFTUV_W1_RECORD_DIR` to a directory and the two entries are wrapped by the
+    corpus recorder (`tools/native_corpus.py`). The stage follows the master switch (NATIVE by default; MATERIALIZE_W1_NATIVE_DEFAULT_V1), and a native stage never calls the oracle the recorder wraps, so the recorder
+    orders the stage to the reference (`CFTUV_MATERIALIZE_W1_BACKEND=PYTHON`, read at every derivation of the orders). In-process runs only (`--workers 0`): a pool worker is another process."""
+
+    directory = os.environ.get(W1_RECORD_ENVIRONMENT, "").strip()
+    if not directory:
+        return None
+    os.environ["CFTUV_MATERIALIZE_W1_BACKEND"] = "PYTHON"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cftuv_envelope.materialize.domain as domain_module
+    import native_corpus as nc
+
+    recorder = nc.Recorder(Path(directory), nc.run_description({"recorded_by": "blender_tree_ab"}), operations=nc.W1_OPERATIONS)
+    domain_module.exact_mesh = recorder.wrap(nc.OP_MESH, nc.ORACLE[nc.OP_MESH])
+    domain_module.canonical_triangles = recorder.wrap(nc.OP_CANONICAL, nc.ORACLE[nc.OP_CANONICAL])
+    return recorder
+
+
 def prepare_pool(args, report: dict, state: dict) -> None:
     from cftuv.envelope_domain_pool import get_domain_pool
     from cftuv.envelope_worker_python import read_worker_python
@@ -1395,6 +1427,7 @@ def worker_main(argv: list[str]) -> int:
         if args.prime_byte_check:
             report["primed_identity"] = _prime_byte_check(kernel_backend_of(mesh_settings))
         state["content_key_module"], state["real_identity"] = record_content_keys(state["keys"])
+        state["w1_recorder"] = install_w1_recorder()
         run_presses(args, report, state)
     except Exception:  # noqa: BLE001 - the traceback is the report
         failure = traceback.format_exc()
@@ -1429,6 +1462,9 @@ def _finish(args, report: dict, state: dict, failure) -> int:
         if not ok:
             failure = "WORKER_ORIGIN_MISMATCH: " + "; ".join(problems[:5])
             print(failure)
+    if state.get("w1_recorder") is not None:
+        state["w1_recorder"].write_index()
+        print(f"W1_RECORDED {len(state['w1_recorder'].rows)} records {state['w1_recorder'].bytes} bytes", flush=True)
     report["failure"] = failure
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     print(f"TREEAB_{'OK' if failure is None else 'FAILED'} case={args.case} label={args.label} workers={args.workers} origins={report.get('worker_origins_ok')}", flush=True)

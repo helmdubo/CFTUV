@@ -37,7 +37,7 @@ from types import SimpleNamespace
 import pytest
 
 import cftuv_envelope as kernel
-import cftuv_envelope.materialize.assemble as assemble
+import cftuv_envelope.materialize.mesh as mesh
 import cftuv_envelope.materialize.clip as clip_module
 import cftuv_envelope.materialize.domain as domain_module
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
@@ -88,7 +88,7 @@ def _materialize(alpha: str):
 
 
 def _without_the_chord_law(monkeypatch):
-    monkeypatch.setattr(assemble, "_chord_station", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mesh, "_chord_station", lambda *args, **kwargs: None)
 
 
 def _without_the_plan_withdrawal(monkeypatch):
@@ -176,16 +176,16 @@ def test_the_chord_law_gives_the_batch_of_the_rung_law_where_the_rung_law_answer
 
     reference, reference_counters = _materialized_equivalence_domain()
     assert reference_counters["MATERIALIZE_RUNG_CHORD_STATIONS"] == 0
-    real_values, real_rung = assemble.station_values, assemble._rung_station
+    real_values, real_rung = mesh.station_values, mesh._rung_station
 
     def clip_stage_without_the_rung_law(*args, chords=None, **kwargs):
         if chords is None:
             return real_values(*args, chords=chords, **kwargs)
-        assemble._rung_station = lambda *_args: None
+        mesh._rung_station = lambda *_args: None
         try:
             return real_values(*args, chords=chords, **kwargs)
         finally:
-            assemble._rung_station = real_rung
+            mesh._rung_station = real_rung
 
     monkeypatch.setattr(clip_module, "station_values", clip_stage_without_the_rung_law)
 
@@ -246,20 +246,20 @@ def test_the_chord_station_is_the_exact_interpolation_of_the_ends():
     budget = factories.budget()
 
     # Середина ребра: `s` постоянна (перекладина), `r` — среднее концов.
-    assert assemble._chord_station(chord, _point(1, 0), 5, anchors, budget) == _fact(1, Fraction(1, 2))
+    assert mesh._chord_station(chord, _point(1, 0), 5, anchors, budget) == _fact(1, Fraction(1, 2))
     # Концы ребра — собственные факты концов.
-    assert assemble._chord_station(chord, _point(0, 0), 5, anchors, budget) == _fact(1, 0)
-    assert assemble._chord_station(chord, _point(4, 0), 5, anchors, budget) == _fact(1, 2)
+    assert mesh._chord_station(chord, _point(0, 0), 5, anchors, budget) == _fact(1, 0)
+    assert mesh._chord_station(chord, _point(4, 0), 5, anchors, budget) == _fact(1, 2)
     # Ребро вдоль второй оси и концы с разной `s`: интерполяция по обеим координатам фактов.
     vertical = ("u", "v", _point(0, 0), _point(0, 6))
     sloped = {(5, "u"): _fact(0, 1), (5, "v"): _fact(3, 4)}
-    assert assemble._chord_station(vertical, _point(0, 2), 5, sloped, budget) == _fact(1, 2)
+    assert mesh._chord_station(vertical, _point(0, 2), 5, sloped, budget) == _fact(1, 2)
     # Точка вне прямой ребра (вторая координата точная), вне отрезка, регион без фактов концов, нулевое ребро — ответа нет.
-    assert assemble._chord_station(chord, _point(1, 1), 5, anchors, budget) is None
-    assert assemble._chord_station(chord, _point(5, 0), 5, anchors, budget) is None
-    assert assemble._chord_station(chord, _point(-1, 0), 5, anchors, budget) is None
-    assert assemble._chord_station(chord, _point(1, 0), 6, anchors, budget) is None
-    assert assemble._chord_station(("u", "v", _point(0, 0), _point(0, 0)), _point(0, 0), 5, anchors, budget) is None
+    assert mesh._chord_station(chord, _point(1, 1), 5, anchors, budget) is None
+    assert mesh._chord_station(chord, _point(5, 0), 5, anchors, budget) is None
+    assert mesh._chord_station(chord, _point(-1, 0), 5, anchors, budget) is None
+    assert mesh._chord_station(chord, _point(1, 0), 6, anchors, budget) is None
+    assert mesh._chord_station(("u", "v", _point(0, 0), _point(0, 0)), _point(0, 0), 5, anchors, budget) is None
 
 
 def test_the_chord_of_a_new_vertex_is_the_edge_between_the_nearest_original_vertices():

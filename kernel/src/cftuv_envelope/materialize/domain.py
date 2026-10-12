@@ -57,12 +57,12 @@
 from __future__ import annotations
 
 import time
-from collections import Counter
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from hashlib import sha256
 from typing import NamedTuple
 
+from .. import backend
 from .._chain_station import free_vertices, inert_face_pairs
 from ..canonical import sealed_geometry_batch
 from ..codec import canonical_json_bytes
@@ -85,18 +85,7 @@ from ..reference.native_exact import ExactScalarTextCanonUnsupported
 from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
 from .audit import audit_batch, batch_shape_counters
-from .assemble import (
-    RUNG_CHORD_STATIONS,
-    RUNG_STATIONS_FROM_CHAIN_VERTEX,
-    Layout,
-    assemble_batch,
-    canonical_triangles,
-    intern_vertices,
-    lift_vertices,
-    settle_topology,
-    station_values,
-    tessellate_faces,
-)
+from .assemble import Layout, assemble_batch, lift_vertices, settle_topology
 from .chord_station import station_chord_vertices
 from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
@@ -104,6 +93,7 @@ from .coalesce import match_region_faces, merge_same_chain_faces, region_contour
 from .frames import MaterializationRefusal, resolve_frame
 from .interval import alpha_interval, coverage_interval
 from .lift import plane_lift_of
+from .mesh import RUNG_CHORD_STATIONS, RUNG_STATIONS_FROM_CHAIN_VERTEX, canonical_triangles, exact_mesh
 from .memo import memo_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .parametric import capture_inputs, certificate_of
@@ -732,7 +722,7 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     canonical = (
         polygons
         if law is DecalTopologyLawV1.TRIANGLES_V1 and cut is None
-        else canonical_triangles(frame_faces, cycles, budget, chart_cw)
+        else backend.canonical_triangles_compute(canonical_triangles, frame_faces, cycles, budget, chart_cw)
     )
     sourced = lift_source_vertices(
         positions,
@@ -819,35 +809,29 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     ]
     clock.lap("FRAMES")
     layout = Layout(frame_faces)
-    cycles, points = intern_vertices(
-        [(item[0], frame) for item, frame in zip(items, frame_faces)], table, notes, chords.names
-    )
     lattice_alpha = coverage.lattice_alpha
-    tally, rungs = Counter(), set()
-    plain: set = set()
-    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally, rungs, plain=plain)
-    clock.lap("STATIONS_UV")
     chart_cw = (
         prepared.context.frame.chart_orientation
         is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
     )
     clipped = _is_clipped(admission)
     tessellation_law = _tessellation_law(clipped, law)
-    polygons = tessellate_faces(
+    exact = backend.exact_mesh_compute(
+        exact_mesh,
         frame_faces,
-        cycles,
+        [item[0] for item in items],
+        layout,
+        table,
+        notes,
+        chords.names,
+        lattice_alpha,
         budget,
-        reverse=chart_cw,
-        law=tessellation_law,
-        exact_plane=_on_exact_plane(admission) or clipped,
-        tally=tally,
-        uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
-        lattice_alpha=lattice_alpha,
-        is_rung=lambda frame_face, key: (layout.region_of(frame_face), key) in rungs,
-        partition=True,
-        plain=plain,
+        chart_cw,
+        tessellation_law,
+        _on_exact_plane(admission) or clipped,
+        clock.lap,
     )
-    clock.lap("TESSELLATE")
+    cycles, points, facts, polygons, tally, rungs = exact.cycles, exact.points, exact.facts, exact.polygons, exact.tally, exact.rungs
     plane = _lift_of(prepared, admission, table.scale, budget)
     inert = _inert_pairs(prepared, silhouette, admission)
     points_before, facts_before, cut_polygons = (points, dict(facts), polygons) if capture else (None, None, None)

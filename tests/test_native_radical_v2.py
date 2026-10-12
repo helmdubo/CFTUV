@@ -209,8 +209,11 @@ def test_the_capability_is_pinned_reported_and_not_a_rust_only_stage():
     assert cftuv_native.native_status()["radical_v2"] == "available"
     digest = hashlib.sha256((ROOT / "kernel" / "src" / "cftuv_envelope" / "reference" / "radical_v2.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
     assert pin.PINS["reference/radical_v2.py"] == digest
-    architecture = (ROOT / "tests" / "test_architecture.py").read_text(encoding="utf-8")
-    assert 'RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha")' in architecture, "radical_v2 is a capability, not a stage the product runs"
+    import ast
+
+    architecture = ast.parse((ROOT / "tests" / "test_architecture.py").read_text(encoding="utf-8"))
+    rust_only = next(ast.literal_eval(node.value) for node in architecture.body if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "RUST_ONLY_OPERATIONS")
+    assert "radical_v2" not in rust_only, "radical_v2 is a capability, not a stage the product runs: its oracle may still move"
 
 
 def test_a_moved_oracle_stales_only_the_capability_and_the_extension_refuses_by_name():

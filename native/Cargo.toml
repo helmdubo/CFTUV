@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cftuv-alpha", "cftuv-canon", "cftuv-clip", "cftuv-core", "cftuv-embedding", "cftuv-python", "cftuv-radical", "cftuv-skeleton"]
+members = ["cftuv-alpha", "cftuv-canon", "cftuv-clip", "cftuv-core", "cftuv-embedding", "cftuv-mesh", "cftuv-python", "cftuv-radical", "cftuv-skeleton"]
 
 [workspace.package]
 edition = "2021"

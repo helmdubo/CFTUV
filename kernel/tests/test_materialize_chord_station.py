@@ -24,7 +24,7 @@ from cftuv_envelope import ExactRationalV1
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1, GeometryDiagnosticSeverity
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.ids import PolicyId, SourceVertexId
-from cftuv_envelope.materialize import assemble, chord_station, domain
+from cftuv_envelope.materialize import chord_station, domain, mesh
 from cftuv_envelope.materialize.admit import MaterializationOutcome
 from cftuv_envelope.materialize.chord_station import (
     AT_NODE,
@@ -531,13 +531,13 @@ FACE_WITH_STATION = ((0, 0), STATION, (4, 0), (0, 4))
 
 def test_a_point_that_is_not_a_node_is_named_by_the_chord_map_and_not_by_the_table():
     named = {("a", point_key(_point(*STATION))): "v1"}
-    cycles, points = assemble.intern_vertices(
+    cycles, points = mesh.intern_vertices(
         [_item("a", *FACE_WITH_STATION)], _table(a_0_0="v0", a_4_0="v2", a_0_4="v3"), [], named
     )
     assert [key for key, _ in cycles[0]] == ["src:v0", "src:v1", "src:v2", "src:v3"]
     assert points["src:v1"] == _point(*STATION)
     # Без карты имён точка вне решётки остаётся безымянной, как раньше.
-    cycles, _points = assemble.intern_vertices(
+    cycles, _points = mesh.intern_vertices(
         [_item("a", *FACE_WITH_STATION)], _table(a_0_0="v0", a_4_0="v2", a_0_4="v3"), []
     )
     assert [key for key, _ in cycles[0]] == ["src:v0", "node:0", "src:v2", "src:v3"]
@@ -546,7 +546,7 @@ def test_a_point_that_is_not_a_node_is_named_by_the_chord_map_and_not_by_the_tab
 def test_two_regions_naming_one_station_differently_report_the_dropped_name():
     key = point_key(_point(*STATION))
     notes: list = []
-    cycles, _points = assemble.intern_vertices(
+    cycles, _points = mesh.intern_vertices(
         [_item("a", *FACE_WITH_STATION), _item("b", *FACE_WITH_STATION)],
         _table(),
         notes,
@@ -559,7 +559,7 @@ def test_two_regions_naming_one_station_differently_report_the_dropped_name():
 def test_two_stations_under_one_source_name_are_a_named_refusal():
     first, second = point_key(_point(*STATION)), point_key(_point(Fraction(8, 3), 0))
     with pytest.raises(MaterializationRefusal) as refusal:
-        assemble.intern_vertices(
+        mesh.intern_vertices(
             [_item("a", (0, 0), STATION, (Fraction(8, 3), 0), (0, 4))],
             _table(),
             [],

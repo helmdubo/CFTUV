@@ -19,7 +19,7 @@ from developable_route import developable_domain
 from materialize_factories import prepare_and_cover
 
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
-from cftuv_envelope.materialize.assemble import DECIMAL_CONTEXT, decimal_of
+from cftuv_envelope.materialize.mesh import DECIMAL_CONTEXT, decimal_of
 from cftuv_envelope.materialize.lift import ENCLOSURE_BITS, enclosure_midpoint, sqrt_sum_binary64
 from cftuv_envelope.materialize.uv_law import uv_direct_strip_v1
 from cftuv_envelope.wavefront import conveyor_coverage

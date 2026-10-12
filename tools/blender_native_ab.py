@@ -793,8 +793,9 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
     else:
         mesh_settings.kernel_backend = backend  # изоляция coverage/clip: остальные стадии заказаны на PYTHON порядками API
         assert kernel_backend_of(mesh_settings) == backend
-    # лист эффективной alpha идёт за главным переключателем (EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1), порядка у `run_production` нет: A/B одной стадии изолирует его средой; его собственный A/B - `blender_tree_ab.py`
-    os.environ[STAGE_ENVIRONMENT["effective_alpha"]] = KERNEL_BACKEND_PYTHON
+    # лист эффективной alpha и W1 материализации идут за главным переключателем (EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1, MATERIALIZE_W1_NATIVE_DEFAULT_V1), порядка у `run_production` нет: A/B одной стадии изолирует их средой; их собственный A/B - `blender_tree_ab.py`
+    for variable in STAGE_ENVIRONMENT.values():
+        os.environ[variable] = KERNEL_BACKEND_PYTHON
     _fresh_state(controller, args.workers)
     obj = bpy.data.objects[mesh_name]
     selected = _select_seams(obj)

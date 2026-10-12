@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
-from cftuv_envelope.materialize import assemble
+from cftuv_envelope.materialize import mesh
 from cftuv_envelope.materialize.admit import MaterializationOutcome
 from cftuv_envelope.materialize.frames import MaterializationRefusal
 
@@ -33,8 +33,8 @@ def _irrational_values():
 
 
 def test_the_decimal_context_is_pinned_and_not_inherited():
-    context = assemble.DECIMAL_CONTEXT
-    assert context.prec == assemble.DECIMAL_DIGITS == 28
+    context = mesh.DECIMAL_CONTEXT
+    assert context.prec == mesh.DECIMAL_DIGITS == 28
     assert context.rounding == decimal.ROUND_HALF_EVEN
     assert (context.Emin, context.Emax, context.capitals, context.clamp) == (
         -999999,
@@ -60,17 +60,17 @@ def test_decimal_of_ignores_the_ambient_decimal_context(divisor):
         decimal.Context(prec=3, rounding=decimal.ROUND_CEILING, Emin=-3, Emax=3),
     )
     for value in _irrational_values():
-        reference = assemble.decimal_of(value, divisor)
+        reference = mesh.decimal_of(value, divisor)
         # 28 значащих цифр: контекст «по умолчанию» читал их так же.
         assert len(reference.as_tuple().digits) <= 28
         for ambient in hostile:
             with decimal.localcontext(ambient) as active:
-                assert assemble.decimal_of(value, divisor) == reference
+                assert mesh.decimal_of(value, divisor) == reference
                 assert active.prec == ambient.prec  # окружение не тронуто
         # Тот же ответ и под тем же значением, посчитанным без ловушек.
-        assert assemble.decimal_of(value, divisor) == reference
+        assert mesh.decimal_of(value, divisor) == reference
     # Закреплённый контекст не накапливает флаги между вызовами: работает копия.
-    assert not any(assemble.DECIMAL_CONTEXT.flags.values())
+    assert not any(mesh.DECIMAL_CONTEXT.flags.values())
 
 
 def test_the_old_prec_only_context_really_moved_the_answer():
@@ -91,7 +91,7 @@ def test_the_old_prec_only_context_really_moved_the_answer():
             legacy = decimal.Decimal(middle.numerator) / decimal.Decimal(
                 middle.denominator
             )
-        moved += legacy != assemble.decimal_of(value, 1)
+        moved += legacy != mesh.decimal_of(value, 1)
     assert moved >= 1
 
 
@@ -124,7 +124,7 @@ TRIANGLE = ((0, 0), (4, 0), (0, 4))
 def test_a_point_named_once_keeps_its_name_and_reports_nothing():
     table = _table(a_0_0="v0", a_4_0="v1", a_0_4="v2")
     notes: list = []
-    cycles, points = assemble.intern_vertices(
+    cycles, points = mesh.intern_vertices(
         [_item("a", *TRIANGLE), _item("a", *TRIANGLE)], table, notes
     )
     assert [key for key, _ in cycles[0]] == ["src:v0", "src:v1", "src:v2"]
@@ -139,7 +139,7 @@ def test_a_second_source_vertex_on_a_welded_point_is_named_not_dropped_silently(
         a_0_0="v0", a_4_0="v1", a_0_4="v2", b_0_0="w0", b_4_0="v1", b_0_4="w2"
     )
     notes: list = []
-    cycles, _points = assemble.intern_vertices(
+    cycles, _points = mesh.intern_vertices(
         [_item("a", *TRIANGLE), _item("b", *TRIANGLE), _item("b", *TRIANGLE)],
         table,
         notes,
@@ -148,7 +148,7 @@ def test_a_second_source_vertex_on_a_welded_point_is_named_not_dropped_silently(
     assert [key for key, _ in cycles[1]] == ["src:v0", "src:v1", "src:v2"]
     # Две отброшенные пары названы ОДИН раз каждая (а не по числу вхождений).
     assert len(notes) == 2
-    assert all(note.startswith(assemble.SOURCE_VERTEX_NAME_DROPPED) for note in notes)
+    assert all(note.startswith(mesh.SOURCE_VERTEX_NAME_DROPPED) for note in notes)
     assert any("w0" in note and "src:v0" in note for note in notes)
     assert any("w2" in note and "src:v2" in note for note in notes)
 
@@ -156,7 +156,7 @@ def test_a_second_source_vertex_on_a_welded_point_is_named_not_dropped_silently(
 def test_a_name_that_arrives_after_an_unnamed_first_occurrence_is_also_reported():
     table = _table(b_0_0="v0")
     notes: list = []
-    cycles, _points = assemble.intern_vertices(
+    cycles, _points = mesh.intern_vertices(
         [_item("a", *TRIANGLE), _item("b", *TRIANGLE)], table, notes
     )
     assert cycles[0][0][0].startswith("node:")
@@ -168,6 +168,6 @@ def test_two_different_points_under_one_source_name_are_a_named_refusal():
 
     table = _table(a_0_0="v0", a_4_0="v0")
     with pytest.raises(MaterializationRefusal) as refusal:
-        assemble.intern_vertices([_item("a", *TRIANGLE)], table)
+        mesh.intern_vertices([_item("a", *TRIANGLE)], table)
     assert refusal.value.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
     assert "VERTEX_KEY_COLLISION: src:v0" in refusal.value.detail

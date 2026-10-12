@@ -21,7 +21,7 @@ from materialize_factories import prepare_and_cover
 
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
-from cftuv_envelope.materialize import assemble as assemble_module
+from cftuv_envelope.materialize import mesh as assemble_module
 from cftuv_envelope.materialize.admit import materialization_request
 from cftuv_envelope.materialize.step import answer_differences, _full
 from cftuv_envelope.wavefront import prepare_conveyor
@@ -105,9 +105,5 @@ def test_a_plain_face_with_a_doctored_fact_is_caught_by_the_forced_check(monkeyp
         return facts
 
     monkeypatch.setattr(assemble_module, "station_values", doctored)
-    # `domain.py` imports the name: patch the importer too.
-    from cftuv_envelope.materialize import domain as domain_module
-
-    monkeypatch.setattr(domain_module, "station_values", doctored)
     with pytest.raises(AssertionError):
         run(prepared, prepared.requested_alpha.value, True, monkeypatch)

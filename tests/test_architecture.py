@@ -1861,7 +1861,7 @@ def _load_native_pin():
 def test_the_native_pins_hold_one_digest_per_mirrored_file():
     pin = _load_native_pin()
     listed = {name for files in pin.OPERATION_FILES.values() for name in files}
-    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "radical_v2"}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "radical_v2"}
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
@@ -2125,7 +2125,7 @@ def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
 #: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
 #: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
-RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha")
+RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1")
 
 
 def test_python_sources_of_rust_only_stages_stay_at_their_pin():

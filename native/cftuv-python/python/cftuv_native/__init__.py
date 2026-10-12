@@ -43,7 +43,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, pin
+from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, materialize_w1_op, pin
 
 __all__ = (
     "CostMirror",
@@ -61,6 +61,9 @@ __all__ = (
     "divide_with_prime_universe",
     "divided_by",
     "effective_alpha_contacts",
+    "exact_mesh",
+    "canonical_triangles",
+    "last_w1_timings",
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
@@ -279,6 +282,28 @@ def effective_alpha_contacts(source, boundary, frame):
     """
 
     return effective_alpha_op.effective_alpha_contacts(_core, source, boundary, frame)
+
+
+def exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None):
+    """`materialize.mesh.exact_mesh(...)`, native and whole (see `CostMirror.exact_mesh` and `materialize_w1_op.py`).
+
+    A refusal of the port (`NATIVE_REFUSALS`) leaves every Python-visible state exactly as before the call, so the caller may run the oracle on the same budget, notes and memory tables; an
+    exception of the oracle leaves its partial effects, and is raised with the oracle's text.
+    """
+
+    return default_mirror().exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+
+
+def canonical_triangles(frame_faces, cycles, budget, reverse):
+    """`materialize.mesh.canonical_triangles(frame_faces, cycles, budget, reverse)`, native and whole (see `materialize_w1_op.py`)."""
+
+    return default_mirror().canonical_triangles(frame_faces, cycles, budget, reverse)
+
+
+def last_w1_timings() -> tuple:
+    """Nanoseconds of the last W1 call of the default mirror: `(sync in, native call, post, total, tables, arguments, compute, result, memory log)`."""
+
+    return default_mirror().last_w1_timings
 
 
 def radical_v2_eval(program, *, passes: int = 0, inner: int = 1) -> tuple:

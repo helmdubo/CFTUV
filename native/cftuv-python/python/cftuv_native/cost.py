@@ -363,6 +363,7 @@ class CostMirror:
         self._clip_bound = False
         self._clip_classes: tuple = ()
         self._skeleton_bound = False
+        self._w1_bound = False
         #: Nanoseconds of the last `clip_geometry`: `(sync in, native call, post, total, plane, arguments, compute, result, memory log)`; the last
         #: five are measured inside the extension (see `native/cftuv-python/src/clip.rs`).
         self.last_clip_timings: tuple = ()
@@ -372,6 +373,9 @@ class CostMirror:
         #: Nanoseconds of the last `build_skeleton`: `(sync in, native call, post, total, arguments, compute, result, memory log)`; the last four are measured inside the extension
         #: (see `native/cftuv-python/src/skeleton.rs`).
         self.last_skeleton_timings: tuple = ()
+        #: Nanoseconds of the last W1 call (`exact_mesh` or `canonical_triangles`): `(sync in, native call, post, total, tables, arguments, compute, result, memory log)`; the last five are measured inside the extension
+        #: (see `native/cftuv-python/src/materialize_w1.rs`).
+        self.last_w1_timings: tuple = ()
         #: Calls whose tables were not provably unchanged by identity (the session's view of the host's tables, `view.rs`) and went through the full comparison.
         self.slow_syncs = 0
 
@@ -744,6 +748,34 @@ class CostMirror:
         from . import skeleton_op
 
         return skeleton_op.build_skeleton(self, polygon, work_budget=work_budget, split_search=split_search, dense_hydration=dense_hydration)
+
+    def exact_mesh(self, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None):
+        """`materialize.mesh.exact_mesh(...)`, whole, with its exact side effects (the body and the contract: `materialize_w1_op.py`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.exact_mesh(self, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+
+    def canonical_triangles(self, frame_faces, cycles, budget, reverse):
+        """`materialize.mesh.canonical_triangles(frame_faces, cycles, budget, reverse)`, whole, with its exact side effects (see `materialize_w1_op.py`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.canonical_triangles(self, frame_faces, cycles, budget, reverse)
+
+    def w1_contour_polygons(self, piece, cycle, budget, reverse, exact_plane, tally, uv, unit=1, in_flow=False, partition=False, affine_known=False):
+        """Test seam: `materialize.mesh._contour_polygons` whole, with `uv` a mapping `key -> (s, r)` (see `materialize_w1_op.py`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.contour_polygons(self, piece, cycle, budget, reverse, exact_plane, tally, uv, unit, in_flow, partition, affine_known)
+
+    def w1_fan_faces(self, frame_face, cycle, budget, reverse, exact_plane, tally, uv, affine_known=False):
+        """Test seam: `materialize.mesh._fan_faces` whole, with `uv` a mapping `key -> (s, r)` (see `materialize_w1_op.py`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.fan_faces(self, frame_face, cycle, budget, reverse, exact_plane, tally, uv, affine_known)
 
     def raw_layouts(self) -> dict:
         """`{slot class: raw access engaged}`: a layout the probe did not confirm is read through the attribute protocol (slower, not wrong). Binds both entry points."""

@@ -14,6 +14,7 @@ cftuv-alpha = { path = "../cftuv-alpha" }
 cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }
 cftuv-embedding = { path = "../cftuv-embedding" }
+cftuv-mesh = { path = "../cftuv-mesh" }
 cftuv-canon = { path = "../cftuv-canon" }
 cftuv-radical = { path = "../cftuv-radical" }
 cftuv-skeleton = { path = "../cftuv-skeleton" }

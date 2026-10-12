@@ -23,7 +23,7 @@ import pytest
 from cftuv_envelope import GeometryBatchCodecV1
 from cftuv_envelope.exact_sqrt_sum import reset_factorization_memory
 from cftuv_envelope.ids import PolicyId
-from cftuv_envelope.materialize import admit, assemble, domain, frames
+from cftuv_envelope.materialize import admit, domain, frames, mesh
 from cftuv_envelope.materialize.admit import MaterializationOutcome, PlanarityKind
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.domain import materialize_domain
@@ -276,7 +276,7 @@ def test_the_semantic_digest_does_not_see_the_triangulation_and_the_content_does
     """`TessellationDigestEquivalence`: другая диагональ — тот же смысл."""
 
     base = _run("straight3")
-    original = assemble.triangulate_exact
+    original = mesh.triangulate_exact
 
     def rotated(points, budget):
         size = len(points)
@@ -285,7 +285,7 @@ def test_the_semantic_digest_does_not_see_the_triangulation_and_the_content_does
             tuple((index + 1) % size for index in triangle) for triangle in triangles
         )
 
-    monkeypatch.setattr(assemble, "triangulate_exact", rotated)
+    monkeypatch.setattr(mesh, "triangulate_exact", rotated)
     other = _run("straight3")
     assert other.outcome is MaterializationOutcome.MATERIALIZED
     assert other.batch.faces != base.batch.faces
@@ -378,7 +378,7 @@ def test_merged_owners_spanning_two_station_runs_make_an_ambiguous_frame():
 
 
 def test_a_contour_that_does_not_tessellate_is_refused_by_name(monkeypatch):
-    monkeypatch.setattr(assemble, "triangulate_exact", lambda points, budget: None)
+    monkeypatch.setattr(mesh, "triangulate_exact", lambda points, budget: None)
     result = _run("weighted")
     assert result.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
     assert result.batch is None
@@ -390,7 +390,7 @@ def test_a_wrong_triangulation_is_caught_by_the_exact_area_check(monkeypatch):
     def fan(points, budget):
         return tuple((0, index, index + 1) for index in range(1, len(points) - 2))
 
-    monkeypatch.setattr(assemble, "triangulate_exact", fan)
+    monkeypatch.setattr(mesh, "triangulate_exact", fan)
     result = _run("weighted")
     assert result.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
     assert "areas differ" in result.detail

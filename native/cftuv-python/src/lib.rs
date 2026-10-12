@@ -9,6 +9,7 @@ mod clip_seams;
 mod coverage;
 mod effective_alpha;
 mod embedding;
+mod materialize_w1;
 mod memlog;
 mod pyobj;
 mod radical_v2;
@@ -110,6 +111,8 @@ struct Session {
     skeleton: skeleton::Host,
     /// How the slots of the bound classes are read and written (`pyobj::SlotMode`): the process-wide mode (`CFTUV_NATIVE_SLOTS`) unless the session was made with its own.
     slots: pyobj::SlotMode,
+    /// W1 of the MATERIALIZE chain (`mesh.exact_mesh`, `mesh.canonical_triangles`).
+    w1: materialize_w1::Host,
 }
 
 #[pymethods]
@@ -122,7 +125,7 @@ impl Session {
             Some(text) => pyobj::SlotMode::parse(text).map_err(|why| pyobj::refuse(format!("Session(slots=...): {why}")))?,
             None => pyobj::process_mode(),
         };
-        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots })
+        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default() })
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -295,6 +298,100 @@ impl Session {
         outcome
     }
 
+    /// Hands the kernel classes to the W1 entry points: `SqrtSumV1`, `Fraction`, `ExactMeshV1`, `collections.Counter`. Forgets every converted table.
+    fn bind_w1(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, result: &Bound<'_, PyAny>, counter: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.w1.bind(py, sqrt_sum, fraction, result, counter, self.slots)
+    }
+
+    /// `mesh.exact_mesh` whole (see `materialize_w1.rs`): `(result or None, status, detail, sign-counter deltas, budget articles after, changed-tables bits,
+    /// (tables, arguments, compute, result, memory log) nanoseconds)`. `regions` are the layout numbers of the faces, `law` the code of the topology law (0 planar polygons,
+    /// 1 quad strips, 2 any other), `sync` the memory sync in the wire format (`None`: unchanged), `budget` `(cap, six articles)` or `None`, `tables` the real memory tables
+    /// the memory log of the call is replayed on, in place; the lines of `SOURCE_VERTEX_NAME_DROPPED` are appended to `notes` in place. Any error resets the session, and so does
+    /// a status that is a refusal of the port: then nothing of the call is applied to `tables` or `notes`.
+    #[allow(clippy::too_many_arguments)]
+    fn w1_exact_mesh<'py>(
+        &mut self,
+        py: Python<'py>,
+        frame_faces: &Bound<'py, PyAny>,
+        region_ids: &Bound<'py, PyAny>,
+        regions: &Bound<'py, PyAny>,
+        table: &Bound<'py, PyAny>,
+        notes: &Bound<'py, PyList>,
+        chord_names: &Bound<'py, PyAny>,
+        lattice_alpha: &Bound<'py, PyAny>,
+        chart_cw: bool,
+        law: u8,
+        exact_plane: bool,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_w1::Answer<'py>> {
+        let forced = self.forced.take();
+        let outcome = self.w1.exact_mesh(py, &mut self.inner, frame_faces, region_ids, regions, table, notes, chord_names, lattice_alpha, chart_cw, law, exact_plane, sync, budget, &tables, forced);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// `mesh.canonical_triangles` whole: the answer of `w1_exact_mesh` with a list of faces by keys as the result.
+    #[allow(clippy::too_many_arguments)]
+    fn w1_canonical<'py>(
+        &mut self,
+        py: Python<'py>,
+        frame_faces: &Bound<'py, PyAny>,
+        cycles: &Bound<'py, PyAny>,
+        reverse: bool,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_w1::Answer<'py>> {
+        let forced = self.forced.take();
+        let outcome = self.w1.canonical(py, &mut self.inner, frame_faces, cycles, reverse, sync, budget, &tables, forced);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// Test-only seam of the tessellation of ONE contour (`kind` 0: `mesh._contour_polygons`, 1: `mesh._fan_faces`): the same answer as `w1_exact_mesh` with `(polygons, tally items)` as the result.
+    #[allow(clippy::too_many_arguments)]
+    fn w1_seam<'py>(
+        &mut self,
+        py: Python<'py>,
+        kind: u8,
+        keys: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        uv: &Bound<'py, PyAny>,
+        area: &Bound<'py, PyAny>,
+        owner: &Bound<'py, PyAny>,
+        reverse: bool,
+        exact_plane: bool,
+        unit: &Bound<'py, PyAny>,
+        in_flow: bool,
+        partition: bool,
+        affine_known: bool,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_w1::Answer<'py>> {
+        let outcome = self.w1.seam(py, &mut self.inner, kind, keys, points, uv, area, owner, reverse, exact_plane, unit, in_flow, partition, affine_known, sync, budget, &tables);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// Tables the W1 side keeps converted.
+    fn w1_cache(&self) -> usize {
+        self.w1.cache_size()
+    }
+
+    /// Drops every converted table of the W1 side.
+    fn forget_w1(&mut self) {
+        self.w1.forget();
+    }
+
     /// Test-only: arms ONE refusal of the port (`unsupported` (a clip), `invalid_input`, `diverged`, `internal`, `panic`; `None` disarms) that the next whole operation
     /// takes AFTER it computed, instead of its own outcome: the call then has real effects (articles, counters, memory log, normal writes, store record, traces) that a refusal
     /// must not let reach the host. Consumed by the first `coverage_at` or `clip_geometry` that reaches its computation.
@@ -313,6 +410,9 @@ impl Session {
         if let Some((fraction, sqrt_sum, point)) = self.clip.raw_layouts() {
             found.extend([("clip Fraction", fraction), ("clip SqrtSumV1", sqrt_sum), ("LocalPoint3V1", point)]);
         }
+        if let Some((fraction, sqrt_sum)) = self.w1.raw_layouts() {
+            found.extend([("W1 Fraction", fraction), ("W1 SqrtSumV1", sqrt_sum)]);
+        }
         found
     }
 
@@ -330,6 +430,7 @@ impl Session {
         self.coverage.disable_raw();
         self.clip.disable_raw();
         self.skeleton.disable_raw();
+        self.w1.disable_raw();
     }
 
     /// `raw`, `attr` or `auto`: how this session reads and writes the slots of the bound classes.

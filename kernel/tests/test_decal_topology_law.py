@@ -29,7 +29,8 @@ from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
 from cftuv_envelope.ids import PolicyId
 from cftuv_envelope.materialize import domain
 from cftuv_envelope.materialize.admit import MaterializationOutcome
-from cftuv_envelope.materialize.assemble import settle_topology, tessellate_faces
+from cftuv_envelope.materialize.assemble import settle_topology
+from cftuv_envelope.materialize.mesh import tessellate_faces
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.frames import MaterializationRefusal
 from cftuv_envelope.materialize.domain import materialize_domain

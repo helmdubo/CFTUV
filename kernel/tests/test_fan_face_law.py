@@ -23,7 +23,7 @@ import pytest
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.ids import VertexKey
-from cftuv_envelope.materialize.assemble import (
+from cftuv_envelope.materialize.mesh import (
     FAN_FACES_CUT_BY_NEIGHBOUR,
     FAN_FACES_NOT_STAR_FROM_APEX,
     FAN_FACES_TRIANGULATED_FROM_APEX,
