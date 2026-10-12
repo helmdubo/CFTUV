@@ -1218,6 +1218,22 @@ def test_the_contour_is_computed_only_for_patches_the_mesh_model_does_not_move(m
     assert controller.width_mesh_preview is state and controller.width_preview.preview.width == 0.4
 
 
+def test_the_first_slider_event_after_the_button_already_moves_the_mesh_and_skips_its_contour(monkeypatch):
+    """Кнопка кладёт образец без модели; первое же событие ширины (калбэк ползунка, не только вход инструмента) строит модель из сертификата
+    образца, пишет кадр в меш и не считает линий двигающихся патчей. Смок живой ширины (раздел 1) держит то же на настоящем меше."""
+
+    world = _contour_world(monkeypatch, wall_high=0.6)
+    controller, live = world.controller, world.live
+    controller.width_model = None  # состояние сразу после кнопки (`note_button_display`): образец на экране, модели нет
+    writes = _writes(world)
+
+    state = live.width_event_preview(controller, 0.27, 0.02)
+    assert isinstance(controller.width_model, pm.PreviewModelV1) and controller.width_model.base is world.base
+    assert state is not None and state.outcome == pm.PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 and state.serial == 1
+    assert state.moving == frozenset({0, 1}) and world.skips == [frozenset({0, 1})] and _writes(world) > writes
+    assert preview.log_of(controller).models == 1
+
+
 def test_without_a_live_frame_the_contour_covers_every_path_as_before(monkeypatch):
     world = _contour_world(monkeypatch)
     controller, live = world.controller, world.live
