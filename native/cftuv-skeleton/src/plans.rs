@@ -169,7 +169,7 @@ pub fn birth(
         return Ok(None);
     };
     let time_key = ledger.time_key(time)?;
-    let key = Val::tuple(vec![time_key.clone(), point_key.clone(), prev.clone(), next.clone()]);
+    let key = Val::tuple_of([time_key.clone(), point_key.clone(), prev.clone(), next.clone()]);
     let germ = BoundaryBirth { point_key: point_key.clone(), prev_occurrence: prev.clone(), next_occurrence: next.clone(), key, replaces };
     match ledger.key(&time_key, point_key, prev, next) {
         None => Ok(Some(germ)),
@@ -186,7 +186,7 @@ pub fn birth_order_key(item: &BoundaryBirth) -> Val {
 
 /// The order of the final birth ports `(birth key, keep prev, keep next)`: the oracle sorts them with `key=identity_order_key` (see [`birth_order_key`]).
 pub fn port_order_key(key: &Val, keep_prev: bool, keep_next: bool) -> Val {
-    identity_order_val(&Val::tuple(vec![key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]))
+    identity_order_val(&Val::tuple_of([key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]))
 }
 
 pub fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<BoundaryBirth>> {
@@ -592,7 +592,7 @@ pub fn split_cut_plans(ctx: &mut ExactCtx<'_>, splits: &[&Incident], vertices: &
         lefts.extend(points.iter().cloned());
         let mut rights = points.clone();
         rights.push(span_end.clone());
-        let segment_occurrences: Vec<Val> = lefts.iter().zip(&rights).map(|(left, right)| Val::tuple(vec![owner_key.clone(), left.clone(), right.clone()])).collect();
+        let segment_occurrences: Vec<Val> = lefts.iter().zip(&rights).map(|(left, right)| Val::tuple_of([owner_key.clone(), left.clone(), right.clone()])).collect();
         let distinct: HashSet<&Val> = segment_occurrences.iter().collect();
         if lefts.iter().zip(&rights).any(|(left, right)| left == right) || distinct.len() != segment_occurrences.len() || segment_occurrences.contains(target_occurrence) {
             return Ok((Vec::new(), 0, false));
@@ -610,7 +610,7 @@ pub fn split_cut_plans(ctx: &mut ExactCtx<'_>, splits: &[&Incident], vertices: &
             births.push(left);
             births.push(right);
         }
-        let port_text = |port: &(Val, bool, bool)| Val::tuple(vec![port.0.clone(), Val::boolean(port.1), Val::boolean(port.2)]);
+        let port_text = |port: &(Val, bool, bool)| Val::tuple_of([port.0.clone(), Val::boolean(port.1), Val::boolean(port.2)]);
         final_ports.sort_by_cached_key(|port| port_text(port).repr().to_string());
         plans.push(SplitCutPlan {
             edge_id: first.event.edge,
@@ -671,7 +671,7 @@ pub fn rewrite_birth(
 ) -> BoundaryBirth {
     let prev_occurrence = if keep_prev { birth.prev_occurrence.clone() } else { rewritten_occurrence(&birth.prev_occurrence, prev_rewrites) };
     let next_occurrence = if keep_next { birth.next_occurrence.clone() } else { rewritten_occurrence(&birth.next_occurrence, next_rewrites) };
-    let key = Val::tuple(vec![birth.key.get(0).cloned().unwrap_or_else(Val::none), birth.point_key.clone(), prev_occurrence.clone(), next_occurrence.clone()]);
+    let key = Val::tuple_of([birth.key.get(0).cloned().unwrap_or_else(Val::none), birth.point_key.clone(), prev_occurrence.clone(), next_occurrence.clone()]);
     BoundaryBirth { point_key: birth.point_key.clone(), prev_occurrence, next_occurrence, key, replaces: birth.replaces.clone() }
 }
 
@@ -757,7 +757,7 @@ pub fn quotient_by_germ(births: &[BoundaryBirth], ledger: &GermLedger) -> (Vec<B
     let mut grouped: Vec<BoundaryBirth> = Vec::new();
     for item in births {
         let time_key = item.key.get(0).cloned().unwrap_or_else(Val::none);
-        let key = ledger.key(&time_key, &item.point_key, &item.prev_occurrence, &item.next_occurrence).unwrap_or_else(|| Val::tuple(vec![Val::str("UNKEYED"), item.key.clone()]));
+        let key = ledger.key(&time_key, &item.point_key, &item.prev_occurrence, &item.next_occurrence).unwrap_or_else(|| Val::tuple_of([Val::str("UNKEYED"), item.key.clone()]));
         match slots.get(&key) {
             None => {
                 slots.insert(key, grouped.len());
@@ -1156,7 +1156,7 @@ impl PlanVal for SplitCutPlan {
                 ("events", events_val(&self.events)),
                 ("segment_occurrences", vals(&self.segment_occurrences)),
                 ("births", births_val(&self.births)),
-                ("final_birth_ports", Val::tuple(self.final_birth_ports.iter().map(|(key, prev, next)| Val::tuple(vec![key.clone(), Val::boolean(*prev), Val::boolean(*next)])).collect())),
+                ("final_birth_ports", Val::tuple(self.final_birth_ports.iter().map(|(key, prev, next)| Val::tuple_of([key.clone(), Val::boolean(*prev), Val::boolean(*next)])).collect())),
             ],
         )
     }
@@ -1206,11 +1206,11 @@ impl PlanVal for ComponentPlan {
                 ("suppressed_candidates", Val::int(self.suppressed_candidates)),
                 (
                     "birth_wiring",
-                    Val::tuple(self.birth_wiring.iter().map(|(key, predecessor, successor)| Val::tuple(vec![key.clone(), predecessor.to_val(), successor.to_val()])).collect()),
+                    Val::tuple(self.birth_wiring.iter().map(|(key, predecessor, successor)| Val::tuple_of([key.clone(), predecessor.to_val(), successor.to_val()])).collect()),
                 ),
                 (
                     "existing_port_rewrites",
-                    Val::tuple(self.existing_port_rewrites.iter().map(|(ident, prev, next)| Val::tuple(vec![Val::int(*ident), prev.clone(), next.clone()])).collect()),
+                    Val::tuple(self.existing_port_rewrites.iter().map(|(ident, prev, next)| Val::tuple_of([Val::int(*ident), prev.clone(), next.clone()])).collect()),
                 ),
                 ("birth_components", Val::tuple(self.birth_components.iter().map(|component| vals(component)).collect())),
                 ("terminal_birth_cycles", Val::tuple(self.terminal_birth_cycles.iter().map(|component| vals(component)).collect())),

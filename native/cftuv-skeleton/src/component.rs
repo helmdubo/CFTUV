@@ -52,7 +52,7 @@ fn port_val(port: &Option<Port>) -> Val {
 }
 
 fn port_pair(port: &Port) -> Val {
-    Val::tuple(vec![port.0.as_ref().map_or_else(Val::none, |found| found.val().clone()), port.1.val().clone()])
+    Val::tuple_of([port.0.as_ref().map_or_else(Val::none, |found| found.val().clone()), port.1.val().clone()])
 }
 
 impl PlanVal for Delta {
@@ -67,7 +67,7 @@ impl PlanVal for Delta {
                 ("birth_ref", self.birth_ref.as_ref().map_or_else(Val::none, |found| found.val().clone())),
                 ("point_key", self.point_key.clone()),
                 ("leaf_resources", Val::set(self.leaf_resources.iter().map(|leaf| leaf.val().clone()).collect(), true)),
-                ("rewires", Val::tuple(self.rewires.iter().map(|(incoming, outgoing, birth)| Val::tuple(vec![port_pair(incoming), port_pair(outgoing), birth.val().clone()])).collect())),
+                ("rewires", Val::tuple(self.rewires.iter().map(|(incoming, outgoing, birth)| Val::tuple_of([port_pair(incoming), port_pair(outgoing), birth.val().clone()])).collect())),
             ],
         )
     }
@@ -335,14 +335,14 @@ impl SignatureMemo {
     /// `trace_authority(trace)`: what a vertex's trace says about its life.
     fn authority(&mut self, trace: &TraceInfo) -> SkelResult<Val> {
         let crash = match trace {
-            TraceInfo::Absent => return Ok(Val::tuple(vec![Val::str("UNAVAILABLE")])),
-            TraceInfo::WithoutCrash => return Ok(Val::tuple(vec![Val::str("TRACE_WITHOUT_CRASH")])),
+            TraceInfo::Absent => return Ok(Val::tuple_of([Val::str("UNAVAILABLE")])),
+            TraceInfo::WithoutCrash => return Ok(Val::tuple_of([Val::str("TRACE_WITHOUT_CRASH")])),
             TraceInfo::Crash(crash) => crash,
         };
         if let Some((_, found)) = self.crashes.get(&Rc::as_ptr(crash)) {
             return Ok(found.clone());
         }
-        let value = Val::tuple(vec![Val::str("BOUNDED"), time_val(&crash.canonical()?)]);
+        let value = Val::tuple_of([Val::str("BOUNDED"), time_val(&crash.canonical()?)]);
         self.crashes.insert(Rc::as_ptr(crash), (Rc::clone(crash), value.clone()));
         Ok(value)
     }
@@ -371,7 +371,7 @@ fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> 
         let link = |reference: &Option<JRef>| reference.as_ref().map_or_else(none, |found| found.val().clone());
         rows.push((
             vertex.reference.val().repr(),
-            Val::tuple(vec![
+            Val::tuple_of([
                 vertex.reference.val().clone(),
                 link(&vertex.prev),
                 link(&vertex.next),
@@ -392,13 +392,13 @@ fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> 
         .iter()
         .map(|(leaf, binding)| {
             let link = |reference: &Option<JRef>| reference.as_ref().map_or_else(Val::none, |found| found.val().clone());
-            (leaf.val().repr(), Val::tuple(vec![leaf.val().clone(), Val::int(binding.physical_edge_id), link(&binding.start), link(&binding.end)]))
+            (leaf.val().repr(), Val::tuple_of([leaf.val().clone(), Val::int(binding.physical_edge_id), link(&binding.start), link(&binding.end)]))
         })
         .collect();
     spans.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
     let spans = Val::tuple(spans.into_iter().map(|(_, row)| row).collect());
     let changed = Val::tuple(overlay.changed_by_repr().iter().map(|leaf| leaf.val().clone()).collect());
-    Ok(Val::tuple(vec![vertices, spans, changed]))
+    Ok(Val::tuple_of([vertices, spans, changed]))
 }
 
 /// The overlay of the oracle's `clone_overlay`: the dictionaries are copied, the immutable parts are shared.

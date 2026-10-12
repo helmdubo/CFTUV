@@ -166,9 +166,18 @@ pub enum Stat {
     TimeKeysRepeated,
     ReprRoots,
     ReprRootsRepeated,
+    ValNone,
+    ValBool,
+    ValSmallInt,
+    ValBigInt,
+    ValStr,
+    ValFrac,
+    ValTuple,
+    ValData,
+    ValOther,
 }
 
-pub const STATS: [(&str, Stat); 18] = [
+pub const STATS: [(&str, Stat); 27] = [
     ("position lookups", Stat::PositionLookups),
     ("position hits", Stat::PositionHits),
     ("exact_point_key calls", Stat::PointKeys),
@@ -187,6 +196,15 @@ pub const STATS: [(&str, Stat); 18] = [
     ("... of a time keyed before", Stat::TimeKeysRepeated),
     ("repr roots", Stat::ReprRoots),
     ("... structurally equal to an earlier root", Stat::ReprRootsRepeated),
+    ("Val None", Stat::ValNone),
+    ("Val bool", Stat::ValBool),
+    ("Val int < 256", Stat::ValSmallInt),
+    ("Val int", Stat::ValBigInt),
+    ("Val str", Stat::ValStr),
+    ("Val Fraction", Stat::ValFrac),
+    ("Val tuple", Stat::ValTuple),
+    ("Val dataclass", Stat::ValData),
+    ("Val other", Stat::ValOther),
 ];
 
 #[cfg(feature = "profile")]

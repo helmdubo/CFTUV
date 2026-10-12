@@ -107,7 +107,7 @@ pub fn event_incident_map(snapshot: &Snapshot) -> Option<HashMap<EventIdentity, 
 }
 
 pub(crate) fn span_family(occurrence: &Val) -> Val {
-    Val::data("SpanFamilyRefV1", vec![("occurrence", occurrence.clone()), ("participant_keys", Val::tuple(vec![occurrence.get(0).cloned().unwrap_or_else(Val::none)]))])
+    Val::data("SpanFamilyRefV1", vec![("occurrence", occurrence.clone()), ("participant_keys", Val::tuple_of([occurrence.get(0).cloned().unwrap_or_else(Val::none)]))])
 }
 
 fn keys_val(keys: &[Vec<i64>]) -> Val {
@@ -229,7 +229,7 @@ pub fn signature(families: &[FamilyNormalForm]) -> Val {
         families
             .iter()
             .map(|family| {
-                Val::tuple(vec![
+                Val::tuple_of([
                     family.family.clone(),
                     Val::tuple(family.contacts.iter().map(|contact| contact.key.clone()).collect()),
                     Val::tuple(family.segments.clone()),

@@ -89,7 +89,7 @@ impl EventPoint {
 
     /// `exact_point_key(point)`: the key of the point, made once.
     pub fn key(&self) -> &Val {
-        self.key.get_or_init(|| Val::tuple(vec![Val::terms_of(&self.x), Val::terms_of(&self.y)]))
+        self.key.get_or_init(|| Val::tuple_of([Val::terms_of(&self.x), Val::terms_of(&self.y)]))
     }
 }
 

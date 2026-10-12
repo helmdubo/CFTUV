@@ -49,14 +49,102 @@ thread_local! {
     static SCRATCH: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
+/// The items of a tuple or a list. Up to four are kept in the node itself (a tuple of a key is almost always a pair, a triple or a quadruple): one allocation for the value,
+/// not two.
+enum Items {
+    Zero,
+    One(Val),
+    Two([Val; 2]),
+    Three([Val; 3]),
+    Four([Val; 4]),
+    Many(Vec<Val>),
+}
+
+impl Items {
+    fn from_array<const N: usize>(items: [Val; N]) -> Items {
+        if N > 4 {
+            return Items::Many(Vec::from(items));
+        }
+        let mut each = items.into_iter();
+        let mut next = || each.next().expect("as many items as the array has");
+        match N {
+            0 => Items::Zero,
+            1 => Items::One(next()),
+            2 => Items::Two([next(), next()]),
+            3 => Items::Three([next(), next(), next()]),
+            _ => Items::Four([next(), next(), next(), next()]),
+        }
+    }
+
+    fn from_vec(items: Vec<Val>) -> Items {
+        let count = items.len();
+        if !(1..=4).contains(&count) {
+            return if count == 0 { Items::Zero } else { Items::Many(items) };
+        }
+        let mut each = items.into_iter();
+        let mut next = || each.next().expect("as many items as the length said");
+        match count {
+            1 => Items::One(next()),
+            2 => Items::Two([next(), next()]),
+            3 => Items::Three([next(), next(), next()]),
+            _ => Items::Four([next(), next(), next(), next()]),
+        }
+    }
+}
+
+impl std::ops::Deref for Items {
+    type Target = [Val];
+
+    fn deref(&self) -> &[Val] {
+        match self {
+            Items::Zero => &[],
+            Items::One(only) => std::slice::from_ref(only),
+            Items::Two(pair) => pair,
+            Items::Three(triple) => triple,
+            Items::Four(quadruple) => quadruple,
+            Items::Many(many) => many,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a Items {
+    type Item = &'a Val;
+    type IntoIter = std::slice::Iter<'a, Val>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// The values every key holds again and again (`None`, `True`, `False`, the ints a key is made of when it is small), one node each per thread: a value is immutable and a
+/// node that two keys share is a node that is formatted, hashed and compared once.
+struct Common {
+    none: Val,
+    yes: Val,
+    no: Val,
+    ints: Vec<Val>,
+}
+
+/// The smallest and the largest int that is shared.
+const COMMON_INTS: std::ops::RangeInclusive<i64> = -1..=255;
+
+thread_local! {
+    static COMMON: Common = Common {
+        none: Val::new(Kind::None),
+        yes: Val::new(Kind::Bool(true)),
+        no: Val::new(Kind::Bool(false)),
+        ints: COMMON_INTS.map(|number| Val::new(Kind::Int(IBig::from(number)))).collect(),
+    };
+}
+
 enum Kind {
     None,
     Bool(bool),
     Int(IBig),
     Str(Rc<str>),
     Frac(Rat),
-    Tuple(Vec<Val>),
-    List(Vec<Val>),
+    Tuple(Items),
+    List(Items),
     /// A dataclass instance: the class name and the fields in declaration order (fields with `repr=False` are left out by the builder of the value,
     /// as they are by `compare=False` ones).
     Data(Name, Vec<(Name, Val)>),
@@ -144,24 +232,45 @@ fn type_name(kind: &Kind) -> &'static str {
 impl Val {
     fn new(kind: Kind) -> Val {
         crate::profile::count(crate::profile::Stat::ValNew, 1);
+        #[cfg(feature = "profile")]
+        crate::profile::count(
+            match &kind {
+                Kind::None => crate::profile::Stat::ValNone,
+                Kind::Bool(_) => crate::profile::Stat::ValBool,
+                Kind::Int(number) if IBig::from(-1) <= *number && *number < IBig::from(256) => crate::profile::Stat::ValSmallInt,
+                Kind::Int(_) => crate::profile::Stat::ValBigInt,
+                Kind::Str(_) => crate::profile::Stat::ValStr,
+                Kind::Frac(_) => crate::profile::Stat::ValFrac,
+                Kind::Tuple(_) => crate::profile::Stat::ValTuple,
+                Kind::Data(_, _) => crate::profile::Stat::ValData,
+                _ => crate::profile::Stat::ValOther,
+            },
+            1,
+        );
         let hash = kind_hash(&kind);
         Val(Rc::new(Node { hash, text: OnceCell::new(), visits: Cell::new(0), kind }))
     }
 
     pub fn none() -> Val {
-        Val::new(Kind::None)
+        COMMON.with(|common| common.none.clone())
     }
 
     pub fn boolean(flag: bool) -> Val {
-        Val::new(Kind::Bool(flag))
+        COMMON.with(|common| if flag { common.yes.clone() } else { common.no.clone() })
     }
 
     pub fn int(number: i64) -> Val {
+        if COMMON_INTS.contains(&number) {
+            return COMMON.with(|common| common.ints[(number + 1) as usize].clone());
+        }
         Val::new(Kind::Int(IBig::from(number)))
     }
 
     pub fn big(number: IBig) -> Val {
-        Val::new(Kind::Int(number))
+        match i64::try_from(&number) {
+            Ok(small) => Val::int(small),
+            Err(_) => Val::new(Kind::Int(number)),
+        }
     }
 
     /// A string; the repr of a character outside ASCII depends on the Unicode database, and the kernel's texts are ASCII.
@@ -175,11 +284,16 @@ impl Val {
     }
 
     pub fn tuple(items: Vec<Val>) -> Val {
-        Val::new(Kind::Tuple(items))
+        Val::new(Kind::Tuple(Items::from_vec(items)))
+    }
+
+    /// A tuple of the items of an array: up to four are kept in the node, no vector is made.
+    pub fn tuple_of<const N: usize>(items: [Val; N]) -> Val {
+        Val::new(Kind::Tuple(Items::from_array(items)))
     }
 
     pub fn list(items: Vec<Val>) -> Val {
-        Val::new(Kind::List(items))
+        Val::new(Kind::List(Items::from_vec(items)))
     }
 
     pub fn data(name: impl Into<Name>, fields: Vec<(&'static str, Val)>) -> Val {
@@ -235,7 +349,7 @@ impl Val {
         Val::tuple(
             sum.terms()
                 .iter()
-                .map(|term| Val::tuple(vec![Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }]))
+                .map(|term| Val::tuple_of([Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }]))
                 .collect(),
         )
     }
@@ -280,6 +394,7 @@ impl Val {
     pub fn items(&self) -> Option<&[Val]> {
         match &self.0.kind {
             Kind::Tuple(items) | Kind::List(items) => Some(items),
+
             _ => None,
         }
     }
@@ -521,13 +636,13 @@ fn py_compare(left: &Val, right: &Val) -> Result<Ordering, UnorderedPair> {
 /// `(0, (keys of its items))`, anything else `(0, value)`, so a `None` sorts AFTER any value of the same slot and the order of keys without a `None` is the plain one.
 pub fn identity_order_val(value: &Val) -> Val {
     if value.is_none() {
-        return Val::tuple(vec![Val::int(1)]);
+        return Val::tuple_of([Val::int(1)]);
     }
     if value.is_tuple() {
         let items: Vec<Val> = value.items().unwrap_or(&[]).iter().map(identity_order_val).collect();
-        return Val::tuple(vec![Val::int(0), Val::tuple(items)]);
+        return Val::tuple_of([Val::int(0), Val::tuple(items)]);
     }
-    Val::tuple(vec![Val::int(0), value.clone()])
+    Val::tuple_of([Val::int(0), value.clone()])
 }
 
 /// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is

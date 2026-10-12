@@ -173,7 +173,7 @@ pub fn exact_point_key(point: &EventPoint) -> Val {
 /// `_time_key(time)`: `(canonical dividend, canonical divisor terms)`.
 pub fn time_key(time: &EventTime) -> SkelResult<Val> {
     let canonical = time.canonical()?;
-    Ok(Val::tuple(vec![Val::frac(canonical.dividend.clone()), Val::terms_of(&canonical.divisor)]))
+    Ok(Val::tuple_of([Val::frac(canonical.dividend.clone()), Val::terms_of(&canonical.divisor)]))
 }
 
 /// `_direction(line)`: the primitive integer direction `(b, -a) / gcd` of the carrier line.
@@ -193,7 +193,7 @@ pub fn direction(line: &SupportLine) -> SkelResult<(i64, i64)> {
 /// `_port_identity(vertex)`: the two source edges of a joint, which survive the hydration of a sparse port.
 pub fn port_identity(vertex: &VertexSnapshot) -> Val {
     let key = |occurrence: &Option<Val>| occurrence.as_ref().and_then(|value| value.get(0).cloned()).unwrap_or_else(Val::none);
-    Val::tuple(vec![key(&vertex.prev_occurrence), key(&vertex.next_occurrence)])
+    Val::tuple_of([key(&vertex.prev_occurrence), key(&vertex.next_occurrence)])
 }
 
 /// `_live_level(builder, level)`: the live events, the events of a kind the transaction does not carry, and the number of stale ones.
@@ -267,7 +267,7 @@ pub fn sparse_occurrences(ctx: &mut ExactCtx<'_>, builder: &mut Builder, time: &
         let next_edge = builder.vertex_at(start)?.next_edge;
         let key = Val::ints(builder.edge_at(next_edge)?.span.as_slice());
         let part = |ident: i64| point_keys[ident as usize].clone().unwrap_or_else(Val::none);
-        occurrences.insert(next_edge, Val::tuple(vec![key, part(start), part(end)]));
+        occurrences.insert(next_edge, Val::tuple_of([key, part(start), part(end)]));
     }
     let mut duplicate_owner_ids: Vec<i64> = live_owner_counts.into_iter().filter(|(_, count)| *count != 1).map(|(edge, _)| edge).collect();
     duplicate_owner_ids.sort_unstable();
