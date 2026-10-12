@@ -41,9 +41,11 @@ from native_gate import skip_unless_available  # noqa: E402
 skip_unless_available(cftuv_native, "coverage")
 skip_unless_available(cftuv_native, "clip")
 skip_unless_available(cftuv_native, "skeleton")
+skip_unless_available(cftuv_native, "effective_alpha")
 
 import native_clip_geometry as geometry  # noqa: E402
 import native_corpus as nc  # noqa: E402
+import native_effective_alpha_synthetic as alpha_synthetic  # noqa: E402
 import wavefront_cases  # noqa: E402
 from cftuv_native import cost as native_cost  # noqa: E402
 
@@ -373,3 +375,73 @@ def test_auto_falls_back_to_the_attribute_protocol_and_attr_never_probes_for_the
     assert auto["coverage Fraction"] is False and auto["clip Fraction"] is False, "auto does not fake a layout the probe refused"
     assert auto["coverage SqrtSumV1"] and auto["FaceCoverageV1"] and auto["LocalPoint3V1"], "the classes the probe did confirm stay raw"
     assert not any(cftuv_native.new_mirror("attr").raw_layouts().values())
+
+
+# --------------------------------------------------------------------------
+# 5. то, что отдали как класс, — класс, в КАЖДОМ режиме (`attr` пробы не делает и принимал что угодно)
+# --------------------------------------------------------------------------
+#
+# `PyType_GenericAlloc` читает размер и флаги из того, что ему дали, как из объекта типа. Комментарий `alloc` обещал «класс проверен при привязке», но проверки не было: в режимах `auto` и `raw` пробу
+# останавливал `AttributeError` на `__basicsize__`, а в `attr` объект, не являющийся классом, доходил до `PyType_GenericAlloc` (на строке — `MemoryError` из мусорного размера, на другом объекте — порча памяти).
+# Теперь это названный `TypeError` на привязке, одинаковый во всех режимах; класс проверяется и в `alloc` на каждом вызове (флаг типа — одна проверка).
+
+NOT_A_CLASS = "not a class"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_binding_refuses_by_name_a_fraction_that_is_not_a_class_in_every_mode(monkeypatch, mode):
+    monkeypatch.setattr(native_cost, "Fraction", NOT_A_CLASS)
+    with pytest.raises(TypeError, match="must be a class") as caught:
+        cftuv_native.new_mirror(mode).raw_layouts()
+    assert "Fraction" in str(caught.value) and "str" in str(caught.value), "the refusal names the argument and what it was"
+
+
+def _alpha_frame_arguments():
+    """The arguments of `_core.alpha_frame` for a real source segment (0, 0) -> (2, 0) under the identity metric, as the shim hands them over, and the four classes."""
+
+    from cftuv_envelope.reference import native_exact, planar_types
+    from cftuv_envelope.reference.boundary_native import SourceContactFrame
+
+    context = alpha_synthetic.metric_of([[1, 0], [0, 1]])
+    source = alpha_synthetic.source_of(context, (Fraction(0), Fraction(0)), (Fraction(2), Fraction(0)))
+    frame = SourceContactFrame(context, source)
+    frame.ready()
+    wire = native_exact.terms_wire
+    floats = frame._float_parts()
+    arguments = (
+        (source.start.x.expression, source.start.y.expression),
+        wire(frame.length),
+        (wire(frame.tangent_covector[0]), wire(frame.tangent_covector[1])),
+        (wire(frame.normal_covector[0]), wire(frame.normal_covector[1])),
+        None if floats is False else list(floats),
+    )
+    classes = (Fraction, native_exact.RadicalSumV1, planar_types.ExactScalar, planar_types.ExactPlanarPoint)
+    return arguments, classes
+
+
+def _crossing_segment():
+    return tuple(alpha_synthetic.rat(value) for value in (1, -1, 1, 1))  # (1, -1) -> (1, 1) crosses the source at (1, 0)
+
+
+def test_the_effective_alpha_frame_with_real_classes_builds_its_contacts_in_the_process_mode():
+    """The control of the refusals below: the same call with the real classes answers, and the contacts are instances of the classes it was given."""
+
+    arguments, classes = _alpha_frame_arguments()
+    status, handle = cftuv_native._core.alpha_frame(*arguments, *classes)
+    assert status == 0, handle
+    answer = handle.pair(*_crossing_segment())
+    assert answer[0] == 0 and len(answer[3]) >= 1, answer
+    alpha, station, point = answer[3][0]
+    assert type(alpha) is classes[1] and type(station) is classes[1] and type(point) is classes[3] and type(point.x) is classes[2]
+
+
+@pytest.mark.parametrize("position, label", [(0, "Fraction"), (1, "SqrtSumV1"), (2, "ExactScalar"), (3, "ExactPlanarPoint")])
+def test_the_effective_alpha_frame_refuses_by_name_a_class_that_is_not_a_class_in_the_process_mode(position, label):
+    arguments, classes = _alpha_frame_arguments()
+    bad = list(classes)
+    bad[position] = NOT_A_CLASS
+    with pytest.raises(TypeError, match="must be a class"):
+        cftuv_native._core.alpha_frame(*arguments, *bad)
+    # nothing was left half-done: the same call with the real classes still answers
+    status, handle = cftuv_native._core.alpha_frame(*arguments, *classes)
+    assert status == 0 and handle.pair(*_crossing_segment())[0] == 0

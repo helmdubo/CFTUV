@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyFloat, PyString, PyTuple};
+use pyo3::types::{PyFloat, PyString, PyTuple, PyType};
 use pyo3::{ffi, intern};
 
 use cftuv_core::num::{self, IBig, UBig};
@@ -49,6 +49,8 @@ pub struct Pool {
 
 impl Pool {
     pub fn new(py: Python<'_>, fraction: &Bound<'_, PyAny>, sqrt_sum: &Bound<'_, PyAny>, mode: SlotMode) -> PyResult<Pool> {
+        ensure_class("Fraction", fraction)?;
+        ensure_class("SqrtSumV1", sqrt_sum)?;
         let int_type = py.import("builtins")?.getattr("int")?;
         let zero_sum = sqrt_sum.call1((PyTuple::empty(py),))?;
         let numerator = PyString::intern(py, "_numerator").unbind();
@@ -171,13 +173,28 @@ pub fn note_attr_build() {
 /// exactly the expected shape; a read is only done on an instance of exactly the probed class. What happens to a layout the probe does not confirm is the SLOT MODE's
 /// decision ([`Raw::select`]): `auto` falls back to the attribute protocol, `raw` refuses by name, `attr` never probes.
 pub struct Raw {
+    /// The probed class, held strongly: a read or a build is only done for exactly this class (checked by pointer on every use, not left to the caller), and it cannot be
+    /// freed and its address reused while this access exists.
+    class: Py<PyAny>,
     offsets: Vec<usize>,
+}
+
+/// A class handed over by the shim is a class (`PyType_Check`), or a named refusal. Every path that instantiates one (`alloc`, the probe) relies on it: `PyType_GenericAlloc`
+/// reads the size and the flags out of whatever it is given, so an object that is not a type would be read as one.
+pub fn ensure_class(label: &str, class: &Bound<'_, PyAny>) -> PyResult<()> {
+    if class.is_instance_of::<PyType>() {
+        Ok(())
+    } else {
+        Err(refuse(format!("{label} must be a class, not {}", class.get_type().name()?)))
+    }
 }
 
 impl Raw {
     /// The raw access of `class` for `names` as `mode` asks for it (`label` names the class in a refusal): `Auto` takes what the probe confirms and `None` otherwise,
-    /// `Attr` does not probe, `Raw` is a named `TypeError` when the probe does not confirm the layout (never a silent fallback).
+    /// `Attr` does not probe, `Raw` is a named `TypeError` when the probe does not confirm the layout (never a silent fallback). A `class` that is not a class is refused
+    /// in EVERY mode (`attr` instantiates it through `alloc` all the same).
     pub fn select(py: Python<'_>, mode: SlotMode, label: &str, class: &Py<PyAny>, names: &[&Py<PyString>]) -> PyResult<Option<Raw>> {
+        ensure_class(label, class.bind(py))?;
         match mode {
             SlotMode::Attr => Ok(None),
             SlotMode::Auto => Ok(Raw::probe(py, class, names)?.ok()),
@@ -224,12 +241,15 @@ impl Raw {
                 None => return Ok(Err(format!("the value set through `{}` was found in no slot", names[index].bind(py)))),
             }
         }
-        Ok(Ok(Raw { offsets }))
+        Ok(Ok(Raw { class: class.clone_ref(py), offsets }))
     }
 
-    /// `object.__new__(class)` with every slot set to the given object (ownership moves into the instance), in the order of the probe's names.
+    /// `object.__new__(class)` with every slot set to the given object (ownership moves into the instance), in the order of the probe's names. `class` must be the class that was
+    /// probed and `values` one object per probed slot; anything else is a named refusal (a release build used to ignore a count that did not match, and `zip` would have left slots empty).
     pub fn build<'py, const N: usize>(&self, py: Python<'py>, class: &Py<PyAny>, values: [Bound<'py, PyAny>; N]) -> PyResult<Bound<'py, PyAny>> {
-        debug_assert_eq!(self.offsets.len(), N);
+        if class.as_ptr() != self.class.as_ptr() || self.offsets.len() != N {
+            return Err(refuse(format!("raw build: {N} values for {} probed slots, or a class that is not the probed one", self.offsets.len())));
+        }
         let object = alloc(py, class)?;
         RAW_BUILDS.fetch_add(1, Ordering::Relaxed);
         for (offset, value) in self.offsets.iter().zip(values) {
@@ -239,10 +259,16 @@ impl Raw {
         Ok(object)
     }
 
-    /// The object in slot `index` of `obj`, borrowed; `None` when the slot is empty. `obj` must be an instance of exactly the probed class.
+    /// The object in slot `index` of `obj`, borrowed; `None` when the slot is empty OR `obj` is not an instance of exactly the probed class (the callers then use the attribute
+    /// protocol, which says what is wrong by name): the type is checked here, by pointer, so that the read never depends on the caller having remembered to.
     pub fn read<'a, 'py>(&self, obj: &'a Bound<'py, PyAny>, index: usize) -> Option<Borrowed<'a, 'py, PyAny>> {
+        // SAFETY: `Py_TYPE` of a live object.
+        if unsafe { ffi::Py_TYPE(obj.as_ptr()) }.cast::<ffi::PyObject>() != self.class.as_ptr() {
+            return None;
+        }
         RAW_READS.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: the offset is a slot of the probed class and `obj` is an instance of it (the caller checked the type); a slot holds NULL or a valid object that lives as long as `obj`.
+        // SAFETY: the offset is a slot of the probed class (`probe`: inside `__basicsize__`) and `obj` is an instance of exactly that class (checked just above); a slot holds NULL or a valid
+        // object that lives as long as `obj` (the callers only hand it to C calls on `int`s: no Python code runs that could replace a slot while it is borrowed).
         unsafe { Borrowed::from_ptr_or_opt(obj.py(), *obj.as_ptr().cast::<u8>().add(self.offsets[index]).cast::<*mut ffi::PyObject>()) }
     }
 }
@@ -253,7 +279,8 @@ impl Raw {
 
 /// `object.__new__(cls)` for a class with `__slots__`: nothing set yet.
 pub fn alloc<'py>(py: Python<'py>, class: &Py<PyAny>) -> PyResult<Bound<'py, PyAny>> {
-    // SAFETY: `class` is a type object (checked when it was bound); the result is a new reference or NULL.
+    ensure_class("the class to instantiate", class.bind(py))?;
+    // SAFETY: `class` is a type object (`ensure_class`, on every call: the cost is one flag test); the result is a new reference or NULL.
     unsafe { Bound::from_owned_ptr_or_err(py, ffi::PyType_GenericAlloc(class.as_ptr().cast(), 0)) }
 }
 
