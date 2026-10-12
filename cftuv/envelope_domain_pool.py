@@ -582,23 +582,16 @@ def _reply_frame(task_id: int, result: DomainTaskResultV1) -> bytes:
         )
 
 
-def serve_task(task: DomainTaskV1, deliver=None) -> bytes:
+def serve_task(task: DomainTaskV1) -> bytes:
     """Кадр ответа воркера на задачу: решение, упаковка подготовки и кадр идут под паузой циклического сборщика (GC_PAUSED_DURING_BUTTON_V1).
 
     Воркер платил за сборщик ~16 процессорных секунд на холодной кнопке `cover.008` (восемь воркеров, ~2 с на воркер), хотя задача держит в памяти только то, что
     ещё нужно ей самой. Пауза кончается вместе с кадром: сборка идёт между задачами, а не внутри них. Состояние сборщика после блока прежнее (`gc_paused`),
     при любом выходе. Запись в трубу и ожидание следующей задачи - вне паузы. Ответ от паузы не зависит.
-
-    `deliver(кадр)` (WORKER_GC_AFTER_REPLY_V1) - запись кадра в трубу: зовётся ВНУТРИ паузы, и сборка, которой пауза платит на выходе (в воркере первая же аллокация после `gc.enable()` обходит
-    поколение 0 по подготовке, оставленной задачей в памяти воркера: 1.9 мс на задачу, 2.0 процессорных секунды воркеров на холодной `cover.008`), идёт ПОСЛЕ того, как ответ ушёл, и пока родитель
-    принимает ответ и шлёт следующую задачу, а не до записи.
     """
 
     with gc_paused():
-        frame = _reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task)))
-        if deliver is not None:
-            deliver(frame)
-        return frame
+        return _reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task)))
 
 
 def serve_message(message) -> bytes:
@@ -799,19 +792,12 @@ def worker_main() -> None:
     importlib.import_module(".envelope_queue_pool", __package__)
     importlib.import_module(".envelope_production_export", __package__)
     write_frame(channel, ("ready", os.getpid(), warm_worker_identities()))
-
-    def deliver(frame: bytes) -> None:
-        channel.write(frame)
-        channel.flush()
-
     while True:
         task = read_frame(source)
         if task is None:
             return
-        if isinstance(task, DomainTaskV1):
-            serve_task(task, deliver)
-        else:
-            deliver(serve_message(task))
+        channel.write(serve_message(task) if not isinstance(task, DomainTaskV1) else serve_task(task))
+        channel.flush()
 
 
 # --------------------------------------------------------------------------

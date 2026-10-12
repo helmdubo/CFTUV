@@ -1,11 +1,10 @@
-"""Динамика пула: когда воркеру уходит следующая задача и когда его сборщик догоняет (POOL-DYN).
+"""Динамика пула: когда воркеру уходит следующая задача и с чего стартует прогон (POOL-DYN).
 
 Утверждение одно: пул меняет КОГДА воркер получает работу, а не ЧТО он отвечает и в каком порядке это видно снаружи. Поэтому здесь не ускорение (оно измерено на поле, см. `DECISIONS.md`), а
-три вещи, которые держат ответ прежним при любом порядке прихода ответов:
+что держит ответ прежним при любом порядке прихода ответов:
 
 * EARLY_DISPATCH_BEFORE_UNPICKLE_V1 - следующая ХОЛОДНАЯ задача уходит воркеру сразу после БАЙТОВ ответа на предыдущую, до их разбора. Выбор задачи тот же, что у `take` (очередь из одних холодных
   задач отдаёт голову любому воркеру), задач у воркера по-прежнему одна в работе, а принятие ответов родителем идёт по номеру задачи (`results.get(task_id)`), а не по приходу.
-* WORKER_GC_AFTER_REPLY_V1 - ответ воркера уходит в трубу внутри паузы сборщика, а не после неё.
 * HEAD_STREAMED_FIRST_ROUND_V1 - первый круг стартует по отбору кандидатов (число цепочек, без кодирования всех кадров), остаток упорядочивается, пока воркеры считают; порядок ВСЕХ задач тот же, что у полного
   порядка, когда точный первый круг лежит среди кандидатов, и отказ упорядочения не вешает воркеров.
 * Названные потери: умерший воркер с задачей, ушедшей вперёд, и отмена посреди прогона не теряют задачу молча.
@@ -15,7 +14,6 @@
 
 from __future__ import annotations
 
-import gc
 import io
 import pickle
 import random
@@ -35,12 +33,10 @@ from cftuv.envelope_export_input import HostExportInputV1  # noqa: E402
 from cftuv.envelope_domain_pool import (  # noqa: E402
     DomainPool,
     DomainPoolRunV1,
-    DomainTaskResultV1,
     DomainTaskV1,
     encode_frame,
     order_by_cost,
     read_frame_sized,
-    serve_task,
     shutdown_domain_pool,
     solve_task,
     split_first_round,
@@ -449,36 +445,3 @@ def test_the_parent_adopts_replies_in_task_order_whatever_order_the_pool_returne
 
     assert len(first[0]) == ROW and first[1]
     assert first == second == third  # последовательность принятия, порядок записи в кэш сессии (а с ним и вытеснения) и сами результаты
-
-
-# --------------------------------------------------------------------------
-# 6. Ответ воркера уходит до того, как сборщик догонит
-# --------------------------------------------------------------------------
-
-
-def test_the_reply_is_delivered_inside_the_pause_and_the_collector_catches_up_after_it(monkeypatch):
-    seen = []
-    monkeypatch.setattr(pool_module, "solve_task", lambda task: DomainTaskResultV1(task.task_id))
-    gc.enable()
-    try:
-        frame = serve_task(_task(3), lambda delivered: seen.append((delivered, gc.isenabled())))
-        assert seen == [(frame, False)]
-        assert gc.isenabled()
-        assert serve_task(_task(3)) == frame  # без `deliver` - прежний вызов с прежним кадром
-    finally:
-        gc.enable()
-
-
-def test_a_reply_that_cannot_be_delivered_gives_the_collector_back(monkeypatch):
-    monkeypatch.setattr(pool_module, "solve_task", lambda task: DomainTaskResultV1(task.task_id))
-
-    def broken(frame):
-        raise BrokenPipeError("parent is gone")
-
-    gc.enable()
-    try:
-        with pytest.raises(BrokenPipeError):
-            serve_task(_task(3), broken)
-        assert gc.isenabled()
-    finally:
-        gc.enable()
