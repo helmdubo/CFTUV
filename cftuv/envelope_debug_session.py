@@ -264,6 +264,7 @@ class EnvelopeDebugSessionController:
         # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: фоновая проверка первого нажатия (задача) и домены, чьи байты она не приняла: `{домен: (ревизия, патч, отказ)}`;
         # следующее действие отказывает их (`_scan`). Домен несёт ревизию, поэтому пометки живут, пока жива ревизия. (Ниже хранилища по содержимому: оно отказывает контроллеру в сериализации первым.)
         self._byte_check_job = None
+        self._byte_check_pending = None  # SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1: запуск, отложенный до конца кнопки (`PendingByteCheckV1`)
         self._byte_check_refusals: dict[str, tuple] = {}
         self._byte_check_lock = threading.Lock()
         # Замечания проверки снапшота домена по тождеству снапшота и допуску растяжения запроса: от alpha они
@@ -371,6 +372,21 @@ class EnvelopeDebugSessionController:
         if previous is not None and previous is not job:
             previous.stop.set()
 
+    def hold_byte_check_launch(self, pending) -> None:
+        """Прогон отдал запуск фоновой проверки сессии: он стартует после хвоста кнопки (`launch_pending_byte_check`); прежний нестартовавший запуск назван оборванным."""
+
+        with self._byte_check_lock:
+            previous, self._byte_check_pending = self._byte_check_pending, pending
+        if previous is not None and previous is not pending:
+            previous.abandon("a newer press replaced the launch before it started")
+
+    def launch_pending_byte_check(self):
+        """Запуск, который ждёт конца кнопки, стартует (задача фоновой проверки либо `None`: ждущего нет, или отложенного нет, или пул не умеет шагов). Второй вызов ничего не делает."""
+
+        with self._byte_check_lock:
+            pending, self._byte_check_pending = self._byte_check_pending, None
+        return None if pending is None else pending.start()
+
     def refuse_byte_checked_domain(self, job, violation) -> None:
         """Фон нашёл домен, чьи байты не прошли круг кодека: следующее действие отказывает его тем же исходом хоста, что отказала бы проверка на нажатии."""
 
@@ -401,9 +417,12 @@ class EnvelopeDebugSessionController:
     def _drop_byte_check(self) -> None:
         with self._byte_check_lock:
             job, self._byte_check_job = self._byte_check_job, None
+            pending, self._byte_check_pending = self._byte_check_pending, None
             self._byte_check_refusals.clear()
         if job is not None:
             job.stop.set()
+        if pending is not None:
+            pending.abandon("the session was reset before the launch")
 
     @property
     def stage_inputs_memo(self) -> StageInputsMemoV1:

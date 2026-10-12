@@ -211,15 +211,6 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
     # GC_PAUSED_DURING_BUTTON_V1: циклический сборщик стоит на паузе, пока идёт кнопка (прежнее состояние возвращается в `finally`).
     @gc_paused_call
     def execute(self, context):
-        from .envelope_production_export import (
-            production_timing_text,
-            receipt_console_lines,
-            receipt_report_level,
-            receipt_status_text,
-            run_production,
-        )
-        from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
-
         settings = context.scene.hotspotuv_settings
         mesh_settings = getattr(context.scene, SETTINGS_ATTRIBUTE)
         source_obj = context.active_object
@@ -241,6 +232,29 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             mesh_settings.status = f"Failed: {refusal.message}"
             return reject_source(self, context, source_obj, source_bm, refusal)
         controller = _session(context)
+        try:
+            result = self._build_and_write(context, controller, source_obj, source_bm, selected, kernel_backend)
+        finally:
+            # SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1: фоновая проверка первого нажатия стартует ПОСЛЕ хвоста кнопки (она занимает первичные ядра и замедляла хвост); в `finally`, чтобы отказ хвоста её не терял.
+            controller.launch_pending_byte_check()
+        if "FINISHED" in result:
+            _watch_byte_check(controller, context.scene.name)
+        return result
+
+    def _build_and_write(self, context, controller, source_obj, source_bm, selected, kernel_backend):
+        """Прогон, массивы, запись объекта, запись для живой ширины, строки и отчёт; итог оператора. Фоновую проверку запускает вызывающий (`execute`)."""
+
+        from .envelope_production_export import (
+            production_timing_text,
+            receipt_console_lines,
+            receipt_report_level,
+            receipt_status_text,
+            run_production,
+        )
+        from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
+
+        settings = context.scene.hotspotuv_settings
+        mesh_settings = getattr(context.scene, SETTINGS_ATTRIBUTE)
         source_object_key = _runtime_key(source_obj)
         source_data_key = _runtime_key(source_obj.data)
         source_bm.faces.ensure_lookup_table()
@@ -267,6 +281,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=settings.envelope_debug_workers,
                 kernel_backend=kernel_backend,
+                defer_byte_check=True,
             )
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу
             mesh_settings.status = f"Decal mesh failed: {type(exc).__name__}"
@@ -329,7 +344,6 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             {receipt_report_level(receipt)},
             f"Decal mesh: {mesh_settings.status}",
         )
-        _watch_byte_check(controller, context.scene.name)
         return {"FINISHED"}
 
 

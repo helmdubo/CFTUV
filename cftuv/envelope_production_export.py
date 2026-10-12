@@ -161,7 +161,7 @@ from .envelope_production_task import (  # noqa: F401 - переэкспорт: 
     solve_production_task,
 )
 from .envelope_snap_retry import retry_snap_lottery
-from .envelope_byte_check_background import deferred_domains, launch as launch_byte_check
+from .envelope_byte_check_background import PendingByteCheckV1, deferred_domains, launch as launch_byte_check
 from .envelope_snapshot_byte_check import finish_press, resolve_plan
 from .envelope_scan_memo import remember_inputs
 from .envelope_stretch_lines import developable_stretch_lines  # noqa: F401 - переэкспорт: имя прежнее
@@ -784,6 +784,7 @@ def run_production(
     lean: bool = False,
     served: dict | None = None,
     skipped=None,
+    defer_byte_check: bool = False,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -805,6 +806,7 @@ def run_production(
     из хранилища) идут полным путём в том же прогоне, и профиль называет их число (`PRODUCTION_REFRESH_LEAN_FULL_DOMAINS`).
 
     `served` / `skipped` (WIDTH_REFRESH_INCREMENTAL_V1, только с `lean=True`): домены, которых прогон не считает; описание - в шапке модуля `envelope_width_incremental`.
+    `defer_byte_check=True` (кнопка): фоновая проверка первого нажатия ждёт в сессии, вызывающий обязан запустить её после своего хвоста (`_start_byte_check`).
     """
 
     from .envelope_chart_band import policy_alpha
@@ -877,8 +879,20 @@ def run_production(
         done, refused = _dispatch_work(run, work, pool)
     results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
     produced = _production_run(run, entries, results, cold, started, builds_before, lazy_before)
-    launch_byte_check(run, pool, entries)  # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: отложенный круг кодека идёт фоном ПОСЛЕ нажатия
+    _start_byte_check(controller, run, pool, entries, defer_byte_check)
     return produced
+
+
+def _start_byte_check(controller, run: _RunInputsV1, pool, entries, defer: bool) -> None:
+    """SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: отложенный круг кодека идёт фоном ПОСЛЕ нажатия.
+
+    `defer` (SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1, кнопка): задача не стартует внутри прогона, а ждёт в сессии (`hold_byte_check_launch`) до конца хвоста кнопки (`launch_pending_byte_check`, оператор зовёт её в `finally`).
+    """
+
+    if defer:
+        controller.hold_byte_check_launch(PendingByteCheckV1(run, pool, entries))
+    else:
+        launch_byte_check(run, pool, entries)
 
 
 def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_before, lazy_before) -> ProductionRunV1:
