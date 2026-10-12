@@ -19,6 +19,11 @@ B1 — отдельный чистый лист `embedding_compute` (`_embedding
 не требует от колеса остальных операций. Пару, которую порт не несёт (иррациональный конец отрезка, отказ родной арифметики, контакт с иррациональным параметром), считает эталон на месте, со своими
 счётами `BACKEND_COUNTS` и своим резервным путём через sympy; в журнал домена она ложится как откат `NATIVE_PORT_UNSUPPORTED` стадии.
 
+ШЕСТАЯ СТАДИЯ — W1 материализации, точная сетка слитых граней `materialize_w1_compute` (`materialize.mesh.exact_mesh`: вершины, факты `(s, r)`, грани — и `materialize.mesh.canonical_triangles`, второй
+проход каноническими треугольниками, который платит заново). Заказывается параметром `materialize_backend` (умолчание `PYTHON`: решение о смене умолчания принимает владелец после полевой сверки) и, как B1,
+не требует от колеса остальных операций. Оба входа — ЦЕЛЫЕ операции со всеми побочными эффектами эталона (бюджет, память канонизации, `SIGN_COUNTS`, строки `notes`); порт, который вход не несёт, откатывается
+на эталон по имени (`NATIVE_PORT_UNSUPPORTED`).
+
 СТАДИИ ЗАКАЗЫВАЮТСЯ ПОРОЗНЬ. `use_backend(backend, skeleton_backend)`: `backend` заказывает покрытие и резку, `skeleton_backend`
 (умолчание `PYTHON`) — скелет; продукт переводит стадии на Rust по одной, и покрытие с резкой могут считать нативно, пока скелет
 считает эталон. Журнал домена (`BackendRecordV1`) несёт скелет ОТДЕЛЬНО (`skeleton_*`): счёты, откаты и исходы покрытия с резкой
@@ -100,6 +105,8 @@ SKELETON = "skeleton"
 EMBEDDING = "snap_embedding"
 #: Пятая целая операция: чистый лист контактов резолвера эффективной alpha (`reference.boundary._native_contacts`).
 EFFECTIVE_ALPHA = "effective_alpha"
+#: Шестая целая операция: W1 материализации (`materialize.mesh.exact_mesh` и `materialize.mesh.canonical_triangles`).
+MATERIALIZE_W1 = "materialize_w1"
 #: Статус операции нативного ядра, когда `cftuv_native` не импортируется.
 UNAVAILABLE = "unavailable"
 #: Сколько символов текста исключения несёт запись об откате.
@@ -228,6 +235,7 @@ class NativeStatusV1:
     skeleton: str = UNAVAILABLE
     embedding: str = UNAVAILABLE
     effective_alpha: str = UNAVAILABLE
+    materialize_w1: str = UNAVAILABLE
 
     @property
     def available(self) -> bool:
@@ -245,10 +253,15 @@ class NativeStatusV1:
     def effective_alpha_available(self) -> bool:
         return self.effective_alpha == "available"
 
+    @property
+    def materialize_w1_available(self) -> bool:
+        return self.materialize_w1 == "available"
+
     def as_record(self) -> dict:
         return {
             "snap_embedding": self.embedding,
             "effective_alpha": self.effective_alpha,
+            "materialize_w1": self.materialize_w1,
             "coverage": self.coverage,
             "clip": self.clip,
             "skeleton": self.skeleton,
@@ -270,7 +283,7 @@ def native_status() -> NativeStatusV1:
         build_id = str(module.native_build_id())
     except Exception as exc:  # noqa: BLE001 - статус, который не удалось снять, назван, а не брошен
         return NativeStatusV1(UNAVAILABLE, UNAVAILABLE, "", f"native_status failed: {type(exc).__name__}: {exc}"[:DETAIL_LIMIT])
-    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)))
+    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)))
 
 
 def stage_identity(backend) -> str:
@@ -292,15 +305,21 @@ def stage_identity(backend) -> str:
     return f"{KernelBackendV1.NATIVE.value}:{build_id or UNAVAILABLE}"
 
 
-def backend_identity(backend, skeleton_backend=KernelBackendV1.PYTHON, embedding_backend=KernelBackendV1.PYTHON, effective_alpha_backend=KernelBackendV1.PYTHON) -> str:
+def backend_identity(
+    backend,
+    skeleton_backend=KernelBackendV1.PYTHON,
+    embedding_backend=KernelBackendV1.PYTHON,
+    effective_alpha_backend=KernelBackendV1.PYTHON,
+    materialize_backend=KernelBackendV1.PYTHON,
+) -> str:
     """Идентичность исполнения для ключей кэшей: стадия покрытия и резки (`stage_identity(backend)`) и, если скелет считает нативное ядро, его стадия.
 
     Скелет на `PYTHON` (умолчание) не меняет строку: ключи прогона без нативного скелета те же, что и были. Нативный скелет добавляет `|skeleton=NATIVE:<id>`,
-    и результат (подготовка, ответ домена), посчитанный одним составом бэкендов, не читается как результат другого. Так же стадия `effective_alpha`: `|effective_alpha=NATIVE:<id>`.
+    и результат (подготовка, ответ домена), посчитанный одним составом бэкендов, не читается как результат другого. Так же стадии `effective_alpha` и `materialize_w1`: `|effective_alpha=NATIVE:<id>`.
     """
 
     base = stage_identity(backend)
-    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend), (EFFECTIVE_ALPHA, effective_alpha_backend)):
+    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend), (EFFECTIVE_ALPHA, effective_alpha_backend), (MATERIALIZE_W1, materialize_backend)):
         if normalize_backend(choice) is KernelBackendV1.NATIVE:
             base += f"|{stage}={stage_identity(choice)}"
     return base
@@ -340,6 +359,10 @@ class BackendRecordV1:
     effective_alpha_native_calls: int = 0
     effective_alpha_python_calls: int = 0
     effective_alpha_fallbacks: tuple = ()
+    materialize_requested: str = KernelBackendV1.PYTHON.value
+    materialize_native_calls: int = 0
+    materialize_python_calls: int = 0
+    materialize_fallbacks: tuple = ()
 
     @property
     def ran(self) -> str:
@@ -401,6 +424,20 @@ class BackendRecordV1:
     def effective_alpha_outcomes(self) -> tuple:
         return tuple(sorted({item[0] for item in self.effective_alpha_fallbacks}))
 
+    @property
+    def materialize_ran(self) -> str:
+        """`native` / `python` / `mixed` по вызовам W1 этого домена (`exact_mesh` и `canonical_triangles`); пусто — стадия не считала (заказ `PYTHON`, домен отказан до неё)."""
+
+        if not (self.materialize_native_calls or self.materialize_python_calls):
+            return ""
+        if not self.materialize_native_calls:
+            return "python"
+        return "native" if not self.materialize_python_calls else "mixed"
+
+    @property
+    def materialize_outcomes(self) -> tuple:
+        return tuple(sorted({item[0] for item in self.materialize_fallbacks}))
+
     def merged(self, other: "BackendRecordV1 | None") -> "BackendRecordV1":
         """Запись домена из двух блоков (`other` — второй по времени, обычно материализация): счёты складываются, откаты сливаются по `(исход, операция)`.
 
@@ -427,6 +464,10 @@ class BackendRecordV1:
             self.effective_alpha_native_calls + other.effective_alpha_native_calls,
             self.effective_alpha_python_calls + other.effective_alpha_python_calls,
             _merged_fallbacks(self.effective_alpha_fallbacks, other.effective_alpha_fallbacks),
+            self.materialize_requested,
+            self.materialize_native_calls + other.materialize_native_calls,
+            self.materialize_python_calls + other.materialize_python_calls,
+            _merged_fallbacks(self.materialize_fallbacks, other.materialize_fallbacks),
         )
 
     def as_record(self) -> dict:
@@ -456,6 +497,12 @@ class BackendRecordV1:
             "effective_alpha_python_calls": self.effective_alpha_python_calls,
             "effective_alpha_outcomes": list(self.effective_alpha_outcomes),
             "effective_alpha_fallbacks": [list(item) for item in self.effective_alpha_fallbacks],
+            "materialize_requested": self.materialize_requested,
+            "materialize_ran": self.materialize_ran,
+            "materialize_native_calls": self.materialize_native_calls,
+            "materialize_python_calls": self.materialize_python_calls,
+            "materialize_outcomes": list(self.materialize_outcomes),
+            "materialize_fallbacks": [list(item) for item in self.materialize_fallbacks],
         }
 
 
@@ -475,7 +522,7 @@ class BackendLedgerV1:
     `requested` заказывает покрытие и резку, `skeleton_requested` — скелет; точка диспетчеризации стадии, чей заказ `PYTHON`, зовёт эталон напрямую и журнала не пишет.
     """
 
-    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "effective_alpha_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
+    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "effective_alpha_requested", "materialize_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
 
     def __init__(
         self,
@@ -483,11 +530,13 @@ class BackendLedgerV1:
         skeleton_requested: str = KernelBackendV1.PYTHON.value,
         embedding_requested: str = KernelBackendV1.PYTHON.value,
         effective_alpha_requested: str = KernelBackendV1.PYTHON.value,
+        materialize_requested: str = KernelBackendV1.PYTHON.value,
     ) -> None:
         self.requested = requested
         self.skeleton_requested = skeleton_requested
         self.embedding_requested = embedding_requested
         self.effective_alpha_requested = effective_alpha_requested
+        self.materialize_requested = materialize_requested
         self.embedding_cache_hits = 0
         self.native: dict = {}
         self.python: dict = {}
@@ -510,6 +559,10 @@ class BackendLedgerV1:
     @property
     def effective_alpha_native(self) -> bool:
         return self.effective_alpha_requested == KernelBackendV1.NATIVE.value
+
+    @property
+    def materialize_native(self) -> bool:
+        return self.materialize_requested == KernelBackendV1.NATIVE.value
 
     def note_native(self, operation: str) -> None:
         self.native[operation] = self.native.get(operation, 0) + 1
@@ -553,6 +606,10 @@ class BackendLedgerV1:
             self.native.get(EFFECTIVE_ALPHA, 0),
             self.python.get(EFFECTIVE_ALPHA, 0),
             fallbacks((EFFECTIVE_ALPHA,)),
+            self.materialize_requested,
+            self.native.get(MATERIALIZE_W1, 0),
+            self.python.get(MATERIALIZE_W1, 0),
+            fallbacks((MATERIALIZE_W1,)),
         )
 
 
@@ -561,8 +618,16 @@ _SCOPE: ContextVar = ContextVar("cftuv_kernel_backend", default=None)
 
 
 @contextmanager
-def use_backend(backend, skeleton_backend=KernelBackendV1.PYTHON, embedding_backend=KernelBackendV1.PYTHON, effective_alpha_backend=KernelBackendV1.PYTHON, *, borrowed_ledger=None):
-    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет, B1 (`embedding_backend`) и лист резолвера эффективной alpha (`effective_alpha_backend`).
+def use_backend(
+    backend,
+    skeleton_backend=KernelBackendV1.PYTHON,
+    embedding_backend=KernelBackendV1.PYTHON,
+    effective_alpha_backend=KernelBackendV1.PYTHON,
+    materialize_backend=KernelBackendV1.PYTHON,
+    *,
+    borrowed_ledger=None,
+):
+    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет, B1 (`embedding_backend`) лист резолвера эффективной alpha (`effective_alpha_backend`) и W1 материализации (`materialize_backend`).
 
     `borrowed_ledger` допустим только внутри scope владельца с тем же выбором: вложенная подготовка не заводит второй журнал.
 
@@ -573,15 +638,26 @@ def use_backend(backend, skeleton_backend=KernelBackendV1.PYTHON, embedding_back
     choice, skeleton = normalize_backend(backend), normalize_backend(skeleton_backend)
     embedding = normalize_backend(embedding_backend)
     effective_alpha = normalize_backend(effective_alpha_backend)
+    materialize = normalize_backend(materialize_backend)
     if borrowed_ledger is not None:
-        requested = (choice.value, skeleton.value, embedding.value, effective_alpha.value)
-        actual = (borrowed_ledger.requested, borrowed_ledger.skeleton_requested, borrowed_ledger.embedding_requested, borrowed_ledger.effective_alpha_requested)
+        requested = (choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value)
+        actual = (
+            borrowed_ledger.requested,
+            borrowed_ledger.skeleton_requested,
+            borrowed_ledger.embedding_requested,
+            borrowed_ledger.effective_alpha_requested,
+            borrowed_ledger.materialize_requested,
+        )
         if _SCOPE.get() is not borrowed_ledger or actual != requested:
             raise ValueError("BACKEND_BORROW_SCOPE_MISMATCH: preparation must borrow its active owner ledger")
         yield borrowed_ledger
         return
     native = KernelBackendV1.NATIVE
-    ledger = BackendLedgerV1(choice.value, skeleton.value, embedding.value, effective_alpha.value) if native in (choice, skeleton, embedding, effective_alpha) else None
+    ledger = (
+        BackendLedgerV1(choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value)
+        if native in (choice, skeleton, embedding, effective_alpha, materialize)
+        else None
+    )
     token = _SCOPE.set(ledger)
     try:
         yield ledger
@@ -611,6 +687,11 @@ def active_embedding_backend() -> KernelBackendV1:
 def active_effective_alpha_backend() -> KernelBackendV1:
     ledger = _SCOPE.get()
     return KernelBackendV1.NATIVE if ledger is not None and ledger.effective_alpha_native else KernelBackendV1.PYTHON
+
+
+def active_materialize_backend() -> KernelBackendV1:
+    ledger = _SCOPE.get()
+    return KernelBackendV1.NATIVE if ledger is not None and ledger.materialize_native else KernelBackendV1.PYTHON
 
 
 def note_embedding_cache_hit() -> None:
@@ -885,6 +966,45 @@ def effective_alpha_compute(oracle, context, source, boundary, frame, counts):
     return answer[2]
 
 
+def exact_mesh_compute(oracle, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap):
+    """`oracle(...)` (`materialize.mesh.exact_mesh`), посчитанное заказанным бэкендом W1 материализации: вершины, факты `(s, r)` и грани слитых граней домена.
+
+    Ответ эталона — `ExactMeshV1`; побочные эффекты (бюджет, память канонизации, `SIGN_COUNTS`, строки `notes`) нативный вызов оставляет так, как оставил бы эталон, и исход эталона
+    (`MaterializationRefusal`, исчерпание бюджета) уходит вызывающему как есть. Вне блока и в блоке, где стадия не заказана, вызов побитово равен вызову эталона и журнала не пишет. Вход, который порт не несёт,
+    откатывается на эталон по имени (`NATIVE_PORT_UNSUPPORTED`); состояние при этом как до вызова.
+    """
+
+    arguments = (frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(*arguments)
+
+    def call(module):
+        if not hasattr(module, "exact_mesh"):
+            raise _OperationAbsent("this cftuv_native wheel has no `exact_mesh` (it predates the W1 operation)")
+        return module.exact_mesh(*arguments)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call, lambda: _effects_snapshot(budget, None, notes))
+    return answer if done else oracle(*arguments)
+
+
+def canonical_triangles_compute(oracle, frame_faces, cycles, budget, reverse):
+    """`oracle(frame_faces, cycles, budget, reverse)` (`materialize.mesh.canonical_triangles`), посчитанное заказанным бэкендом W1: второй, канонический проход, который платит заново."""
+
+    arguments = (frame_faces, cycles, budget, reverse)
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(*arguments)
+
+    def call(module):
+        if not hasattr(module, "canonical_triangles"):
+            raise _OperationAbsent("this cftuv_native wheel has no `canonical_triangles` (it predates the W1 operation)")
+        return module.canonical_triangles(*arguments)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call, lambda: _effects_snapshot(budget))
+    return answer if done else oracle(*arguments)
+
+
 __all__ = (
     "BackendLedgerV1",
     "BackendOutcomeV1",
@@ -894,10 +1014,14 @@ __all__ = (
     "SKELETON",
     "EMBEDDING",
     "EFFECTIVE_ALPHA",
+    "MATERIALIZE_W1",
     "active_effective_alpha_backend",
+    "active_materialize_backend",
+    "canonical_triangles_compute",
     "active_embedding_backend",
     "effective_alpha_compute",
     "embedding_compute",
+    "exact_mesh_compute",
     "note_embedding_cache_hit",
     "KernelBackendV1",
     "NativeDomainRefused",

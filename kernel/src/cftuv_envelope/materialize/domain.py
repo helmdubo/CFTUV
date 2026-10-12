@@ -62,6 +62,7 @@ from fractions import Fraction
 from hashlib import sha256
 from typing import NamedTuple
 
+from .. import backend
 from .._chain_station import free_vertices, inert_face_pairs
 from ..canonical import sealed_geometry_batch
 from ..codec import canonical_json_bytes
@@ -721,7 +722,7 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     canonical = (
         polygons
         if law is DecalTopologyLawV1.TRIANGLES_V1 and cut is None
-        else canonical_triangles(frame_faces, cycles, budget, chart_cw)
+        else backend.canonical_triangles_compute(canonical_triangles, frame_faces, cycles, budget, chart_cw)
     )
     sourced = lift_source_vertices(
         positions,
@@ -815,7 +816,8 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     clipped = _is_clipped(admission)
     tessellation_law = _tessellation_law(clipped, law)
-    exact = exact_mesh(
+    exact = backend.exact_mesh_compute(
+        exact_mesh,
         frame_faces,
         [item[0] for item in items],
         layout,
