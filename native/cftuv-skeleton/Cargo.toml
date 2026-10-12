@@ -11,6 +11,10 @@ cftuv-canon = { path = "../cftuv-canon" }
 cftuv-core = { path = "../cftuv-core" }
 cftuv-clip = { path = "../cftuv-clip" }
 
+[dev-dependencies]
+# the allocator of the wheel (`cftuv-python/src/lib.rs`): the replay bench (`examples/replay.rs`) measures with the allocator the product runs with
+mimalloc = { version = "0.1", default-features = false }
+
 [features]
 # Phase timers of the leaf (`profile.rs`); a separate wheel is built with it by `tools/native_leaf_gate.py profile`.
 profile = []

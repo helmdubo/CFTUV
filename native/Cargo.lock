@@ -111,6 +111,7 @@ dependencies = [
  "cftuv-clip",
  "cftuv-core",
  "dashu-int",
+ "mimalloc",
 ]
 
 [[package]]

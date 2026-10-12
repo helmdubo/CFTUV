@@ -135,6 +135,7 @@ fn type_name(kind: &Kind) -> &'static str {
 
 impl Val {
     fn new(kind: Kind) -> Val {
+        crate::profile::count(crate::profile::Stat::ValNew, 1);
         let hash = kind_hash(&kind);
         Val(Rc::new(Node { hash, text: OnceCell::new(), kind }))
     }
@@ -222,6 +223,7 @@ impl Val {
 
     /// `((radicand, coefficient), ...)`: the `terms` of a sum as the oracle's keys hold them (a coefficient is a `Fraction`, an `int` where the sum kept one).
     pub fn terms_of(sum: &SqrtSum) -> Val {
+        crate::profile::count(crate::profile::Stat::TermsOf, 1);
         Val::tuple(
             sum.terms()
                 .iter()
@@ -325,6 +327,8 @@ impl Val {
         Rc::clone(self.0.text.get_or_init(|| {
             let mut out = String::new();
             write_repr(&self.0.kind, &mut out);
+            crate::profile::count(crate::profile::Stat::ReprBuilds, 1);
+            crate::profile::count(crate::profile::Stat::ReprBytes, out.len() as u64);
             Rc::from(out)
         }))
     }

@@ -106,6 +106,7 @@ pub struct PlaceKey {
 
 /// The value of a time as a key: the dividend and the divisor in lowest terms (equal values, equal keys).
 pub fn time_key(time: &EventTime) -> (Rat, IntForm) {
+    crate::profile::count_seen(crate::profile::Stat::TimeKeys, crate::profile::Stat::TimeKeysRepeated, || time as *const EventTime as usize as u64);
     (time.dividend.clone(), time.divisor.canonical_form().clone())
 }
 
@@ -172,7 +173,9 @@ pub fn position<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo: &mut P
         return hydrate_position(ctx, view, first, second, vertex.sliding, time);
     }
     let key = timed(Phase::MemoKey, || PlaceKey { first: first.value(), second: second.value(), sliding: vertex.sliding.map(|sliding| sliding.value.canonical_form().clone()), time: time_key(time) });
+    crate::profile::count(crate::profile::Stat::PositionLookups, 1);
     if let Some(cached) = timed(Phase::MemoLookup, || memo.places.get(&key).cloned()) {
+        crate::profile::count(crate::profile::Stat::PositionHits, 1);
         return Ok(cached);
     }
     let place = hydrate_position(ctx, view, first, second, vertex.sliding, time)?;

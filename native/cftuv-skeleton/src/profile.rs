@@ -144,3 +144,94 @@ pub fn reset() {}
 pub fn take() -> Vec<u64> {
     Vec::new()
 }
+
+/// Counters of the leaf (events that are not time): how many lookups hit, how many keys were built twice. Only the feature `profile` counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stat {
+    PositionLookups,
+    PositionHits,
+    PointKeys,
+    PointKeysRepeated,
+    TermsOf,
+    ReprBuilds,
+    ReprBytes,
+    ValNew,
+    EventPoints,
+    PlanDivisors,
+    PlanDivisorsRepeated,
+    CompareTimes,
+    CompareTimesDecidedByFilter,
+    TimeKeys,
+    TimeKeysRepeated,
+}
+
+pub const STATS: [(&str, Stat); 15] = [
+    ("position lookups", Stat::PositionLookups),
+    ("position hits", Stat::PositionHits),
+    ("exact_point_key calls", Stat::PointKeys),
+    ("exact_point_key of an already keyed point", Stat::PointKeysRepeated),
+    ("Val::terms_of calls", Stat::TermsOf),
+    ("repr texts built", Stat::ReprBuilds),
+    ("repr bytes", Stat::ReprBytes),
+    ("Val::new", Stat::ValNew),
+    ("event_point calls", Stat::EventPoints),
+    ("conjugation plans (pair divisions)", Stat::PlanDivisors),
+    ("... of a divisor planned before", Stat::PlanDivisorsRepeated),
+    ("compare_times", Stat::CompareTimes),
+    ("... decided by the filter", Stat::CompareTimesDecidedByFilter),
+    ("time keys (memo keys)", Stat::TimeKeys),
+    ("... of a time keyed before", Stat::TimeKeysRepeated),
+];
+
+#[cfg(feature = "profile")]
+mod stats_on {
+    use super::{Stat, STATS};
+    use std::cell::RefCell;
+    use std::collections::HashSet;
+
+    thread_local! {
+        static COUNTS: RefCell<[u64; STATS.len()]> = const { RefCell::new([0; STATS.len()]) };
+        static SEEN: RefCell<HashSet<(u8, u64)>> = RefCell::new(HashSet::new());
+    }
+
+    pub fn count(stat: Stat, by: u64) {
+        COUNTS.with(|counts| counts.borrow_mut()[stat as usize] += by);
+    }
+
+    /// Counts `stat` and, when `key` was seen before in this measurement, `repeated` too.
+    pub fn count_seen(stat: Stat, repeated: Stat, key: impl FnOnce() -> u64) {
+        let key = key();
+        count(stat, 1);
+        if !SEEN.with(|seen| seen.borrow_mut().insert((stat as u8, key))) {
+            count(repeated, 1);
+        }
+    }
+
+    pub fn reset_stats() {
+        COUNTS.with(|counts| *counts.borrow_mut() = [0; STATS.len()]);
+        SEEN.with(|seen| seen.borrow_mut().clear());
+    }
+
+    pub fn take_stats() -> Vec<u64> {
+        COUNTS.with(|counts| counts.borrow().to_vec())
+    }
+}
+
+#[cfg(feature = "profile")]
+pub use stats_on::{count, count_seen, reset_stats, take_stats};
+
+#[cfg(not(feature = "profile"))]
+#[inline(always)]
+pub fn count(_stat: Stat, _by: u64) {}
+
+#[cfg(not(feature = "profile"))]
+#[inline(always)]
+pub fn count_seen(_stat: Stat, _repeated: Stat, _key: impl FnOnce() -> u64) {}
+
+#[cfg(not(feature = "profile"))]
+pub fn reset_stats() {}
+
+#[cfg(not(feature = "profile"))]
+pub fn take_stats() -> Vec<u64> {
+    Vec::new()
+}

@@ -110,8 +110,10 @@ impl EventTime {
 /// forms (counters bumped as `_filtered_sign` bumps them); when it gives up the question goes the whole way as `scaled_difference(...).sign(budget)`.
 pub fn compare_times(ctx: &mut ExactCtx<'_>, left: &EventTime, right: &EventTime) -> SkelResult<i8> {
     timed(Phase::CompareTimes, || {
+        crate::profile::count(crate::profile::Stat::CompareTimes, 1);
         let form = scaled_difference_parts(&right.divisor, &left.dividend, &left.divisor, &right.dividend);
         if let Some(decided) = filtered_sign(&form.items, SIGN_FILTER_BITS, ctx.counts) {
+            crate::profile::count(crate::profile::Stat::CompareTimesDecidedByFilter, 1);
             return Ok(decided);
         }
         let difference = right.divisor.scaled_difference(&left.dividend, &left.divisor, &right.dividend);
@@ -196,6 +198,13 @@ pub fn event_point(ctx: &mut ExactCtx<'_>, first: &SupportLine, second: &Support
     if determinant == 0 {
         return Err(SkelError::ParallelSupportLines);
     }
+    crate::profile::count(crate::profile::Stat::EventPoints, 1);
+    crate::profile::count_seen(crate::profile::Stat::PlanDivisors, crate::profile::Stat::PlanDivisorsRepeated, || {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = cftuv_canon::fxhash::FxHasher::default();
+        time.divisor.canonical_form().hash(&mut hasher);
+        hasher.finish()
+    });
     spend_hydration(ctx, first)?;
     let first_radical = timed(Phase::EventPointRadical, || exact::radical(ctx, &time.dividend, &first.q))?;
     let second_radical = timed(Phase::EventPointRadical, || exact::radical(ctx, &time.dividend, &second.q))?;
