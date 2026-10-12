@@ -743,7 +743,7 @@ def test_the_panel_has_one_dropdown_and_one_status_line_and_the_button_passes_on
     group = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "HOTSPOTUV_DecalMeshSettings")
     backend_properties = [node.target.id for node in group.body if isinstance(node, ast.AnnAssign) and "backend" in node.target.id]
     assert backend_properties == ["kernel_backend"]  # отдельной настройки стадии в сцене нет
-    execute = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "execute")
+    execute = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_build_and_write")  # прогон стоит в теле, которое `execute` вызывает до запуска фоновой проверки
     calls = [node for node in ast.walk(execute) if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "run_production"]
     assert len(calls) == 1
     assert {item.arg for item in calls[0].keywords if item.arg and "backend" in item.arg} == {"kernel_backend"}  # порядки стадий выводит `run_production`
