@@ -5,18 +5,22 @@
 проверяют глаза владельца. Утверждения стоят на числах и содержимом меша (`mesh_content_digest`):
 
 1. ПЯТЬ ИЗМЕНЕНИЙ ШИРИНЫ через путь `update` ползунка после «Build Decal Mesh»: каждое сразу даёт превью
-   `PREVIEW_BINARY64_V1` (линии есть, цена — доли миллисекунды), меш до паузы НЕ тронут, таймер взведён; шаги
+   `PREVIEW_BINARY64_V1` и кадр модели (`PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1`: модель из сертификата образца кнопки
+   строится на первом же событии и двигает оба патча шва, поэтому линий нет, `PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1`
+   назван на каждом пропущенном пути; без модели у шва линия с каждой стороны); точный путь до паузы меш НЕ тронул
+   (датаблоки, указатели и свойство ширины те же), таймер взведён; шаги
    таймера считают ОДНО значение — последнее; результат применён НА МЕСТЕ (тот же объект, тот же датаблок
    меша, число датаблоков не изменилось) и ПОБИТОВО равен прямому нажатию кнопки на последней ширине — в
-   тёплой сессии и в холодной; превью после применения снято, ширина записана в свойство объекта;
+   тёплой сессии и в холодной; превью и кадр модели после применения сняты, ширина записана в свойство объекта;
 2. ТО ЖЕ НА ДВУХ ВОРКЕРАХ: живой пул берёт точный пересчёт из потока планировщика, ответ тот же;
 3. МОДАЛЬНЫЙ ИНСТРУМЕНТ (автомат и исполнение, те же функции, что у оператора): перетаскивание меняет ТОЛЬКО
-   превью (меш и счётчики планировщика те же, свойство ширины то же); подтверждение пишет ширину в ползунок один
-   раз, заказывает точный пересчёт, итоговый меш равен прямой кнопке; отмена оставляет ширину и меш побитово
-   прежними и снимает превью;
+   превью и кадр модели в меше (счётчики планировщика те же, свойство ширины то же); подтверждение пишет ширину в ползунок один
+   раз, заказывает точный пересчёт (до него меш — кадр модели на итоговой ширине), итоговый меш равен прямой кнопке; отмена
+   оставляет ширину и меш побитово прежними и снимает превью;
 4. ОТМЕНА (Undo): применение таймером не создаёт и не освобождает датаблоков; после шага отмены, поставленного
    ДО точного результата (как у модального оператора), `ed.undo`/`ed.redo` оставляют сцену целой, а расхождение
-   ползунка и меша после Redo сверяет `reconcile_after_history` и заказывает пересчёт;
+   ползунка и записанной в меш ширины (`cftuv_decal_width`; кадр модели её не пишет) после Redo сверяет
+   `reconcile_after_history` и заказывает пересчёт;
 5. РЕГИСТРАЦИЯ: оператор `hotspotuv.adjust_decal_width` объявлен с UNDO, оверлей и обработчики (история, загрузка,
    depsgraph) стоят;
 6. ЦЕЛЬ — СОБСТВЕННАЯ ДЕКАЛЬ АКТИВНОГО ОБЪЕКТА (ошибка владельца: «аджастмент есть, а сетки для аджастмента нет»):
@@ -213,7 +217,12 @@ def _direct_digest_at(width, *, cold):
 
 
 def _run_five_changes(*, workers):
-    from cftuv.envelope_width_preview import PREVIEW_BINARY64_V1
+    from cftuv.envelope_width_preview import (
+        PREVIEW_BINARY64_V1,
+        PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1,
+        compute_width_preview,
+    )
+    from cftuv.envelope_width_preview_model import PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1
 
     source = _fresh(workers=workers)
     decal = _press(source)
@@ -222,20 +231,35 @@ def _run_five_changes(*, workers):
     record = controller.width_build
     assert record is not None and record.preview_inputs.runs, "the button must remember the build"
     assert controller.width_preview is None
+    assert controller.width_displayed is not None and controller.width_model is None  # модель строит первое событие, не кнопка
     before = _digest()
+    start = float(settings.envelope_debug_alpha)
     mesh_pointer, object_pointer = decal.data.as_pointer(), decal.as_pointer()
     blocks = _datablock_counts()
 
     spent = _drag(DRAG)
     scheduler = _scheduler()
-    # 1. Заказ: быстро (превью внутри), превью есть, меш не тронут, таймер взведён, счёт не стартовал.
+    # 1. Заказ: быстро (превью и кадр модели внутри), превью есть, таймер взведён, счёт не стартовал.
     assert max(spent) < ORDER_BUDGET_SECONDS, spent
     state = controller.width_preview
+    width = float(settings.envelope_debug_alpha)
     assert state is not None and state.preview.method == PREVIEW_BINARY64_V1
-    assert abs(state.preview.width - float(settings.envelope_debug_alpha)) < 1e-12
-    assert state.preview.lines >= 2 and state.preview.points >= 4  # шов двух патчей: линия с каждой стороны
+    assert abs(state.preview.width - width) < 1e-12
     assert state.source_name == SOURCE and state.serial == 5
-    assert _digest() == before
+    # Модель из сертификата образца кнопки (AFFINE_DRAG_CERTIFICATE_V1) построена первым событием ползунка: каждое событие — кадр
+    # настоящего меша, и оба патча шва движутся, поэтому линий нет, а каждый пропущенный путь назван (PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1).
+    frame = controller.width_mesh_preview
+    assert controller.width_model is not None, controller.width_model_refusal
+    assert frame is not None and frame.outcome == PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 and frame.serial == 5, frame
+    assert abs(frame.alpha - width) < 1e-12 and frame.held == 0 and len(frame.moving) == frame.live == 2, frame
+    assert state.preview.lines == 0 and state.preview.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1) == 2, state.preview.outcomes
+    # Без модели тот же шов на той же ширине — линия с каждой стороны: пропуск не теряет путей, которые надо рисовать.
+    full = compute_width_preview(record.preview_inputs, width, lift=float(_decal_settings().offset))
+    assert full.lines >= 2 and full.points >= 4 and full.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1) == 0
+    # Меш показывает кадр модели, а точный путь его не трогал: датаблоки, указатели и свойство ширины те же.
+    assert _digest() != before
+    assert (decal.data.as_pointer(), decal.as_pointer()) == (mesh_pointer, object_pointer)
+    assert _datablock_counts() == blocks and decal.data["cftuv_decal_width"] == start
     counters = scheduler.counters
     assert (counters.requested, counters.started, counters.applied) == (5, 0, 0), counters
     assert bpy.app.timers.is_registered(scheduler._callback)
@@ -253,6 +277,7 @@ def _run_five_changes(*, workers):
     assert _datablock_counts() == blocks, (blocks, _datablock_counts())
     assert decal.data["cftuv_decal_width"] == float(settings.envelope_debug_alpha)
     assert controller.width_preview is None, "the exact result for the latest width clears the overlay"
+    assert controller.width_mesh_preview is None, "the exact result replaces the model frame"
     live_digest = _digest()
     assert live_digest != before
     assert len(_decal_objects()) == 1
@@ -264,7 +289,8 @@ def _run_five_changes(*, workers):
     latency = scheduler.last_applied
     print(
         f"FIVE_CHANGES workers={workers}: change max {max(spent) * 1000:.3f} ms (preview "
-        f"{state.preview.seconds * 1000:.3f} ms, {state.preview.lines} lines), steps {len(steps)} "
+        f"{state.preview.seconds * 1000:.3f} ms, {state.preview.lines} lines; model frame {frame.seconds * 1000:.3f} ms, "
+        f"{frame.live} domains moving; no-model contour {full.lines} lines), steps {len(steps)} "
         f"max {max(steps) * 1000:.1f} ms, exact latency {latency.latency_seconds * 1000:.0f} ms "
         f"(compute {latency.compute_seconds * 1000:.0f}, apply {latency.apply_seconds * 1000:.0f})"
     )
@@ -329,7 +355,7 @@ def _modal(width_events, *, confirm):
     runtime = begin_adjust(bpy.context, (200.0, 100.0), view)
     assert not isinstance(runtime, str), runtime
     controller = _controller()
-    assert controller.width_preview is not None  # линии видны ещё до первого движения
+    assert controller.width_preview is not None  # превью есть ещё до первого движения (линии — где модель не двигает меш)
     widths = []
     for x in width_events:
         step = runtime.session.handle(WidthEventV1(KIND_MOVE, x, 100.0))
@@ -342,6 +368,8 @@ def _modal(width_events, *, confirm):
 
 
 def _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_confirm():
+    from cftuv.envelope_width_preview_model import PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1
+
     source = _fresh()
     _press(source)
     controller = _controller()
@@ -360,18 +388,21 @@ def _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_
     assert runtime.session.width == start
     assert controller.width_live is None or not controller.width_live.busy
 
-    # Подтверждение: во время перетаскивания меш и счётчики те же; потом ОДИН заказ и точный меш.
+    # Подтверждение: во время перетаскивания счётчики те же (меш двигает только модель); потом ОДИН заказ и точный меш.
     runtime, widths, result = _modal((220.0, 260.0, 300.0, 340.0), confirm=True)
     final = runtime.session.width
     assert result == "FINISHED" and final == widths[-1] and final > start
     assert float(settings.envelope_debug_alpha) == float(final) or abs(float(settings.envelope_debug_alpha) - final) < 1e-6
     scheduler = _scheduler()
     assert scheduler.counters.requested == 1, scheduler.counters
-    assert _digest() == before  # точный счёт ещё не применён: превью — не меш
+    # Точный счёт ещё не применён: меш — кадр модели на итоговой ширине, запись ширины меша — кнопки.
+    frame = controller.width_mesh_preview
+    assert frame is not None and frame.outcome == PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 and abs(frame.alpha - final) < 1e-6, frame
+    assert _digest() != before and _width_property(DECAL) == start
     assert controller.width_preview is not None
     _pump()
     assert scheduler.counters.applied == 1 and scheduler.counters.failed == 0
-    assert controller.width_preview is None
+    assert controller.width_preview is None and controller.width_mesh_preview is None
     live = _digest()
     assert live != before
     assert _direct_digest_at(float(settings.envelope_debug_alpha), cold=False) == live
@@ -529,7 +560,8 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result
     assert any("PREVIEW_MODEL_DROPPED:PREVIEW_MESH_NOT_THE_BASE" in line for line in _status_lines()), _status_lines()
     log = controller.width_preview_log
     assert log.dropped == {"PREVIEW_MODEL_DROPPED:PREVIEW_MESH_NOT_THE_BASE": 1}, log.dropped
-    assert earlier["frames"] >= 12 and earlier["models"] >= 3 and earlier["checks"] >= 1, earlier
+    # Моделей две, затравок нет: образец кнопки на входе инструмента и подтверждённый точный результат.
+    assert earlier["frames"] >= 12 and earlier["models"] >= 2 and earlier["checks"] >= 1, earlier
     assert earlier["max_position_error"] < 1e-4 and earlier["domains_refuted"] == 0, earlier
     closing = runtime.session.handle(WidthEventV1(KIND_CANCEL))
     apply_step(bpy.context, runtime, closing)
@@ -947,17 +979,19 @@ def _run_timer_writes_keep_the_scene_and_the_undo_history_consistent():
     assert _controller().width_preview is None
     assert not _scheduler().busy  # ползунок и меш равны: пересчитывать нечего
 
-    # Ctrl+Shift+Z: ползунок вернулся на 0.31, а меш мог остаться прежним (шаг записан до точного результата).
+    # Ctrl+Shift+Z: ползунок вернулся на 0.31, а меш — тот, что был при записи шага (до точного результата): кадр модели
+    # на 0.31 либо прежний меш, и в обоих случаях свойство ширины меша — кнопки. Сверка идёт по этому свойству, а не по геометрии:
+    # кадр модели может совпасть с точным мешем побитово, но точным он от этого не становится.
     _redo_and_check()
     settings = _settings()
-    stale = _digest() != applied
+    stale = float(_width_property(DECAL)) != float(settings.envelope_debug_alpha)
     print(
         f"AFTER REDO: slider {float(settings.envelope_debug_alpha)}, mesh width {_width_property(DECAL)}, "
-        f"mesh is stale {stale}"
+        f"mesh width is stale {stale}, geometry is the applied one {_digest() == applied}"
     )
     assert abs(float(settings.envelope_debug_alpha) - 0.31) < 1e-6
     reconcile_after_history()
-    assert _controller().width_preview is None
+    assert _controller().width_preview is None and _controller().width_model is None  # шаг истории снимает модель
     assert _scheduler().busy == stale  # расхождение заказывает точный пересчёт, равенство — нет
     _pump()
     _walk_every_datablock()
