@@ -136,6 +136,8 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "backend_record",
         # Метка класса обновления (WIDTH_REFRESH_LEAN_V1): lean-результат хранилище не принимает (`LeanResultError`), переносить на ревизию нечего.
         "lean",
+        # Ширина, на которой заморожены нормали смещения сдвинутой копии (WIDTH_REFRESH_INCREMENTAL_V1): число, ключей в нём нет; у настоящего результата 0.0, а сдвинутая копия lean и хранилищем не принимается.
+        "normals_alpha",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}
