@@ -39,6 +39,30 @@ pub struct EventTime {
     plan: RefCell<Option<Rc<DivisorPlan>>>,
     /// A number that identifies the value of this object for the memories keyed by pairs of times (a clone keeps it: the two are the same value).
     pub id: u64,
+    /// The value of the time as a key (dividend, divisor in lowest terms, and a hash of both), made on first use and shared by every key that holds this time.
+    value: OnceCell<Rc<TimeValue>>,
+}
+
+/// The value of a time as the key of a place: the dividend and the divisor in lowest terms (equal values, equal keys), with their hash made once.
+#[derive(Debug)]
+pub struct TimeValue {
+    hash: u64,
+    dividend: Rat,
+    divisor: cftuv_core::sqrt_sum::IntForm,
+}
+
+impl PartialEq for TimeValue {
+    fn eq(&self, other: &TimeValue) -> bool {
+        self.hash == other.hash && self.dividend == other.dividend && self.divisor == other.divisor
+    }
+}
+
+impl Eq for TimeValue {}
+
+impl std::hash::Hash for TimeValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
 }
 
 /// The rounds of the conjugation of a divisor against one prime universe (`None`: the universe cannot make them), computed once for a time and shared by the
@@ -109,7 +133,20 @@ fn product(coefficient: i128, cofactor: i128) -> IBig {
 
 impl EventTime {
     pub fn new(dividend: Rat, divisor: SqrtSum) -> EventTime {
-        EventTime { dividend, divisor, plan: RefCell::new(None), id: next_time_id() }
+        EventTime { dividend, divisor, plan: RefCell::new(None), id: next_time_id(), value: OnceCell::new() }
+    }
+
+    /// The value of this time as a key of a place (see [`TimeValue`]).
+    pub fn value_key(&self) -> Rc<TimeValue> {
+        Rc::clone(self.value.get_or_init(|| {
+            use std::hash::{Hash, Hasher};
+            crate::profile::count(crate::profile::Stat::TimeKeys, 1);
+            let divisor = self.divisor.canonical_form().clone();
+            let mut hasher = cftuv_canon::fxhash::FxHasher::default();
+            self.dividend.hash(&mut hasher);
+            divisor.hash(&mut hasher);
+            Rc::new(TimeValue { hash: hasher.finish(), dividend: self.dividend.clone(), divisor })
+        }))
     }
 
     /// `ZERO_TIME`: `0 / 1`.

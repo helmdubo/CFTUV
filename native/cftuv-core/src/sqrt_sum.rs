@@ -604,15 +604,31 @@ pub fn filter_decision(items: &[(UBig, IBig)], filter_bits: usize) -> Option<(i8
 /// zero numerators are dropped. The factors may be integral.
 pub fn scaled_difference_parts(plus: &SqrtSum, plus_factor: &Rat, minus: &SqrtSum, minus_factor: &Rat) -> IntForm {
     let (plus_form, minus_form) = (plus.int_form(), minus.int_form());
-    let plus_scale = &plus_form.common * plus_factor.denominator();
-    let minus_scale = &minus_form.common * minus_factor.denominator();
-    let big = num::lcm(&plus_scale, &minus_scale);
-    let plus_multiplier = plus_factor.numerator() * (&big / &plus_scale);
-    let minus_multiplier = minus_factor.numerator() * (&big / &minus_scale);
-    let mut merged: Items = plus_form.items.iter().map(|(radicand, numerator)| (radicand.clone(), numerator * &plus_multiplier)).collect();
+    let scaled_by = |common: &UBig, factor: &Rat| if factor.denominator().is_one() { common.clone() } else { common * factor.denominator() };
+    let (plus_scale, minus_scale) = (scaled_by(&plus_form.common, plus_factor), scaled_by(&minus_form.common, minus_factor));
+    // two parts over one scale (the x and the y of a point, the dividends of two times) need no lcm, no quotient and no product to be put over it
+    let (big, plus_multiplier, minus_multiplier) = if plus_scale == minus_scale {
+        (plus_scale, plus_factor.numerator().clone(), minus_factor.numerator().clone())
+    } else {
+        let big = num::lcm(&plus_scale, &minus_scale);
+        let (plus_multiplier, minus_multiplier) = (plus_factor.numerator() * (&big / &plus_scale), minus_factor.numerator() * (&big / &minus_scale));
+        (big, plus_multiplier, minus_multiplier)
+    };
+    // a multiplier of one (the sum and the difference of two values) is a copy of the numerator, minus one a negated copy
+    let times = |numerator: &IBig, multiplier: &IBig| -> IBig {
+        if multiplier.is_one() {
+            numerator.clone()
+        } else if *multiplier == IBig::NEG_ONE {
+            -numerator
+        } else {
+            numerator * multiplier
+        }
+    };
+    let mut merged: Items = Vec::with_capacity(plus_form.items.len() + minus_form.items.len());
+    merged.extend(plus_form.items.iter().map(|(radicand, numerator)| (radicand.clone(), times(numerator, &plus_multiplier))));
     let plus_count = merged.len();
     for (radicand, numerator) in &minus_form.items {
-        let amount = numerator * &minus_multiplier;
+        let amount = times(numerator, &minus_multiplier);
         match merged[..plus_count].binary_search_by(|(known, _)| known.cmp(radicand)) {
             Ok(index) => merged[index].1 -= amount,
             Err(_) => merged.push((radicand.clone(), -amount)),
