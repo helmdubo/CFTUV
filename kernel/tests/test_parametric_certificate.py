@@ -234,3 +234,12 @@ def test_the_switch_turns_the_certificate_off(monkeypatch):
     monkeypatch.setenv(parametric.ENVIRONMENT_SWITCH, "0")
     off = step(prepared, str(prepared.requested_alpha.value), HOST_LAWS, exact=False)
     assert off.result.parametric is None
+
+
+def test_every_marker_of_the_kernel_is_named_once_and_listed():
+    """A refusal has a name: every `PARAM_*` constant of the module is listed in `MARKERS` exactly once and its value is a `PARAM_*` name (a marker nobody lists is a silent refusal)."""
+    constants = [value for name, value in vars(parametric).items() if name.startswith("PARAM_") and isinstance(value, str)]
+    assert constants, "the module names no marker"
+    assert all(value.startswith("PARAM_") for value in constants)
+    assert sorted(parametric.MARKERS) == sorted(constants)
+    assert len(set(parametric.MARKERS)) == len(parametric.MARKERS)
