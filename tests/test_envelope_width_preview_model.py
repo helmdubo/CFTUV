@@ -26,6 +26,7 @@ import itertools
 import sys
 import types
 from array import array
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -119,7 +120,7 @@ def _synthetic_batch(alpha, *, free, fixed, faces, refs, uv_axis):
     )
 
 
-def _certificate(batch, slopes, uv_axis, *, markers=()):
+def _certificate(batch, slopes, uv_axis, *, alpha, markers=()):
     """Сертификат домена такого вида, какой выпускает ядро: наклоны позиций в порядке ключей батча и наклоны `u * alpha`, `v * alpha` по петлям граней (`slopes`: ключ -> наклон позиции)."""
 
     keys = sorted(item.vert_key.value for item in batch.vertices)
@@ -132,9 +133,10 @@ def _certificate(batch, slopes, uv_axis, *, markers=()):
             slope = slopes.get(vertex.value, STILL)
             loops.extend((slope[uv_axis[0]], slope[uv_axis[1]]))
             count += 1
+    exact_alpha = Fraction(str(float(alpha)))
     if markers:
-        return SimpleNamespace(markers=tuple(markers), vertex_count=0, loop_count=0, position_slopes=array("d"), loop_slopes=array("d"))
-    return SimpleNamespace(markers=(), vertex_count=len(keys), loop_count=count, position_slopes=positions, loop_slopes=loops)
+        return SimpleNamespace(markers=tuple(markers), alpha=exact_alpha, vertex_count=0, loop_count=0, position_slopes=array("d"), loop_slopes=array("d"))
+    return SimpleNamespace(markers=(), alpha=exact_alpha, vertex_count=len(keys), loop_count=count, position_slopes=positions, loop_slopes=loops)
 
 
 def _interval(alpha, low=0.1, high=0.6, status=CERTIFIED):
@@ -161,8 +163,8 @@ def _fold_results(alpha, *, wall_interval=None, wall_token_suffix="", wall_marke
         refs=refs,
         uv_axis=(0, 2),
     )
-    floor_certificate = _certificate(floor, {"c": FLOOR_SLOPE, "d": FLOOR_SLOPE}, (0, 1), markers=floor_markers) if certificates else None
-    wall_certificate = _certificate(wall, {"e": wall_slope, "f": wall_slope}, (0, 2), markers=wall_markers) if certificates else None
+    floor_certificate = _certificate(floor, {"c": FLOOR_SLOPE, "d": FLOOR_SLOPE}, (0, 1), alpha=alpha, markers=floor_markers) if certificates else None
+    wall_certificate = _certificate(wall, {"e": wall_slope, "f": wall_slope}, (0, 2), alpha=alpha, markers=wall_markers) if certificates else None
     return [
         ProductionDomainResultV1(
             0, "floor", MATERIALIZED, floor, normal=(0.0, 0.0, 1.0), source_normal=(0.0, 0.0, 1.0),
@@ -289,7 +291,7 @@ def test_every_reason_a_domain_is_not_modelled_is_named():
     assert isinstance(refusal, pm.PreviewRefusalV1) and refusal.outcome == pm.REFUSED_NO_MODELLED_DOMAIN and pm.DOMAIN_NO_CERTIFICATE in refusal.detail
     # 3. Размеры сертификата не сошлись с видом домена (проверяет `sample_of`).
     results = _fold_results(0.25)
-    results[1] = results[1].with_changes(parametric=SimpleNamespace(markers=(), vertex_count=999, loop_count=1, position_slopes=array("d"), loop_slopes=array("d")))
+    results[1] = results[1].with_changes(parametric=SimpleNamespace(markers=(), alpha=Fraction("0.25"), vertex_count=999, loop_count=1, position_slopes=array("d"), loop_slopes=array("d")))
     arrays = production_mesh.build_mesh_arrays(results, OFFSET)
     shape = preview.build_sample(results, arrays, ("fold",), 0.25)
     assert pm.build_model(shape).rows[1][2] == pm.DOMAIN_SHAPE_MISMATCH
@@ -316,13 +318,25 @@ def test_a_vertex_shared_with_an_unmodelled_domain_does_not_move():
     assert (frame.live_domains, frame.held_domains) == (1, 1)
 
 
+def test_a_certificate_of_another_width_is_named_and_never_read():
+    """Сертификат несёт наклоны точки, на которой его выпустили: образец другой ширины (перенос, подмена) его не читает."""
+
+    results = _fold_results(0.25)
+    results[1] = results[1].with_changes(parametric=_certificate(results[1].batch, {"e": WALL_SLOPE, "f": WALL_SLOPE}, (0, 2), alpha=0.26))
+    arrays = production_mesh.build_mesh_arrays(results, OFFSET)
+    sample = preview.build_sample(results, arrays, ("fold",), 0.25)
+    assert sample.domains[1].markers == (pm.DOMAIN_ALPHA_MISMATCH,) and sample.domains[1].slopes is None
+    model = pm.build_model(sample)
+    assert model.rows[1][2] == pm.DOMAIN_ALPHA_MISMATCH == "PARAM_CERTIFICATE_ALPHA_MISMATCH" and model.rows[0][2] == pm.DOMAIN_MODELLED
+
+
 def test_two_domains_that_give_one_welded_vertex_two_slopes_are_both_named_and_held():
     """Сварка по равным позициям при alpha0 не держится на окне, если наклоны общей вершины разные."""
 
     results = _fold_results(0.25)
     # Стена несёт наклон на общей вершине `a`: пол держит её неподвижной.
     wall = results[1].batch
-    broken = _certificate(wall, {"a": (0.0, 0.0, 0.25), "e": WALL_SLOPE, "f": WALL_SLOPE}, (0, 2))
+    broken = _certificate(wall, {"a": (0.0, 0.0, 0.25), "e": WALL_SLOPE, "f": WALL_SLOPE}, (0, 2), alpha=0.25)
     results[1] = results[1].with_changes(parametric=broken)
     arrays = production_mesh.build_mesh_arrays(results, OFFSET)
     sample = preview.build_sample(results, arrays, ("fold",), 0.25)
@@ -391,7 +405,7 @@ def _pole_sample(alpha):
         ProductionDomainResultV1(
             0, "pole", MATERIALIZED, batch, normal=(0.0, 0.0, 1.0), source_normal=(0.0, 0.0, 1.0),
             alpha_interval=_interval(alpha, 0.5, 1.1), structure_digest="pole-structure",
-            parametric=_certificate(batch, {"c": (0.0, slope, 0.0), "d": (0.0, slope, 0.0)}, (0, 1)),
+            parametric=_certificate(batch, {"c": (0.0, slope, 0.0), "d": (0.0, slope, 0.0)}, (0, 1), alpha=alpha),
         )
     ]
     arrays = production_mesh.build_mesh_arrays(results, 0.0)

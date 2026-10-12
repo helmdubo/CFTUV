@@ -19,6 +19,7 @@
   идёт в карантин (`advance_ledger`), а точный результат в любом случае заменяет превью.
 
 ЧТО НЕ ОБСЛУЖИВАЕТСЯ И ПОЧЕМУ (домен остаётся на последней точной геометрии под ИМЕНЕМ; линии превью показывают контур, а пересчёт ведёт точный путь).
+  * сертификат выпущен на другой ширине, чем образец (`PARAM_CERTIFICATE_ALPHA_MISMATCH`: перенесённый результат несёт наклоны чужой точки);
   * названные ядром причины сертификата (`PARAM_*`): развёртка (смещение вдоль нормалей вершин не рационально), узел резки не аффинен, интервал не заверен, ... — имя берётся у сертификата;
   * у результата нет сертификата (`PARAM_NO_CERTIFICATE`: результат перенесён на другую ревизию либо шаг ширины выключен);
   * две петли одной сваренной вершины дали разные наклоны (`PARAM_WELD_SLOPE_DISAGREES`): сварка по равным позициям при alpha0 не держится на окне;
@@ -77,6 +78,7 @@ DOMAIN_NOT_MATERIALIZED = "PREVIEW_DOMAIN_NOT_MATERIALIZED"
 DOMAIN_NO_INTERVAL = "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED"
 DOMAIN_NO_CERTIFICATE = "PARAM_NO_CERTIFICATE"
 DOMAIN_SHAPE_MISMATCH = "PARAM_CERTIFICATE_SHAPE_MISMATCH"
+DOMAIN_ALPHA_MISMATCH = "PARAM_CERTIFICATE_ALPHA_MISMATCH"
 DOMAIN_WELD_DISAGREES = "PARAM_WELD_SLOPE_DISAGREES"
 DOMAIN_WELD_PARTNER = "PARAM_NON_AFFINE_WELD_NEIGHBOUR_NORMAL"
 #: Исход домена в кадре: ширина вышла за заверенный интервал домена (концы интервала — события ядра).
@@ -394,7 +396,7 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
         interval = getattr(result, "alpha_interval", None)
         count = int(arrays.domain_loop_counts[number])
         vertices = np.asarray(arrays.domain_vertex_index[number], dtype=np.int32)
-        slopes, uv_slopes, markers = _certificate_slopes(getattr(result, "parametric", None), int(vertices.shape[0]), count)
+        slopes, uv_slopes, markers = _certificate_slopes(getattr(result, "parametric", None), int(vertices.shape[0]), count, alpha_text)
         domains.append(
             DomainSampleV1(
                 patch_id=int(patch_id),
@@ -432,13 +434,15 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str) -> PreviewSampleV
     )
 
 
-def _certificate_slopes(certificate, vertices: int, loops: int) -> tuple:
-    """`(наклоны позиций, наклоны произведений uv * alpha, причины)` сертификата домена; чисел нет, когда сертификата нет, он назвал причину либо не сошёлся по размерам с видом домена."""
+def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str) -> tuple:
+    """`(наклоны позиций, наклоны произведений uv * alpha, причины)` сертификата домена; чисел нет, когда сертификата нет, он назвал причину, он выпущен на другой ширине, чем образец, либо не сошёлся по размерам с видом домена."""
 
     if certificate is None:
         return None, None, (DOMAIN_NO_CERTIFICATE,)
     if certificate.markers:
         return None, None, tuple(certificate.markers)
+    if certificate.alpha != Fraction(alpha_text):
+        return None, None, (DOMAIN_ALPHA_MISMATCH,)
     if certificate.vertex_count != vertices or certificate.loop_count != loops:
         return None, None, (DOMAIN_SHAPE_MISMATCH,)
     slopes = np.frombuffer(certificate.position_slopes, dtype=np.float64).reshape(-1, 3)
@@ -866,6 +870,7 @@ __all__ = (
     "DEVELOPABLE_MARKER",
     "DEVIATION_LIMIT_RATIO",
     "DOMAIN_ABANDONED",
+    "DOMAIN_ALPHA_MISMATCH",
     "DOMAIN_HELD_OUTSIDE",
     "DOMAIN_MODELLED",
     "DOMAIN_NOT_MATERIALIZED",

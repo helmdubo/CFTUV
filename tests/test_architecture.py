@@ -559,6 +559,7 @@ _SANCTIONED_CERTIFICATE_WORDS = frozenset(
         "PARAM_NO_CERTIFICATE",
         "DOMAIN_SHAPE_MISMATCH",
         "PARAM_CERTIFICATE_SHAPE_MISMATCH",
+        "PARAM_CERTIFICATE_ALPHA_MISMATCH",
         "_certificate_slopes",
         "certificate",
     }
