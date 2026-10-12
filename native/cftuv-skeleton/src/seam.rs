@@ -26,7 +26,7 @@ use crate::line::SupportLine;
 use crate::queue::{CandidateEvent, EventKind, EventQueue};
 use crate::repr::{py_repr, Repr};
 use crate::time::{compare_times, concurrency_time, event_point, sliding_point, sliding_time, times_are_equal, EventPoint, EventTime, TimeOutcome};
-use crate::view::{span_containment, time_key, CandidateView, IdKey, PlaceKey, PositionMemo, Sliding, SpanState, VertexRef, VertexState};
+use crate::view::{span_containment, CandidateView, IdKey, PlaceKey, PositionMemo, Sliding, SpanState, VertexRef, VertexState};
 use crate::wire::{
     bad, fixed, flag_of, i64_of, int, int_of, line_of, list, optional, point_of, point_value, rat_of, speed_value, str_of, str_value, sum_of, time_of, time_value,
     u32_of, u64_of, ubig_of, SeamError, Wire,
@@ -225,7 +225,7 @@ pub(crate) fn memo_of(value: &Value) -> Wire<PositionMemo> {
                     first: line_of(first)?.value(),
                     second: line_of(second)?.value(),
                     sliding: optional(sliding, |found| Ok(sum_of(found, "a memo sliding")?.canonical_form().clone()))?,
-                    time: time_key(&time_of(time)?),
+                    time: time_of(time)?.value_key(),
                 };
                 memo.insert_place(key, optional(place, point_of)?.map(Rc::new));
             }
@@ -348,7 +348,7 @@ pub(crate) fn time_entry_value(entry: (Option<EventTime>, TimeOutcome)) -> Value
 }
 
 fn queue_script(ctx: &mut ExactCtx<'_>, script: &Value) -> Wire<SkelResult<Value>> {
-    let zero = Rc::new(EventPoint { x: SqrtSum::zero(), y: SqrtSum::zero() });
+    let zero = Rc::new(EventPoint::new(SqrtSum::zero(), SqrtSum::zero()));
     let mut queue = EventQueue::new();
     let mut results = Vec::new();
     for op in list(script, "a queue script")? {

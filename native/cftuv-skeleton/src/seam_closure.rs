@@ -160,7 +160,7 @@ fn plan_of(value: &Value) -> Wire<ComponentPlan> {
     let first = events.first();
     Ok(ComponentPlan {
         event_kinds: Vec::new(),
-        point: first.map_or_else(|| Rc::new(crate::time::EventPoint { x: cftuv_core::sqrt_sum::SqrtSum::zero(), y: cftuv_core::sqrt_sum::SqrtSum::zero() }), |event| Rc::clone(&event.point)),
+        point: first.map_or_else(|| Rc::new(crate::time::EventPoint::new(cftuv_core::sqrt_sum::SqrtSum::zero(), cftuv_core::sqrt_sum::SqrtSum::zero())), |event| Rc::clone(&event.point)),
         time,
         point_keys: Vec::new(),
         resolution: Resolution::Split,
@@ -179,7 +179,7 @@ fn plan_of(value: &Value) -> Wire<ComponentPlan> {
                 Ok(crate::plans::EdgeContactPlan {
                     events: Vec::new(),
                     time: Rc::new(EventTime::zero()),
-                    point: Rc::new(crate::time::EventPoint { x: cftuv_core::sqrt_sum::SqrtSum::zero(), y: cftuv_core::sqrt_sum::SqrtSum::zero() }),
+                    point: Rc::new(crate::time::EventPoint::new(cftuv_core::sqrt_sum::SqrtSum::zero(), cftuv_core::sqrt_sum::SqrtSum::zero())),
                     point_key: Val::none(),
                     participants: keys_of(participants, "contact participants")?,
                     dead_vertex_ids: Vec::new(),
