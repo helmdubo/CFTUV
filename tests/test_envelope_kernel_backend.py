@@ -641,13 +641,15 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     import dataclasses
     import inspect
 
-    assert host_backend.stage_orders("PYTHON").as_arguments() == ("PYTHON",) * 4
-    assert host_backend.stage_orders("NATIVE").as_arguments() == ("NATIVE",) * 4
-    assert host_backend.stage_orders().as_arguments() == (host_backend.DEFAULT_KERNEL_BACKEND,) * 4
+    # the held stage (`STAGE_HOLDS`: W1 of the MATERIALIZE chain) is the one stage the master NATIVE does not order
+    assert host_backend.stage_orders("PYTHON").as_arguments() == ("PYTHON",) * 5
+    assert host_backend.stage_orders("NATIVE").as_arguments() == ("NATIVE",) * 4 + ("PYTHON",)
+    assert host_backend.stage_orders().as_arguments() == (host_backend.DEFAULT_KERNEL_BACKEND,) * 4 + ("PYTHON",)
     # постадийный порядок - только явным именем (API и инструменты)
-    assert host_backend.stage_orders("PYTHON", skeleton_backend="NATIVE").as_arguments() == ("PYTHON", "NATIVE", "PYTHON", "PYTHON")
-    assert host_backend.stage_orders("NATIVE", embedding_backend="PYTHON").as_arguments() == ("NATIVE", "NATIVE", "PYTHON", "NATIVE")
-    assert host_backend.stage_orders("NATIVE", effective_alpha_backend="PYTHON").as_arguments() == ("NATIVE", "NATIVE", "NATIVE", "PYTHON")
+    assert host_backend.stage_orders("PYTHON", skeleton_backend="NATIVE").as_arguments() == ("PYTHON", "NATIVE", "PYTHON", "PYTHON", "PYTHON")
+    assert host_backend.stage_orders("NATIVE", embedding_backend="PYTHON").as_arguments() == ("NATIVE", "NATIVE", "PYTHON", "NATIVE", "PYTHON")
+    assert host_backend.stage_orders("NATIVE", effective_alpha_backend="PYTHON").as_arguments() == ("NATIVE", "NATIVE", "NATIVE", "PYTHON", "PYTHON")
+    assert host_backend.stage_orders("NATIVE", materialize_backend="NATIVE").as_arguments() == ("NATIVE",) * 5
     with pytest.raises(ValueError, match="unknown kernel backend"):
         host_backend.stage_orders("NATIVE", skeleton_backend="RUST")
     # КАЖДАЯ стадия ядра принадлежит главному переключателю: новый аргумент `use_backend` без поля порядка, подписи и признака статуса красит этот тест
@@ -840,12 +842,13 @@ def test_a_choice_of_the_switch_beats_a_not_yet_folded_old_python_key():
 # --------------------------------------------------------------------------
 
 ALPHA_ENVIRONMENT = host_backend.STAGE_ENVIRONMENT["effective_alpha"]
+W1_ENVIRONMENT = host_backend.STAGE_ENVIRONMENT["materialize_w1"]
 
 
 def test_the_effective_alpha_stage_follows_the_master_switch_and_only_the_environment_isolates_it(monkeypatch):
     monkeypatch.delenv(ALPHA_ENVIRONMENT, raising=False)
-    assert ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND" and host_backend.STAGE_ENVIRONMENT == {"effective_alpha": ALPHA_ENVIRONMENT}
-    assert not hasattr(host_backend, "STAGE_HOLDS"), "EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1: no stage is held back from the master switch"
+    assert ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND" and host_backend.STAGE_ENVIRONMENT == {"effective_alpha": ALPHA_ENVIRONMENT, "materialize_w1": W1_ENVIRONMENT}
+    assert "effective_alpha" not in host_backend.STAGE_HOLDS, "EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1: this stage is not held back from the master switch"
     assert [host_backend.stage_orders(master).effective_alpha for master in ("PYTHON", "NATIVE")] == ["PYTHON", "NATIVE"]
     assert host_backend.stage_orders().effective_alpha == host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
     monkeypatch.setenv(ALPHA_ENVIRONMENT, "PYTHON")
@@ -904,3 +907,44 @@ def test_the_journal_names_the_effective_alpha_stage_as_ordered_python_when_it_i
     # the panel line is the owner's switch: the stage is part of what it promises, like the other four
     absent = kernel_backend.NativeStatusV1("available", "available", "0.1.0", "", BUILD_ID, "available", "available", "unavailable")
     assert host_backend.native_status_line("NATIVE", absent) == ("Native: coverage/clip, skeleton, embedding; Python: effective alpha", "ERROR")
+
+
+# --------------------------------------------------------------------------
+# 7. W1 of the MATERIALIZE chain: a held stage (`STAGE_HOLDS`): the master switch NATIVE does not order it, only the environment does
+# --------------------------------------------------------------------------
+
+
+def test_the_held_w1_stage_is_ordered_only_by_the_environment_and_never_lifted_over_the_master_python(monkeypatch):
+    monkeypatch.delenv(W1_ENVIRONMENT, raising=False)
+    assert W1_ENVIRONMENT == "CFTUV_MATERIALIZE_W1_BACKEND" and host_backend.STAGE_HOLDS == {"materialize_w1": "PYTHON"}
+    assert [host_backend.stage_orders(master).materialize_w1 for master in ("PYTHON", "NATIVE")] == ["PYTHON", "PYTHON"], "the master NATIVE does not order the held stage"
+    assert host_backend.stage_orders().materialize_w1 == "PYTHON"
+    monkeypatch.setenv(W1_ENVIRONMENT, "NATIVE")
+    assert host_backend.stage_orders("NATIVE").materialize_w1 == "NATIVE"
+    assert host_backend.stage_orders("NATIVE").skeleton == "NATIVE" and host_backend.stage_orders("NATIVE").coverage_clip == "NATIVE"
+    assert host_backend.stage_orders("PYTHON").materialize_w1 == "PYTHON", "the master PYTHON keeps the frozen reference on every stage; the environment never lifts it"
+    assert host_backend.stage_orders("NATIVE", materialize_backend="PYTHON").materialize_w1 == "PYTHON", "an explicit order of the stage (API, tools) wins"
+    monkeypatch.setenv(W1_ENVIRONMENT, " python ")
+    assert host_backend.stage_orders("NATIVE").materialize_w1 == "PYTHON"
+    monkeypatch.setenv(W1_ENVIRONMENT, "RUST")
+    with pytest.raises(ValueError, match="unknown kernel backend"):
+        host_backend.stage_orders("NATIVE")
+    monkeypatch.setenv(W1_ENVIRONMENT, "")
+    assert host_backend.stage_orders("NATIVE").materialize_w1 == "PYTHON", "an empty variable is no order: the hold governs"
+
+
+def test_the_held_w1_stage_enters_the_kernel_block_and_the_identity_only_when_ordered_and_is_silent_in_the_line_and_the_panel(monkeypatch):
+    monkeypatch.delenv(W1_ENVIRONMENT, raising=False)
+    held = host_backend.backend_identity_of("NATIVE")
+    assert "materialize_w1" not in held, "a held stage at its hold changes no key"
+    with host_backend.entered_backend("NATIVE") as ledger:
+        assert (ledger.requested, ledger.materialize_requested) == ("NATIVE", "PYTHON")
+        assert kernel_backend.active_materialize_backend() is kernel_backend.KernelBackendV1.PYTHON
+    monkeypatch.setenv(W1_ENVIRONMENT, "NATIVE")
+    ordered = host_backend.backend_identity_of("NATIVE")
+    assert ordered == f"{held}|materialize_w1={kernel_backend.stage_identity('NATIVE')}", "ordered, the stage names its executor in every key"
+    with host_backend.entered_backend("NATIVE") as ledger:
+        assert ledger.materialize_requested == "NATIVE" and kernel_backend.active_materialize_backend() is kernel_backend.KernelBackendV1.NATIVE
+    # the panel does not offer the held stage; the console line says nothing of it while it holds
+    status = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available")
+    assert "W1" not in host_backend.native_status_line("NATIVE", status)[0]

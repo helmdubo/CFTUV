@@ -14,6 +14,10 @@
 * СТАДИЯ ПО СРЕДЕ (`STAGE_ENVIRONMENT`). Лист контактов резолвера эффективной alpha (`effective_alpha`) идёт за главным переключателем, как остальные стадии (умолчание `NATIVE`, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1).
   Среда процесса — НЕ настройка продукта, а крюк A/B и тестов: `CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON` изолирует эту стадию (порядок `run_production` постадийный параметр стадии не несёт), а `NATIVE`
   подтверждает её. Переменная читается при каждом выводе порядков, задаётся ДО запуска процесса (воркеры пула берут её из среды родителя) и не поднимает стадию над главным переключателем `PYTHON`.
+* УДЕРЖАННЫЕ СТАДИИ (`STAGE_HOLDS`). Стадия, вышедшая в ядро позже остальных, ждёт решения владельца о смене умолчания: пока оно не принято, главный переключатель `NATIVE` её НЕ заказывает (её порядок —
+  `PYTHON`), а нативную заказывает среда процесса (`STAGE_ENVIRONMENT`: A/B дерева и корпус; переменная читается при каждом выводе порядков и обязана быть задана ДО запуска процесса, потому что воркеры пула
+  берут её из среды родителя). Главный переключатель `PYTHON` держит эталон на всех стадиях, удержанных тоже. Удержанная стадия на умолчании в строке журнала и в панели молчит. Снять удержание — убрать стадию
+  из `STAGE_HOLDS`: она пойдёт за главным переключателем, как остальные. Сейчас удержана `materialize_w1` (W1 материализации: точная сетка слитых граней).
 * ПОРЯДКИ СТАДИЙ. `stage_orders` — ЕДИНСТВЕННОЕ место, где из главного переключателя выводятся порядки стадий (`StageOrdersV1`). Постадийный выбор остаётся
   ТОЛЬКО в API и инструментах (`run_production(..., skeleton_backend=..., embedding_backend=...)`, A/B-инструменты): `None` значит «как главный переключатель»,
   явное имя — порядок этой стадии. Параметр стадии со значением по умолчанию, отличным от `None`, — дефект (тест
@@ -83,6 +87,7 @@ STAGES = (
     ("skeleton", "skeleton"),
     ("snap_embedding", "embedding"),
     ("effective_alpha", "effective alpha"),
+    ("materialize_w1", "materialize W1"),
 )
 #: Какой признак `NativeStatusV1` говорит, что стадия готова нативно.
 _STATUS_FLAGS = {
@@ -90,10 +95,14 @@ _STATUS_FLAGS = {
     "skeleton": "skeleton_available",
     "snap_embedding": "embedding_available",
     "effective_alpha": "effective_alpha_available",
+    "materialize_w1": "materialize_w1_available",
 }
+#: УДЕРЖАННЫЕ СТАДИИ: `{стадия: порядок, пока владелец не снял удержание}`. Главный переключатель `NATIVE` такую стадию не заказывает (её порядок — значение здесь), нативную заказывает среда (`STAGE_ENVIRONMENT`).
+#: `materialize_w1`: точная сетка слитых граней сверена с эталоном на корпусе и в поле; умолчание меняет владелец после полевой сверки.
+STAGE_HOLDS = {"materialize_w1": KERNEL_BACKEND_PYTHON}
 #: Переменная среды, которой A/B и тесты заказывают порядок ОДНОЙ стадии мимо главного переключателя (`PYTHON` | `NATIVE`; крюк инструментов, не настройка продукта): читается только без явного порядка
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
-STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND"}
+STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND"}
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
 
@@ -117,11 +126,12 @@ class StageOrdersV1:
     skeleton: str
     snap_embedding: str
     effective_alpha: str
+    materialize_w1: str
 
     def as_arguments(self) -> tuple:
-        """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend)` для `cftuv_envelope.backend.use_backend`."""
+        """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend)` для `cftuv_envelope.backend.use_backend`."""
 
-        return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha)
+        return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha, self.materialize_w1)
 
 
 def environment_order(stage: str, master: str) -> str:
@@ -133,11 +143,22 @@ def environment_order(stage: str, master: str) -> str:
     return normalize_kernel_backend(ordered) if ordered else master
 
 
-def stage_orders(kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None) -> StageOrdersV1:
+def held_order(stage: str, master: str) -> str:
+    """Порядок удержанной стадии без явного имени: `PYTHON` при главном переключателе `PYTHON`; иначе то, что заказала среда процесса, а без неё — удержание (`STAGE_HOLDS`)."""
+
+    if master == KERNEL_BACKEND_PYTHON:
+        return KERNEL_BACKEND_PYTHON
+    ordered = os.environ.get(STAGE_ENVIRONMENT[stage], "").strip()
+    return normalize_kernel_backend(ordered) if ordered else STAGE_HOLDS[stage]
+
+
+def stage_orders(
+    kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None
+) -> StageOrdersV1:
     """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
-    `kernel_backend` — главный переключатель (он же порядок покрытия и резки); `None` у `skeleton_backend`, `embedding_backend` и `effective_alpha_backend` — «как главный переключатель»
-    (стадия со средой — по `environment_order`), явное имя — постадийный порядок (API и инструменты: A/B одной стадии, корпус эталона). Продуктовый путь (кнопка, живая ширина, воркеры пула) постадийного порядка не задаёт.
+    `kernel_backend` — главный переключатель (он же порядок покрытия и резки); `None` у `skeleton_backend`, `embedding_backend`, `effective_alpha_backend` и `materialize_backend` — «как главный переключатель»
+    (стадия со средой — по `environment_order`, удержанная — по `held_order`), явное имя — постадийный порядок (API и инструменты: A/B одной стадии, корпус эталона). Продуктовый путь (кнопка, живая ширина, воркеры пула) постадийного порядка не задаёт.
     """
 
     master = normalize_kernel_backend(kernel_backend)
@@ -146,6 +167,7 @@ def stage_orders(kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, e
         master if skeleton_backend is None else normalize_kernel_backend(skeleton_backend),
         master if embedding_backend is None else normalize_kernel_backend(embedding_backend),
         environment_order("effective_alpha", master) if effective_alpha_backend is None else normalize_kernel_backend(effective_alpha_backend),
+        held_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
     )
 
 
@@ -212,19 +234,20 @@ def fold_legacy_skeleton_setting(mesh_settings):
     return legacy
 
 
-def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None) -> str:
-    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...` и `|effective_alpha=...` при нативных стадиях.
+def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None) -> str:
+    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...`, `|effective_alpha=...` и `|materialize_w1=...` при нативных стадиях.
 
     Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend)
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
         base = orders.coverage_clip if orders.skeleton == KERNEL_BACKEND_PYTHON else f"{orders.coverage_clip}|skeleton={orders.skeleton}"
         base = base if orders.snap_embedding == KERNEL_BACKEND_PYTHON else f"{base}|snap_embedding={orders.snap_embedding}"
-        return base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
+        base = base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
+        return base if orders.materialize_w1 == KERNEL_BACKEND_PYTHON else f"{base}|materialize_w1={orders.materialize_w1}"
     return backend_identity(*orders.as_arguments())
 
 
@@ -404,7 +427,9 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
     orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
     recorded = next((item.backend_record for item in results if getattr(item, "backend_record", None) is not None), None)
     if recorded is not None:
-        orders = StageOrdersV1(recorded.requested, recorded.skeleton_requested, recorded.embedding_requested, recorded.effective_alpha_requested)
+        orders = StageOrdersV1(
+            recorded.requested, recorded.skeleton_requested, recorded.embedding_requested, recorded.effective_alpha_requested, recorded.materialize_requested
+        )
     counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
     patches = {name: {} for name, _label in STAGES}
     cached = memo_hits = 0
@@ -420,6 +445,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             "skeleton": (record.skeleton_ran, record.skeleton_outcomes) if fresh else ("", ()),
             "snap_embedding": (record.embedding_ran, record.embedding_outcomes),
             "effective_alpha": (record.effective_alpha_ran, record.effective_alpha_outcomes),
+            "materialize_w1": (record.materialize_ran, record.materialize_outcomes),
         }
         for name, _label in STAGES:
             ran, outcomes = views[name]
@@ -459,7 +485,8 @@ def _tally_segments(summary: BackendSummaryV1, *, reasons: bool) -> list:
         segments.append(
             "python: " + ", ".join(f"{labels[item.stage]} {item.python}" + (_outcomes_text(item.outcomes) if reasons else "") for item in fallen)
         )
-    python_ordered = [labels[item.stage] for item in summary.stages if item.requested == KERNEL_BACKEND_PYTHON]
+    # удержанная стадия на удержании молчит: она не заказана ни нативно, ни «по эталону»
+    python_ordered = [labels[item.stage] for item in summary.stages if item.requested == KERNEL_BACKEND_PYTHON and STAGE_HOLDS.get(item.stage) != KERNEL_BACKEND_PYTHON]
     if python_ordered:
         segments.append("ordered python: " + ", ".join(python_ordered))
     return segments
@@ -504,8 +531,9 @@ def native_status_line(kernel_backend, status) -> tuple:
     `PYTHON`: `Python for all stages` и, что готово нативно.
     """
 
-    ready = [label for name, label in STAGES if getattr(status, _STATUS_FLAGS[name])]
-    missing = [label for name, label in STAGES if not getattr(status, _STATUS_FLAGS[name])]
+    shown = [(name, label) for name, label in STAGES if name not in STAGE_HOLDS]  # удержанная стадия панель не касается: владелец её не заказывает
+    ready = [label for name, label in shown if getattr(status, _STATUS_FLAGS[name])]
+    missing = [label for name, label in shown if not getattr(status, _STATUS_FLAGS[name])]
     if normalize_kernel_backend(kernel_backend) == KERNEL_BACKEND_PYTHON:
         return ("Python for all stages; native ready: " + (", ".join(ready) or "none")), "INFO"
     if not missing:
@@ -542,6 +570,7 @@ __all__ = (
     "SETTING_NAME",
     "STAGES",
     "STAGE_ENVIRONMENT",
+    "STAGE_HOLDS",
     "StageOrdersV1",
     "StageTallyV1",
     "backend_console_lines",
@@ -554,6 +583,7 @@ __all__ = (
     "entered_backend",
     "environment_order",
     "fold_legacy_skeleton_setting",
+    "held_order",
     "kernel_backend_of",
     "ledger_record",
     "legacy_skeleton_choice",
