@@ -1,6 +1,7 @@
 //! Replay of real `build_skeleton` calls, Python-free: `cargo run --release [--features profile] --example replay -p cftuv-skeleton -- <polygons.txt> [repeat] [--out digests.txt] [--only name,name] [--top N]`.
 //!
-//! The file holds one call per block: `polygon <name> <mesh> level_budget <n> cap <c> dense <0|1> patch <p>`, one `loop x,y;... | n/d;...` per loop (points, then the squared speed of every
+//! The file is written by `tools/native_skeleton_replay_export.py` from the records of a field corpus (a Blender-side dump of a button press has the same format). It holds one call
+//! per block: `polygon <name> <mesh> level_budget <n> cap <c> dense <0|1> patch <p>`, one `loop x,y;... | n/d;...` per loop (points, then the squared speed of every
 //! edge), one `fan x,y | nx,ny,n/d;...` per vertex fan, `end`. A call is made the way the PyO3 layer makes it for a cold preparation: a fresh session (empty canonicalization memory, empty product
 //! memo), a BOUNDED budget of the cap with six zero articles, the options of the block. Every call runs `repeat` times (the best time is kept) and answers a DIGEST of everything observable:
 //! the result (nodes with their canonical terms, counters, proof obligations), the sign counters, the six articles, the superlevel string, the memory log and a refusal. Two builds that
