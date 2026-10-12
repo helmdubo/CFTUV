@@ -221,9 +221,12 @@ pub fn compare_times(ctx: &mut ExactCtx<'_>, left: &EventTime, right: &EventTime
     })
 }
 
+/// `(left.id, right.id)` of the comparisons the filter decided: the sign and how it closed.
+type Compared = HashMap<(u64, u64), (i8, Closure), FxBuild>;
+
 thread_local! {
-    /// `(left.id, right.id)` of the comparisons the filter decided: the sign and how it closed. Emptied when a skeleton starts and when it ends ([`forget_compared`]).
-    static COMPARED: RefCell<HashMap<(u64, u64), (i8, Closure), FxBuild>> = RefCell::new(HashMap::default());
+    /// The comparisons the filter decided. Emptied when a skeleton starts and when it ends ([`forget_compared`]).
+    static COMPARED: RefCell<Compared> = RefCell::new(HashMap::default());
 }
 
 /// Empties the memory of compared pairs (the ids are never reused, so a stale entry is harmless, only memory).

@@ -326,7 +326,8 @@ mod sampler {
         print("SELF by line", &lines);
         // SAMPLER_FOCUS=a,b: for each fragment, what the samples whose stack holds it spend their time in, which callees it calls and who calls it
         for focus in std::env::var("SAMPLER_FOCUS").unwrap_or_default().split(',').filter(|text| !text.is_empty()) {
-            let (mut inside, mut callees, mut callers, mut count): (HashMap<String, u64>, HashMap<String, u64>, HashMap<String, u64>, u64) = Default::default();
+            let (mut inside, mut callees, mut callers): (HashMap<String, u64>, HashMap<String, u64>, HashMap<String, u64>) = Default::default();
+            let mut count = 0u64;
             for stack in samples.iter().filter(|stack| !stack.is_empty()) {
                 let names: Vec<String> = stack.iter().enumerate().map(|(depth, address)| resolve(if depth == 0 { *address } else { *address - 1 }, &mut cache).function.clone()).collect();
                 if let Some(position) = names.iter().position(|name| name.contains(focus)) {
