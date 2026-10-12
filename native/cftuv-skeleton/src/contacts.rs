@@ -647,7 +647,7 @@ pub fn edge_contact(contact: EdgeContact) -> JunctionContact {
     let key = contact.key.val.clone();
     JunctionContact {
         kind: ContactKind::Edge,
-        identity: Val::tuple(vec![Val::str("EDGE"), key.clone()]),
+        identity: Val::tuple_of([Val::str("EDGE"), key.clone()]),
         time_key: contact.key.time_key.clone(),
         point_key: contact.key.point_key.clone(),
         dead_refs: sorted_pair(&contact.key.start, &contact.key.end),
@@ -668,7 +668,7 @@ pub fn endpoint_contact(overlay: &Overlay, key: EndpointKey) -> JunctionContact 
     }
     JunctionContact {
         kind: ContactKind::Endpoint,
-        identity: Val::tuple(vec![Val::str("ENDPOINT"), key.val.clone()]),
+        identity: Val::tuple_of([Val::str("ENDPOINT"), key.val.clone()]),
         time_key: key.time_key.clone(),
         point_key: key.point_key.clone(),
         dead_refs: sorted_pair(&key.emitter, &key.endpoint),

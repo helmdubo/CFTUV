@@ -26,7 +26,7 @@ fn ray_val(ray: (i64, i64)) -> Val {
 }
 
 fn end_of(occurrence: &Val, ray: (i64, i64)) -> Val {
-    Val::tuple(vec![occurrence.get(0).cloned().unwrap_or_else(Val::none), ray_val(ray)])
+    Val::tuple_of([occurrence.get(0).cloned().unwrap_or_else(Val::none), ray_val(ray)])
 }
 
 fn unique(ends: Vec<Val>) -> Vec<Val> {

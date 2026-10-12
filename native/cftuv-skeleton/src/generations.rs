@@ -201,11 +201,11 @@ fn multi_delta(builder: &Builder, overlay: &Overlay, component: &[JunctionContac
     let keys = Val::tuple(identities.clone());
     let mut rewires: Vec<Rewire> = pairs
         .iter()
-        .map(|(first, second)| (arm_port(first), arm_port(second), JRef::new("JUNCTION", Val::tuple(vec![keys.clone(), first.1.val().clone(), second.1.val().clone()]))))
+        .map(|(first, second)| (arm_port(first), arm_port(second), JRef::new("JUNCTION", Val::tuple_of([keys.clone(), first.1.val().clone(), second.1.val().clone()]))))
         .collect();
     let text = |item: &Rewire| {
-        let port = |found: &(Option<JRef>, Leaf)| Val::tuple(vec![found.0.as_ref().map_or_else(Val::none, |reference| reference.val().clone()), found.1.val().clone()]);
-        Val::tuple(vec![port(&item.0), port(&item.1), item.2.val().clone()]).repr()
+        let port = |found: &(Option<JRef>, Leaf)| Val::tuple_of([found.0.as_ref().map_or_else(Val::none, |reference| reference.val().clone()), found.1.val().clone()]);
+        Val::tuple_of([port(&item.0), port(&item.1), item.2.val().clone()]).repr()
     };
     rewires.sort_by_cached_key(|item| text(item).to_string());
     let leaf_values: Vec<Val> = dead.iter().filter_map(|reference| overlay.vertices.get(reference)).flat_map(|vertex| [vertex.prev_leaf.val().clone(), vertex.next_leaf.val().clone()]).collect();
@@ -328,7 +328,7 @@ fn expand_target_leaves(ctx: &mut ExactCtx<'_>, overlay: &Overlay, contacts: &[S
         keys.extend(ordered.iter().map(|item| item.key.val.clone()));
         keys.push(leaf.end());
         let children: Vec<Leaf> = (0..=ordered.len())
-            .map(|index| Leaf::new(leaf.family(), keys[index].clone(), keys[index + 1].clone(), Val::tuple(vec![part(0), boundaries[index].clone(), boundaries[index + 1].clone()])))
+            .map(|index| Leaf::new(leaf.family(), keys[index].clone(), keys[index + 1].clone(), Val::tuple_of([part(0), boundaries[index].clone(), boundaries[index + 1].clone()])))
             .collect();
         let distinct_children: HashSet<&Leaf> = children.iter().collect();
         if distinct_children.len() != children.len() {
@@ -371,8 +371,8 @@ fn interior_deltas(overlay: &Overlay, contacts: &[SymSplitContact], children: &H
             return Ok(Err("SYMBOLIC_INTERIOR_SPLIT_EMITTER_STALE"));
         };
         let (before, after) = children.get(&contact.key.val).ok_or_else(|| SkelError::Unsupported("KeyError in the oracle: a contact without its pieces".to_string()))?;
-        let first = JRef::new("INTERIOR_SPLIT", Val::tuple(vec![contact.key.val.clone(), Val::str("EMITTER_TO_TARGET"), emitter.prev_leaf.val().clone(), after.val().clone()]));
-        let second = JRef::new("INTERIOR_SPLIT", Val::tuple(vec![contact.key.val.clone(), Val::str("TARGET_TO_EMITTER"), before.val().clone(), emitter.next_leaf.val().clone()]));
+        let first = JRef::new("INTERIOR_SPLIT", Val::tuple_of([contact.key.val.clone(), Val::str("EMITTER_TO_TARGET"), emitter.prev_leaf.val().clone(), after.val().clone()]));
+        let second = JRef::new("INTERIOR_SPLIT", Val::tuple_of([contact.key.val.clone(), Val::str("TARGET_TO_EMITTER"), before.val().clone(), emitter.next_leaf.val().clone()]));
         let leaf_values = vec![emitter.prev_leaf.val().clone(), emitter.next_leaf.val().clone(), before.val().clone(), after.val().clone()];
         deltas.push(Delta {
             contact_keys: vec![contact.key.val.clone()],

@@ -14,26 +14,37 @@ pub fn isqrt(n: &UBig) -> UBig {
     n.sqrt()
 }
 
-/// `math.gcd` of two non-negative integers.
+/// The value of a magnitude of at most two words (`[]` is zero).
+fn double_word(words: &[u64]) -> Option<u128> {
+    match *words {
+        [] => Some(0),
+        [low] => Some(u128::from(low)),
+        [low, high] => Some(u128::from(low) | (u128::from(high) << 64)),
+        _ => None,
+    }
+}
+
+/// `math.gcd` of two non-negative integers. Two numbers of at most 128 bits (the common case: the library takes their gcd by Euclid on `u128`, a hardware division of
+/// 128 bits per step) are taken by the binary algorithm of `wide`.
 pub fn gcd(a: &UBig, b: &UBig) -> UBig {
-    if a.is_zero() && b.is_zero() {
-        return UBig::ZERO;
+    if let (Some(x), Some(y)) = (double_word(a.as_words()), double_word(b.as_words())) {
+        return UBig::from(crate::wide::gcd_u128(x, y));
     }
     a.gcd(b)
 }
 
 /// `math.gcd` of two signed integers (the result is non-negative).
 pub fn gcd_signed(a: &IBig, b: &IBig) -> UBig {
-    if a.is_zero() && b.is_zero() {
-        return UBig::ZERO;
+    if let (Some(x), Some(y)) = (double_word(a.as_sign_words().1), double_word(b.as_sign_words().1)) {
+        return UBig::from(crate::wide::gcd_u128(x, y));
     }
     a.gcd(b)
 }
 
 /// `math.gcd(a, b)` for a signed `a` and a non-negative `b`.
 pub fn gcd_mixed(a: &IBig, b: &UBig) -> UBig {
-    if a.is_zero() && b.is_zero() {
-        return UBig::ZERO;
+    if let (Some(x), Some(y)) = (double_word(a.as_sign_words().1), double_word(b.as_words())) {
+        return UBig::from(crate::wide::gcd_u128(x, y));
     }
     a.gcd(b)
 }
@@ -135,6 +146,38 @@ mod tests {
         let square = &huge * &huge;
         assert_eq!(isqrt(&square), huge);
         assert_eq!(isqrt(&(&square - UBig::ONE)), &huge - UBig::ONE);
+    }
+
+    #[test]
+    fn the_binary_road_of_two_double_words_is_the_libraries_gcd() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for round in 0..4000u32 {
+            // magnitudes of 0 to 3 words, with shared factors so the gcd is not always one
+            let words = |count: u32, next: &mut dyn FnMut() -> u64| -> UBig {
+                let mut value = UBig::ZERO;
+                for _ in 0..count {
+                    value = (value << 64) | UBig::from(next());
+                }
+                value
+            };
+            let (left_words, right_words, share_words) = (round % 4, (round / 4) % 4, (round / 16) % 2);
+            let shared = words(share_words, &mut next) | UBig::ONE;
+            let left = words(left_words, &mut next) * &shared;
+            let right = words(right_words, &mut next) * &shared;
+            let signed_left = if round % 2 == 0 { IBig::from(left.clone()) } else { -IBig::from(left.clone()) };
+            let expected = if left.is_zero() && right.is_zero() { UBig::ZERO } else { left.clone().gcd(&right) };
+            assert_eq!(gcd(&left, &right), expected, "{left} {right}");
+            assert_eq!(gcd_mixed(&signed_left, &right), expected, "{signed_left} {right}");
+            assert_eq!(gcd_signed(&signed_left, &IBig::from(right.clone())), expected);
+        }
+        assert_eq!(gcd(&UBig::ZERO, &UBig::ZERO), UBig::ZERO);
+        assert_eq!(gcd(&UBig::ZERO, &UBig::from(7u8)), UBig::from(7u8));
     }
 
     #[test]

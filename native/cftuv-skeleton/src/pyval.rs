@@ -16,7 +16,7 @@
 //! A value is built once and shared (`Rc`); the tree is never mutated.
 
 use std::borrow::Cow;
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell, RefCell};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -27,7 +27,7 @@ use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
 use crate::error::{SkelError, SkelResult};
-use crate::repr::{repr_frac, repr_str};
+use crate::repr::{push_ibig, repr_frac, repr_str};
 
 /// A class or a field name: static in the code of the port, owned when it came over the wire.
 pub type Name = Cow<'static, str>;
@@ -38,7 +38,103 @@ pub struct Val(Rc<Node>);
 struct Node {
     hash: u64,
     text: OnceCell<Rc<str>>,
+    /// How many times a text that was being written reached this value without its own text: the first time it is written through (no text is made for it), the
+    /// second makes and keeps its own (see [`write_child`]).
+    visits: Cell<u8>,
     kind: Kind,
+}
+
+thread_local! {
+    /// The buffer a root text is written in (taken for the write and put back, so a text made inside a text brings its own).
+    static SCRATCH: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// The items of a tuple or a list. Up to four are kept in the node itself (a tuple of a key is almost always a pair, a triple or a quadruple): one allocation for the value,
+/// not two.
+enum Items {
+    Zero,
+    One(Val),
+    Two([Val; 2]),
+    Three([Val; 3]),
+    Four([Val; 4]),
+    Many(Vec<Val>),
+}
+
+impl Items {
+    fn from_array<const N: usize>(items: [Val; N]) -> Items {
+        if N > 4 {
+            return Items::Many(Vec::from(items));
+        }
+        let mut each = items.into_iter();
+        let mut next = || each.next().expect("as many items as the array has");
+        match N {
+            0 => Items::Zero,
+            1 => Items::One(next()),
+            2 => Items::Two([next(), next()]),
+            3 => Items::Three([next(), next(), next()]),
+            _ => Items::Four([next(), next(), next(), next()]),
+        }
+    }
+
+    fn from_vec(items: Vec<Val>) -> Items {
+        let count = items.len();
+        if !(1..=4).contains(&count) {
+            return if count == 0 { Items::Zero } else { Items::Many(items) };
+        }
+        let mut each = items.into_iter();
+        let mut next = || each.next().expect("as many items as the length said");
+        match count {
+            1 => Items::One(next()),
+            2 => Items::Two([next(), next()]),
+            3 => Items::Three([next(), next(), next()]),
+            _ => Items::Four([next(), next(), next(), next()]),
+        }
+    }
+}
+
+impl std::ops::Deref for Items {
+    type Target = [Val];
+
+    fn deref(&self) -> &[Val] {
+        match self {
+            Items::Zero => &[],
+            Items::One(only) => std::slice::from_ref(only),
+            Items::Two(pair) => pair,
+            Items::Three(triple) => triple,
+            Items::Four(quadruple) => quadruple,
+            Items::Many(many) => many,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a Items {
+    type Item = &'a Val;
+    type IntoIter = std::slice::Iter<'a, Val>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// The values every key holds again and again (`None`, `True`, `False`, the ints a key is made of when it is small), one node each per thread: a value is immutable and a
+/// node that two keys share is a node that is formatted, hashed and compared once.
+struct Common {
+    none: Val,
+    yes: Val,
+    no: Val,
+    ints: Vec<Val>,
+}
+
+/// The smallest and the largest int that is shared.
+const COMMON_INTS: std::ops::RangeInclusive<i64> = -1..=255;
+
+thread_local! {
+    static COMMON: Common = Common {
+        none: Val::new(Kind::None),
+        yes: Val::new(Kind::Bool(true)),
+        no: Val::new(Kind::Bool(false)),
+        ints: COMMON_INTS.map(|number| Val::new(Kind::Int(IBig::from(number)))).collect(),
+    };
 }
 
 enum Kind {
@@ -47,8 +143,8 @@ enum Kind {
     Int(IBig),
     Str(Rc<str>),
     Frac(Rat),
-    Tuple(Vec<Val>),
-    List(Vec<Val>),
+    Tuple(Items),
+    List(Items),
     /// A dataclass instance: the class name and the fields in declaration order (fields with `repr=False` are left out by the builder of the value,
     /// as they are by `compare=False` ones).
     Data(Name, Vec<(Name, Val)>),
@@ -135,24 +231,46 @@ fn type_name(kind: &Kind) -> &'static str {
 
 impl Val {
     fn new(kind: Kind) -> Val {
+        crate::profile::count(crate::profile::Stat::ValNew, 1);
+        #[cfg(feature = "profile")]
+        crate::profile::count(
+            match &kind {
+                Kind::None => crate::profile::Stat::ValNone,
+                Kind::Bool(_) => crate::profile::Stat::ValBool,
+                Kind::Int(number) if IBig::from(-1) <= *number && *number < IBig::from(256) => crate::profile::Stat::ValSmallInt,
+                Kind::Int(_) => crate::profile::Stat::ValBigInt,
+                Kind::Str(_) => crate::profile::Stat::ValStr,
+                Kind::Frac(_) => crate::profile::Stat::ValFrac,
+                Kind::Tuple(_) => crate::profile::Stat::ValTuple,
+                Kind::Data(_, _) => crate::profile::Stat::ValData,
+                _ => crate::profile::Stat::ValOther,
+            },
+            1,
+        );
         let hash = kind_hash(&kind);
-        Val(Rc::new(Node { hash, text: OnceCell::new(), kind }))
+        Val(Rc::new(Node { hash, text: OnceCell::new(), visits: Cell::new(0), kind }))
     }
 
     pub fn none() -> Val {
-        Val::new(Kind::None)
+        COMMON.with(|common| common.none.clone())
     }
 
     pub fn boolean(flag: bool) -> Val {
-        Val::new(Kind::Bool(flag))
+        COMMON.with(|common| if flag { common.yes.clone() } else { common.no.clone() })
     }
 
     pub fn int(number: i64) -> Val {
+        if COMMON_INTS.contains(&number) {
+            return COMMON.with(|common| common.ints[(number + 1) as usize].clone());
+        }
         Val::new(Kind::Int(IBig::from(number)))
     }
 
     pub fn big(number: IBig) -> Val {
-        Val::new(Kind::Int(number))
+        match i64::try_from(&number) {
+            Ok(small) => Val::int(small),
+            Err(_) => Val::new(Kind::Int(number)),
+        }
     }
 
     /// A string; the repr of a character outside ASCII depends on the Unicode database, and the kernel's texts are ASCII.
@@ -166,11 +284,16 @@ impl Val {
     }
 
     pub fn tuple(items: Vec<Val>) -> Val {
-        Val::new(Kind::Tuple(items))
+        Val::new(Kind::Tuple(Items::from_vec(items)))
+    }
+
+    /// A tuple of the items of an array: up to four are kept in the node, no vector is made.
+    pub fn tuple_of<const N: usize>(items: [Val; N]) -> Val {
+        Val::new(Kind::Tuple(Items::from_array(items)))
     }
 
     pub fn list(items: Vec<Val>) -> Val {
-        Val::new(Kind::List(items))
+        Val::new(Kind::List(Items::from_vec(items)))
     }
 
     pub fn data(name: impl Into<Name>, fields: Vec<(&'static str, Val)>) -> Val {
@@ -222,10 +345,11 @@ impl Val {
 
     /// `((radicand, coefficient), ...)`: the `terms` of a sum as the oracle's keys hold them (a coefficient is a `Fraction`, an `int` where the sum kept one).
     pub fn terms_of(sum: &SqrtSum) -> Val {
+        crate::profile::count(crate::profile::Stat::TermsOf, 1);
         Val::tuple(
             sum.terms()
                 .iter()
-                .map(|term| Val::tuple(vec![Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }]))
+                .map(|term| Val::tuple_of([Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }]))
                 .collect(),
         )
     }
@@ -270,6 +394,7 @@ impl Val {
     pub fn items(&self) -> Option<&[Val]> {
         match &self.0.kind {
             Kind::Tuple(items) | Kind::List(items) => Some(items),
+
             _ => None,
         }
     }
@@ -323,14 +448,33 @@ impl Val {
     /// `repr(value)`, byte for byte, computed once per value.
     pub fn repr(&self) -> Rc<str> {
         Rc::clone(self.0.text.get_or_init(|| {
-            let mut out = String::new();
+            let mut out = SCRATCH.with(RefCell::take);
+            out.clear();
             write_repr(&self.0.kind, &mut out);
-            Rc::from(out)
+            crate::profile::count(crate::profile::Stat::ReprBuilds, 1);
+            crate::profile::count_seen(crate::profile::Stat::ReprRoots, crate::profile::Stat::ReprRootsRepeated, || self.0.hash);
+            crate::profile::count(crate::profile::Stat::ReprBytes, out.len() as u64);
+            let text: Rc<str> = Rc::from(out.as_str());
+            SCRATCH.with(|slot| *slot.borrow_mut() = out);
+            text
         }))
     }
 
     pub fn same(&self, other: &Val) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// The text of a part of a text being written: the part's own text when it has one, else written through into `out` (no allocation, no copy of a copy). A part that is
+/// reached a second time without a text makes its own, so a value that many texts hold is formatted twice at most.
+fn write_child(out: &mut String, item: &Val) {
+    if let Some(text) = item.0.text.get() {
+        out.push_str(text);
+    } else if item.0.visits.get() == 0 {
+        item.0.visits.set(1);
+        write_repr(&item.0.kind, out);
+    } else {
+        out.push_str(&item.repr());
     }
 }
 
@@ -340,7 +484,7 @@ fn write_items(out: &mut String, open: char, close: char, items: &[Val], one_tup
         if index > 0 {
             out.push_str(", ");
         }
-        out.push_str(&item.repr());
+        write_child(out, item);
     }
     if one_tuple && items.len() == 1 {
         out.push(',');
@@ -352,7 +496,7 @@ fn write_repr(kind: &Kind, out: &mut String) {
     match kind {
         Kind::None => out.push_str("None"),
         Kind::Bool(flag) => out.push_str(if *flag { "True" } else { "False" }),
-        Kind::Int(number) => out.push_str(&number.to_string()),
+        Kind::Int(number) => push_ibig(out, number),
         Kind::Str(text) => {
             // ASCII by construction (`Val::str`); the call cannot refuse.
             let _ = repr_str(text, out);
@@ -369,7 +513,7 @@ fn write_repr(kind: &Kind, out: &mut String) {
                 }
                 out.push_str(field);
                 out.push('=');
-                out.push_str(&item.repr());
+                write_child(out, item);
             }
             out.push(')');
         }
@@ -379,7 +523,7 @@ fn write_repr(kind: &Kind, out: &mut String) {
             out.push('.');
             out.push_str(member);
             out.push_str(": ");
-            out.push_str(&value.repr());
+            write_child(out, value);
             out.push('>');
         }
         Kind::Set(items, frozen) => match (items.is_empty(), frozen) {
@@ -401,9 +545,9 @@ fn write_repr(kind: &Kind, out: &mut String) {
                 if index > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&key.repr());
+                write_child(out, key);
                 out.push_str(": ");
-                out.push_str(&item.repr());
+                write_child(out, item);
             }
             out.push('}');
         }
@@ -492,13 +636,13 @@ fn py_compare(left: &Val, right: &Val) -> Result<Ordering, UnorderedPair> {
 /// `(0, (keys of its items))`, anything else `(0, value)`, so a `None` sorts AFTER any value of the same slot and the order of keys without a `None` is the plain one.
 pub fn identity_order_val(value: &Val) -> Val {
     if value.is_none() {
-        return Val::tuple(vec![Val::int(1)]);
+        return Val::tuple_of([Val::int(1)]);
     }
     if value.is_tuple() {
         let items: Vec<Val> = value.items().unwrap_or(&[]).iter().map(identity_order_val).collect();
-        return Val::tuple(vec![Val::int(0), Val::tuple(items)]);
+        return Val::tuple_of([Val::int(0), Val::tuple(items)]);
     }
-    Val::tuple(vec![Val::int(0), value.clone()])
+    Val::tuple_of([Val::int(0), value.clone()])
 }
 
 /// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is

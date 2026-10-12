@@ -259,7 +259,7 @@ mod tests {
 
     fn node(kind: EventKind, participants: &[&[i64]], kinds: &[EventKind], incidences: &[&[&[i64]]], x: i64) -> SkeletonNode {
         let time = Rc::new(EventTime::new(Rat::from_i64(1), SqrtSum::rational(&Rat::from_i64(1))));
-        let point = Rc::new(crate::time::EventPoint { x: SqrtSum::rational(&Rat::from_i64(x)), y: SqrtSum::rational(&Rat::from_i64(0)) });
+        let point = Rc::new(crate::time::EventPoint::new(SqrtSum::rational(&Rat::from_i64(x)), SqrtSum::rational(&Rat::from_i64(0))));
         SkeletonNode {
             kind,
             time,

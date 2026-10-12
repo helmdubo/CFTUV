@@ -285,7 +285,7 @@ pub fn refreshed_span_bindings(overlay: &Overlay) -> (Option<OrderedMap<Leaf, Bi
 // --------------------------------------------------------------------------
 
 fn line_occurrence(builder: &Builder, edge: i64) -> SkelResult<Val> {
-    Ok(Val::tuple(vec![Val::ints(builder.edge_at(edge)?.span.as_slice()), Val::none(), Val::none()]))
+    Ok(Val::tuple_of([Val::ints(builder.edge_at(edge)?.span.as_slice()), Val::none(), Val::none()]))
 }
 
 /// `with_line_ports(builder, snapshot, time)`: the vertices of the frozen front with a line-only occurrence where a live vertex has none (an end stays `None`; its exact place
@@ -529,7 +529,7 @@ fn consumed_by_locus(vertex: &VertexSnapshot) -> bool {
 pub fn existing_ref(vertex: &VertexSnapshot) -> JRef {
     if consumed_by_locus(vertex) {
         let part = |value: &Option<Val>| value.clone().unwrap_or_else(Val::none);
-        return JRef::new("EXISTING", Val::tuple(vec![Val::str("CONSUMED_BY_LOCUS"), part(&vertex.point_key), part(&vertex.prev_occurrence), part(&vertex.next_occurrence)]));
+        return JRef::new("EXISTING", Val::tuple_of([Val::str("CONSUMED_BY_LOCUS"), part(&vertex.point_key), part(&vertex.prev_occurrence), part(&vertex.next_occurrence)]));
     }
     JRef::new("EXISTING", port_identity(vertex))
 }
@@ -639,10 +639,10 @@ fn birth_ref(birth: &crate::plans::BoundaryBirth, materialization: &Materializat
     let prev_family = leaf_of(leaves, &birth.prev_occurrence)?.family();
     let next_family = leaf_of(leaves, &birth.next_occurrence)?.family();
     let key = match split_birth {
-        Some(found) => Val::tuple(vec![Val::str("SPLIT"), found.field("contact").cloned().unwrap_or_else(Val::none), prev_family, next_family]),
+        Some(found) => Val::tuple_of([Val::str("SPLIT"), found.field("contact").cloned().unwrap_or_else(Val::none), prev_family, next_family]),
         None => {
             let contact = materialization.plans.iter().flat_map(|plan| plan.edge_contacts.iter()).find(|contact| contact.births.iter().any(|candidate| candidate.key == birth.key));
-            Val::tuple(vec![
+            Val::tuple_of([
                 Val::str("CONTACT"),
                 birth.point_key.clone(),
                 prev_family,

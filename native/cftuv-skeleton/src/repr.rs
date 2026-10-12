@@ -9,7 +9,7 @@
 //! A string with a character outside ASCII is a named [`ReprError`]: whether CPython prints such a character or escapes it depends on the Unicode
 //! database (`str.isprintable`), which this port does not carry, and the kernel's texts are ASCII.
 
-use cftuv_core::num::IBig;
+use cftuv_core::num::{IBig, UBig};
 use cftuv_core::rat::{Coef, Rat};
 use cftuv_core::sqrt_sum::SqrtSum;
 
@@ -88,14 +88,68 @@ pub fn repr_str(text: &str, out: &mut String) -> Result<(), ReprError> {
     Ok(())
 }
 
+/// The decimal digits of a `u128`, appended: no allocation, and no 128-bit division for a value that fits 64 bits (the common case of the kernel's keys).
+pub fn push_u128(out: &mut String, value: u128) {
+    const E19: u128 = 10_000_000_000_000_000_000;
+    let mut buffer = [0u8; 40];
+    let mut at = buffer.len();
+    let mut rest = value;
+    while rest >= E19 {
+        let (quotient, mut chunk) = (rest / E19, (rest % E19) as u64);
+        for _ in 0..19 {
+            at -= 1;
+            buffer[at] = b'0' + (chunk % 10) as u8;
+            chunk /= 10;
+        }
+        rest = quotient;
+    }
+    let mut small = rest as u64;
+    loop {
+        at -= 1;
+        buffer[at] = b'0' + (small % 10) as u8;
+        small /= 10;
+        if small == 0 {
+            break;
+        }
+    }
+    out.push_str(std::str::from_utf8(&buffer[at..]).expect("ASCII digits"));
+}
+
+/// `str(int)` of a signed big integer, appended: the machine road for a value of 127 bits or less, the library's for the rest.
+pub fn push_ibig(out: &mut String, number: &IBig) {
+    if let Ok(value) = i128::try_from(number) {
+        if value < 0 {
+            out.push('-');
+        }
+        push_u128(out, value.unsigned_abs());
+    } else {
+        use std::fmt::Write;
+        let _ = write!(out, "{number}");
+    }
+}
+
+/// `str(int)` of an unsigned big integer, appended (as [`push_ibig`]).
+pub fn push_ubig(out: &mut String, number: &UBig) {
+    if let Ok(value) = u128::try_from(number) {
+        push_u128(out, value);
+    } else {
+        use std::fmt::Write;
+        let _ = write!(out, "{number}");
+    }
+}
+
 /// `repr(Fraction(n, d))`.
 pub fn repr_frac(value: &Rat, out: &mut String) {
-    out.push_str(&format!("Fraction({}, {})", value.numerator(), value.denominator()));
+    out.push_str("Fraction(");
+    push_ibig(out, value.numerator());
+    out.push_str(", ");
+    push_ubig(out, value.denominator());
+    out.push(')');
 }
 
 fn repr_coef(coef: &Coef, out: &mut String) {
     if coef.is_py_int() {
-        out.push_str(&coef.value().numerator().to_string());
+        push_ibig(out, coef.value().numerator());
     } else {
         repr_frac(coef.value(), out);
     }
@@ -110,7 +164,7 @@ pub fn repr_sum(value: &SqrtSum, out: &mut String) {
             out.push_str(", ");
         }
         out.push('(');
-        out.push_str(&term.radicand.to_string());
+        push_ubig(out, &term.radicand);
         out.push_str(", ");
         repr_coef(&term.coef, out);
         out.push(')');
@@ -141,7 +195,7 @@ fn write<'a>(out: &mut String, value: &Repr<'a>) -> Result<(), ReprError> {
     match value {
         Repr::None => out.push_str("None"),
         Repr::Bool(flag) => out.push_str(if *flag { "True" } else { "False" }),
-        Repr::Int(number) => out.push_str(&number.to_string()),
+        Repr::Int(number) => push_ibig(out, number),
         Repr::Str(text) => repr_str(text, out)?,
         Repr::Frac(number) => repr_frac(number, out),
         Repr::Tuple(items) => write_items(out, '(', ')', items, true)?,
@@ -190,6 +244,37 @@ mod tests {
         assert_eq!(text(&Repr::Tuple(vec![Repr::Int(IBig::from(1))])), "(1,)");
         assert_eq!(text(&Repr::Tuple(vec![Repr::Int(IBig::from(1)), Repr::None])), "(1, None)");
         assert_eq!(text(&Repr::List(vec![Repr::Int(IBig::from(1))])), "[1]");
+    }
+
+    #[test]
+    fn the_machine_digit_writer_prints_what_the_library_prints() {
+        let mut values: Vec<IBig> = Vec::new();
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        for bits in [0u32, 1, 3, 7, 31, 32, 33, 62, 63, 64, 65, 100, 126, 127, 128, 129, 200] {
+            for _ in 0..40 {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let high = state;
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let mut magnitude = (UBig::from(high) << 64) | UBig::from(state);
+                magnitude >>= 128usize.saturating_sub(bits as usize);
+                values.push(IBig::from(magnitude.clone()));
+                values.push(-IBig::from(magnitude));
+            }
+        }
+        for edge in ["10000000000000000000", "9999999999999999999", "18446744073709551615", "18446744073709551616", "170141183460469231731687303715884105727", "170141183460469231731687303715884105728", "340282366920938463463374607431768211455", "340282366920938463463374607431768211456", "-170141183460469231731687303715884105728", "-170141183460469231731687303715884105729"] {
+            values.push(edge.parse().unwrap());
+        }
+        values.push(IBig::ZERO);
+        for value in &values {
+            let mut signed = String::new();
+            push_ibig(&mut signed, value);
+            assert_eq!(signed, value.to_string());
+            if let Ok(unsigned) = UBig::try_from(value.clone()) {
+                let mut text = String::new();
+                push_ubig(&mut text, &unsigned);
+                assert_eq!(text, unsigned.to_string());
+            }
+        }
     }
 
     #[test]

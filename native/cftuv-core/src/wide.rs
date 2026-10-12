@@ -96,7 +96,7 @@ pub fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
 }
 
 /// `gcd` of two `u128` (binary).
-fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
+pub fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
     if a == 0 {
         return b;
     }

@@ -9,6 +9,7 @@
 //! cost-bearing operations. `level_limit` is the oracle's LIVE `level_budget(polygon)` and `BuilderOptions::march_steps` the live `march_budget` (see `builder`).
 
 use cftuv_core::exact::ExactCtx;
+use cftuv_core::sqrt_sum::LazyReduction;
 
 use crate::builder::{Builder, BuilderOptions, RunEnd, Step, Transaction};
 use crate::commit::{materialize_symbolic_runtime_commit, plan_symbolic_runtime_commit};
@@ -18,6 +19,7 @@ use crate::polygon::Polygon;
 use crate::queue::CandidateEvent;
 use crate::skeleton::Skeleton;
 use crate::superlevel::{record_symbolic_unresolvable, transaction_prefix, Prefix};
+use crate::time::forget_compared;
 
 /// `apply_superlevel_transaction(builder, level)`: plan and validate everything on the frozen prestate, then commit the deltas at once.
 #[derive(Debug, Default, Clone, Copy)]
@@ -44,6 +46,17 @@ impl Transaction for SuperlevelTransaction {
 
 /// `build_skeleton(polygon, split_search=MOTORCYCLE, work_budget=..., dense_hydration=...)`: the skeleton of the polygon as a sequence of events in order of time.
 pub fn build_skeleton(ctx: &mut ExactCtx<'_>, polygon: Polygon, options: BuilderOptions, level_limit: i64) -> SkelResult<Skeleton> {
+    /// The memory of compared pairs of times lives for one skeleton: emptied before it starts and, whatever way it ends, after.
+    struct Forget;
+    impl Drop for Forget {
+        fn drop(&mut self) {
+            forget_compared();
+        }
+    }
+    forget_compared();
+    let _forget = Forget;
+    // the values of a skeleton are signed and multiplied on, rarely asked for their identity: they are kept as they are made, not taken to lowest terms (see `LazyReduction`)
+    let _lazy = LazyReduction::begin();
     let mut builder = Builder::new(ctx, polygon, options)?;
     match builder.run(ctx, level_limit, &mut SuperlevelTransaction)? {
         RunEnd::Finished(skeleton) => Ok(*skeleton),
