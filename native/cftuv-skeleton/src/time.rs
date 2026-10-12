@@ -96,15 +96,11 @@ impl EventPoint {
 pub type TimeRef = Rc<EventTime>;
 pub type PointRef = Rc<EventPoint>;
 
-thread_local! {
-    static TIME_IDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
+/// The ids of the times, for the whole process (a time built on one thread and compared on another must not meet an id of that thread's own).
+static TIME_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 fn next_time_id() -> u64 {
-    TIME_IDS.with(|counter| {
-        counter.set(counter.get() + 1);
-        counter.get()
-    })
+    TIME_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 fn rat_of(value: i128) -> Rat {
