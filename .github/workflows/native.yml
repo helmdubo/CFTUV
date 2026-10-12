@@ -14,7 +14,7 @@ name: Native accelerator
 #                    для резки — личность нативного дерева (`tools/native_ci_corpus.py`). Ключ считается из файлов и доказан тестом (`tests/test_native_ci_corpus.py`); `restore-keys` нет:
 #                    префиксное совпадение вернуло бы корпус другого ядра. Сверка строгая и после восстановления: корпус с чужим `kernel_identity` она не принимает;
 #   differential     матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr) x ШАРД: колесо ставится в ЧИСТЫЙ venv, личность установленного
-#                    равна личности дерева, все операции (покрытие, резка, скелет, snap_embedding, effective_alpha) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
+#                    равна личности дерева, все операции (покрытие, резка, скелет, snap_embedding, effective_alpha, materialize_w1) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
 #                    пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте.
 #                    Шард — набор ФАЙЛОВ `tests/test_native_*.py` (`kernel/tools/shard_tests.py`, детерминированно, по весам `tests/data/native_ci_shard_weights.json`); шарды вместе — ровно эти файлы,
 #                    и это проверяется в каждой ножке (`check`) и тестом (`tests/test_native_ci_workflow.py`): каждый тест идёт на каждой ножке Python x слоты, как до шардирования;
@@ -332,7 +332,7 @@ jobs:
 
           status = cftuv_native.native_status()
           print("python", sys.version.split()[0], "| build_id", cftuv_native.native_build_id(), "| slots", cftuv_native.slot_mode(), "|", status)
-          if status != {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available"}:
+          if status != {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available"}:
               raise SystemExit(f"NATIVE_NOT_AVAILABLE {status}")
           mode = cftuv_native.slot_mode()
           layouts = cftuv_native.new_mirror().raw_layouts()
