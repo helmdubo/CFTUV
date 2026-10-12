@@ -25,9 +25,9 @@ import pytest
 
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
-from cftuv_envelope.materialize import domain
+from cftuv_envelope.materialize import domain, mesh
 from cftuv_envelope.materialize.admit import MaterializationOutcome
-from cftuv_envelope.materialize.assemble import (
+from cftuv_envelope.materialize.mesh import (
     CURVED_STRIP_FACES_TRIANGULATED,
     FAN_FACES_CUT_BY_NEIGHBOUR,
     FAN_FACES_NOT_STAR_FROM_APEX,
@@ -45,9 +45,9 @@ from cftuv_envelope.materialize.assemble import (
     POLYGONS_UV_BILINEAR,
     POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA,
     QUADS_UV_BILINEAR_MAX_MILLI_ALPHA,
-    settle_topology,
     tessellate_faces,
 )
+from cftuv_envelope.materialize.assemble import settle_topology
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.coalesce import (
     CoveredFaceV1,
@@ -933,7 +933,7 @@ def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_vali
 
     captured = {}
     real = domain.settle_topology
-    real_tessellate = domain.tessellate_faces
+    real_tessellate = mesh.tessellate_faces
     real_settle_faces = domain.settle_emitted_faces
 
     def spy(frame_faces, cycles, polygons, sources, law, tally=None):
@@ -941,9 +941,10 @@ def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_vali
         captured["cycles"] = cycles
         return settled, numbers
 
-    def spy_tessellate(frame_faces, cycles, budget, **kwargs):
-        captured["frames"], captured["uv"] = frame_faces, kwargs["uv_values"]
-        return real_tessellate(frame_faces, cycles, budget, **kwargs)
+    def spy_tessellate(frame_faces, cycles, budget, *rest, **kwargs):
+        if "uv_values" in kwargs:  # the mesh of the domain; the second, canonical pass (`canonical_triangles`) has none
+            captured["frames"], captured["uv"] = frame_faces, kwargs["uv_values"]
+        return real_tessellate(frame_faces, cycles, budget, *rest, **kwargs)
 
     def spy_settle_faces(polygons, *rest):
         settled, numbers = real_settle_faces(polygons, *rest)
@@ -951,7 +952,7 @@ def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_vali
         return settled, numbers
 
     monkeypatch.setattr(domain, "settle_topology", spy)
-    monkeypatch.setattr(domain, "tessellate_faces", spy_tessellate)
+    monkeypatch.setattr(mesh, "tessellate_faces", spy_tessellate)
     monkeypatch.setattr(domain, "settle_emitted_faces", spy_settle_faces)
     if name in SURFACE:
         prepared, coverage, request = _near_planar_on_surface(*SURFACE[name])
@@ -1053,16 +1054,16 @@ def test_the_polygon_law_over_the_corpus_changes_only_the_assembly_of_faces():
 def test_a_concave_strip_of_the_corpus_is_one_face_and_changes_nothing_else(monkeypatch):
     """`double_notch` на alpha 3/2: фронт соседа вырезает полосу — контур невыпуклый, а грань одна."""
 
-    from cftuv_envelope.materialize import assemble
+    from cftuv_envelope.materialize import mesh
 
-    real = assemble.tessellate_faces
+    real = mesh.tessellate_faces
     tally = Counter()
 
     def spy(*args, **kwargs):
         kwargs["tally"] = tally
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(assemble, "tessellate_faces", spy)
+    monkeypatch.setattr(mesh, "tessellate_faces", spy)
     polygon = dict(named_corpus())["double_notch"]
     alpha = Fraction(3, 2)
     left = factories.assemble_polygon_batch(polygon, alpha, law=TRIANGLES)[0]

@@ -11,7 +11,7 @@
 * ДОКАЗАТЕЛЬСТВО: красные контроли на испорченных планах (недостающая часть, вывернутая часть, лишний разрез).
 * ОТКАЗЫ НАЗВАНЫ: нет триангуляции; нет допустимого разбиения; разбиение не короче ушей (`NO_GAIN_OVER_EARS`: уши прежние
   побитово); складка UV (`UV_FOLD`).
-* КУСОК В ДОМЕНЕ (`assemble._convex_faces`): диагонали только между вершинами куска — вершин не рождается, части допускаются
+* КУСОК В ДОМЕНЕ (`mesh._convex_faces`): диагонали только между вершинами куска — вершин не рождается, части допускаются
   прежним законом (билинейный выпуклый многоугольник потока); без `partition` закона нет, и ответ прежний побитово.
 * ПОЛЕ: `sagging_wall` (alpha 0.987, Max stretch 42 %): патч 1 — 13 кусков, 49 ушей превращены в 27 частей, 14 диагоналей, в домене
   151 -> 88 граней; патч 0 — один кусок разбит, второй отказан складкой UV и остаётся на ушах побитово. ПОЧЕМУ ТОЧНЫЙ ПОИСК
@@ -35,7 +35,7 @@ from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.ids import PolicyId
-from cftuv_envelope.materialize import assemble, convex_partition
+from cftuv_envelope.materialize import convex_partition, mesh
 from cftuv_envelope.materialize.admit import MaterializationOutcome, materialization_request
 from cftuv_envelope.materialize.convex_partition import (
     REASON_NO_PARTITION,
@@ -385,7 +385,7 @@ def test_the_counters_name_only_what_happened():
 
 
 # ---------------------------------------------------------------------------
-# 3. Кусок в домене: `assemble._convex_faces`
+# 3. Кусок в домене: `mesh._convex_faces`
 # ---------------------------------------------------------------------------
 
 ALPHA = Fraction(4)
@@ -404,7 +404,7 @@ def _piece():
 def _convex(uv, in_flow=True):
     piece, cycle = _piece()
     tally: Counter = Counter()
-    polygons = assemble._convex_faces(piece, cycle, None, False, tally, uv.__getitem__, ALPHA, in_flow)
+    polygons = mesh._convex_faces(piece, cycle, None, False, tally, uv.__getitem__, ALPHA, in_flow)
     return polygons, tally
 
 
@@ -415,15 +415,15 @@ def test_a_flow_piece_is_cut_by_one_diagonal_into_admitted_faces_without_a_new_v
     assert {key for polygon in polygons for key in polygon} == set(PIECE_POINTS)
     assert tally[convex_partition.PIECES_PARTITIONED] == 1 and tally[convex_partition.PIECES_EXACT] == 1
     assert tally[convex_partition.FACES_EMITTED] == 2 and tally[convex_partition.DIAGONALS] == 1
-    assert not tally[convex_partition.PIECES_REFUSED] and tally[assemble.QUADS_UV_BILINEAR] == 1
+    assert not tally[convex_partition.PIECES_REFUSED] and tally[mesh.QUADS_UV_BILINEAR] == 1
 
 
 def test_without_the_partition_switch_the_piece_stays_on_the_ears_bit_for_bit():
     piece, cycle = _piece()
 
-    ears = assemble._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, True)
-    default = assemble._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, True, False)
-    law = assemble._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, True, True)
+    ears = mesh._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, True)
+    default = mesh._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, True, False)
+    law = mesh._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, True, True)
 
     assert default == ears and all(len(polygon) == 3 for polygon in ears) and len(ears) == 3
     assert len(law) == 2
@@ -431,10 +431,10 @@ def test_without_the_partition_switch_the_piece_stays_on_the_ears_bit_for_bit():
 
 def test_a_piece_outside_a_flow_has_only_triangles_so_there_is_no_gain_and_the_ears_stay_bit_for_bit():
     piece, cycle = _piece()
-    ears = assemble._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, False)
+    ears = mesh._contour_polygons(piece, cycle, None, False, True, Counter(), UV_KINK.__getitem__, ALPHA, False)
     tally: Counter = Counter()
 
-    law = assemble._contour_polygons(piece, cycle, None, False, True, tally, UV_KINK.__getitem__, ALPHA, False, True)
+    law = mesh._contour_polygons(piece, cycle, None, False, True, tally, UV_KINK.__getitem__, ALPHA, False, True)
 
     assert law == ears and all(len(polygon) == 3 for polygon in law)
     assert tally[convex_partition.REFUSED_PREFIX + convex_partition.REASON_NO_GAIN] == 1
@@ -442,7 +442,7 @@ def test_a_piece_outside_a_flow_has_only_triangles_so_there_is_no_gain_and_the_e
 
 def test_a_folded_uv_is_refused_by_name_and_the_piece_stays_on_the_ears_bit_for_bit():
     piece, cycle = _piece()
-    ears = assemble._contour_polygons(piece, cycle, None, False, True, Counter(), UV_FOLD.__getitem__, ALPHA, True)
+    ears = mesh._contour_polygons(piece, cycle, None, False, True, Counter(), UV_FOLD.__getitem__, ALPHA, True)
 
     polygons, convex_tally = _convex(UV_FOLD)
 
@@ -488,7 +488,7 @@ def _patch_zero():
 
 
 def _law_off(monkeypatch):
-    monkeypatch.setattr(assemble, "_convex_faces", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mesh, "_convex_faces", lambda *args, **kwargs: None)
 
 
 def test_the_field_patch_one_turns_49_ears_into_27_parts_and_151_faces_into_88(monkeypatch):
@@ -497,12 +497,12 @@ def test_the_field_patch_one_turns_49_ears_into_27_parts_and_151_faces_into_88(m
         without, base = _materialize(*_patch_one())
     law, counters = _materialize(*_patch_one())
 
-    assert base[assemble.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 13 and len(without.batch.faces) == 151
+    assert base[mesh.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 13 and len(without.batch.faces) == 151
     assert counters[convex_partition.PIECES_PARTITIONED] == 13
     assert counters[convex_partition.PIECES_EXACT] == 12 and counters[convex_partition.PIECES_GREEDY] == 1
     assert counters[convex_partition.FACES_EMITTED] == 27 and counters[convex_partition.DIAGONALS] == 14
     assert not counters.get(convex_partition.PIECES_REFUSED)
-    assert not counters.get(assemble.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE)
+    assert not counters.get(mesh.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE)
     assert len(law.batch.faces) == 88
     assert not validate_geometry_batch(law.batch)
     assert {vertex.vert_key.value for vertex in law.batch.vertices if not vertex.vert_key.value.startswith("clip:")} == {
@@ -547,9 +547,9 @@ def test_the_field_patch_zero_splits_one_piece_and_leaves_the_folded_one_on_the_
         without, base = _materialize(*_patch_zero())
     law, counters = _materialize(*_patch_zero())
 
-    assert base[assemble.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 2
+    assert base[mesh.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 2
     assert counters[convex_partition.PIECES_PARTITIONED] == 1 and counters[convex_partition.FACES_EMITTED] == 2
     assert counters[convex_partition.REFUSED_PREFIX + convex_partition.REASON_UV_FOLD] == 1
-    assert counters[assemble.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 1
+    assert counters[mesh.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 1
     assert len(law.batch.faces) < len(without.batch.faces)
     assert not validate_geometry_batch(law.batch)

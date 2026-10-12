@@ -329,7 +329,7 @@ def assemble_polygon_batch(
     from cftuv_envelope.contracts.envelopes import StationModelId
     from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
     from cftuv_envelope.ids import PatchDomainId, SemanticDigestValue, SourceRevision
-    from cftuv_envelope.materialize import assemble
+    from cftuv_envelope.materialize import assemble, mesh
     from cftuv_envelope.materialize.coalesce import CoveredFaceV1
     from cftuv_envelope.materialize.frames import FrameFaceV1
     from cftuv_envelope.materialize.lift import PlaneLiftV1
@@ -406,15 +406,15 @@ def assemble_polygon_batch(
         )
     table = SimpleNamespace(node_vertex_ids={}, frame_of_run={})
     layout = assemble.Layout(frame_faces)
-    cycles, points = assemble.intern_vertices(
+    cycles, points = mesh.intern_vertices(
         [("corpus", item) for item in frame_faces], table
     )
     lattice_alpha = Fraction(alpha)
-    facts = assemble.station_values(
+    facts = mesh.station_values(
         frame_faces, cycles, layout, table, lattice_alpha, guard
     )
     law = law or DecalTopologyLawV1.TRIANGLES_V1
-    polygons = assemble.tessellate_faces(
+    polygons = mesh.tessellate_faces(
         frame_faces,
         cycles,
         guard,
