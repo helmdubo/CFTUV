@@ -16,6 +16,7 @@ use crate::tessellate::{tessellate_faces, tessellate_triangles, Contour, Faces};
 /// `exact_mesh(...)`: `intern_vertices`, `station_values`, `tessellate_faces`. `out` is filled as far as the oracle's effects go: the lines of `notes`
 /// appended before a refusal stay (the list is the caller's), the rest is meaningful when the call returns `Ok`.
 pub fn exact_mesh(ctx: &mut ExactCtx<'_>, input: &MeshInput, out: &mut MeshOutput) -> MeshResult<()> {
+    let began = std::time::Instant::now();
     let mut keys: Vec<Key> = Vec::new();
     let mut cycles: Vec<Vec<(u32, u32)>> = Vec::new();
     let interned = intern_vertices(input, &mut keys, &mut cycles, &mut out.notes);
@@ -24,9 +25,14 @@ pub fn exact_mesh(ctx: &mut ExactCtx<'_>, input: &MeshInput, out: &mut MeshOutpu
         Err(error) => return Err(error),
     };
     out.keys = keys;
+    out.phase_ns[0] = began.elapsed().as_nanos() as u64;
     let mut tally = Tally::new();
+    let started = std::time::Instant::now();
     let stations = station_values(ctx, input, &cycles, &mut tally)?;
+    out.phase_ns[1] = started.elapsed().as_nanos() as u64;
+    let started = std::time::Instant::now();
     let polygons = tessellate_faces(ctx, input, &cycles, &interned.interner, &stations, &mut tally)?;
+    out.phase_ns[2] = started.elapsed().as_nanos() as u64;
     out.facts = stations.slots.iter().copied().zip(stations.facts.iter().cloned()).collect::<Vec<((u32, u32), Rc<(SqrtSum, SqrtSum)>)>>();
     out.rungs = stations.rungs.clone();
     out.cycles = cycles;

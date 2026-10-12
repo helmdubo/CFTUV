@@ -55,7 +55,7 @@ const STATUS_UNSUPPORTED: u8 = 12;
 const STATUS_MISSING_KEY: u8 = 13;
 
 /// `(result, status, detail, counts, articles, changed, timings)`.
-pub type Answer<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], u8, [u64; 5]);
+pub type Answer<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], u8, [u64; 8]);
 
 /// A failure of reading the inputs: a Python error, or an input the port does not carry (a named refusal of the port, never an answer).
 enum Fail {
@@ -639,7 +639,7 @@ impl Host {
         };
         if let Some((status, detail)) = &failure {
             if is_native_only(*status) {
-                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [tables_ns, arguments_ns, compute_ns, 0, 0]));
+                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [tables_ns, arguments_ns, compute_ns, 0, 0, 0, 0, 0]));
             }
         }
 
@@ -663,7 +663,7 @@ impl Host {
         for line in &out.notes {
             notes.append(line)?;
         }
-        Ok((built, status, detail, counts.as_array(), articles, changed, [tables_ns, arguments_ns, compute_ns, building_ns, log_ns]))
+        Ok((built, status, detail, counts.as_array(), articles, changed, [tables_ns, arguments_ns, compute_ns, building_ns, log_ns, out.phase_ns[0], out.phase_ns[1], out.phase_ns[2]]))
     }
 }
 
@@ -782,7 +782,7 @@ impl Host {
         };
         if let Some((status, detail)) = &failure {
             if is_native_only(*status) {
-                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [0, 0, compute_ns, 0, 0]));
+                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [0, 0, compute_ns, 0, 0, 0, 0, 0]));
             }
         }
         // the tally is the caller's Counter, written in place: what a refusal of the oracle leaves in it stays (the answer carries it either way)
@@ -805,12 +805,12 @@ impl Host {
             (Err(_), None) => return Err(PyRuntimeError::new_err("cftuv_native: a refused seam without an outcome code")),
         };
         let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
-        Ok((built, status, detail, counts.as_array(), articles, changed, [0, 0, compute_ns, 0, 0]))
+        Ok((built, status, detail, counts.as_array(), articles, changed, [0, 0, compute_ns, 0, 0, 0, 0, 0]))
     }
 }
 
 fn unsupported_answer<'py>(py: Python<'py>, text: &str, given: [u64; 6]) -> PyResult<Answer<'py>> {
-    Ok((None, STATUS_UNSUPPORTED, Some(PyTuple::new(py, [PyString::new(py, text)])?), [0; 5], given, 0, [0; 5]))
+    Ok((None, STATUS_UNSUPPORTED, Some(PyTuple::new(py, [PyString::new(py, text)])?), [0; 5], given, 0, [0; 8]))
 }
 
 /// `ExactMeshV1(cycles, points, facts, polygons, tally, rungs)` from the native answer.
@@ -979,7 +979,7 @@ impl Host {
         };
         if let Some((status, detail)) = &failure {
             if is_native_only(*status) {
-                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [0, arguments_ns, compute_ns, 0, 0]));
+                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [0, arguments_ns, compute_ns, 0, 0, 0, 0, 0]));
             }
         }
         let building = Instant::now();
@@ -992,6 +992,6 @@ impl Host {
         let applying = Instant::now();
         let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
         let log_ns = nanos(applying);
-        Ok((built, status, detail, counts.as_array(), articles, changed, [0, arguments_ns, compute_ns, building_ns, log_ns]))
+        Ok((built, status, detail, counts.as_array(), articles, changed, [0, arguments_ns, compute_ns, building_ns, log_ns, 0, 0, 0]))
     }
 }

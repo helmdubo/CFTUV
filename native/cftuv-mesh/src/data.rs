@@ -145,4 +145,6 @@ pub struct MeshOutput {
     pub rungs: Vec<(u32, u32)>,
     /// The lines `SOURCE_VERTEX_NAME_DROPPED` appended to `notes`.
     pub notes: Vec<String>,
+    /// Nanoseconds of the three phases of the call: the interning, the stations, the tessellation (a profile of the port, not an answer).
+    pub phase_ns: [u64; 3],
 }

@@ -137,7 +137,7 @@ def run_replay(root: Path, ops=nc.W1_OPERATIONS, limit: int | None = None, quiet
 def run_bench(root: Path, repeat: int = 5, ops=nc.W1_OPERATIONS, limit: int | None = None) -> dict:
     """Warm timings per operation: the best of `repeat` replays of every record, oracle and native, plus the native time split (seconds)."""
 
-    totals = {op: {"oracle": 0.0, "native": 0.0, "seam": 0.0, "arguments": 0.0, "compute": 0.0, "result": 0.0, "log": 0.0, "records": 0} for op in ops}
+    totals = {op: {"oracle": 0.0, "native": 0.0, "seam": 0.0, "arguments": 0.0, "compute": 0.0, "result": 0.0, "log": 0.0, "intern": 0.0, "stations": 0.0, "tessellate": 0.0, "records": 0} for op in ops}
     for _row, record in records(root, ops, limit):
         op = record.op
         before = record.before()
@@ -177,6 +177,9 @@ def run_bench(root: Path, repeat: int = 5, ops=nc.W1_OPERATIONS, limit: int | No
         row["compute"] += best_split[6] / 1e9
         row["result"] += best_split[7] / 1e9
         row["log"] += best_split[8] / 1e9
+        row["intern"] += best_split[9] / 1e9
+        row["stations"] += best_split[10] / 1e9
+        row["tessellate"] += best_split[11] / 1e9
     return totals
 
 
@@ -287,7 +290,7 @@ def main(argv=None) -> int:
             continue
         print(
             f"{op}: {row['records']} records | oracle {row['oracle'] * 1000:.1f} ms native {row['native'] * 1000:.1f} ms ratio {row['oracle'] / row['native']:.2f} | "
-            f"seam {row['seam'] * 1000:.1f} (arguments {row['arguments'] * 1000:.1f}, compute {row['compute'] * 1000:.1f}, result {row['result'] * 1000:.1f}, log {row['log'] * 1000:.1f}) ms"
+            f"seam {row['seam'] * 1000:.1f} (arguments {row['arguments'] * 1000:.1f}, compute {row['compute'] * 1000:.1f}, result {row['result'] * 1000:.1f}, log {row['log'] * 1000:.1f}) ms | phases intern {row['intern'] * 1000:.1f} stations {row['stations'] * 1000:.1f} tessellate {row['tessellate'] * 1000:.1f} ms"
         )
     return 0
 
