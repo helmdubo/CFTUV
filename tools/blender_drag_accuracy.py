@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import os
 import statistics
 import sys
 import time
@@ -26,6 +27,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
+# SNAPSHOT_BYTE_CHECK_SAMPLED_V1: the gates and the measurements of the tools check every domain whole (the product button samples). It costs the cold press only.
+os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
 KEY = ("probe",)
 
 

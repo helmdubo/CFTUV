@@ -117,7 +117,8 @@ def test_every_field_of_a_result_is_classified_for_the_move():
     recomputed = {"patch_id", "content_digest", "offset_normals_digest", "labels", "structure_digest"}
     # Присланный воркером вид и пикл батча несут чужие идентичности: перенос их НЕ переписывает, а сбрасывает (результат переноса
     # собран заново без них, воркер выводит их снова) - `test_a_moved_result_carries_neither_the_old_view_nor_the_old_batch_bytes`.
-    dropped = {"view", "heavy"}
+    # Аффинный сертификат (S6a) привязан к порядку ключей вершин ПРОГОНА: перенос на другую ревизию переименовывает ключи, и результат переноса его не несёт (`parametric=None`).
+    dropped = {"view", "heavy", "parametric"}
     identity_free = {
         "normal",
         "source_normal",
