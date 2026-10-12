@@ -2,6 +2,7 @@
 
     python tools/native_materialize_w1_corpus.py replay <каталог корпуса> [--limit N] [--ops exact_mesh,canonical_triangles]
     python tools/native_materialize_w1_corpus.py bench  <каталог корпуса> [--repeat 5]
+    python tools/native_materialize_w1_corpus.py seed   <каталог корпуса> [<ещё>...] --out tests/data/native_materialize_w1_kernel_suite.recs.xz [--max-bytes 1200000]
 
 Запись W1 (`native_corpus.Recorder`, `tools/native_corpus_export.py --operations w1`) держит вход вызова (слитые грани домена, таблица станций, строки `notes`), состояние процесса ДО и ПОСЛЕ
 (бюджет, шесть статей, память канонизации с порядком, `SIGN_COUNTS`) и исход (результат либо исключение). Воспроизведение: эталон на состоянии ДО (он обязан дать записанное: детерминизм
@@ -15,7 +16,8 @@
 from __future__ import annotations
 
 import argparse
-import statistics
+import lzma
+import pickle
 import sys
 import time
 from pathlib import Path
@@ -178,16 +180,93 @@ def run_bench(root: Path, repeat: int = 5, ops=nc.W1_OPERATIONS, limit: int | No
     return totals
 
 
+SEED_SCHEMA = "cftuv.native-materialize-w1-seed.v1"
+
+
+def features(row: dict, record: nc.Record) -> frozenset:
+    """What a record shows that another may not: the operation, the way it ended, every number of the tally, and (for a budget) the unit where it was cut."""
+
+    expected = record.expected()
+    found = {("op", record.op), ("label", str(row.get("label", "")).split("-")[0])}
+    if expected.exception is not None:
+        found.add(("raised", expected.exception[0], expected.exception[1][:70] if "EXHAUSTED" not in expected.exception[1] else "exhausted"))
+        if "operation=" in expected.exception[1]:  # a budget cut at a charge site: the operation that was charged, and the stage of the cap
+            found.add(("exhausted", expected.exception[1].split("operation=", 1)[1].split()[0]))
+    if expected.result is not None and record.op == nc.OP_MESH:
+        found.update(("tally", name) for name, _value in expected.result.tally.items())
+        found.add(("polygons", min(8, max((len(polygon) for face in expected.result.polygons for polygon in face), default=0))))
+        found.add(("notes", bool(expected.observed.get("notes") not in (None, "[]"))))
+    if expected.result is not None and record.op == nc.OP_CANONICAL:
+        found.add(("faces", min(6, len(expected.result))))
+    return frozenset(found)
+
+
+def write_seed(roots: list, out: Path, max_bytes: int) -> dict:
+    """The smallest records that between them show every feature of the corpora `roots` (greedy cover, cheapest first), as one xz file: the tracked seed of the strict tests."""
+
+    candidates = []
+    for root in roots:
+        for row, record in records(Path(root), nc.W1_OPERATIONS):
+            candidates.append((row.get("bytes", 0), row["id"], features(row, record), row, record))
+    index = nc.load_index(Path(roots[0]))
+    for root in roots[1:]:
+        index["records"] = index["records"] + nc.load_index(Path(root))["records"]
+    # derived records (budgets) are rows too; they carry `derived`, which `records()` skips, so they come in here
+    for root in roots:
+        for row in nc.load_index(Path(root))["records"]:
+            if row.get("derived") is not None and row["op"] in nc.W1_OPERATIONS:
+                record = nc.read_record(Path(root) / row["path"])
+                candidates.append((row.get("bytes", 0), row["id"], features(row, record), row, record))
+    covered: set = set()
+    chosen = []
+    size = 0
+    pool = sorted(candidates, key=lambda item: (item[0], item[1]))
+    while True:
+        best = None
+        for item in pool:
+            gain = len(item[2] - covered)
+            if gain and (best is None or gain / max(item[0], 1) > best[0]):
+                best = (gain / max(item[0], 1), item)
+        if best is None:
+            break
+        item = best[1]
+        if size + item[0] > max_bytes:
+            pool = [other for other in pool if other is not item]
+            continue
+        chosen.append(item)
+        covered |= item[2]
+        size += item[0]
+        pool = [other for other in pool if other is not item]
+    body = [{"meta": item[4].meta, "payload": item[4].payload} for item in chosen]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(lzma.compress(pickle.dumps({"schema": SEED_SCHEMA, "records": body}, protocol=5), format=lzma.FORMAT_XZ, preset=9))
+    return {"records": len(chosen), "features": len(covered), "uncovered": len({feature for item in candidates for feature in item[2]} - covered), "bytes": out.stat().st_size}
+
+
+def read_seed(path: Path) -> list:
+    """The records of a seed file as `native_corpus.Record`."""
+
+    document = pickle.loads(lzma.decompress(Path(path).read_bytes()))
+    if document.get("schema") != SEED_SCHEMA:
+        raise nc.CorpusError(f"{path}: not a W1 seed (schema {document.get('schema')!r})")
+    return [nc.Record(item["meta"], item["payload"]) for item in document["records"]]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("replay", "bench"))
-    parser.add_argument("corpus")
+    parser.add_argument("command", choices=("replay", "bench", "seed"))
+    parser.add_argument("corpus", nargs="+")
+    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--max-bytes", type=int, default=1_200_000)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--repeat", type=int, default=5)
     parser.add_argument("--ops", default=",".join(nc.W1_OPERATIONS))
     arguments = parser.parse_args(argv)
     ops = tuple(item for item in arguments.ops.split(",") if item)
-    root = Path(arguments.corpus)
+    if arguments.command == "seed":
+        print(write_seed([Path(item) for item in arguments.corpus], arguments.out, arguments.max_bytes))
+        return 0
+    root = Path(arguments.corpus[0])
     if arguments.command == "replay":
         summary = run_replay(root, ops, arguments.limit)
         print(f"records {summary['records']} ok {summary['ok']} mismatches {len(summary['mismatches'])} refused {sum(summary['refusals'].values())} oracle_drift {len(summary['oracle_drift'])} state_moved {len(summary['refusal_state_moved'])}")
