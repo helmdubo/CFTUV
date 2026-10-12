@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from .envelope_gc_pause import gc_paused_function
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
-from .envelope_width_live import preview_now, request_drag_tick, set_preview, width_event_preview, width_problem
+from .envelope_width_live import preview_now, request_drag_tick, resolved_preview_inputs, set_preview, width_event_preview, width_problem
 from .envelope_width_mesh_preview import begin_drag, finish_drag, moving_now
 
 NO_VIEW = "Adjust Decal Width needs a 3D View"
@@ -88,7 +88,8 @@ def view_scale_of(context) -> ViewScaleV1 | None:
     if region is None or rv3d is None or record is None:
         return None
     source = bpy.data.objects.get(record.source_name)
-    centre = chain_centroid(record.preview_inputs)
+    inputs = resolved_preview_inputs(controller, record)
+    centre = None if inputs is None else chain_centroid(inputs)
     if source is None or centre is None:
         return None
     world = source.matrix_world @ Vector(centre)

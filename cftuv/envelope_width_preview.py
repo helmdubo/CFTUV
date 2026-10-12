@@ -50,6 +50,7 @@
 from __future__ import annotations
 
 import math
+import threading
 import time
 from dataclasses import dataclass
 
@@ -530,8 +531,72 @@ def _chain(faces, edge_faces, patch_id: int, sides: list, notes: list) -> list:
     return runs
 
 
-def build_preview_inputs(surface, selected_by_patch) -> PreviewInputsV1:
-    """Входы превью по `PatchSurfaceIR` и `[(патч, рёбра)]` последнего прогона (один раз на прогон)."""
+class PendingPreviewInputsV1:
+    """Входы превью, у которых готова первая половина (грани, стороны), а пути и углы (`_chain`, 73 % цены на `cover.008`) строятся при первом чтении (WIDTH_PREVIEW_INPUTS_DEFERRED_V1).
+
+    `has_runs` - ответ на «есть ли что рисовать» (`availability_problem`) без построения путей: путь есть ровно тогда, когда есть хоть одна сторона (каждая сторона ложится в путь, каждый путь даёт хотя бы один `_Run`).
+    `complete(built_by)` строит `PreviewInputsV1` ОДИН раз (замок: простой таймер и событие ползунка - главный поток, но владение не должно зависеть от этого) и называет, кто построил: `built_by` первого вызова.
+    Построение побитово то же, что у `build_preview_inputs`: те же функции над теми же значениями в том же порядке патчей.
+    """
+
+    __slots__ = ("_faces", "_edge_faces", "_sides", "_missing", "_degenerate", "_edges", "_prepared", "_value", "_built_by", "_reported", "_lock", "has_runs")
+
+    def __init__(self, faces, edge_faces, sides, missing, degenerate, edges, prepared_seconds) -> None:
+        self._faces = faces
+        self._edge_faces = edge_faces
+        self._sides = sides
+        self._missing = missing
+        self._degenerate = degenerate
+        self._edges = edges
+        self._prepared = prepared_seconds
+        self._value = None
+        self._built_by = ""
+        self._reported = False
+        self._lock = threading.Lock()
+        self.has_runs = any(patch_sides for _patch_id, patch_sides in sides)
+
+    @property
+    def built_by(self) -> str:
+        """Кто построил входы (`built_by` первого `complete`), пусто - ещё никто."""
+
+        return self._built_by
+
+    @property
+    def built(self) -> bool:
+        return self._value is not None
+
+    def take_builder(self) -> str:
+        """Имя построившего ОДИН раз (первому, кто спросит после построения), потом пусто: вызывающий пишет его в счётчик журнала ровно раз на входы."""
+
+        with self._lock:
+            if self._value is None or self._reported:
+                return ""
+            self._reported = True
+            return self._built_by
+
+    def complete(self, built_by: str) -> PreviewInputsV1:
+        with self._lock:
+            if self._value is None:
+                started = time.perf_counter()
+                runs, notes = [], []
+                for patch_id, sides in self._sides:
+                    runs.extend(_chain(self._faces, self._edge_faces, int(patch_id), sides, notes))
+                degenerate = self._degenerate + sum(1 for run in runs if not run.closed for end in run.ends if end is None)
+                self._value = PreviewInputsV1(
+                    self._faces,
+                    self._edge_faces,
+                    tuple(runs),
+                    ((OUTCOME_NO_FACE, self._missing), (OUTCOME_DEGENERATE, degenerate), (OUTCOME_NO_FAN, sum(notes))),
+                    self._edges,
+                    self._prepared + (time.perf_counter() - started),
+                )
+                self._built_by = built_by
+                self._faces = self._edge_faces = self._sides = None  # входы пути больше не нужны: значение держит всё
+            return self._value
+
+
+def prepare_preview_inputs(surface, selected_by_patch) -> PendingPreviewInputsV1:
+    """Первая половина входов превью по `PatchSurfaceIR` и `[(патч, рёбра)]` последнего прогона: грани патчей и стороны выбранных рёбер; пути строит `complete`."""
 
     started = time.perf_counter()
     patches = {int(patch_id) for patch_id, _edges in selected_by_patch}
@@ -543,7 +608,7 @@ def build_preview_inputs(surface, selected_by_patch) -> PreviewInputsV1:
             built = _make_face(face, positions)
             if built is not None:
                 faces[int(face.face_id)] = built
-    runs, missing, degenerate, edges, notes = [], 0, 0, 0, []
+    sides_by_patch, missing, degenerate, edges = [], 0, 0, 0
     for patch_id, edge_ids in selected_by_patch:
         sides = []
         for edge_id in sorted(int(item) for item in edge_ids):
@@ -561,16 +626,14 @@ def build_preview_inputs(surface, selected_by_patch) -> PreviewInputsV1:
                     degenerate += 1
                 else:
                     sides.append(side)
-        runs.extend(_chain(faces, edge_faces, int(patch_id), sides, notes))
-    degenerate += sum(1 for run in runs if not run.closed for end in run.ends if end is None)
-    return PreviewInputsV1(
-        faces,
-        edge_faces,
-        tuple(runs),
-        ((OUTCOME_NO_FACE, missing), (OUTCOME_DEGENERATE, degenerate), (OUTCOME_NO_FAN, sum(notes))),
-        edges,
-        time.perf_counter() - started,
-    )
+        sides_by_patch.append((patch_id, sides))
+    return PendingPreviewInputsV1(faces, edge_faces, sides_by_patch, missing, degenerate, edges, time.perf_counter() - started)
+
+
+def build_preview_inputs(surface, selected_by_patch) -> PreviewInputsV1:
+    """Входы превью по `PatchSurfaceIR` и `[(патч, рёбра)]` последнего прогона (один раз на прогон)."""
+
+    return prepare_preview_inputs(surface, selected_by_patch).complete("eager")
 
 
 # --------------------------------------------------------------------------
@@ -828,9 +891,11 @@ __all__ = (
     "PREVIEW_BINARY64_V1",
     "PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1",
     "STRAIGHT_SINE",
+    "PendingPreviewInputsV1",
     "PreviewInputsV1",
     "WidthPreviewV1",
     "build_preview_inputs",
     "chain_centroid",
     "compute_width_preview",
+    "prepare_preview_inputs",
 )

@@ -88,6 +88,7 @@ from .envelope_width_mesh_preview import (
     ensure_model,
     finish_live_run,
     lean_exact_now,
+    log_of,
     note_decal_updates,
     note_exact_display,
     note_history,
@@ -98,9 +99,10 @@ from .envelope_width_mesh_preview import (
 from .envelope_width_mesh_preview import status_lines as mesh_preview_status_lines
 from .envelope_width_preview import (
     PREVIEW_BINARY64_V1,
+    PendingPreviewInputsV1,
     WidthPreviewV1,
-    build_preview_inputs,
     compute_width_preview,
+    prepare_preview_inputs,
 )
 
 NO_BUILD = "no decal built yet: press Build Decal Mesh"
@@ -132,6 +134,7 @@ class LastProductionBuildV1:
     density: object
     stretch_percent: int
     invalidation_count: int
+    #: `PreviewInputsV1` либо `PendingPreviewInputsV1` (WIDTH_PREVIEW_INPUTS_DEFERRED_V1: кнопка готовит грани и стороны, пути строит простой после неё либо первое чтение): читать через `resolved_preview_inputs`.
     preview_inputs: object
     #: Ширина (alpha), с которой кнопка записала меш.
     width: float
@@ -222,7 +225,7 @@ def remember_build(
         density=density,
         stretch_percent=int(stretch_percent),
         invalidation_count=controller.invalidation_count,
-        preview_inputs=build_preview_inputs(bundle.patch_surface, run.selected_by_patch),
+        preview_inputs=prepare_preview_inputs(bundle.patch_surface, run.selected_by_patch),
         width=float(width),
         dissolve_percent=float(dissolve_percent),
         kernel_backend=str(kernel_backend),
@@ -233,6 +236,79 @@ def remember_build(
     controller.width_target = record.source_name
     set_preview(controller, None)
     return record
+
+
+# WIDTH_PREVIEW_INPUTS_DEFERRED_V1. Кнопка готовит грани и стороны линий превью (`prepare_preview_inputs`), а пути и углы (`PendingPreviewInputsV1.complete`, 73 % цены) строит простой главного потока
+# сразу после нажатия (`schedule_idle_preparation`) либо то, что прочтёт их раньше (событие ползунка, ось инструмента): тот же вызов, те же значения побитово. Кто построил, назван в журнале превью (`inputs_built`).
+INPUTS_BUILT_IDLE = "idle"
+INPUTS_BUILT_EVENT = "event"
+INPUTS_BUILD_FAILED = "WIDTH_PREVIEW_INPUTS_BUILD_FAILED"
+#: Исходы `run_idle_preparation`.
+IDLE_BUILT = "WIDTH_PREVIEW_INPUTS_IDLE_BUILT"
+IDLE_ALREADY_BUILT = "WIDTH_PREVIEW_INPUTS_IDLE_ALREADY_BUILT"
+IDLE_SUPERSEDED = "WIDTH_PREVIEW_INPUTS_IDLE_SUPERSEDED"
+IDLE_NOT_DEFERRED = "WIDTH_PREVIEW_INPUTS_IDLE_NOT_DEFERRED"
+#: Через сколько секунд после нажатия простой считает пути: перерисовка окон после оператора успевает раньше, а рука, которая начала тянуть раньше, платит за сборку сама (событие строит синхронно).
+IDLE_PREPARE_SECONDS = 0.1
+
+
+def resolved_preview_inputs(controller, record, built_by: str = INPUTS_BUILT_EVENT):
+    """`PreviewInputsV1` записи кнопки: готовые - как есть, отложенные - построены здесь (один раз), и первое построение записано в журнал на `built_by`.
+
+    Построение, которое не вышло, называется (`INPUTS_BUILD_FAILED`) и значит то же, что прежде значил сбой записи на кнопке: запись снята («не запомнено»), ширина не живая до следующего нажатия; результат `None`.
+    """
+
+    inputs = record.preview_inputs
+    if type(inputs) is not PendingPreviewInputsV1:
+        return inputs
+    try:
+        value = inputs.complete(built_by)
+    except Exception as exc:  # noqa: BLE001 - сбой построения называется и снимает запись, как прежде снимал сбой `remember_build`
+        print(f"[CFTUV][WidthLive] {INPUTS_BUILD_FAILED}: the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
+        if controller is not None and controller.width_build is record:
+            controller.width_build = None
+        return None
+    builder = inputs.take_builder()
+    if builder and controller is not None:
+        counts = log_of(controller).inputs_built
+        counts[builder] = counts.get(builder, 0) + 1
+    return value
+
+
+def has_preview_runs(inputs) -> bool:
+    """Есть ли что рисовать: путь есть ровно тогда, когда есть хоть одна сторона, и отложенные входы отвечают без построения путей."""
+
+    return bool(inputs.has_runs) if type(inputs) is PendingPreviewInputsV1 else bool(inputs.runs)
+
+
+def run_idle_preparation(controller, record=None) -> str:
+    """Простой после нажатия: пути линий превью записи кнопки построены (главный поток). Названный исход; запись, которую успели заменить или снять, не трогается."""
+
+    record = controller.width_build if record is None else record
+    if record is None or controller.width_build is not record:
+        return IDLE_SUPERSEDED
+    inputs = record.preview_inputs
+    if type(inputs) is not PendingPreviewInputsV1:
+        return IDLE_NOT_DEFERRED
+    if inputs.built:
+        return IDLE_ALREADY_BUILT
+    resolved_preview_inputs(controller, record, INPUTS_BUILT_IDLE)
+    return IDLE_BUILT
+
+
+def schedule_idle_preparation(controller, record) -> None:
+    """Таймер главного потока (`bpy.app.timers`): простой сборки путей после кнопки. Сбой простого называется и снимает запись так же, как сбой события."""
+
+    import bpy
+
+    def prepare():
+        try:
+            run_idle_preparation(controller, record)
+        except Exception as exc:  # noqa: BLE001 - таймер не роняет цикл Blender: исход назван
+            print(f"[CFTUV][WidthLive] {INPUTS_BUILD_FAILED}: the idle preparation failed: {type(exc).__name__}: {exc}", flush=True)
+        return None
+
+    bpy.app.timers.register(prepare, first_interval=IDLE_PREPARE_SECONDS)
 
 
 def tag_view3d_redraw() -> None:
@@ -271,7 +347,10 @@ def preview_now(controller, width: float, offset: float, skip_patches: frozenset
     record = controller.width_build
     if record is None or record.preview_inputs is None:
         return None
-    preview = compute_width_preview(record.preview_inputs, width, lift=offset, skip_patches=skip_patches)
+    inputs = resolved_preview_inputs(controller, record)
+    if inputs is None:
+        return None
+    preview = compute_width_preview(inputs, width, lift=offset, skip_patches=skip_patches)
     set_preview(controller, preview, record.source_name)
     return preview
 
@@ -352,7 +431,7 @@ def availability_problem(controller, active_name, decal) -> str:
         return f"{need}: the source changed since the last build"
     if decal.revision and record.source_digest not in decal.revision:
         return f"{need}: its decal is from another revision of the source"
-    if record.preview_inputs is None or not record.preview_inputs.runs:
+    if record.preview_inputs is None or not has_preview_runs(record.preview_inputs):
         return NO_PREVIEW
     return ""
 
@@ -899,6 +978,13 @@ __all__ = (
     "BUILD_REPLACED",
     "DECAL_GONE",
     "DecalProbeV1",
+    "IDLE_ALREADY_BUILT",
+    "IDLE_BUILT",
+    "IDLE_NOT_DEFERRED",
+    "IDLE_SUPERSEDED",
+    "INPUTS_BUILD_FAILED",
+    "INPUTS_BUILT_EVENT",
+    "INPUTS_BUILT_IDLE",
     "LastProductionBuildV1",
     "NEED_BUILD",
     "NO_ACTIVE",
@@ -914,12 +1000,16 @@ __all__ = (
     "availability_problem",
     "draw_decal_width_rows",
     "follow_active_object",
+    "has_preview_runs",
     "note_depsgraph",
     "preview_now",
     "reconcile_after_history",
     "request_drag_tick",
     "remember_build",
+    "resolved_preview_inputs",
     "retarget",
+    "run_idle_preparation",
+    "schedule_idle_preparation",
     "scheduler_of",
     "schedule_width_live",
     "set_preview",
