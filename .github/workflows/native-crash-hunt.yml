@@ -11,6 +11,8 @@ on:
   workflow_dispatch:
   push:
     branches: [native/investigate-raw-crash]
+    paths:
+      - ".github/hunt/RUN_HUNT"
 
 concurrency:
   group: native-hunt-${{ github.ref }}

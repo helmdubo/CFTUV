@@ -1,0 +1,129 @@
+name: Bash signal stress (investigation)
+
+# INVESTIGATION ONLY (branch native/investigate-raw-crash, never merged).
+#
+# Hypothesis for run 38182199917 / job 114599232416 ("exit code -2147483644" = 0x80000004 = STATUS_SINGLE_STEP, no pytest output, step ended ~5 s after it began):
+# it is Git bash ITSELF (msys2-runtime 3.6.10) that died, not python and not the Rust extension.
+#   * a child that dies of STATUS_SINGLE_STEP is reported by this runner's bash as exit code 4 and a Python child prints `Windows fatal exception: code 0x80000004`
+#     (job `probe` of native-crash-hunt.yml): the failed step showed neither;
+#   * msys2/Cygwin delivers a signal (SIGCHLD of the `tr` of `mapfile -t FILES < <(tr ...)`, of the python child) to a thread by setting the CPU trap flag and catching the
+#     resulting single-step exception (`_cygtls::interrupt_now`); a single step nobody catches ends the process with the raw NTSTATUS 0x80000004;
+#   * actions/runner waits exactly 5 s after the shell exits while an orphan keeps the output pipe open, then kills the process tree: the 5 s of the failed step, and why
+#     pytest (an orphan) never printed anything.
+# This workflow hammers bash's fork/wait/SIGCHLD machinery in the shell of the failed step. A step that ends with exit code -2147483644 here, with nothing of pytest or Rust in it,
+# is the proof; the count of iterations gives the frequency.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [native/investigate-raw-crash]
+    paths:
+      - ".github/workflows/native-bash-stress.yml"
+
+concurrency:
+  group: native-bash-stress-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # FAULT INJECTION: a single step nobody asked for, set on the shell of a step from outside (the trap flag in the saved context of one thread), as the failed step must have had.
+  # Locally (Git 2.53, msys2-runtime 3.6.6): on the main thread of `bin\bash.exe` (the 47 KB wrapper the runner starts) or of `usr\bin\bash.exe` the process ends with the RAW exit code
+  # 0x80000004 and prints nothing; the same flag on a child (python) is reported by bash as exit code 4. Here the runner itself reports it, with its 5 s wait for an orphan that holds the pipe.
+  inject:
+    name: fault injection (a stray single step in the shell of a step)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build the injector
+        run: rustc -O .github/hunt/tfinject.rs -o "$RUNNER_TEMP/tfinject.exe"
+      - name: "A: the trap flag into the bin/bash.exe wrapper of THIS step, python (a long test run) is its descendant. Expected: exit code -2147483644, nothing printed after the start, ~5 s later"
+        id: wrapper
+        continue-on-error: true
+        run: |
+          WINPID=$(cat /proc/$$/winpid)
+          WRAPPER=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=$WINPID').ParentProcessId" | tr -d '\r')
+          echo "inner bash winpid $WINPID, wrapper (the process the runner started) $WRAPPER"
+          ( sleep 2; "$RUNNER_TEMP/tfinject.exe" "$WRAPPER" 0; ) &
+          python -c "import time; print('python started', flush=True); time.sleep(60); print('python finished (not reached when the step is killed)')"
+      - name: "B: the trap flag into the main thread of the inner (msys) bash of THIS step. Expected: the same exit code"
+        continue-on-error: true
+        run: |
+          WINPID=$(cat /proc/$$/winpid)
+          echo "inner bash winpid $WINPID"
+          ( sleep 2; "$RUNNER_TEMP/tfinject.exe" "$WINPID" 0; ) &
+          python -c "import time; print('python started', flush=True); time.sleep(60); print('python finished (not reached when the step is killed)')"
+      - name: "C: control, the trap flag into the python child itself. Expected: exit code 4 and the faulthandler line"
+        continue-on-error: true
+        run: |
+          python -X faulthandler -c "
+          import subprocess, os, time
+          me = os.getpid()
+          subprocess.Popen([os.environ['RUNNER_TEMP'] + '/tfinject.exe', str(me), 'all'])
+          time.sleep(20)
+          print('python finished (not reached)')
+          "
+
+  stress:
+    name: bash stress (replica ${{ matrix.replica }})
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Runner
+        run: |
+          bash --version | head -1; uname -a
+          powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores | Format-List"
+      # the construct of the failed step, repeated; four loops at once so that signals of one loop land while another one forks
+      - name: mapfile < <(tr) + python child + wait, 4 loops x 600 rounds (the shell of the failed step; a death of bash ends THIS step with its raw exit code)
+        run: |
+          printf 'tests/a.py\r\ntests/b.py\r\n' > "$RUNNER_TEMP/list.txt"
+          loop() {
+            local n=$1 i
+            for i in $(seq 1 600); do
+              mapfile -t F < <(tr -d '\r' < "$RUNNER_TEMP/list.txt")
+              [ "${#F[@]}" -eq 2 ] || { echo "loop $n round $i: ${#F[@]} lines"; return 1; }
+              python -c "pass" &
+              wait $!
+            done
+            echo "loop $n finished"
+          }
+          start=$SECONDS
+          pids=()
+          for n in 1 2 3 4; do loop $n & pids+=($!); done
+          rc=0
+          for pid in "${pids[@]}"; do wait "$pid" || rc=$?; done
+          echo "elapsed $((SECONDS - start)) s, rc=$rc"
+          exit $rc
+      - name: SIGCHLD storm, 4 loops of fork-without-exec children x 3000 rounds
+        run: |
+          loop() {
+            local n=$1 i
+            for i in $(seq 1 3000); do
+              ( : ) &
+              wait $!
+            done
+            echo "storm $n finished"
+          }
+          start=$SECONDS
+          pids=()
+          for n in 1 2 3 4; do loop $n & pids+=($!); done
+          rc=0
+          for pid in "${pids[@]}"; do wait "$pid" || rc=$?; done
+          echo "elapsed $((SECONDS - start)) s, rc=$rc"
+          exit $rc
