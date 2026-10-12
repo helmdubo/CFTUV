@@ -66,6 +66,7 @@ _shard_spec.loader.exec_module(shard_tests)
         ("tests/test_architecture.py", True),
         ("tests/data/native_embedding_kernel_suite.recs.xz", True),
         ("tests/data/native_effective_alpha_kernel_suite.recs.xz", True),
+        ("tests/data/native_radical_v2_ops.recs.xz", True),
         ("tests/data/native_ci_shard_weights.json", True),
         ("kernel/tools/shard_tests.py", True),
         ("kernel/tools/shard_weights.json", False),
@@ -92,7 +93,7 @@ def test_the_native_path_set_is_the_old_workflow_filter(path, native):
 def test_the_path_set_is_exactly_the_filter_the_workflow_used_to_carry():
     assert changes.NATIVE_PATHS == (
         "native/**", "tools/native_*.py", "tests/test_native_*.py", "tests/native_gate.py", "tests/conftest.py", "tests/test_architecture.py",
-        "tests/data/native_embedding_kernel_suite.recs.xz", "tests/data/native_effective_alpha_kernel_suite.recs.xz",
+        "tests/data/native_embedding_kernel_suite.recs.xz", "tests/data/native_effective_alpha_kernel_suite.recs.xz", "tests/data/native_radical_v2_ops.recs.xz",
         "tests/data/native_ci_shard_weights.json", "kernel/tools/shard_tests.py",
         "kernel/src/cftuv_envelope/**", "kernel/tests/**", "kernel/pyproject.toml", "pytest.ini", ".github/workflows/native.yml",
     )
@@ -419,6 +420,7 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     assert '"skeleton": "available"' in available["run"] and "skeleton_raw_layouts" in available["run"]
     assert '"snap_embedding": "available"' in available["run"]
     assert '"effective_alpha": "available"' in available["run"]
+    assert '"radical_v2": "available"' in available["run"], "the capability of the RadicalSumV2 mirror is reported available in every leg"
 
 
 def test_embedding_inline_and_tracked_kernel_checks_are_mandatory_in_the_strict_matrix(workflow):
@@ -453,6 +455,26 @@ def test_effective_alpha_synthetic_and_tracked_kernel_seed_checks_are_mandatory_
     assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
     default = next(node.value.args[0].args[1].value for node in ast.walk(module) if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SYNTHETIC_SCALE")
     assert default == strict["env"]["CFTUV_EFFECTIVE_ALPHA_SYNTHETIC"], "the default of the test is the value the workflow pins"
+
+
+def test_radical_v2_seed_synthetic_and_vector_checks_are_mandatory_in_the_strict_matrix(workflow):
+    differential = workflow["jobs"]["differential"]
+    strict = next(step for step in differential["steps"] if step.get("name", "").startswith("Differential tests against the live oracle"))
+    assert strict["env"]["CFTUV_RADICAL_V2_SYNTHETIC"] == "1500", "the scale of the synthetic programs is pinned by the workflow, like the other captures"
+    # the tracked seed, the synthetic programs, the near-zero families, the PRICE vectors and the vector file run in every strict leg: only the owner's field records are a tier
+    module = ast.parse((ROOT / "tests" / "test_native_radical_v2.py").read_text(encoding="utf8"))
+    required = {
+        "test_the_tracked_seed_of_recorded_operations_equals_the_oracle", "test_synthetic_programs_equal_the_oracle_and_every_refusal_is_there",
+        "test_near_zero_families_equal_the_oracle_and_the_cap_of_4096_is_a_named_price", "test_the_price_vectors_of_the_kernel_test_hold_in_the_extension",
+        "test_the_vector_file_of_cargo_test_is_what_the_oracle_writes_now", "test_the_outcomes_do_not_depend_on_the_hash_seed_of_the_process",
+    }
+    found = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in required}
+    assert set(found) == required
+    assert all(not node.decorator_list for node in found.values())
+    seed = ROOT / "tests" / "data" / "native_radical_v2_ops.recs.xz"
+    assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
+    default = next(node.value.args[0].args[1].value for node in ast.walk(module) if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SYNTHETIC")
+    assert default == strict["env"]["CFTUV_RADICAL_V2_SYNTHETIC"], "the default of the test is the value the workflow pins"
 
 
 # --------------------------------------------------------------------------

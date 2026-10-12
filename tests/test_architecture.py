@@ -1861,10 +1861,26 @@ def _load_native_pin():
 def test_the_native_pins_hold_one_digest_per_mirrored_file():
     pin = _load_native_pin()
     listed = {name for files in pin.OPERATION_FILES.values() for name in files}
-    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha"}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "radical_v2"}
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
+
+
+def test_the_radical_v2_mirror_is_a_leaf_crate_with_no_float_in_its_algebra_and_no_product_stage():
+    """`native/cftuv-radical` mirrors `reference/radical_v2.py` (S2: no sympy, no factorisation, no float). The crate depends on the big-integer library alone, so the density core
+    that is ported onto it does not drag in the `SqrtSumV1` stack; its algebra modules have no binary64 anywhere; and `radical_v2` is a capability of the extension, not a stage the product runs."""
+
+    import re
+
+    crate = REPO_ROOT / "native" / "cftuv-radical"
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    dependencies = re.search(r"^\[dependencies\]\s*$(.*?)(?=^\[|\Z)", manifest, re.MULTILINE | re.DOTALL).group(1)
+    assert {line.split("=")[0].strip().split(".")[0] for line in dependencies.splitlines() if "=" in line and not line.lstrip().startswith("#")} == {"dashu-int", "dashu-base"}
+    for module in ("arith", "canon", "ladder", "text", "value", "work"):
+        source = re.sub(r"//[^\n]*", "", (crate / "src" / f"{module}.rs").read_text(encoding="utf-8"))
+        assert not re.search(r"\bf(32|64)\b", source), f"{module}.rs: a float in the exact algebra"
+    assert "radical_v2" not in RUST_ONLY_OPERATIONS
 
 
 # --------------------------------------------------------------------------
