@@ -116,12 +116,18 @@ SNAP_EMBEDDING_FILES = ("_embedding.py",)
 #: whole: `effective_alpha_op._bind` checks the digest of those three functions when the classes bind (`NativePortStale` naming the function).
 EFFECTIVE_ALPHA_FILES = ("_cpython311.py", "float_filter.py", "reference/boundary_native.py", "reference/native_exact.py")
 
+#: `reference/radical_v2.py`: the ORACLE of `RadicalSumV2` (slice S2), which `native/cftuv-radical` mirrors bit for bit (prices, refusals, texts, wires). A CAPABILITY of the extension (`radical_v2_eval`, the
+#: differential and bench entry), not a product stage: no host consumer reads it yet (R3 ports the density core onto it), so it is NOT in `RUST_ONLY_OPERATIONS` and the oracle may still move; a move
+#: makes the mirror `stale(reference/radical_v2.py)` until the port catches up and the pin is reissued.
+RADICAL_V2_FILES = ("reference/radical_v2.py",)
+
 OPERATION_FILES = {
     "coverage": COVERAGE_FILES,
     "clip": CLIP_FILES,
     "skeleton": SKELETON_FILES,
     "snap_embedding": SNAP_EMBEDDING_FILES,
     "effective_alpha": EFFECTIVE_ALPHA_FILES,
+    "radical_v2": RADICAL_V2_FILES,
 }
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
@@ -145,6 +151,7 @@ PINS: dict = {
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
     "reference/boundary_native.py": "f9d16e0fea57a9c8c1d274c798fa903bb3ebfe2c35943bdcff5f54ed5db2f9b7",
     "reference/native_exact.py": "f9c3b7b7132e5fb4463f94d577d18237c474e61d16d2357062d97ef776e6026d",
+    "reference/radical_v2.py": "e77eb1091b763567599d6c6e018972f89750f632c5c8ca88a81405d7f1cdc490",
     "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
     "wavefront/candidate_law.py": "d8a84854151b170cc3543ad53d4b0db2eeafb7587cc68e45500e6e4df36fd4c0",
     "wavefront/candidate_refusal.py": "b1ca2217abbfe87286ef49ca1bb17c5121e1889b94700bcbeed9cf4e2aada787",

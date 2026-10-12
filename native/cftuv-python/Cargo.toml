@@ -15,6 +15,7 @@ cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }
 cftuv-embedding = { path = "../cftuv-embedding" }
 cftuv-canon = { path = "../cftuv-canon" }
+cftuv-radical = { path = "../cftuv-radical" }
 cftuv-skeleton = { path = "../cftuv-skeleton" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 mimalloc = { version = "0.1", default-features = false }
