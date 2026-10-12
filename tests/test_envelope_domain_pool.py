@@ -64,6 +64,7 @@ from cftuv.envelope_queue_export import (  # noqa: E402
     POOL_TASK_FALLBACK,
     POOL_UNAVAILABLE,
     POOL_WALL_STAGE,
+    POOL_WORKER_AFFINITY,
     POOL_WORKERS,
     build_queue_scene,
     evaluate_envelope_queue_staged,
@@ -92,6 +93,7 @@ POOL_NAMES = (
     POOL_EXTERNAL_PYTHON,
     POOL_INTERPRETER_FALLBACK,
     POOL_INTERPRETER_REASON,
+    POOL_WORKER_AFFINITY,
     pool_module.INTERPRETER_MISMATCH,
     pool_module.INTERPRETER_UNUSABLE,
 )

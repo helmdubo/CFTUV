@@ -143,6 +143,8 @@ POOL_PYTHON_VERSION = "ENVELOPE_DOMAIN_POOL_PYTHON_VERSION"
 POOL_EXTERNAL_PYTHON = "ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON"
 POOL_INTERPRETER_FALLBACK = "ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK"
 POOL_INTERPRETER_REASON = "ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON"
+# Привязка воркеров к первым потокам физических ядер (POOL_WORKERS_ON_PRIMARY_THREADS_V1): код `envelope_pool_affinity.AFFINITY_*` (1 - маска поставлена, остальное - почему воркеры идут без неё).
+POOL_WORKER_AFFINITY = "ENVELOPE_DOMAIN_POOL_WORKER_AFFINITY"
 
 # Счётчик переполнения палитры. Девятый владелец получает слот первого, и это
 # должно быть видно числом: молчание здесь означало бы две разные огибающие
@@ -1582,6 +1584,7 @@ __all__ = (
     "POOL_UNAVAILABLE",
     "POOL_WALL_STAGE",
     "POOL_WORKERS",
+    "POOL_WORKER_AFFINITY",
     "QUEUE_ENCLOSURE_BITS",
     "QUEUE_LAYER_STYLES",
     "QUEUE_OWNER_COLORS",

@@ -85,6 +85,7 @@ from dataclasses import dataclass, replace
 
 from .envelope_gc_pause import gc_paused
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
+from .envelope_pool_affinity import AFFINITY_NOT_EVALUATED, apply_worker_affinity
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
@@ -331,6 +332,9 @@ class PoolStatsV1:
     tasks_to_owner: int = 0
     tasks_unowned: int = 0
     tasks_stolen: int = 0
+    #: HEAD_STREAMED_FIRST_ROUND_V1: прогон начал первый круг по отбору кандидатов (1), и сколько задач остатка тяжелее самой лёгкой задачи первого круга (0 - первый круг тот же, что дал бы полный порядок).
+    head_streamed: int = 0
+    head_misses: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +349,8 @@ class DomainPoolRunV1:
     workers: int
     interpreter: PoolInterpreterV1 | None = None
     stats: PoolStatsV1 | None = None
+    #: Код привязки воркеров к физическим ядрам (`envelope_pool_affinity.AFFINITY_*`): 1 - маска поставлена, иначе почему воркеры идут без неё.
+    affinity: int = AFFINITY_NOT_EVALUATED
 
 
 # --------------------------------------------------------------------------
@@ -369,11 +375,10 @@ def _read_exactly(stream, size: int) -> bytes:
     return b"".join(chunks)
 
 
-def read_frame_sized(stream):
-    """`(объект, длина кадра, CPU разбора, стена разбора)` либо `None` на чистом конце потока.
+def read_frame_bytes(stream) -> bytes | None:
+    """Полезная нагрузка следующего кадра (без разбора) либо `None` на чистом конце потока.
 
-    Обрыв посреди кадра — не конец, а `EOFError`: отличить «воркер закончил» от
-    «воркер умер на записи» иначе нечем. Разбор (`pickle.loads`) измерен отдельно от чтения трубы.
+    Обрыв посреди кадра - `EOFError` (см. `read_frame_sized`).
     """
 
     header = _read_exactly(stream, FRAME_HEADER.size)
@@ -385,9 +390,25 @@ def read_frame_sized(stream):
     payload = _read_exactly(stream, length)
     if len(payload) < length:
         raise EOFError(f"truncated frame: {len(payload)} of {length} bytes")
+    return payload
+
+
+def read_frame_sized(stream, between=None):
+    """`(объект, длина кадра, CPU разбора, стена разбора)` либо `None` на чистом конце потока.
+
+    Обрыв посреди кадра - не конец, а `EOFError`: отличить «воркер закончил» от
+    «воркер умер на записи» иначе нечем. Разбор (`pickle.loads`) измерен отдельно от чтения трубы. `between()` зовут, когда байты кадра
+    прочитаны, а разбор ещё не начат (EARLY_DISPATCH_BEFORE_UNPICKLE_V1): время вызова в разбор не входит.
+    """
+
+    payload = read_frame_bytes(stream)
+    if payload is None:
+        return None
+    if between is not None:
+        between()
     cpu, wall = time.thread_time(), time.perf_counter()
     value = pickle.loads(payload)
-    return value, length, time.thread_time() - cpu, time.perf_counter() - wall
+    return value, len(payload), time.thread_time() - cpu, time.perf_counter() - wall
 
 
 def read_frame(stream):
@@ -446,6 +467,25 @@ def plan_first_round(ordered, workers, last_worker) -> dict[int, int]:
             unmatched.append(position)
     plan.update(zip(free, unmatched))
     return plan
+
+
+#: HEAD_STREAMED_FIRST_ROUND_V1. Полный порядок (`order_by_cost`) кодирует кадр КАЖДОЙ задачи: на холодной `cover.008` 0.155 с, и все воркеры стоят без дела, пока он не кончится (первая отправка на 0.155 с прогона).
+#: Первый круг нужен только как `N` самых тяжёлых задач, и его можно отдать раньше: кандидатов (`HEAD_CANDIDATES_PER_WORKER * N` с наибольшим числом цепочек - число считается без кодирования, 0.4 мс на 1051 задачу)
+#: кодируют и упорядочивают точно, первые `N` из них уходят воркерам сразу (первая отправка на 0.016 с), а остаток упорядочивается, пока воркеры считают: стена пула холодной `cover.008` -0.09 с. Если точные `N` самых
+#: тяжёлых среди всех лежат среди кандидатов (на `cover.008` так: точная двенадцатка внутри первых двадцати четырёх по числу цепочек), порядок ВСЕХ задач тот же, что у полного. Иначе тяжёлая задача идёт чуть позже
+#: своего места, но в голове остатка: это порядок запуска, ответ он не меняет (`PoolStatsV1.head_misses` считает такие задачи). Только когда задач не меньше `STREAMED_HEAD_MIN_TASKS_PER_WORKER * N` (иначе порядок
+#: дёшев) и у каждой есть вход выгрузки (`export`): число цепочек есть только у него.
+HEAD_CANDIDATES_PER_WORKER = 2
+STREAMED_HEAD_MIN_TASKS_PER_WORKER = 8
+
+
+def split_first_round(tasks, workers: int):
+    """`(первый круг, остаток)`: первый круг - пары `(задача, кадр)` ровно `workers` самых тяжёлых среди кандидатов по числу цепочек (тяжёлые первыми); остаток - задачи без кадров, в порядке `tasks`."""
+
+    candidates = sorted(tasks, key=lambda task: (-len(task.export.host_chains), task.task_id))[: HEAD_CANDIDATES_PER_WORKER * workers]
+    head = order_by_cost(candidates)[:workers]
+    taken = {task.task_id for task, _frame in head}
+    return head, [task for task in tasks if task.task_id not in taken]
 
 
 def _frame_cost(task: DomainTaskV1, frame: bytes) -> float:
@@ -789,6 +829,8 @@ class _Worker:
         self.received_bytes = 0
         self.unpickle_cpu = 0.0
         self.unpickle_wall = 0.0
+        #: Зовётся потоком-читателем, когда байты КАЖДОГО ответа прочитаны, а разбор ещё не начат (`DomainPool._run_locked` ставит его на прогон и снимает): следующая задача уходит воркеру до разбора ответа.
+        self.on_reply_bytes = None
         self._stdout_closed = False
         self._inbox: queue.Queue = queue.Queue()
         self._stderr_tail: deque = deque(maxlen=STDERR_TAIL_LINES)
@@ -810,7 +852,7 @@ class _Worker:
     def _pump_frames(self) -> None:
         try:
             while True:
-                sized = read_frame_sized(self.process.stdout)
+                sized = read_frame_sized(self.process.stdout, self._reply_bytes_read)
                 if sized is None:
                     break
                 frame, length, cpu, wall = sized
@@ -822,6 +864,11 @@ class _Worker:
             self._inbox.put(_WorkerGone(f"{type(exc).__name__}: {exc}"))
         self._stdout_closed = True
         self._inbox.put(_GONE)
+
+    def _reply_bytes_read(self) -> None:
+        hook = self.on_reply_bytes
+        if hook is not None:
+            hook(self)
 
     def _pump_stderr(self) -> None:
         try:
@@ -951,6 +998,28 @@ def _checked_identity(host: dict, reply) -> dict:
     return reply[1]
 
 
+#: EARLY_DISPATCH_BEFORE_UNPICKLE_V1: следующая холодная задача уходит воркеру, как только прочитаны БАЙТЫ ответа на предыдущую, а не после его разбора (разбор ответа - 1.1 мс процессора родителя, 1.9 мс стены
+#: под GIL, и всё это время воркер стоял без задачи: зазор между задачами на холодной `cover.008` 3.2 -> 0.45 мс, стена пула -0.13 с). Выбор задачи, порядок очереди и число задач у воркера (одна в работе) те же;
+#: выключатель - для теста, что порядок всего видимого прежний.
+EARLY_DISPATCH = True
+
+#: HEAD_STREAMED_FIRST_ROUND_V1: выключатель отбора кандидатов первого круга (см. `split_first_round`); выключен - полный порядок до старта, как прежде.
+STREAMED_HEAD = True
+
+
+class _Lane:
+    """Задачи, ушедшие воркеру в этом прогоне и ещё не отвеченные (по порядку отправки), и сбой отправки вперёд; одно звено на воркера.
+
+    Поток-читатель дописывает задачу, ушедшую вперёд (`take_ahead`), ДО того, как положит в ящик ответ, после которого она ушла, - поэтому поток воркера, получив тот ответ, видит её здесь.
+    """
+
+    __slots__ = ("flying", "failure")
+
+    def __init__(self) -> None:
+        self.flying: deque = deque()
+        self.failure: str | None = None
+
+
 #: Свободный воркер берёт задачу, подготовку которой держит, вместо первой в очереди, только если первая не «крупная»: задача дороже
 #: `суммарная цена / (PULL_BIG_DIVISOR * воркеров)` идёт первой всегда (самая тяжёлая определяет длину прогона и не ждёт).
 PULL_BIG_DIVISOR = 4
@@ -979,24 +1048,66 @@ def _held_by(worker, task) -> bool:
 
 
 class _PendingTasks:
-    """Очередь невзятых задач, тяжёлые первыми; воркер предпочитает задачу, подготовку которой держит (меньше пересылок)."""
+    """Очередь невзятых задач, тяжёлые первыми; воркер предпочитает задачу, подготовку которой держит (меньше пересылок).
 
-    def __init__(self, items, big_cost: float) -> None:
-        self._items = list(items)
+    Очередь, которую наполняют позже (`fill`, HEAD_STREAMED_FIRST_ROUND_V1), держит воркеров на `take` до наполнения: первый круг уже считается, а остаток ещё упорядочивается.
+    """
+
+    def __init__(self, items=None, big_cost: float = 0.0) -> None:
+        self._items: list = []
         self._big = big_cost
         self._lock = threading.Lock()
+        self._warm = 0
+        self._ready = threading.Event()
+        if items is not None:
+            self.fill(items, big_cost)
+
+    def fill(self, items, big_cost: float) -> None:
+        with self._lock:
+            self._items = list(items)
+            self._big = big_cost
+            #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и вперёд ответа его делать нельзя.
+            self._warm = sum(1 for item in self._items if item[0].cold is None)
+        self._ready.set()
+
+    def release(self) -> None:
+        """Очередь, которую так и не наполнили, становится пустой: воркеры не ждут того, чего не будет."""
+
+        if not self._ready.is_set():
+            self.fill([], 0.0)
 
     def take(self, worker):
+        self._ready.wait()
         with self._lock:
             if not self._items:
                 return None
             head = self._items[0]
             if _frame_cost(*head) >= self._big or _held_by(worker, head[0]):
-                return self._items.pop(0)
+                return self._pop(0)
             for position, item in enumerate(self._items):
                 if _held_by(worker, item[0]):
-                    return self._items.pop(position)
-            return self._items.pop(0)
+                    return self._pop(position)
+            return self._pop(0)
+
+    def take_ahead(self):
+        """Первая задача очереди, если ВЫБОР не зависит от воркера и от его памяти, иначе `None`.
+
+        В очереди из одних холодных задач `take` отдаёт голову при любом воркере (холодная задача подготовку не держит и ничьей памяти не нужна), поэтому задачу можно выбрать, не дожидаясь
+        разбора ответа, который эту память пополняет (EARLY_DISPATCH_BEFORE_UNPICKLE_V1): выбранное то же, что выбрал бы `take` после разбора. Есть в очереди хоть одна не холодная - `None`, и выбирает `take`.
+        """
+
+        if not self._ready.is_set():
+            return None
+        with self._lock:
+            if self._warm or not self._items:
+                return None
+            return self._pop(0)
+
+    def _pop(self, position):
+        item = self._items.pop(position)
+        if item[0].cold is None:
+            self._warm -= 1
+        return item
 
 
 class _PoolCounter:
@@ -1004,7 +1115,7 @@ class _PoolCounter:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0, "owner": 0, "unowned": 0, "stolen": 0}
+        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0, "owner": 0, "unowned": 0, "stolen": 0, "head": 0, "head_misses": 0}
 
     def add(self, **amounts) -> None:
         with self._lock:
@@ -1025,6 +1136,8 @@ class _PoolCounter:
             values["owner"],
             values["unowned"],
             values["stolen"],
+            values["head"],
+            values["head_misses"],
         )
 
 
@@ -1042,14 +1155,20 @@ def _received(worker, reply, counted: _PoolCounter):
     return reply
 
 
-def _exchange(worker, task, frame: bytes, counted: _PoolCounter):
-    """Задача воркеру и его ответ: подготовка уходит ключом, если воркер её держит, и пиклом, если нет либо он её не нашёл."""
+def _exchange(worker, task, frame: bytes, counted: _PoolCounter, sent: bool = False):
+    """Задача воркеру и его ответ: подготовка уходит ключом, если воркер её держит, и пиклом, если нет либо он её не нашёл.
+
+    `sent` - задача уже ушла воркеру (`_Ahead`: вперёд разбора ответа на предыдущую): остаётся её ответ. Так уходят только холодные задачи, у которых блоба нет.
+    """
 
     inputs = _blob_input(task)
     if inputs is None:
-        worker.send(frame)
-        counted.add(sent=len(frame))
+        if not sent:
+            worker.send(frame)
+            counted.add(sent=len(frame))
         return _received(worker, worker.receive(), counted)
+    if sent:
+        raise RuntimeError("a task with a preparation blob cannot be sent ahead of the previous reply")
     key = inputs.key
     if key in worker.held:
         worker.held.touch(key)
@@ -1069,6 +1188,129 @@ def _exchange(worker, task, frame: bytes, counted: _PoolCounter):
     if isinstance(reply, DomainTaskResultV1) and (reply.error or reply.needs_blob):
         worker.held.discard(key)  # воркер мог её не запомнить: в следующий раз пикл уйдёт снова
     return reply
+
+
+class _Run:
+    """Один прогон `DomainPool`: звенья воркеров, очередь, ответы и счёт пересылок; потоки воркеров (`feed`) и потоки-читатели (`ahead`) работают с ним."""
+
+    def __init__(self, last_worker: dict, participants, tasks, cancel) -> None:
+        self.last_worker = last_worker  # `{ключ привязки: индекс воркера}` пула: поток воркера дописывает, кто считал задачу
+        self.participants = participants
+        self.cancel = cancel
+        self.indices = [item.index for item in participants]
+        self.owners = dict(last_worker)  # воркеры ПРОШЛЫХ прогонов: снимок, потоки воркеров дописывают новых по ходу
+        self.count = max(1, len(participants))
+        self.results: dict[int, DomainTaskResultV1] = {}
+        self.counted = _PoolCounter()
+        self.lanes = {item.index: _Lane() for item in participants}
+        self.streamed = (
+            STREAMED_HEAD
+            and len(tasks) >= STREAMED_HEAD_MIN_TASKS_PER_WORKER * self.count
+            and all(task.export is not None for task in tasks)
+        )
+        if self.streamed:
+            self.head, self.rest_tasks = split_first_round(tasks, self.count)
+            first = plan_first_round(self.head, self.indices, self.owners)
+            self.started = {worker: self.head[position] for worker, position in first.items()}
+            self.pending = _PendingTasks()
+        else:
+            ordered = order_by_cost(tasks)
+            first = plan_first_round(ordered, self.indices, self.owners)
+            self.started = {worker: ordered[position] for worker, position in first.items()}
+            taken = set(first.values())
+            self.pending = _PendingTasks(
+                [item for position, item in enumerate(ordered) if position not in taken],
+                sum(_frame_cost(*item) for item in ordered) / (PULL_BIG_DIVISOR * self.count),
+            )
+
+    def execute(self):
+        """Потоки воркеров считают, пока этот поток (при отборе кандидатов) упорядочивает остаток; `None` либо отказ упорядочения, который вызывающий бросает после прогона."""
+
+        threads = [threading.Thread(target=self.feed, args=(worker,), daemon=True) for worker in self.participants]
+        for worker in self.participants:
+            worker.on_reply_bytes = self.ahead if EARLY_DISPATCH else None
+        ordering_failure = None
+        try:
+            for thread in threads:
+                thread.start()
+            if self.streamed:
+                try:
+                    self._order_rest()
+                except Exception as exc:  # noqa: BLE001 - воркеры не должны висеть на очереди, которой не будет: наполняем пустой, прогон кончается, а отказ уходит вызывающему
+                    ordering_failure = exc
+                    self.pending.release()
+            for thread in threads:
+                thread.join()
+        finally:
+            self.pending.release()
+            for worker in self.participants:
+                worker.on_reply_bytes = None
+        return ordering_failure
+
+    def _order_rest(self) -> None:
+        rest = order_by_cost(self.rest_tasks)
+        lightest = min(_frame_cost(*item) for item in self.head)
+        self.counted.add(head=1, head_misses=sum(1 for item in rest if _frame_cost(*item) > lightest))
+        self.pending.fill(rest, sum(_frame_cost(*item) for item in (*self.head, *rest)) / (PULL_BIG_DIVISOR * self.count))
+
+    def ahead(self, worker: _Worker) -> None:
+        """Поток-читатель: байты ответа прочитаны, разбор впереди. Следующая холодная задача уходит воркеру сейчас (`_PendingTasks.take_ahead`)."""
+
+        lane = self.lanes[worker.index]
+        if worker.dead or lane.failure is not None or (self.cancel is not None and self.cancel.is_set()):
+            return
+        item = self.pending.take_ahead()
+        if item is None:
+            return
+        lane.flying.append(item)
+        try:
+            worker.send(item[1])
+        except _WorkerGone as exc:  # сбой отправки называет поток воркера: он ждёт ответа на эту задачу и получает отказ воркера
+            lane.failure = str(exc)
+            return
+        self.counted.add(sent=len(item[1]))
+
+    def lose(self, lane: _Lane, error: str) -> None:
+        """Каждая задача, ушедшая воркеру и не отвеченная, получает названный ответ с ошибкой: молча пропавшей задачи нет."""
+
+        while lane.flying:
+            lost = lane.flying.popleft()[0]
+            self.results[lost.task_id] = DomainTaskResultV1(lost.task_id, error=error)
+
+    def feed(self, worker: _Worker) -> None:
+        lane = self.lanes[worker.index]
+        first = self.started.get(worker.index)
+        while True:
+            late = not lane.flying  # задачи нет у воркера: берём и шлём; иначе её отправил поток-читатель (`ahead`), остаётся ответ
+            if late:
+                if self.cancel is not None and self.cancel.is_set():
+                    return
+                item = first if first is not None else self.pending.take(worker)
+                first = None
+                if item is None:
+                    return
+                lane.flying.append(item)
+            task, frame = lane.flying[0]
+            try:
+                if lane.failure is not None and not late:
+                    raise _WorkerGone(lane.failure)
+                reply = _exchange(worker, task, frame, self.counted, sent=not late)
+            except _WorkerGone as exc:
+                worker.dead = True
+                self.lose(lane, f"worker died: {exc}")
+                return
+            lane.flying.popleft()
+            if not isinstance(reply, DomainTaskResultV1) or reply.task_id != task.task_id:
+                worker.dead = True
+                self.results[task.task_id] = DomainTaskResultV1(task.task_id, error=f"protocol violation: {type(reply).__name__}")
+                self.lose(lane, f"worker died: protocol violation on the reply to task {task.task_id}")
+                return
+            self.results[task.task_id] = reply
+            if task.affinity:
+                owner = self.owners.get(task.affinity)
+                kind = "owner" if owner == worker.index else ("stolen" if owner in self.indices else "unowned")
+                self.counted.add(**{kind: 1})
+                self.last_worker[task.affinity] = worker.index
 
 
 class DomainPool:
@@ -1102,6 +1344,12 @@ class DomainPool:
         self._wanted = threading.Condition()
         #: `{ключ привязки задачи: индекс воркера, который её считал}`; индексы воркеров не переиспользуются.
         self._last_worker: dict[str, int] = {}
+        #: Код привязки воркеров к первым потокам физических ядер (POOL_WORKERS_ON_PRIMARY_THREADS_V1) по последнему старту воркеров.
+        self._affinity = AFFINITY_NOT_EVALUATED
+
+    @property
+    def affinity(self) -> int:
+        return self._affinity
 
     @property
     def worker_count(self) -> int:
@@ -1231,6 +1479,8 @@ class DomainPool:
             except OSError as exc:
                 failures.append(f"cannot start {python!r}: {exc}")
                 break
+        if started:
+            self._affinity = apply_worker_affinity([item.process.pid for item in started], self.requested)
         for position, worker in enumerate(started):
             try:
                 reply = worker.receive(timeout=READY_TIMEOUT_SECONDS)
@@ -1335,65 +1585,10 @@ class DomainPool:
 
     def _run_locked(self, tasks, cancel) -> DomainPoolRunV1:
         self.ensure_started()
-        ordered = order_by_cost(tasks)
         participants = list(self._workers)
-        indices = [item.index for item in participants]
-        owners = dict(self._last_worker)  # воркеры ПРОШЛЫХ прогонов: снимок, потоки воркеров дописывают новых по ходу
-        first = plan_first_round(ordered, indices, owners)
-        started = {worker: ordered[position] for worker, position in first.items()}
-        taken = set(first.values())
-        pending = _PendingTasks(
-            [item for position, item in enumerate(ordered) if position not in taken],
-            sum(_frame_cost(*item) for item in ordered) / (PULL_BIG_DIVISOR * max(1, len(participants))),
-        )
-        results: dict[int, DomainTaskResultV1] = {}
-        counted = _PoolCounter()
+        run = _Run(self._last_worker, participants, list(tasks), cancel)
         before = {worker.index: (worker.received_bytes, worker.unpickle_cpu, worker.unpickle_wall) for worker in participants}
-
-        def feed(worker: _Worker) -> None:
-            item = started.get(worker.index)
-            while True:
-                if cancel is not None and cancel.is_set():
-                    return
-                if item is None:
-                    item = pending.take(worker)
-                    if item is None:
-                        return
-                task, frame = item
-                item = None
-                try:
-                    reply = _exchange(worker, task, frame, counted)
-                except _WorkerGone as exc:
-                    worker.dead = True
-                    results[task.task_id] = DomainTaskResultV1(
-                        task.task_id, error=f"worker died: {exc}"
-                    )
-                    return
-                if (
-                    not isinstance(reply, DomainTaskResultV1)
-                    or reply.task_id != task.task_id
-                ):
-                    worker.dead = True
-                    results[task.task_id] = DomainTaskResultV1(
-                        task.task_id,
-                        error=f"protocol violation: {type(reply).__name__}",
-                    )
-                    return
-                results[task.task_id] = reply
-                if task.affinity:
-                    owner = owners.get(task.affinity)
-                    kind = "owner" if owner == worker.index else ("stolen" if owner in indices else "unowned")
-                    counted.add(**{kind: 1})
-                    self._last_worker[task.affinity] = worker.index
-
-        threads = [
-            threading.Thread(target=feed, args=(worker,), daemon=True)
-            for worker in participants
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+        ordering_failure = run.execute()
         for worker in participants:
             if worker.dead:
                 worker.close(grace=0.5)
@@ -1404,10 +1599,12 @@ class DomainPool:
             (worker.received_bytes - before[worker.index][0], worker.unpickle_cpu - before[worker.index][1], worker.unpickle_wall - before[worker.index][2])
             for worker in participants
         ]
-        stats = counted.stats(
+        stats = run.counted.stats(
             sum(item[0] for item in received), sum(item[1] for item in received), sum(item[2] for item in received)
         )
-        return DomainPoolRunV1(results, len(participants), self._interpreter, stats)
+        if ordering_failure is not None:
+            raise ordering_failure
+        return DomainPoolRunV1(run.results, len(participants), self._interpreter, stats, self._affinity)
 
     def close(self) -> None:
         workers, self._workers = self._workers, []
@@ -1511,6 +1708,7 @@ __all__ = (
     "resolve_python_executable",
     "shutdown_domain_pool",
     "solve_task",
+    "split_first_round",
     "warm_worker_identities",
     "worker_main",
     "write_frame",
