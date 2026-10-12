@@ -116,12 +116,27 @@ SNAP_EMBEDDING_FILES = ("_embedding.py",)
 #: whole: `effective_alpha_op._bind` checks the digest of those three functions when the classes bind (`NativePortStale` naming the function).
 EFFECTIVE_ALPHA_FILES = ("_cpython311.py", "float_filter.py", "reference/boundary_native.py", "reference/native_exact.py")
 
+#: `materialize.mesh.exact_mesh` and `mesh.canonical_triangles` (W1 of the MATERIALIZE chain): the exact mesh (`mesh.py`, pinned whole), the partition law (`convex_partition.py`), the
+#: tessellation predicates (`tessellate.py`), the node identity (`coalesce.point_key`, `lattice_node`), the refusal class (`frames.MaterializationRefusal`), the text of a station
+#: (`lift.enclosure_midpoint`, read by `mesh.decimal_of`) and the exact layer under all of them. `stations.py` (the run formulas `station_of`, `transverse_of`, `transverse_root`, the join tables)
+#: is shared with the table construction and is NOT pinned whole: `materialize_w1_op.bind` checks the digest of those functions.
+MATERIALIZE_W1_FILES = (
+    "materialize/mesh.py",
+    "materialize/convex_partition.py",
+    "materialize/tessellate.py",
+    "materialize/coalesce.py",
+    "materialize/frames.py",
+    "materialize/lift.py",
+    *FOUNDATION,
+)
+
 OPERATION_FILES = {
     "coverage": COVERAGE_FILES,
     "clip": CLIP_FILES,
     "skeleton": SKELETON_FILES,
     "snap_embedding": SNAP_EMBEDDING_FILES,
     "effective_alpha": EFFECTIVE_ALPHA_FILES,
+    "materialize_w1": MATERIALIZE_W1_FILES,
 }
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
@@ -138,8 +153,10 @@ PINS: dict = {
     "materialize/clip_snap.py": "1f8997b3dfd6df0585475b6bb6cfcbf110888e6099da8b3120d18b6dcebe1374",
     "materialize/coalesce.py": "6a3f21b7ff98750686ad4fb6c6c14aa550068c8c8d44dd216efc4cfb21669c25",
     "materialize/frames.py": "99aff370cd9090bb700915d624da0ad2f17ac9bd36348d30b4c5f92c49bfd1f7",
+    "materialize/convex_partition.py": "ce5bb255d58c9d61e53590b44759755f81faed0d131302e04f91816a55d34e19",
     "materialize/lift.py": "ed91b42e5d6149d30469501922f8d7abfa65168d98043eccb3bdd2a87a78412b",
     "materialize/lift_surface.py": "5100062401a28741a5d501779fe6832e3c65a4f4401b393c7f4068e4b9b47da5",
+    "materialize/mesh.py": "34ebb2ac5b631d2da2151b1dcf4b7c8aa28d12b3d873115861d789e55695ea4b",
     "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",

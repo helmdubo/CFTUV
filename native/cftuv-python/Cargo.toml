@@ -14,6 +14,7 @@ cftuv-alpha = { path = "../cftuv-alpha" }
 cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }
 cftuv-embedding = { path = "../cftuv-embedding" }
+cftuv-mesh = { path = "../cftuv-mesh" }
 cftuv-canon = { path = "../cftuv-canon" }
 cftuv-skeleton = { path = "../cftuv-skeleton" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
