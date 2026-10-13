@@ -548,3 +548,70 @@ fn neighbour_faces(snapshot: &Snapshot<'_>, patch_ids: &Set) -> Check<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(s: u32) -> Id {
+        Id::new(Kind::Patch, s)
+    }
+
+    #[test]
+    fn two_element_sets_compare_as_python_sets_do() {
+        assert!(same_pair(id(1), id(2), id(2), id(1)));
+        assert!(same_pair(id(1), id(2), id(1), id(2)));
+        assert!(same_pair(id(3), id(3), id(3), id(3)), "{{a}} == {{a}} when both pairs are degenerate");
+        assert!(!same_pair(id(1), id(1), id(1), id(2)), "{{a}} has one element, {{a, b}} two");
+        assert!(!same_pair(id(1), id(2), id(1), id(1)));
+        assert!(!same_pair(id(1), id(2), id(3), id(4)));
+    }
+
+    #[test]
+    fn unique_and_require_are_issues_never_silent() {
+        let items = [id(1), id(2), id(2)];
+        assert_eq!(unique(&items, |item| *item, "duplicate").unwrap_err().reason, Reason::Issue);
+        let distinct = [id(1), id(2), id(3)];
+        let set = unique(&distinct, |item| *item, "duplicate").unwrap();
+        assert_eq!(set.len(), 3);
+        assert!(require([id(1), id(3)].into_iter(), &set, "missing").is_ok());
+        assert_eq!(require([id(1), id(9)].into_iter(), &set, "missing").unwrap_err().reason, Reason::Issue);
+        assert!(require(std::iter::empty(), &set, "missing").is_ok());
+    }
+
+    #[test]
+    fn the_right_copy_of_a_cut_vertex_names_its_source_vertex_only_when_that_vertex_exists() {
+        use crate::model::{Snapshot, Surface};
+        let strings: Vec<&[u8]> = vec![b"v1", b"v1|cut:R", b"w9|cut:R", b"plain"];
+        let snapshot = Snapshot {
+            strings,
+            schema: 0,
+            revision: Id::new(Kind::SourceRevision, 0),
+            capabilities: 0,
+            patches: Vec::new(),
+            domains: Vec::new(),
+            metrics: Vec::new(),
+            surface: Surface { schema: 0, revision: Id::new(Kind::SourceRevision, 0), full: true, vertex_ids: Vec::new(), edges: Vec::new(), faces: Vec::new(), triangles: Vec::new() },
+            vertices: Vec::new(),
+            chains: Vec::new(),
+            uses: Vec::new(),
+            loops: Vec::new(),
+            constraints: Vec::new(),
+            sectors: Vec::new(),
+            certificates: Vec::new(),
+            corners: Vec::new(),
+            junctions: Vec::new(),
+            terminals: Vec::new(),
+            neighbours: Vec::new(),
+        };
+        let vertex = |s| Id::new(Kind::SourceVertex, s);
+        assert_eq!(source_vertex_of_chart_vertex(&snapshot, vertex(3)), Some(vertex(3)), "a plain vertex is itself");
+        assert_eq!(source_vertex_of_chart_vertex(&snapshot, vertex(1)), Some(vertex(0)), "`v1|cut:R` is the copy of `v1`");
+        assert_eq!(source_vertex_of_chart_vertex(&snapshot, vertex(2)), None, "the copy of a vertex that is not a string of the snapshot");
+        // an empty snapshot with a wrong schema is declined by the first check, as the oracle reports it
+        let context = Context { scope: crate::verdict::Scope::Analysis, native_exact: true, decimal_precision: 28, analysis_schema: b"cftuv.envelope.analysis_snapshot.v1".to_vec() };
+        let declined = analysis(&snapshot, &context).unwrap_err();
+        assert_eq!(declined.reason, Reason::Issue);
+        assert!(declined.detail.contains("schema"));
+    }
+}

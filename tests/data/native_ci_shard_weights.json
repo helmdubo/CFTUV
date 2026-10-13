@@ -24,6 +24,7 @@
   "test_native_skeleton_parts.py": 22.1,
   "test_native_skeleton_whole.py": 42.9,
   "test_native_slots.py": 3.4,
+  "test_native_snapshot_check.py": 25.0,
   "test_native_snap_embedding.py": 26.5
  }
 }

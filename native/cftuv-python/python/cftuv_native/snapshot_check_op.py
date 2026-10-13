@@ -246,6 +246,13 @@ def snapshot_check(core, snapshot, scope: int = SCOPE_ANALYSIS_AND_REFERENCE) ->
     raise pin.NativePortUnsupported(f"snapshot_check declined: {REASONS.get(answer[1], answer[1])}: {answer[2]}")
 
 
+def raw_layouts(core) -> dict:
+    """`{class: raw slot layout confirmed}` of the reader bound to the live kernel (the CI step of the slot modes reads it)."""
+
+    pin.require(OPERATION)
+    return dict(_handle(core).raw_layouts())
+
+
 def last_timings() -> tuple:
     """`(read ns, check ns)` of the last call: reading the Python graph into the model, and the check on the model (zeros before the first call)."""
 

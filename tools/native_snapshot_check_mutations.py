@@ -349,10 +349,8 @@ def targeted_mutants(root, rng: random.Random):
         other_role = next((m for m in type(terminal.endpoint_role) if m is not terminal.endpoint_role and m.name in ("START", "END")), None)
         if other_role is not None:
             yield "TERMINAL_RELATION: role vs chain end", rebuild(root, terminal, "endpoint_role", other_role)
-    junction = pick("JunctionRelationV1")
-    if junction is not None:
-        yield "ROUTE_TOPOLOGY: kind vs variant", rebuild(root, junction, "relation_kind", next(m for m in type(junction.relation_kind) if m is not junction.relation_kind))
-        yield "ROUTE_TOPOLOGY: incident uses", rebuild(root, junction, "incident_chain_use_ids", junction.incident_chain_use_ids[:-1])
+    for junction in by_class.get("JunctionRelationV1", [])[:6]:
+        yield from junction_mutants(root, junction, by_class)
     metric = first("RationalAffinePlanarMetricV2")
     if metric is not None:
         gram = metric.exact_gram_matrix
@@ -396,45 +394,372 @@ def _zero_vector(root, vector, zero):
 
 
 # --------------------------------------------------------------------------
+# маршруты (junction), граница решения угла, прямой угол
+# --------------------------------------------------------------------------
+
+
+def junction_mutants(root, junction, by_class: dict):
+    """Мутанты одного `JunctionRelationV1`: каждое условие ROUTE_TOPOLOGY, DUPLICATE_ID маршрутной пары и ссылок."""
+
+    kinds = type(junction.relation_kind)
+    topology = junction.route_topology
+    name = junction.relation_kind.name
+    for other in kinds:
+        if other is not junction.relation_kind:
+            yield f"ROUTE_TOPOLOGY: {name} -> {other.name}", rebuild(root, junction, "relation_kind", other)
+    uses = junction.incident_chain_use_ids
+    if len(uses) > 1:
+        yield f"ROUTE_TOPOLOGY: {name} incident use dropped", rebuild(root, junction, "incident_chain_use_ids", uses[:-1])
+    yield f"ROUTE_TOPOLOGY: {name} incident use added (not covered by the topology)", rebuild(root, junction, "incident_chain_use_ids", uses + (type(uses[0])("mut-extra-use"),))
+    yield f"MISSING_REFERENCE: {name} incident use", rebuild(root, junction, "incident_chain_use_ids", (type(uses[0])("none"),) + uses[1:])
+    yield f"MISSING_REFERENCE: {name} source vertex", rebuild(root, junction, "source_vertex_id", type(junction.source_vertex_id)("none"))
+    other_use = next((item for item in by_class.get("ChainUseV1", []) if item.chain_use_id not in uses), None)
+    unavailable = by_class.get("UnavailableJunctionRouteTopologyV1", [])
+    sample = unavailable[0] if unavailable else None
+    if sample is None:
+        reason = next(iter(kernel.JunctionRouteTopologyUnavailableReason))
+        sample = kernel.UnavailableJunctionRouteTopologyV1(reason)
+    yield f"ROUTE_TOPOLOGY: {name} topology unavailable on a full surface", rebuild(root, junction, "route_topology", sample)
+    pairs = [node for node in nodes_of(topology) if type(node).__name__ == "JunctionRoutePairV1"]
+    for pair in pairs[:2]:
+        yield f"ROUTE_TOPOLOGY: {name} pair endpoints equal", rebuild(root, pair, "second_chain_use_id", pair.first_chain_use_id)
+        yield f"DUPLICATE_ID: {name} pairing id reused", rebuild(root, pair, "route_pairing_id", type(pair.route_pairing_id)("mut-reused"))
+        if other_use is not None:
+            yield f"ROUTE_TOPOLOGY: {name} pair outside the incident uses", rebuild(root, pair, "second_chain_use_id", other_use.chain_use_id)
+    if len(pairs) > 1:
+        yield f"DUPLICATE_ID: {name} two pairs one id", rebuild(root, pairs[1], "route_pairing_id", pairs[0].route_pairing_id)
+    if type(topology).__name__ == "TJunctionRouteTopologyV1":
+        yield "ROUTE_TOPOLOGY: T branch use removed", rebuild(root, topology, "branch_chain_use_ids", frozenset())
+    if type(topology).__name__ == "YJunctionRouteTopologyV1":
+        yield "ROUTE_TOPOLOGY: Y trunk elsewhere", rebuild(root, topology, "trunk_chain_use_id", type(topology.trunk_chain_use_id)("none"))
+        yield "ROUTE_TOPOLOGY: Y branches reversed", rebuild(root, topology, "ordered_branch_chain_use_ids", topology.ordered_branch_chain_use_ids[::-1])
+
+
+def with_junctions(snapshot):
+    """Тот же снапшот с `JunctionRelationV1` всех пяти видов, собранными верно, или `None` (мало цепей).
+
+    Хост их не пишет (ни одной на 1053 доменах cover.008), а ветка ROUTE_TOPOLOGY порта без них осталась бы без единой проверки на настоящем графе.
+    """
+
+    uses = sorted(snapshot.chain_uses, key=lambda item: str(item.chain_use_id))
+    vertices = sorted(snapshot.source_vertices, key=lambda item: str(item.vertex_id))
+    if len(uses) < 3 or not vertices:
+        return None
+    law = next(iter(kernel.StationContinuityLaw))
+    kinds = kernel.JunctionRelationKind
+    serial = iter(range(1 << 20))
+    made = []
+
+    def pair(first, second):
+        return kernel.JunctionRoutePairV1(kernel.RoutePairingId(f"mut-pair-{next(serial)}"), first.chain_use_id, second.chain_use_id, law)
+
+    def junction(index, kind, members, topology):
+        made.append(kernel.JunctionRelationV1(kernel.JunctionRelationId(f"mut-junction-{index}"), vertices[index % len(vertices)].vertex_id, tuple(use.chain_use_id for use in members), kind, topology, kernel.SharedSemanticAnchorId(f"mut-anchor-{index}")))
+
+    def pick(count, shift):
+        return tuple(uses[(shift + index) % len(uses)] for index in range(count))
+
+    a = pick(3, 0)
+    junction(0, kinds.T, a, kernel.TJunctionRouteTopologyV1(pair(a[0], a[1]), frozenset({a[2].chain_use_id})))
+    if len(uses) >= 4:
+        b = pick(4, 1)
+        junction(1, kinds.X, b, kernel.XJunctionRouteTopologyV1(frozenset({pair(b[0], b[1]), pair(b[2], b[3])})))
+    c = pick(3, 2)
+    junction(2, kinds.Y, c, kernel.YJunctionRouteTopologyV1(c[0].chain_use_id, (c[1].chain_use_id, c[2].chain_use_id), frozenset({pair(c[0], c[1])}), law))
+    d = pick(2, 0)
+    junction(3, kinds.CROSS_PATCH, d, kernel.DeclaredRoutePairsTopologyV1(frozenset({pair(d[0], d[1])})))
+    e = pick(2, 1)
+    junction(4, kinds.MIXED_ALPHA, e, kernel.DeclaredRoutePairsTopologyV1(frozenset({pair(e[0], e[1])})))
+    return rebuild(snapshot, snapshot, "junction_relations", frozenset(made))
+
+
+def decimal_context(**options):
+    import decimal
+
+    return decimal.localcontext(decimal.Context(**options))
+
+
+def is_right_angle(measure) -> bool:
+    phi = measure.phi_over_pi
+    return Decimal("1.4999") < phi.lower <= Decimal("1.5") <= phi.upper < Decimal("1.5001")
+
+
+def boundary_mutants(root, rng: random.Random, limit: int = 3):
+    """Мутанты у самой границы решения угла: концы интервалов `phi/pi` и `delta` сдвинуты на 10^-k (k от 3 до 40, в обе стороны), тип конца открыт<->закрыт.
+
+    Это путь, где порт решает ТОЧНО (угол 270: интервал `[1.5, 1.5]` и поворот ровно k + 1/2) и где граница между «внутри» и «снаружи» - один знак после запятой в 28-й цифре.
+    """
+
+    measures = [node for node in nodes_of(root) if type(node).__name__ == "CertifiedReflexAngleMeasureV1"]
+    right = [item for item in measures if is_right_angle(item)]
+    chosen = rng.sample(right, min(limit, len(right))) + rng.sample([item for item in measures if item not in right], min(1, len(measures) - len(right)))
+    for measure in chosen:
+        tag = "270" if is_right_angle(measure) else "reflex"
+        for which in ("phi_over_pi", "reflex_excess_over_pi"):
+            interval = getattr(measure, which)
+            for end in ("lower", "upper"):
+                value = getattr(interval, end)
+                for digits in (3, 12, 20, 26, 27, 28, 29, 40):
+                    for sign in (1, -1):
+                        with decimal_context(prec=200):
+                            shifted = value + Decimal(sign) * Decimal(1).scaleb(-digits)
+                        yield f"BOUNDARY: {tag} {which}.{end} {'+' if sign > 0 else '-'}1e-{digits}", rebuild(root, interval, end, shifted)
+            for end in ("lower_kind", "upper_kind"):
+                kind = getattr(interval, end)
+                for other in type(kind):
+                    if other is not kind:
+                        yield f"BOUNDARY: {tag} {which}.{end} {other.name}", rebuild(root, interval, end, other)
+
+
+def right_angle_mutants(root, rng: random.Random, limit: int = 3):
+    """Мутанты геометрии у угла 270: опоры сдвинуты на 10^-k, вектор развёрнут, опоры поменяны местами, длины нерациональные."""
+
+    sectors = [node for node in nodes_of(root) if type(node).__name__ == "OrientedOwnerSectorV1"]
+    measures = {id(node): node for node in nodes_of(root) if type(node).__name__ == "CertifiedReflexAngleMeasureV1" and is_right_angle(node)}
+    certificates = {node.owner_sector_id: node for node in nodes_of(root) if type(node).__name__ == "ReflexAngleCertificateV1" and id(node.measure_payload) in measures}
+    candidates = [sector for sector in sectors if sector.owner_sector_id in certificates and type(sector.incoming_support_ref.direction_payload).__name__ == "CertifiedAffineSupportDirectionV2"]
+    for sector in rng.sample(candidates, min(limit, len(candidates))):
+        for side in ("incoming_support_ref", "outgoing_support_ref"):
+            vector = getattr(sector, side).direction_payload.direction_in_domain
+            for axis in ("x", "y"):
+                sample = getattr(vector, axis)
+                number = Fraction(sample.numerator, sample.denominator)
+                for digits in (1, 3, 9, 30):
+                    for sign in (1, -1):
+                        moved = number + Fraction(sign, 10**digits)
+                        yield f"RIGHT_ANGLE: {side}.{axis} {'+' if sign > 0 else '-'}1e-{digits}", rebuild(root, vector, axis, rational(sample, moved.numerator, moved.denominator))
+                for label, replacement in (("negated", -number), ("doubled", number * 2), ("zero", Fraction(0)), ("one", Fraction(1))):
+                    yield f"RIGHT_ANGLE: {side}.{axis} {label}", rebuild(root, vector, axis, rational(sample, replacement.numerator, replacement.denominator))
+        yield "RIGHT_ANGLE: supports swapped", rebuild(rebuild(root, sector, "incoming_support_ref", sector.outgoing_support_ref), sector, "outgoing_support_ref", sector.incoming_support_ref)
+        direction = sector.incoming_support_ref.direction_payload
+        incoming = direction.direction_in_domain
+        for first in ((1, 1), (1, 0), (3, 4), (2, 0), (1, 2), (-1, 1), (5, 12)):
+            fresh = object.__new__(type(incoming))
+            object.__setattr__(fresh, "x", rational(incoming.x, first[0], 1))
+            object.__setattr__(fresh, "y", rational(incoming.y, first[1], 1))
+            yield f"RIGHT_ANGLE: incoming set to {first} (outgoing as is)", rebuild(root, direction, "direction_in_domain", fresh)
+
+
+# --------------------------------------------------------------------------
+# корпус и зерно
+# --------------------------------------------------------------------------
+
+SEED_SCHEMA = "cftuv.native.snapshot-check.seed.v1"
+
+
+def corpus_snapshots(directory, name: str = "") -> list:
+    """`[(метка, снапшот, допуск)]` задач корпуса записи (`tools/native_snapshot_check_corpus.py`): снапшот, как его строит `task_inputs` под эталоном."""
+
+    import contextlib
+    import io
+
+    import native_snapshot_check_corpus as corpus
+
+    corpus.install_host_stubs()
+    from cftuv.envelope_export_input import TaskInputsV1, task_inputs
+    from cftuv.envelope_kernel_backend import entered_backend
+
+    found = []
+    with contextlib.redirect_stdout(io.StringIO()):
+        for path in corpus.corpus_files(directory, name):
+            for case, task in corpus.read_tasks(path):
+                with entered_backend("PYTHON"):
+                    inputs = task_inputs(dataclasses.replace(task, cold=None))
+                if isinstance(inputs, TaskInputsV1):
+                    found.append((f"{case}:{task.domain_id}", inputs.snapshot, task.export.developable_stretch_budget))
+    return found
+
+
+def seed_category(native, snapshot) -> tuple:
+    """`(категория, число записей)` снапшота для выборки зерна: ответ порта и то, что в снапшоте есть."""
+
+    nodes = nodes_of(snapshot)
+    measures = [node for node in nodes if type(node).__name__ == "CertifiedReflexAngleMeasureV1"]
+    answer, why = native_answer(native, snapshot, SCOPE_BOTH)
+    if answer is None:
+        return "declined " + (why or "")[:90], len(nodes)
+    if any(is_right_angle(node) for node in measures):
+        return "right-angle", len(nodes)
+    return ("reflex" if measures else "convex"), len(nodes)
+
+
+def select_seed(native, items: list, quotas: dict | None = None, per_case: int = 2) -> list:
+    """Зерно: самые МАЛЕНЬКИЕ снапшоты каждой категории (угол 270, иной рефлекс, выпуклый, каждая причина отказа порта), не больше `per_case` с одного случая."""
+
+    quotas = quotas or {"right-angle": 6, "reflex": 3, "convex": 3, "declined": 2}
+    rows = sorted(((seed_category(native, snapshot), label, snapshot, budget) for label, snapshot, budget in items), key=lambda row: (row[0][1], row[1]))
+    taken: Counter = Counter()
+    per_label: Counter = Counter()
+    chosen = []
+    for (category, size), label, snapshot, budget in rows:
+        group = "declined" if category.startswith("declined") else category
+        case = label.split(":")[0]
+        if taken[category] >= quotas.get(group, 0) or per_label[(category, case)] >= per_case:
+            continue
+        if group == "declined" and taken[category] == 0 and sum(1 for name in taken if name.startswith("declined")) >= 6:
+            continue
+        taken[category] += 1
+        per_label[(category, case)] += 1
+        chosen.append((f"{label} [{category}, {size} records]", snapshot, budget))
+    return chosen
+
+
+def write_seed(path, items: list) -> None:
+    """Зерно: канонические байты снапшотов (`AnalysisSnapshotCodecV1`) и допуски; читается без пикла, поэтому переживает перемену классов ядра."""
+
+    import lzma
+    import pickle
+
+    rows = [{"label": label, "bytes": kernel.AnalysisSnapshotCodecV1.dumps(snapshot), "budget": None if budget is None else (Fraction(budget).numerator, Fraction(budget).denominator)} for label, snapshot, budget in items]
+    with lzma.open(path, "wb", preset=9) as handle:
+        pickle.dump({"schema": SEED_SCHEMA, "rows": rows}, handle, protocol=4)
+
+
+def read_seed(path) -> list:
+    """`[(метка, снапшот, допуск)]` зерна."""
+
+    import lzma
+    import pickle
+
+    with lzma.open(path, "rb") as handle:
+        document = pickle.load(handle)  # noqa: S301 - файл самого репозитория, строки и байты
+    assert document["schema"] == SEED_SCHEMA, document["schema"]
+    return [(row["label"], kernel.AnalysisSnapshotCodecV1.loads(row["bytes"]), None if row["budget"] is None else Fraction(*row["budget"])) for row in document["rows"]]
+
+
+# --------------------------------------------------------------------------
 # сводка
 # --------------------------------------------------------------------------
 
 
-def run(native, snapshots, budget, per_snapshot: int, seed: int, quiet: bool = False) -> dict:
-    """Все мутанты снапшотов; `{mutants, refused, attested, declined, violations, codes, ...}`."""
+def _record(summary: dict, kind: str, label: str, verdict: dict, export, found: list) -> None:
+    clean = export_clean(verdict)
+    summary["mutants"] += 1
+    summary["python_refuses" if not clean else "python_clean"] += 1
+    row = summary["by_kind"].setdefault(kind, Counter())
+    row["mutants"] += 1
+    row["python_refuses" if not clean else "python_clean"] += 1
+    if kind == "targeted":
+        summary["targeted"][label.split(":")[0]] += 1
+    for code in verdict["export_issues"] + verdict["request_issues"]:
+        summary["codes"][code] += 1
+    for outcome in verdict["diagnostics"]:
+        summary["diagnostics"][outcome] += 1
+    if verdict["export_exception"] or verdict["request_exception"]:
+        summary["exceptions"][(verdict["export_exception"] or verdict["request_exception"]).split(":")[0]] += 1
+    if export[0] is not None:
+        summary["native_attests"] += 1
+        row["native_attests"] += 1
+    elif clean:
+        summary["native_declines_clean"] += 1
+        row["native_declines_clean"] += 1
+        summary["decline_reasons"][(export[1] or "")[:90]] += 1
+    else:
+        summary["native_declines_refused"] += 1
+    if found:
+        summary["violations"].append((kind, label, found))
+
+
+def run(native, snapshots, budget, per_snapshot: int, seed: int, quiet: bool = False, junctions: bool = False, boundary: bool = False) -> dict:
+    """Все мутанты снапшотов; `{mutants, refused, attested, declined, violations, codes, ...}`.
+
+    Элемент `snapshots` - снапшот (допуск `budget`) либо пара `(снапшот, допуск)`. `junctions`: каждый снапшот идёт и в варианте с маршрутами всех видов (их хост не пишет);
+    `boundary`: добавляются мутанты у границы решения угла и у прямого угла.
+    """
 
     rng = random.Random(seed)
     summary = {"originals": 0, "originals_attested": 0, "mutants": 0, "python_refuses": 0, "python_clean": 0, "native_attests": 0, "native_declines_clean": 0, "native_declines_refused": 0,
-               "violations": [], "codes": Counter(), "diagnostics": Counter(), "exceptions": Counter(), "targeted": Counter(), "decline_reasons": Counter(), "seconds": 0.0}
+               "violations": [], "codes": Counter(), "diagnostics": Counter(), "exceptions": Counter(), "targeted": Counter(), "decline_reasons": Counter(), "by_kind": {}, "right_angle_corners": 0,
+               "junction_variants": 0, "seconds": 0.0}
     started = time.perf_counter()
-    for snapshot in snapshots:
-        found, verdict, (export, request) = violations_of(native, snapshot, budget)
-        summary["originals"] += 1
-        summary["originals_attested"] += export[0] is not None
-        if found or not export_clean(verdict):
-            summary["violations"].append(("original", found or verdict))
-        for kind, generator in (("field", field_mutants(snapshot, rng, per_snapshot)), ("targeted", targeted_mutants(snapshot, rng))):
-            for label, mutant in generator:
-                found, verdict, (export, request) = violations_of(native, mutant, budget)
-                summary["mutants"] += 1
-                clean = export_clean(verdict)
-                summary["python_refuses" if not clean else "python_clean"] += 1
-                if kind == "targeted":
-                    summary["targeted"][label.split(":")[0]] += 1
-                for code in verdict["export_issues"] + verdict["request_issues"]:
-                    summary["codes"][code] += 1
-                for outcome in verdict["diagnostics"]:
-                    summary["diagnostics"][outcome] += 1
-                if verdict["export_exception"] or verdict["request_exception"]:
-                    summary["exceptions"][(verdict["export_exception"] or verdict["request_exception"]).split(":")[0]] += 1
-                if export[0] is not None:
-                    summary["native_attests"] += 1
-                elif clean:
-                    summary["native_declines_clean"] += 1
-                    summary["decline_reasons"][(export[1] or "")[:90]] += 1
-                else:
-                    summary["native_declines_refused"] += 1
-                if found:
-                    summary["violations"].append((kind, label, found))
+    for item in snapshots:
+        snapshot, limit = item if isinstance(item, tuple) else (item, budget)
+        variants = [("", snapshot)]
+        if junctions:
+            enriched = with_junctions(snapshot)
+            if enriched is not None:
+                variants.append(("junctions ", enriched))
+                summary["junction_variants"] += 1
+        for prefix, root in variants:
+            found, verdict, (export, request) = violations_of(native, root, limit)
+            summary["originals"] += 1
+            summary["originals_attested"] += export[0] is not None
+            summary["right_angle_corners"] += sum(1 for node in nodes_of(root) if type(node).__name__ == "CertifiedReflexAngleMeasureV1" and is_right_angle(node))
+            if found or not export_clean(verdict):
+                summary["violations"].append((prefix + "original", found or verdict))
+            generators = [("field", field_mutants(root, rng, per_snapshot)), ("targeted", targeted_mutants(root, rng))]
+            if boundary:
+                generators += [("boundary", boundary_mutants(root, rng)), ("right-angle", right_angle_mutants(root, rng))]
+            for kind, generator in generators:
+                for label, mutant in generator:
+                    found, verdict, (export, request) = violations_of(native, mutant, limit)
+                    _record(summary, prefix + kind, label, verdict, export, found)
     summary["seconds"] = time.perf_counter() - started
     return summary
+
+
+def describe(summary: dict) -> str:
+    lines = [f"{key}: {summary[key]}" for key in ("originals", "originals_attested", "junction_variants", "right_angle_corners", "mutants", "python_refuses", "python_clean", "native_attests", "native_declines_clean", "native_declines_refused")]
+    lines.append(f"seconds: {summary['seconds']:.1f}")
+    for kind, row in sorted(summary["by_kind"].items()):
+        lines.append(f"  {kind:22s} {dict(row)}")
+    lines.append(f"codes: {dict(summary['codes'])}")
+    lines.append(f"diagnostics: {dict(summary['diagnostics'])}")
+    lines.append(f"exceptions: {dict(summary['exceptions'])}")
+    lines.append(f"decline reasons (Python-clean mutants): {summary['decline_reasons'].most_common(5)}")
+    lines.append(f"VIOLATIONS: {len(summary['violations'])}")
+    lines.extend(f"  {str(item)[:700]}" for item in summary["violations"][:10])
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description="Мутации снапшота против валидаторов Python и порта snapshot_check")
+    parser.add_argument("directory", help="каталог корпуса (`*.tasks.xz`) либо файл зерна (`*.xz`)")
+    parser.add_argument("--name", default="", help="часть имени файла случая")
+    parser.add_argument("--sample", type=int, default=40, help="сколько снапшотов взять (случайно, с --select)")
+    parser.add_argument("--select", choices=("any", "reflex", "right-angle"), default="any", help="`right-angle`: только снапшоты с углом 270")
+    parser.add_argument("--per", type=int, default=60, help="полевых мутантов на снапшот")
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--junctions", action="store_true")
+    parser.add_argument("--boundary", action="store_true")
+    parser.add_argument("--max-nodes", type=int, default=0, help="не брать снапшоты крупнее (0 - любые)")
+    parser.add_argument("--write-seed", default="", help="не гонять мутанты, а записать зерно (самые маленькие снапшоты каждой категории) в этот файл")
+    arguments = parser.parse_args(argv)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cftuv_native
+
+    path = Path(arguments.directory)
+    items = read_seed(path) if path.is_file() else corpus_snapshots(path, arguments.name)
+    rng = random.Random(arguments.seed)
+    if arguments.write_seed:
+        chosen = select_seed(cftuv_native, items)
+        write_seed(arguments.write_seed, chosen)
+        for label, snapshot, budget in chosen:
+            print(f"  {label}  budget {budget}")
+        print(f"seed: {len(chosen)} snapshots, {Path(arguments.write_seed).stat().st_size} bytes")
+        return 0
+
+    def keep(snapshot) -> bool:
+        nodes = nodes_of(snapshot)
+        if arguments.max_nodes and len(nodes) > arguments.max_nodes:
+            return False
+        measures = [node for node in nodes if type(node).__name__ == "CertifiedReflexAngleMeasureV1"]
+        if arguments.select == "reflex":
+            return bool(measures)
+        if arguments.select == "right-angle":
+            return any(is_right_angle(node) for node in measures)
+        return True
+
+    pool = [(snapshot, budget) for _label, snapshot, budget in items if keep(snapshot)]
+    chosen = rng.sample(pool, min(arguments.sample, len(pool)))
+    print(f"{len(items)} snapshots, {len(pool)} selected, {len(chosen)} sampled (select {arguments.select})", flush=True)
+    summary = run(cftuv_native, chosen, Fraction(7, 20), arguments.per, arguments.seed, junctions=arguments.junctions, boundary=arguments.boundary)
+    print(describe(summary))
+    return 1 if summary["violations"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

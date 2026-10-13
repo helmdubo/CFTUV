@@ -48,3 +48,91 @@ pub fn check_measure(phi: &Interval, delta: &Interval, context: &Context) -> Che
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::decimal::parse;
+    use crate::model::Endpoint::{Closed, Open};
+    use crate::verdict::Scope;
+
+    fn dec(text: &str) -> Dec {
+        parse(text).unwrap()
+    }
+
+    fn interval(lower: &str, upper: &str, lower_kind: Endpoint, upper_kind: Endpoint) -> Interval {
+        Interval { lower: dec(lower), upper: dec(upper), lower_kind, upper_kind }
+    }
+
+    fn context(precision: u32) -> Context {
+        Context { scope: Scope::Analysis, native_exact: true, decimal_precision: precision, analysis_schema: Vec::new() }
+    }
+
+    #[test]
+    fn the_exact_270_degree_corner_is_inside_with_closed_ends() {
+        let phi = interval("1.5", "1.5", Closed, Closed);
+        let delta = interval("0.5", "0.5", Closed, Closed);
+        assert!(check_measure(&phi, &delta, &context(28)).is_ok());
+        // trailing zeros are the same number
+        let wide = interval("1.50", "1.500", Closed, Closed);
+        assert!(check_measure(&wide, &delta, &context(28)).is_ok());
+    }
+
+    #[test]
+    fn the_bounds_of_the_strict_range_are_open_only() {
+        for (lower, lower_kind, upper, upper_kind, inside) in [
+            ("1", Closed, "1.5", Closed, false),
+            ("1", Open, "1.5", Closed, true),
+            ("1.5", Closed, "2", Closed, false),
+            ("1.5", Closed, "2", Open, true),
+            ("0.9", Closed, "1.5", Closed, false),
+            ("1.5", Closed, "2.1", Closed, false),
+        ] {
+            let phi = interval(lower, upper, lower_kind, upper_kind);
+            let lower_delta = decimal_minus_one(lower);
+            let upper_delta = decimal_minus_one(upper);
+            let delta = interval(&lower_delta, &upper_delta, lower_kind, upper_kind);
+            let verdict = check_measure(&phi, &delta, &context(28));
+            assert_eq!(verdict.is_ok(), inside, "{lower}..{upper}: {verdict:?}");
+            if !inside {
+                assert_eq!(verdict.unwrap_err().reason, Reason::Issue);
+            }
+        }
+    }
+
+    fn decimal_minus_one(text: &str) -> String {
+        let value = dec(text);
+        let reduced = minus_one_exact(&value, 28).unwrap();
+        format!("{}E{}", reduced.coefficient, reduced.exponent)
+    }
+
+    #[test]
+    fn the_excess_must_be_phi_minus_one_end_by_end_with_the_same_kinds() {
+        let phi = interval("1.25", "1.75", Closed, Open);
+        assert!(check_measure(&phi, &interval("0.25", "0.75", Closed, Open), &context(28)).is_ok());
+        for delta in [
+            interval("0.26", "0.75", Closed, Open),
+            interval("0.25", "0.76", Closed, Open),
+            interval("0.25", "0.75", Open, Open),
+            interval("0.25", "0.75", Closed, Closed),
+        ] {
+            assert_eq!(check_measure(&phi, &delta, &context(28)).unwrap_err().reason, Reason::Issue);
+        }
+    }
+
+    #[test]
+    fn a_difference_the_context_would_round_is_a_named_mode_decline_never_a_verdict() {
+        // 1.5000000000000000000000000001 has 29 digits: `phi - 1` needs 28 digits for 0.5000000000000000000000000001, which fits; 29 digits of phi after the point do not
+        let phi = interval("1.50000000000000000000000000001", "1.7", Closed, Closed);
+        let delta = interval("0.50000000000000000000000000001", "0.7", Closed, Closed);
+        let verdict = check_measure(&phi, &delta, &context(28));
+        assert_eq!(verdict.unwrap_err().reason, Reason::Mode);
+        // the same numbers in a context wide enough to hold them are compared exactly
+        assert!(check_measure(&phi, &delta, &context(60)).is_ok());
+        // and a context narrower than the usual digits of the bounds declines too
+        let plain = interval("1.2345678", "1.3", Closed, Closed);
+        let plain_delta = interval("0.2345678", "0.3", Closed, Closed);
+        assert_eq!(check_measure(&plain, &plain_delta, &context(3)).unwrap_err().reason, Reason::Mode);
+        assert!(check_measure(&plain, &plain_delta, &context(28)).is_ok());
+    }
+}

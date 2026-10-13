@@ -97,6 +97,7 @@ __all__ = (
     "slot_counters",
     "slot_mode",
     "snapshot_check",
+    "snapshot_check_raw_layouts",
     "squarefree_split",
     "tree_digest",
 )
@@ -288,6 +289,12 @@ def snapshot_check(snapshot, scope=snapshot_check_op.SCOPE_ANALYSIS_AND_REFERENC
     """
 
     return snapshot_check_op.snapshot_check(_core, snapshot, scope)
+
+
+def snapshot_check_raw_layouts() -> dict:
+    """`{class name: True when the raw slot reader confirmed that class's layout}` of the `snapshot_check` reader (all True under `auto`/`raw`, all False under `attr`; see `CFTUV_NATIVE_SLOTS`)."""
+
+    return snapshot_check_op.raw_layouts(_core)
 
 
 def last_snapshot_check_timings() -> tuple:

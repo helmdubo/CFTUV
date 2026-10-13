@@ -68,6 +68,7 @@ _shard_spec.loader.exec_module(shard_tests)
         ("tests/data/native_effective_alpha_kernel_suite.recs.xz", True),
         ("tests/data/native_materialize_w1_kernel_suite.recs.xz", True),
         ("tests/data/native_radical_v2_ops.recs.xz", True),
+        ("tests/data/native_snapshot_check_seed.xz", True),
         ("tests/data/native_ci_shard_weights.json", True),
         ("kernel/tools/shard_tests.py", True),
         ("kernel/tools/shard_weights.json", False),
@@ -95,7 +96,7 @@ def test_the_path_set_is_exactly_the_filter_the_workflow_used_to_carry():
     assert changes.NATIVE_PATHS == (
         "native/**", "tools/native_*.py", "tests/test_native_*.py", "tests/native_gate.py", "tests/conftest.py", "tests/test_architecture.py",
         "tests/data/native_embedding_kernel_suite.recs.xz", "tests/data/native_effective_alpha_kernel_suite.recs.xz", "tests/data/native_materialize_w1_kernel_suite.recs.xz",
-        "tests/data/native_radical_v2_ops.recs.xz",
+        "tests/data/native_radical_v2_ops.recs.xz", "tests/data/native_snapshot_check_seed.xz",
         "tests/data/native_ci_shard_weights.json", "kernel/tools/shard_tests.py",
         "kernel/src/cftuv_envelope/**", "kernel/tests/**", "kernel/pyproject.toml", "pytest.ini", ".github/workflows/native.yml",
     )
@@ -423,6 +424,7 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     assert '"snap_embedding": "available"' in available["run"]
     assert '"effective_alpha": "available"' in available["run"]
     assert '"materialize_w1": "available"' in available["run"]
+    assert '"snapshot_check": "available"' in available["run"] and "snapshot_check_raw_layouts" in available["run"], "the reader of the snapshot validators reports its slot layouts in every leg"
     assert '"radical_v2": "available"' in available["run"], "the capability of the RadicalSumV2 mirror is reported available in every leg"
 
 
@@ -498,6 +500,29 @@ def test_radical_v2_seed_synthetic_and_vector_checks_are_mandatory_in_the_strict
     assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
     default = next(node.value.args[0].args[1].value for node in ast.walk(module) if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SYNTHETIC")
     assert default == strict["env"]["CFTUV_RADICAL_V2_SYNTHETIC"], "the default of the test is the value the workflow pins"
+
+
+def test_snapshot_check_seed_and_mutants_are_mandatory_in_the_strict_matrix_and_its_corpora_are_the_field_tier():
+    # the tracked seed, the soundness mutants, the strictness of the reader, the slot modes and the dispatcher run in every strict leg: no marker that CI deselects, no data outside the repository
+    module = ast.parse((ROOT / "tests" / "test_native_snapshot_check.py").read_text(encoding="utf8"))
+    required = {
+        "test_the_seed_shows_every_outcome_the_port_has_to_get_right",
+        "test_the_native_answer_is_sound_and_its_counters_equal_the_validators_on_every_row_of_the_seed",
+        "test_the_270_degree_corners_of_the_seed_are_decided_natively_with_the_counters_of_the_validators",
+        "test_no_mutant_of_the_seed_is_attested_that_the_validators_do_not_pass",
+        "test_a_value_that_is_not_exactly_the_class_of_its_field_is_declined_by_name",
+        "test_the_port_declines_when_the_process_is_not_in_the_state_it_mirrors",
+        "test_the_slot_modes_give_the_same_answer",
+        "test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_a_verdict",
+    }
+    found = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in required}
+    assert set(found) == required
+    gated = {name for name, node in found.items() if any("native_field" in ast.unparse(item) or "needs_field" in ast.unparse(item) for item in node.decorator_list)}
+    assert not gated, f"{sorted(gated)} would be deselected in CI"
+    seed = ROOT / "tests" / "data" / "native_snapshot_check_seed.xz"
+    assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
+    field = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "test_the_native_stage_equals_the_validators_on_the_field_corpora")
+    assert any("needs_field" in ast.unparse(item) for item in field.decorator_list), "the owner's corpora are the field tier"
 
 
 # --------------------------------------------------------------------------
