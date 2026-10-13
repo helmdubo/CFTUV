@@ -7,8 +7,9 @@ import sys
 import pytest
 import sympy as sp
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+from kernel_test_paths import KERNEL_ROOT
+
+sys.path.insert(0, str(KERNEL_ROOT / "tools"))
 from density_owned_laws_v1_diff import _PreparedImporter
 from cftuv_envelope.reference.density_angle_v1 import AngleAtomV1, FractionIntervalV1
 from cftuv_envelope.reference.density_angle_value_v1 import AngleValueError, AngleValueErrorCode, AngleValueRegistryV1

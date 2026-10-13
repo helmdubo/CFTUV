@@ -20,7 +20,9 @@ from cftuv_envelope.reference import density_sign
 from cftuv_envelope.reference.metric import ExactPlanarMetric
 
 
-SOURCE = Path(__file__).resolve().parents[1] / "src/cftuv_envelope/reference"
+from kernel_test_paths import PACKAGE_ROOT
+
+SOURCE = PACKAGE_ROOT / "reference"
 EXTRACTED = (
     ("angular", "density_sign", "bf95e9ed15f7c6b2b82f4d10eb89d2487a18e9fc0d7f65431a1707d27f1393ed"),
     ("angular", "density_vectors", "1086442cfec68def808c266efcc1033532da017ba7ef074cb2fd0d84c4ee137f"),

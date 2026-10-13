@@ -281,7 +281,8 @@ def test_actual_compile_refusal_keeps_band_attempt_and_fallback_events(monkeypat
 
 def _actual_compile_diff():
     import sys
-    tools = str(Path(__file__).resolve().parents[2] / "tools")
+    from kernel_test_paths import KERNEL_ROOT
+    tools = str(KERNEL_ROOT / "tools")
     if tools not in sys.path:
         sys.path.insert(0, tools)
     import density_shell_compile_diff

@@ -5,8 +5,9 @@ import sys
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+from kernel_test_paths import KERNEL_ROOT
+
+sys.path.insert(0, str(KERNEL_ROOT / "tools"))
 import density_inverse_reachability as research
 from cftuv_envelope.reference.density_scalar_v2 import ScalarV2
 
