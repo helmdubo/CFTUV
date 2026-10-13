@@ -164,6 +164,14 @@ struct Common {
 /// The smallest and the largest int that is shared.
 const COMMON_INTS: std::ops::RangeInclusive<i64> = -1..=255;
 
+/// The longest string and the most strings that are shared.
+const SHARED_STR_BYTES: usize = 32;
+const SHARED_STRS: usize = 256;
+
+thread_local! {
+    static STRS: RefCell<std::collections::HashMap<Box<str>, Val, cftuv_canon::fxhash::FxBuild>> = RefCell::new(std::collections::HashMap::default());
+}
+
 thread_local! {
     static COMMON: Common = Common {
         none: Val::new(Kind::None),
@@ -319,7 +327,23 @@ impl Val {
     #[cfg_attr(feature = "profile", track_caller)]
     pub fn str(text: &str) -> Val {
         assert!(text.is_ascii(), "a non-ASCII string has no byte-exact repr in the port: {text:?}");
-        Val::new(Kind::Str(Rc::from(text)))
+        if text.len() > SHARED_STR_BYTES {
+            return Val::new(Kind::Str(Rc::from(text)));
+        }
+        // the names and tags of the planning layer (`EXISTING`, `BIRTH`, `CONTACT`, ...) are a few dozen texts that every key holds again and again: one node each per thread, as
+        // the small ints are
+        let found = STRS.with(|table| table.borrow().get(text).cloned());
+        if let Some(found) = found {
+            return found;
+        }
+        let made = Val::new(Kind::Str(Rc::from(text)));
+        STRS.with(|table| {
+            let mut table = table.borrow_mut();
+            if table.len() < SHARED_STRS {
+                table.insert(Box::from(text), made.clone());
+            }
+        });
+        made
     }
 
     #[cfg_attr(feature = "profile", track_caller)]
