@@ -20,7 +20,7 @@ use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
 use cftuv_skeleton::builder::BuilderOptions;
 use cftuv_skeleton::polygon::{FanSupport, Loop, Polygon, VertexFan};
-use cftuv_skeleton::profile::{reset, reset_stats, take, take_stats, PHASES, STATS};
+use cftuv_skeleton::profile::{reset, reset_stats, take, take_sites, take_stats, PHASES, STATS};
 use cftuv_skeleton::skeleton::Skeleton;
 use cftuv_skeleton::time::EventTime;
 use cftuv_skeleton::transaction::build_skeleton;
@@ -474,6 +474,7 @@ fn main() {
     let mut cycles_total = 0u64;
     let mut profile_total: Vec<u64> = vec![0; PHASES.len()];
     let mut stats_total: Vec<u64> = vec![0; STATS.len()];
+    let mut sites_total: std::collections::HashMap<String, u64> = Default::default();
     #[cfg(windows)]
     let sampling = sample.then(|| sampler::Sampler::start(1000));
     for call in &calls {
@@ -488,6 +489,7 @@ fn main() {
         let mut nodes = 0usize;
         let mut profile: Vec<u64> = Vec::new();
         let mut stats: Vec<u64> = Vec::new();
+        let mut sites: Vec<(String, u64)> = Vec::new();
         for _ in 0..repeat {
             let mut session = Session::new();
             let mut run = CostRun::begin_parts(&mut session, None, Some(call.cap), Some([0; 6])).expect("a cold run");
@@ -517,7 +519,11 @@ fn main() {
                 best = seconds;
                 profile = take();
                 stats = take_stats();
+                sites = take_sites();
             }
+        }
+        for (site, count) in sites {
+            *sites_total.entry(site).or_default() += count;
         }
         for (slot, value) in stats_total.iter_mut().zip(&stats) {
             *slot += value;
@@ -550,6 +556,14 @@ fn main() {
         println!("counters (summed over the calls):");
         for ((label, _), value) in STATS.iter().zip(&stats_total) {
             println!("    {label:48} {value:12}");
+        }
+    }
+    if !sites_total.is_empty() {
+        let mut rows: Vec<(&String, &u64)> = sites_total.iter().collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(*row.1));
+        println!("values made, by the line that asked for them:");
+        for (site, count) in rows.into_iter().take(30) {
+            println!("    {site:48} {count:10}");
         }
     }
     let phases: u64 = profile_total.iter().sum();

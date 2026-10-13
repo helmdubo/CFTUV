@@ -233,8 +233,11 @@ fn type_name(kind: &Kind) -> &'static str {
 }
 
 impl Val {
+    #[cfg_attr(feature = "profile", track_caller)]
     fn new(kind: Kind) -> Val {
         crate::profile::count(crate::profile::Stat::ValNew, 1);
+        #[cfg(feature = "profile")]
+        crate::profile::count_site(std::panic::Location::caller());
         #[cfg(feature = "profile")]
         crate::profile::count(
             match &kind {
@@ -262,6 +265,7 @@ impl Val {
         COMMON.with(|common| if flag { common.yes.clone() } else { common.no.clone() })
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn int(number: i64) -> Val {
         if COMMON_INTS.contains(&number) {
             return COMMON.with(|common| common.ints[(number + 1) as usize].clone());
@@ -269,6 +273,7 @@ impl Val {
         Val::new(Kind::Int(IBig::from(number)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn big(number: IBig) -> Val {
         match i64::try_from(&number) {
             Ok(small) => Val::int(small),
@@ -277,42 +282,51 @@ impl Val {
     }
 
     /// A string; the repr of a character outside ASCII depends on the Unicode database, and the kernel's texts are ASCII.
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn str(text: &str) -> Val {
         assert!(text.is_ascii(), "a non-ASCII string has no byte-exact repr in the port: {text:?}");
         Val::new(Kind::Str(Rc::from(text)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn frac(number: Rat) -> Val {
         Val::new(Kind::Frac(number))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn tuple(items: Vec<Val>) -> Val {
         Val::new(Kind::Tuple(Items::from_vec(items)))
     }
 
     /// A tuple of the items of an array: up to four are kept in the node, no vector is made.
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn tuple_of<const N: usize>(items: [Val; N]) -> Val {
         Val::new(Kind::Tuple(Items::from_array(items)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn list(items: Vec<Val>) -> Val {
         Val::new(Kind::List(Items::from_vec(items)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn data(name: impl Into<Name>, fields: Vec<(&'static str, Val)>) -> Val {
         Val::new(Kind::Data(name.into(), fields.into_iter().map(|(field, item)| (Cow::Borrowed(field), item)).collect()))
     }
 
     /// A dataclass instance with owned names (the decoder of the wire).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn data_named(name: String, fields: Vec<(String, Val)>) -> Val {
         Val::new(Kind::Data(Cow::Owned(name), fields.into_iter().map(|(field, item)| (Cow::Owned(field), item)).collect()))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn member(class: impl Into<Name>, member: impl Into<Name>, value: Val) -> Val {
         Val::new(Kind::Member(class.into(), member.into(), value))
     }
 
     /// A `set` (`frozen == false`) or `frozenset` of the items: equal items once (the first kept), in the canonical order of their `repr`.
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn set(items: Vec<Val>, frozen: bool) -> Val {
         if items.len() <= 1 {
             return Val::new(Kind::Set(items, frozen));
@@ -329,6 +343,7 @@ impl Val {
     }
 
     /// A `dict` of the pairs in insertion order (the keys are the caller's to keep unique).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn dict(pairs: Vec<(Val, Val)>) -> Val {
         Val::new(Kind::Dict(pairs))
     }
@@ -342,11 +357,13 @@ impl Val {
     }
 
     /// A tuple of ints (an edge key `(x0, y0, x1, y1)` or `(x, y, x, y, ordinal)`, a ray, a list of vertex ids).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn ints(items: &[i64]) -> Val {
         Val::tuple(items.iter().map(|item| Val::int(*item)).collect())
     }
 
     /// `((radicand, coefficient), ...)`: the `terms` of a sum as the oracle's keys hold them (a coefficient is a `Fraction`, an `int` where the sum kept one).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn terms_of(sum: &SqrtSum) -> Val {
         crate::profile::count(crate::profile::Stat::TermsOf, 1);
         Val::tuple(
@@ -855,17 +872,63 @@ pub fn identity_order_val(value: &Val) -> Val {
     Val::tuple_of([Val::int(0), value.clone()])
 }
 
-/// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is
-/// the oracle's `TypeError`.
-pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
-    if items.len() < 2 {
-        return Ok(items.to_vec());
+/// `py_eq(identity_order_val(a), identity_order_val(b))` without making either key: `None` is equal to `None` alone, two tuples are equal by their items in this sense, and
+/// anything else is equal by [`py_eq`].
+fn identity_eq(a: &Val, b: &Val) -> bool {
+    if a.same(b) {
+        return true;
     }
-    let keys: Vec<Val> = items.iter().map(&key).collect();
+    match (a.is_none(), b.is_none()) {
+        (true, true) => return true,
+        (true, false) | (false, true) => return false,
+        (false, false) => {}
+    }
+    match (&a.0.kind, &b.0.kind) {
+        (Kind::Tuple(first), Kind::Tuple(second)) => first.len() == second.len() && first.iter().zip(second).all(|(x, y)| identity_eq(x, y)),
+        (Kind::Tuple(_), _) | (_, Kind::Tuple(_)) => false,
+        _ => py_eq(a, b),
+    }
+}
+
+/// `py_compare(identity_order_val(a), identity_order_val(b))` without making either key (the sort of births makes a tree of a thousand values for each key to compare a few of
+/// them): a `None` is after any other value of its slot, two tuples go by the first item that is not equal in this sense, a tuple and anything else that is not `None` have no
+/// order (the pair the oracle's `TypeError` names is the tuple of the keys of the items and the value), and two other values go by [`py_less`].
+fn identity_compare(a: &Val, b: &Val) -> Result<Ordering, UnorderedPair> {
+    match (a.is_none(), b.is_none()) {
+        (true, true) => return Ok(Ordering::Equal),
+        (true, false) => return Ok(Ordering::Greater),
+        (false, true) => return Ok(Ordering::Less),
+        (false, false) => {}
+    }
+    match (&a.0.kind, &b.0.kind) {
+        (Kind::Tuple(first), Kind::Tuple(second)) => {
+            for (x, y) in first.iter().zip(second) {
+                if !identity_eq(x, y) {
+                    return Ok(if identity_compare(x, y)? == Ordering::Less { Ordering::Less } else { Ordering::Greater });
+                }
+            }
+            Ok(first.len().cmp(&second.len()))
+        }
+        (Kind::Tuple(_), other) => Err(UnorderedPair { left: "tuple", right: type_name(other) }),
+        (other, Kind::Tuple(_)) => Err(UnorderedPair { left: type_name(other), right: "tuple" }),
+        _ => {
+            if py_eq(a, b) {
+                Ok(Ordering::Equal)
+            } else if py_less(a, b)? {
+                Ok(Ordering::Less)
+            } else {
+                Ok(Ordering::Greater)
+            }
+        }
+    }
+}
+
+/// `sorted(items, key=key)` with CPython 3.11's sequence of comparisons over the keys, `less` the `<` of two of them.
+fn sorted_by_less<T: Clone>(items: &[T], keys: &[Val], less: impl Fn(&Val, &Val) -> Result<bool, UnorderedPair>) -> Result<Vec<T>, UnorderedPair> {
     let mut failure: Option<UnorderedPair> = None;
     let order = {
         let mut less = |left: &usize, right: &usize| -> cftuv_clip::error::ClipResult<bool> {
-            match py_less(&keys[*left], &keys[*right]) {
+            match less(&keys[*left], &keys[*right]) {
                 Ok(answer) => Ok(answer),
                 Err(error) => {
                     failure = Some(error);
@@ -881,9 +944,34 @@ pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<V
     }
 }
 
+/// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is
+/// the oracle's `TypeError`.
+pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
+    if items.len() < 2 {
+        return Ok(items.to_vec());
+    }
+    let keys: Vec<Val> = items.iter().map(&key).collect();
+    sorted_by_less(items, &keys, py_less)
+}
+
 /// [`sorted_by_val`] with the refusal of the port in place of the pair.
 pub fn sorted_by_val_or_refuse<T: Clone>(items: &[T], key: impl Fn(&T) -> Val, site: &str) -> SkelResult<Vec<T>> {
     sorted_by_val(items, key).map_err(|pair| pair.refusal(site))
+}
+
+/// `sorted(items, key=exact_identity.identity_order_key)`: [`sorted_by_val`] over the keys that [`identity_order_val`] makes of the given ones, the same comparisons with the same
+/// answers (and the same unordered pair where the oracle raises) and none of those keys built.
+pub fn sorted_by_identity_order<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
+    if items.len() < 2 {
+        return Ok(items.to_vec());
+    }
+    let keys: Vec<Val> = items.iter().map(&key).collect();
+    sorted_by_less(items, &keys, |left, right| Ok(identity_compare(left, right)? == Ordering::Less))
+}
+
+/// [`sorted_by_identity_order`] with the refusal of the port in place of the pair.
+pub fn sorted_by_identity_order_or_refuse<T: Clone>(items: &[T], key: impl Fn(&T) -> Val, site: &str) -> SkelResult<Vec<T>> {
+    sorted_by_identity_order(items, key).map_err(|pair| pair.refusal(site))
 }
 
 /// `items.sort(key=repr)` in place, the key of each made once: [`sorted_by_repr`] on the vector itself.
@@ -1050,6 +1138,59 @@ mod tests {
         let mut by_text: Vec<usize> = (0..values.len()).collect();
         by_text.sort_by(|a, b| reference[*a].repr().as_bytes().cmp(reference[*b].repr().as_bytes()));
         assert_eq!(order, by_text);
+    }
+
+    /// A key of the shape of an identity key: nested tuples of ints, strings, fractions, `None`, lists and now and then a set.
+    fn identity_sample(seed: &mut u64, depth: u32) -> Val {
+        match next(seed, if depth == 0 { 5 } else { 8 }) {
+            0 => Val::none(),
+            1 => Val::int(next(seed, 4) as i64),
+            2 => Val::frac(Rat::new(IBig::from(next(seed, 7) as i64), IBig::from(next(seed, 3) as i64 + 1)).unwrap()),
+            3 => Val::str(["a", "b"][next(seed, 2) as usize]),
+            4 => Val::boolean(next(seed, 2) == 0),
+            5 | 6 => {
+                let count = next(seed, 4);
+                Val::tuple((0..count).map(|_| identity_sample(seed, depth - 1)).collect())
+            }
+            _ => {
+                if next(seed, 3) == 0 {
+                    Val::set(vec![Val::int(next(seed, 3) as i64)], true)
+                } else {
+                    let count = next(seed, 3);
+                    Val::list((0..count).map(|_| identity_sample(seed, depth - 1)).collect())
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_identity_order_compares_as_the_keys_it_would_make_do() {
+        let mut seed = 0x1de7_u64;
+        let (mut sorted_ok, mut refused) = (0, 0);
+        for round in 0..400 {
+            let count = 2 + (round % 7);
+            let items: Vec<Val> = (0..count).map(|_| identity_sample(&mut seed, 3)).collect();
+            let by_keys = sorted_by_val(&items, identity_order_val);
+            let direct = sorted_by_identity_order(&items, Val::clone);
+            match (&by_keys, &direct) {
+                (Ok(first), Ok(second)) => {
+                    sorted_ok += 1;
+                    assert_eq!(first.len(), second.len());
+                    assert!(first.iter().zip(second).all(|(a, b)| a.same(b)), "the same order for {items:?}");
+                }
+                (Err(first), Err(second)) => {
+                    refused += 1;
+                    assert_eq!(first, second, "the same pair for {items:?}");
+                }
+                _ => panic!("one refuses and the other does not: {items:?}"),
+            }
+            // and the answer of one comparison, both ways
+            for pair in items.windows(2) {
+                let (keys, direct) = (py_less(&identity_order_val(&pair[0]), &identity_order_val(&pair[1])), identity_compare(&pair[0], &pair[1]).map(|order| order == Ordering::Less));
+                assert_eq!(keys, direct, "{:?} < {:?}", pair[0], pair[1]);
+            }
+        }
+        assert!(sorted_ok > 20 && refused > 20, "{sorted_ok} sorted, {refused} refused");
     }
 
     #[test]

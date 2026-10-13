@@ -24,7 +24,7 @@ use crate::error::{SkelError, SkelResult};
 use crate::germ::{absorbed_by_locus, locus_ends, GermLedger};
 use crate::proof::EdgeKey;
 use crate::pyset::PySet;
-use crate::pyval::{identity_order_val, repr_cmp, sort_by_repr_key, sorted_by_repr, sorted_by_val_or_refuse, Val};
+use crate::pyval::{repr_cmp, sort_by_repr_key, sorted_by_identity_order_or_refuse, sorted_by_repr, Val};
 use crate::queue::{CandidateEvent, EventKind};
 use crate::snapshot::{exact_point_key, Incident, IncidentSortKey, Snapshot, VertexSnapshot};
 use crate::time::{EventPoint, EventTime, PointRef, TimeRef};
@@ -179,18 +179,19 @@ pub fn birth(
 
 /// THE order of births: the oracle sorts them by `item.order_key` (`superlevel.BoundaryBirthV1.order_key`, `exact_identity.identity_order_key`: the slots in order, a `None` end of an
 /// occurrence (a vertex without a place BY the law) AFTER any value of the same slot, the order of keys without a `None` the plain one), never by the bare key, whose `<` between a
-/// `None` and a point key is a `TypeError` (oracle commits 3da8cdd, d6b2c49). The one place the port mirrors it is this function and [`port_order_key`].
+/// `None` and a point key is a `TypeError` (oracle commits 3da8cdd, d6b2c49). The one place the port mirrors it is [`crate::pyval::sorted_by_identity_order`], which is given the
+/// bare keys (the key of a birth, the key of a final port) and compares them as the order keys compare, without making those.
 pub fn birth_order_key(item: &BoundaryBirth) -> Val {
-    identity_order_val(&item.key)
+    item.key.clone()
 }
 
-/// The order of the final birth ports `(birth key, keep prev, keep next)`: the oracle sorts them with `key=identity_order_key` (see [`birth_order_key`]).
+/// The key of a final birth port `(birth key, keep prev, keep next)` for the same order (see [`birth_order_key`]).
 pub fn port_order_key(key: &Val, keep_prev: bool, keep_next: bool) -> Val {
-    identity_order_val(&Val::tuple_of([key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]))
+    Val::tuple_of([key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)])
 }
 
 pub fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<BoundaryBirth>> {
-    sorted_by_val_or_refuse(births, birth_order_key, site)
+    sorted_by_identity_order_or_refuse(births, birth_order_key, site)
 }
 
 // --------------------------------------------------------------------------
