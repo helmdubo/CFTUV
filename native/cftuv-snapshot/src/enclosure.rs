@@ -50,7 +50,7 @@ fn pi_fixed() -> &'static IBig {
             let mut k = 0u32;
             while power != IBig::ZERO {
                 let term = &power / IBig::from(2 * k + 1);
-                if k % 2 == 0 {
+                if k.is_multiple_of(2) {
                     sum += term;
                 } else {
                     sum -= term;
@@ -166,7 +166,7 @@ mod tests {
         let denominator = UBig::from(10u8).pow(27);
         let (low, high) = cos_pi_enclosure(&numerator, &denominator);
         let value = to_f64(&low.add(&high).mul(&rat(1, 2)));
-        let expected = (std::f64::consts::PI * 0.110405986615677725844280220).cos();
+        let expected = (std::f64::consts::PI * 0.11040598661567773).cos();
         assert!((value - expected).abs() < 1e-15, "{value} {expected}");
         // the same argument shifted by 2 is the same cosine, shifted by 1 the negative
         let shifted = &numerator + IBig::from(2) * IBig::from(denominator.clone());

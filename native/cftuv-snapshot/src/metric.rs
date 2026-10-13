@@ -178,12 +178,12 @@ pub fn against_source(snapshot: &Snapshot, metric: &Affine) -> Check<()> {
     for (id, coordinate) in &metric.coordinates {
         let Some(position) = positions.get(id) else { continue };
         let mut node: Vec<Rat> = Vec::with_capacity(3);
-        for axis in 0..3 {
-            node.push(node_coordinate(position[axis], metric)?.expect("a node"));
+        for &value in position {
+            node.push(node_coordinate(value, metric)?.expect("a node"));
         }
-        for axis in 0..3 {
+        for (axis, expected) in node.iter().enumerate() {
             let reconstructed = metric.origin[axis].add(&coordinate[0].mul(&metric.basis_a[axis])).add(&coordinate[1].mul(&metric.basis_b[axis]));
-            if reconstructed != node[axis] {
+            if reconstructed != *expected {
                 return issue("exact affine reconstruction disagrees with the source position the declared laws produce");
             }
         }
