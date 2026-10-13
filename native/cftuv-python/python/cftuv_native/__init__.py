@@ -98,6 +98,7 @@ __all__ = (
     "slot_mode",
     "snapshot_check",
     "snapshot_check_raw_layouts",
+    "warm_snapshot_check",
     "squarefree_split",
     "tree_digest",
 )
@@ -289,6 +290,12 @@ def snapshot_check(snapshot, scope=snapshot_check_op.SCOPE_ANALYSIS_AND_REFERENC
     """
 
     return snapshot_check_op.snapshot_check(_core, snapshot, scope)
+
+
+def warm_snapshot_check() -> bool:
+    """Binds the `snapshot_check` reader to the live kernel ahead of the first domain (see `snapshot_check_op.warm`); `True` when bound."""
+
+    return snapshot_check_op.warm(_core)
 
 
 def snapshot_check_raw_layouts() -> dict:

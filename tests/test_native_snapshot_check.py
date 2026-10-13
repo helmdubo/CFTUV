@@ -364,6 +364,30 @@ def test_the_ordered_stage_computes_natively_and_leaves_the_counters_of_the_vali
     CHECKED["dispatcher"] += 3
 
 
+def test_the_reader_can_be_bound_before_the_first_domain_and_a_moved_oracle_does_not_make_the_warm_up_raise(monkeypatch):
+    """`warm_snapshot_check` is what a pool worker does in its start (`warm_worker_identities`): the one-time cost of the process (digests of the mirrored functions, the class table) is not paid by the first domain."""
+
+    snapshot_check_op._KERNEL[:] = []
+    assert backend.warm_snapshot_check() is True and snapshot_check_op._KERNEL, "bound"
+    before = snapshot_check_op._KERNEL[0]
+    assert backend.warm_snapshot_check() is True and snapshot_check_op._KERNEL[0] is before, "bound once"
+    assert cftuv_native.snapshot_check(_a_right_angle_snapshot(), mut.SCOPE_BOTH).corners >= 1
+    # a moved oracle function: the warm-up says False (the first domain names the stale pin itself, and the Python validators run)
+    file, name, wanted = snapshot_check_op.SHAPE_FUNCTIONS[0]
+    monkeypatch.setattr(snapshot_check_op, "SHAPE_FUNCTIONS", (*snapshot_check_op.SHAPE_FUNCTIONS[1:], (file, name, "0" * 64)))
+    snapshot_check_op._KERNEL[:] = []
+    try:
+        assert backend.warm_snapshot_check() is False
+        with backend.use_backend("PYTHON", snapshot_check_backend="NATIVE") as ledger:
+            assert backend.snapshot_check_compute(_a_right_angle_snapshot(), backend.SNAPSHOT_CHECK_EXPORT) is False
+        assert ledger.record().snapshot_check_fallbacks[0][0] == "NATIVE_PORT_STALE", ledger.record().snapshot_check_fallbacks
+    finally:
+        monkeypatch.undo()
+        snapshot_check_op._KERNEL[:] = []
+    assert backend.warm_snapshot_check() is True
+    CHECKED["warm-up"] += 1
+
+
 def test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_a_verdict(monkeypatch):
     snapshot = _a_right_angle_snapshot()
     original = pin.read_source

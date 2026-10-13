@@ -767,6 +767,12 @@ def warm_worker_identities() -> dict:
 
         kernel_code_identity()
         native_status()  # расширение и проверка закреплённых файлов: кэш процесса, как у первой задачи
+        from .envelope_kernel_backend import stage_orders
+
+        if stage_orders(DEFAULT_KERNEL_BACKEND).snapshot_check == "NATIVE":
+            from cftuv_envelope.backend import warm_snapshot_check
+
+            warm_snapshot_check()  # привязка нативной проверки снапшота (дайджесты функций эталона, таблица классов): разовые десятки мс, не на первом домене
         outcome = WORKER_IDENTITY_PREWARMED
     except Exception as exc:  # noqa: BLE001 - прогрев не ломает воркера: именованный исход и строка в stderr
         outcome = WORKER_IDENTITY_PREWARM_UNAVAILABLE

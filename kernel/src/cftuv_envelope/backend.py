@@ -1068,6 +1068,21 @@ def canonical_triangles_compute(oracle, frame_faces, cycles, budget, reverse):
     return answer if done else oracle(*arguments)
 
 
+def warm_snapshot_check() -> bool:
+    """Привязывает нативное чтение снапшота к живому ядру ДО первого домена (разовая цена процесса: дайджесты зеркалируемых функций и таблица классов); `False` - расширения или операции нет, либо пин ушёл.
+
+    Воркер пула зовёт это в своём старте (`warm_worker_identities`), так что первая задача не платит. Откат порта (`NATIVE_REFUSALS`) здесь не ошибка: первый домен назовёт его сам (`NATIVE_PORT_STALE`).
+    """
+
+    module, _detail = _native()
+    if module is None or not hasattr(module, "warm_snapshot_check"):
+        return False
+    try:
+        return bool(module.warm_snapshot_check())
+    except module.NATIVE_REFUSALS:
+        return False
+
+
 def snapshot_check_compute(snapshot, scope):
     """`True`, когда нативная проверка ДОКАЗАЛА, что валидаторы Python области `scope` ничего не нашли бы в `snapshot`; `False` - вызывающий гонит валидаторы Python как раньше.
 
@@ -1139,6 +1154,7 @@ __all__ = (
     "refresh_native",
     "skeleton_compute",
     "snapshot_check_compute",
+    "warm_snapshot_check",
     "stage_identity",
     "use_backend",
 )

@@ -246,6 +246,19 @@ def snapshot_check(core, snapshot, scope: int = SCOPE_ANALYSIS_AND_REFERENCE) ->
     raise pin.NativePortUnsupported(f"snapshot_check declined: {REASONS.get(answer[1], answer[1])}: {answer[2]}")
 
 
+def warm(core) -> bool:
+    """Binds the reader to the live kernel classes ahead of the first domain: the digests of the mirrored functions (`inspect.getsource` of 33 functions; on CPython 3.11, the pure-Python tokenizer,
+    tens of milliseconds) and the class table are the one-time cost of a process. A pool worker pays it in its start (`warm_worker_identities`), not in the seconds of its first domain.
+
+    Raises what a call would raise (`NativePortStale` when a pinned oracle moved): the caller decides that the first domain then names it.
+    """
+
+    pin.require(OPERATION)
+    _handle(core)
+    _live()
+    return True
+
+
 def raw_layouts(core) -> dict:
     """`{class: raw slot layout confirmed}` of the reader bound to the live kernel (the CI step of the slot modes reads it)."""
 
