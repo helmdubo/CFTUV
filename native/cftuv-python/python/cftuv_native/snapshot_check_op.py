@@ -186,15 +186,38 @@ def _bind(core) -> tuple:
     return handle, tuple(id(item) for item in table.values())
 
 
-def _handle(core):
-    """The reader bound to the live kernel classes (a reloaded kernel is a new set of classes)."""
+def _modules() -> tuple:
+    """The kernel modules the classes come from, as they are in `sys.modules` now (a reloaded kernel is a new set of module objects, hence of classes)."""
 
-    signature = tuple(id(item) for item in _class_table().values())
-    if _KERNEL and _KERNEL[0][0] is core and _KERNEL[0][2] == signature:
+    modules = sys.modules
+    return tuple(modules.get(name) for name in CLASS_NAMES)
+
+
+def _handle(core):
+    """The reader bound to the live kernel classes: one dictionary lookup per module on the hot path, a rebind when the kernel was reloaded."""
+
+    live = _modules()
+    if _KERNEL and _KERNEL[0][0] is core and all(a is b for a, b in zip(_KERNEL[0][2], live)) and None not in live:
         return _KERNEL[0][1]
-    handle, signature = _bind(core)
-    _KERNEL[:] = [(core, handle, signature)]
+    handle, _signature = _bind(core)
+    _KERNEL[:] = [(core, handle, _modules())]
     return handle
+
+
+_LIVE: list = []
+
+
+def _live() -> tuple:
+    """`(schema text, backend_mode, NATIVE_EXACT)` of the live kernel, looked up once per kernel (the module objects are checked by `_handle`)."""
+
+    if _LIVE and _LIVE[0][0] is _KERNEL[0][2]:
+        return _LIVE[0][1]
+    from cftuv_envelope.contracts.analysis import ANALYSIS_SNAPSHOT_SCHEMA_V1
+    from cftuv_envelope.reference import symbolic_backend
+
+    found = (ANALYSIS_SNAPSHOT_SCHEMA_V1, symbolic_backend.backend_mode, symbolic_backend.SymbolicBackendV1.NATIVE_EXACT)
+    _LIVE[:] = [(_KERNEL[0][2], found)]
+    return found
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -215,15 +238,18 @@ def snapshot_check(core, snapshot, scope: int = SCOPE_ANALYSIS_AND_REFERENCE) ->
     """
 
     pin.require(OPERATION)
-    from cftuv_envelope.contracts.analysis import ANALYSIS_SNAPSHOT_SCHEMA_V1
-    from cftuv_envelope.reference import symbolic_backend
-
     handle = _handle(core)
-    native_exact = symbolic_backend.backend_mode() is symbolic_backend.SymbolicBackendV1.NATIVE_EXACT
-    answer = handle.check(snapshot, scope, native_exact, getcontext().prec, ANALYSIS_SNAPSHOT_SCHEMA_V1)
+    schema, mode_of, exact = _live()
+    answer = handle.check(snapshot, scope, mode_of() is exact, getcontext().prec, schema)
     if answer[0] == STATUS_CLEAN:
         return SnapshotCheckV1(answer[1], answer[2], answer[3], answer[4])
     raise pin.NativePortUnsupported(f"snapshot_check declined: {REASONS.get(answer[1], answer[1])}: {answer[2]}")
+
+
+def last_timings() -> tuple:
+    """`(read ns, check ns)` of the last call: reading the Python graph into the model, and the check on the model (zeros before the first call)."""
+
+    return _KERNEL[0][1].last_timings() if _KERNEL else (0, 0)
 
 
 def main(argv=None) -> int:

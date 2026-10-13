@@ -13,6 +13,8 @@
 
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::num::IBig;
@@ -1099,6 +1101,9 @@ impl<'b, 'a, 'py> Reader<'b, 'a, 'py> {
 #[pyclass(module = "cftuv_native._core", frozen)]
 pub struct SnapshotCheck {
     bindings: Bindings,
+    /// Nanoseconds of the last call: reading the graph, and the check on the model (a diagnostic of the bench, not an answer).
+    last_read: AtomicU64,
+    last_check: AtomicU64,
 }
 
 #[pymethods]
@@ -1107,7 +1112,7 @@ impl SnapshotCheck {
     /// named refusal (`TypeError("cftuv_native: ...")`, which the shim turns into `NativePortStale`).
     #[new]
     fn new(py: Python<'_>, classes: &Bound<'_, PyDict>) -> PyResult<SnapshotCheck> {
-        Ok(SnapshotCheck { bindings: Bindings::new(py, classes)? })
+        Ok(SnapshotCheck { bindings: Bindings::new(py, classes)?, last_read: AtomicU64::new(0), last_check: AtomicU64::new(0) })
     }
 
     /// `check(snapshot, scope, native_exact, decimal_precision, analysis_schema)`: `(0, domains, corners, certified, straddled)` or `(2, reason code, detail)`.
@@ -1115,7 +1120,10 @@ impl SnapshotCheck {
         let scope = if scope == 0 { Scope::Analysis } else { Scope::AnalysisAndReference };
         let context = Context { scope, native_exact, decimal_precision, analysis_schema: analysis_schema.as_bytes().to_vec() };
         let mut reader: Reader<'_, '_, 'py> = Reader { b: &self.bindings, py, map: HashMap::default(), strings: Vec::new() };
-        let model = match reader.read_snapshot(snapshot) {
+        let started = Instant::now();
+        let read = reader.read_snapshot(snapshot);
+        self.last_read.store(u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        let model = match read {
             Ok(mut model) => {
                 model.strings = std::mem::take(&mut reader.strings);
                 model
@@ -1123,11 +1131,19 @@ impl SnapshotCheck {
             Err(Fail::Py(error)) => return Err(error),
             Err(Fail::Decline(decline)) => return (2u8, decline.reason.code(), decline.detail).into_bound_py_any(py),
         };
-        match catch_unwind(AssertUnwindSafe(|| cftuv_snapshot::check(&model, &context))) {
+        let started = Instant::now();
+        let verdict = catch_unwind(AssertUnwindSafe(|| cftuv_snapshot::check(&model, &context)));
+        self.last_check.store(u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        match verdict {
             Ok(Ok(attestation)) => (0u8, attestation.domains, attestation.corners, attestation.certified, attestation.straddled).into_bound_py_any(py),
             Ok(Err(decline)) => (2u8, decline.reason.code(), decline.detail).into_bound_py_any(py),
             Err(panic) => Err(PyRuntimeError::new_err(format!("snapshot_check: native panic: {}", crate::panic_message(&panic)))),
         }
+    }
+
+    /// `(read ns, check ns)` of the last call.
+    fn last_timings(&self) -> (u64, u64) {
+        (self.last_read.load(Ordering::Relaxed), self.last_check.load(Ordering::Relaxed))
     }
 
     /// Test-only: which classes read their slots by offset: `[(class name, raw)]`.

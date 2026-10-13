@@ -81,6 +81,11 @@ pub fn cos_pi_enclosure(numerator: &IBig, denominator: &UBig) -> (Rat, Rat) {
         negate = true;
         numerator_reduced = &denominator_signed - numerator_reduced;
     }
+    // the argument is exactly pi/2: cos is exactly 0 (the common case: every exact 270 degree corner has the interval [0.5, 0.5]), no series
+    if &numerator_reduced * IBig::from(2) == denominator_signed {
+        let half = Rat::reduced(IBig::ONE, UBig::ONE << COS_HALF_WIDTH_BITS);
+        return (half.neg(), half);
+    }
     // x = pi * s with s = numerator_reduced / denominator in [0, 1/2]
     let x = (pi_fixed() * &numerator_reduced) / &denominator_signed;
     let x_squared = (&x * &x) >> FIXED;

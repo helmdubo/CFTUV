@@ -1063,6 +1063,9 @@ def verify_native(native_path: str, expect_prefix: str) -> dict:
         # a tree that has the W1 stage orders it natively by default (MATERIALIZE_W1_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation,
         # or the A/B compares Python with Python (the tree that has no such stage is the base side of an A/B and is not asked)
         assert host.get("materialize_w1") == "available", f"native stage materialize_w1 is {host.get('materialize_w1')}"
+    if "snapshot_check" in host and os.environ.get("CFTUV_SNAPSHOT_CHECK_BACKEND", "").strip().upper() != "PYTHON" and SNAPSHOT_RECORD_ENVIRONMENT not in os.environ:
+        # a tree that has the EXPORT stage orders it natively by default (SNAPSHOT_CHECK_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation
+        assert host.get("snapshot_check") == "available", f"native stage snapshot_check is {host.get('snapshot_check')}"
     return {"module": str(module.__file__), "build_id": build, "host_native_status": {key: str(value) for key, value in host.items()}}
 
 
@@ -1388,6 +1391,26 @@ def install_w1_recorder():
     return recorder
 
 
+SNAPSHOT_RECORD_ENVIRONMENT = "CFTUV_SNAPSHOT_RECORD_DIR"
+
+
+def install_snapshot_recorder(args):
+    """The corpus of the EXPORT stage of the pool worker (`task_inputs`) recorded from THIS run: set `CFTUV_SNAPSHOT_RECORD_DIR` to a directory and every task with an export input that the parent sends
+    to the pool is written (`tools/native_snapshot_check_corpus.py`, one file per case). The recorder runs with the stage `snapshot_check` ordered to the reference for the whole process tree (the
+    environment is inherited by the pool workers): the corpus is what the PYTHON validators saw. Pool runs only (`--workers >= 2`): the task with an export input exists only for a worker."""
+
+    directory = os.environ.get(SNAPSHOT_RECORD_ENVIRONMENT, "").strip()
+    if not directory or int(args.workers) < 2:
+        return None
+    os.environ["CFTUV_SNAPSHOT_CHECK_BACKEND"] = "PYTHON"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import native_snapshot_check_corpus as corpus
+
+    recorder = corpus.Recorder(Path(directory), args.case or args.mesh)
+    recorder.install()
+    return recorder
+
+
 def prepare_pool(args, report: dict, state: dict) -> None:
     from cftuv.envelope_domain_pool import get_domain_pool
     from cftuv.envelope_worker_python import read_worker_python
@@ -1445,6 +1468,7 @@ def worker_main(argv: list[str]) -> int:
             report["primed_identity"] = _prime_byte_check(kernel_backend_of(mesh_settings))
         state["content_key_module"], state["real_identity"] = record_content_keys(state["keys"])
         state["w1_recorder"] = install_w1_recorder()
+        state["snapshot_recorder"] = install_snapshot_recorder(args)
         run_presses(args, report, state)
     except Exception:  # noqa: BLE001 - the traceback is the report
         failure = traceback.format_exc()
@@ -1482,6 +1506,10 @@ def _finish(args, report: dict, state: dict, failure) -> int:
     if state.get("w1_recorder") is not None:
         state["w1_recorder"].write_index()
         print(f"W1_RECORDED {len(state['w1_recorder'].rows)} records {state['w1_recorder'].bytes} bytes", flush=True)
+    if state.get("snapshot_recorder") is not None:
+        recorded = state["snapshot_recorder"].close()
+        report["snapshot_recorded"] = recorded
+        print(f"SNAPSHOT_RECORDED {recorded['tasks']} tasks {recorded['file_bytes']} bytes ({recorded['raw_bytes']} raw) case={recorded['case']}", flush=True)
     report["failure"] = failure
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     print(f"TREEAB_{'OK' if failure is None else 'FAILED'} case={args.case} label={args.label} workers={args.workers} origins={report.get('worker_origins_ok')}", flush=True)

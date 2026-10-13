@@ -68,6 +68,7 @@ __all__ = (
     "exact_mesh",
     "canonical_triangles",
     "last_w1_timings",
+    "last_snapshot_check_timings",
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
@@ -287,6 +288,12 @@ def snapshot_check(snapshot, scope=snapshot_check_op.SCOPE_ANALYSIS_AND_REFERENC
     """
 
     return snapshot_check_op.snapshot_check(_core, snapshot, scope)
+
+
+def last_snapshot_check_timings() -> tuple:
+    """Nanoseconds of the last `snapshot_check`: `(read the graph, check the model)`."""
+
+    return snapshot_check_op.last_timings()
 
 
 def effective_alpha_contacts(source, boundary, frame):
