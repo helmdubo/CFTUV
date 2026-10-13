@@ -387,10 +387,10 @@ def _worth_the_pool(shipped) -> bool:
     return sum(len(blob) for _, blob in shipped) >= COVERAGE_POOL_MIN_BYTES
 
 
-def _run_tasks(domain_pool, tasks, profile, cancel=None):
+def _run_tasks(domain_pool, tasks, profile, cancel=None, late=None):
     """Задачи в пул под стадией стены: `(run | None, причина отказа пула | "")`.
 
-    `cancel` (`threading.Event`) уходит в пул только когда задан: подставные пулы без этого параметра
+    `cancel` (`threading.Event`) и `late` (`LateTasksV1`, SCAN_BEHIND_THE_POOL_V1) уходят в пул только когда заданы: подставные пулы без этих параметров
     остаются совместимы.
     """
 
@@ -402,10 +402,11 @@ def _run_tasks(domain_pool, tasks, profile, cancel=None):
     failure = ""
     try:
         with _measure(profile, POOL_WALL_STAGE):
+            extra = {} if late is None else {"late": late}
             run = (
-                domain_pool.run(tasks)
+                domain_pool.run(tasks, **extra)
                 if cancel is None
-                else domain_pool.run(tasks, cancel=cancel)
+                else domain_pool.run(tasks, cancel=cancel, **extra)
             )
     except DomainPoolUnavailable as exc:
         failure = str(exc)

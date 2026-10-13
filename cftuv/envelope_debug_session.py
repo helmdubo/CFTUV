@@ -373,6 +373,28 @@ class EnvelopeDebugSessionController:
         if previous is not None and previous is not job:
             previous.stop.set()
 
+    def scan_is_order_free(self, run) -> bool:
+        """Решение сканирования по домену не зависит ни от какого другого домена (SCAN_BEHIND_THE_POOL_V1): в сессии нет ни метрик, ни подготовок, ни результатов, ни привязок ключей, ни записей хранилища, ни пометок фона, ни записей сборки этого прогона.
+
+        Тогда каждый домен холодный с лёгким входом выгрузки, и порядок обхода доменов ничего не меняет. Любая запись в любом из этих мест - обход по порядку, как прежде.
+        """
+
+        from .envelope_scan_memo import request_alpha, scan_key
+
+        if (
+            self._patch_metric_cache
+            or self._conveyor_preparation_cache
+            or self._production_result_cache
+            or self._content_bindings
+            or self._byte_check_refusals
+            or len(self._content_store)
+        ):
+            return False
+        alpha = request_alpha(run.alpha)
+        key = None if alpha is None else scan_key(run)
+        records = None if key is None else self._scan_memo.records_of(key)
+        return not records
+
     def hold_byte_check_launch(self, pending) -> None:
         """Прогон отдал запуск фоновой проверки сессии: он стартует после хвоста кнопки (`launch_pending_byte_check`); прежний нестартовавший запуск назван оборванным."""
 
