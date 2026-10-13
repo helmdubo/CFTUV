@@ -1872,7 +1872,7 @@ def _load_native_pin():
 def test_the_native_pins_hold_one_digest_per_mirrored_file():
     pin = _load_native_pin()
     listed = {name for files in pin.OPERATION_FILES.values() for name in files}
-    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "radical_v2"}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "frame", "radical_v2"}
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
@@ -1916,6 +1916,28 @@ def test_the_snapshot_check_crate_is_pure_and_can_only_attest_or_decline():
     shim = ast.parse((REPO_ROOT / "native" / "cftuv-python" / "python" / "cftuv_native" / "snapshot_check_op.py").read_text(encoding="utf-8"))
     raised = {ast.unparse(node.exc.func if isinstance(node.exc, ast.Call) else node.exc) for node in ast.walk(shim) if isinstance(node, ast.Raise) and node.exc is not None}
     assert raised <= {"pin.NativePortUnsupported", "pin.NativePortStale"}, f"the shim answers with an attestation, a decline or a stale pin; raised: {sorted(raised)}"
+
+
+def test_the_frame_crate_is_pure_and_can_only_answer_or_decline():
+    """`native/cftuv-frame` is the first rung of the planar-grid admission of EXPORT (S5): the metric of a patch exactly planar after the source snap. It is pure (big integers, the exact layer and the
+    embedding certificate, no Python, no I/O, no unsafe), and its outcome has two answers only: the metric the Python builder would build, or a NAMED decline. There is no refusal of its own: the near-planar
+    projection, the unfolding, the refusals with their texts and the exceptions are the builder's, which runs exactly as before; the soundness is the mutation corpus (`tests/test_native_frame.py`)."""
+
+    import re
+
+    crate = REPO_ROOT / "native" / "cftuv-frame"
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    dependencies = re.search(r"^\[dependencies\]\s*$(.*?)(?=^\[|\Z)", manifest, re.MULTILINE | re.DOTALL).group(1)
+    assert {line.split("=")[0].strip().split(".")[0] for line in dependencies.splitlines() if "=" in line and not line.lstrip().startswith("#")} == {"dashu-int", "cftuv-core", "cftuv-embedding"}
+    for source in sorted((crate / "src").glob("*.rs")):
+        text = re.sub(r"//[^\n]*", "", source.read_text(encoding="utf-8"))
+        assert not re.search(r"pyo3|\bunsafe\b|std::(fs|env|process|net|thread)\b|Refus|Reject", text), f"{source.name}: the frame is pure and never refuses"
+    model = re.sub(r"//[^\n]*", "", (crate / "src" / "model.rs").read_text(encoding="utf-8"))
+    variants = re.search(r"pub enum Reason \{(.*?)\}", model, re.DOTALL).group(1)
+    assert re.findall(r"^\s*([A-Z][A-Za-z]+),", variants, re.MULTILINE) == ["Law", "Shape", "Plane", "Grid", "Frame", "Range"], "a decline has a named reason; there is no refusal"
+    shim = ast.parse((REPO_ROOT / "native" / "cftuv-python" / "python" / "cftuv_native" / "frame_op.py").read_text(encoding="utf-8"))
+    raised = {ast.unparse(node.exc.func if isinstance(node.exc, ast.Call) else node.exc) for node in ast.walk(shim) if isinstance(node, ast.Raise) and node.exc is not None}
+    assert raised <= {"pin.NativePortUnsupported", "pin.NativePortStale"}, f"the shim answers with a metric, a decline or a stale pin; raised: {sorted(raised)}"
 
 
 # --------------------------------------------------------------------------

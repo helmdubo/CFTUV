@@ -182,6 +182,30 @@ def compare(native, arguments: dict) -> tuple:
     return EQUAL, ""
 
 
+def canonical(value):
+    """Значение без порядка обхода множеств (он зависит от соли хешей процесса): запись - имя класса и поля, множество - отсортированные элементы."""
+
+    import enum
+
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return (type(value).__name__, tuple((field.name, canonical(getattr(value, field.name))) for field in dataclasses.fields(value)))
+    if isinstance(value, (frozenset, set)):
+        return ("set", tuple(sorted((canonical(item) for item in value), key=repr)))
+    if isinstance(value, (tuple, list)):
+        return tuple(canonical(item) for item in value)
+    if isinstance(value, enum.Enum):
+        return (type(value).__name__, value.value)
+    return value
+
+
+def digest(value) -> str:
+    """sha256 канонической записи (`canonical`): одна и та же метрика в любом процессе."""
+
+    import hashlib
+
+    return hashlib.sha256(repr(canonical(value)).encode("utf-8")).hexdigest()
+
+
 def reason_of(detail: str) -> str:
     """`frame declined: GRID: ...` -> `GRID`."""
 

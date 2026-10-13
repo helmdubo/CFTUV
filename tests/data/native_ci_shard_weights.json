@@ -12,6 +12,7 @@
   "test_native_cost.py": 3.3,
   "test_native_coverage.py": 5.6,
   "test_native_effective_alpha.py": 75.0,
+  "test_native_frame.py": 45.0,
   "test_native_materialize_w1.py": 10.0,
   "test_native_numbers.py": 2.3,
   "test_native_pin.py": 2.0,

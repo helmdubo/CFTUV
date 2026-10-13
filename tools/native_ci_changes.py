@@ -39,6 +39,7 @@ NATIVE_PATHS = (
     "tests/data/native_materialize_w1_kernel_suite.recs.xz",
     "tests/data/native_radical_v2_ops.recs.xz",
     "tests/data/native_snapshot_check_seed.xz",
+    "tests/data/native_frame_seed.xz",
     # the shards of the differential matrix: which test files each leg runs (`.github/workflows/native.yml`)
     "tests/data/native_ci_shard_weights.json",
     "kernel/tools/shard_tests.py",

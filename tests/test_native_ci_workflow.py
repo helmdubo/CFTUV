@@ -69,6 +69,7 @@ _shard_spec.loader.exec_module(shard_tests)
         ("tests/data/native_materialize_w1_kernel_suite.recs.xz", True),
         ("tests/data/native_radical_v2_ops.recs.xz", True),
         ("tests/data/native_snapshot_check_seed.xz", True),
+        ("tests/data/native_frame_seed.xz", True),
         ("tests/data/native_ci_shard_weights.json", True),
         ("kernel/tools/shard_tests.py", True),
         ("kernel/tools/shard_weights.json", False),
@@ -96,7 +97,7 @@ def test_the_path_set_is_exactly_the_filter_the_workflow_used_to_carry():
     assert changes.NATIVE_PATHS == (
         "native/**", "tools/native_*.py", "tests/test_native_*.py", "tests/native_gate.py", "tests/conftest.py", "tests/test_architecture.py",
         "tests/data/native_embedding_kernel_suite.recs.xz", "tests/data/native_effective_alpha_kernel_suite.recs.xz", "tests/data/native_materialize_w1_kernel_suite.recs.xz",
-        "tests/data/native_radical_v2_ops.recs.xz", "tests/data/native_snapshot_check_seed.xz",
+        "tests/data/native_radical_v2_ops.recs.xz", "tests/data/native_snapshot_check_seed.xz", "tests/data/native_frame_seed.xz",
         "tests/data/native_ci_shard_weights.json", "kernel/tools/shard_tests.py",
         "kernel/src/cftuv_envelope/**", "kernel/tests/**", "kernel/pyproject.toml", "pytest.ini", ".github/workflows/native.yml",
     )
@@ -426,6 +427,7 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     assert '"materialize_w1": "available"' in available["run"]
     assert '"snapshot_check": "available"' in available["run"] and "snapshot_check_raw_layouts" in available["run"], "the reader of the snapshot validators reports its slot layouts in every leg"
     assert '"radical_v2": "available"' in available["run"], "the capability of the RadicalSumV2 mirror is reported available in every leg"
+    assert '"frame": "available"' in available["run"] and "frame_raw_layouts" in available["run"], "the reader of the frame admission reports its slot layouts in every leg"
 
 
 def test_embedding_inline_and_tracked_kernel_checks_are_mandatory_in_the_strict_matrix(workflow):
@@ -522,6 +524,28 @@ def test_snapshot_check_seed_and_mutants_are_mandatory_in_the_strict_matrix_and_
     seed = ROOT / "tests" / "data" / "native_snapshot_check_seed.xz"
     assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
     field = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "test_the_native_stage_equals_the_validators_on_the_field_corpora")
+    assert any("needs_field" in ast.unparse(item) for item in field.decorator_list), "the owner's corpora are the field tier"
+
+
+def test_frame_seed_and_mutants_are_mandatory_in_the_strict_matrix_and_its_corpora_are_the_field_tier():
+    # the tracked seed, the soundness mutants, the strictness of the reader, the slot modes and the dispatcher run in every strict leg; the owner's corpora are the field tier
+    module = ast.parse((ROOT / "tests" / "test_native_frame.py").read_text(encoding="utf8"))
+    required = {
+        "test_the_seed_shows_every_outcome_the_port_has_to_get_right",
+        "test_the_native_answer_equals_the_builder_or_is_declined_by_name_on_every_row_of_the_seed",
+        "test_no_mutant_of_the_seed_is_answered_otherwise_than_the_builder",
+        "test_a_value_that_is_not_exactly_the_class_of_its_field_is_declined_by_name",
+        "test_the_port_declines_when_the_process_is_not_in_the_state_it_mirrors",
+        "test_the_slot_modes_give_the_same_answer",
+        "test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_an_answer",
+    }
+    found = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in required}
+    assert set(found) == required
+    gated = {name for name, node in found.items() if any("native_field" in ast.unparse(item) or "needs_field" in ast.unparse(item) for item in node.decorator_list)}
+    assert not gated, f"{sorted(gated)} would be deselected in CI"
+    seed = ROOT / "tests" / "data" / "native_frame_seed.xz"
+    assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())
+    field = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "test_the_native_frame_equals_the_builder_on_the_field_corpora")
     assert any("needs_field" in ast.unparse(item) for item in field.decorator_list), "the owner's corpora are the field tier"
 
 

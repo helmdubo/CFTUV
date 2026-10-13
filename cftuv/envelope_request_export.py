@@ -1112,10 +1112,8 @@ def _rational_affine_metric(
     chart_band=None, grid_scale_law=None,
 ):
     """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses; `chart_band`: the band policy; `grid_scale_law`: `None` - the kernel default, the plane-preserving law only for the snap-lottery retry).
-
-    SEAM OF THE `frame` DISPATCH (the planar-grid admission, `cftuv_envelope.backend.frame_compute`): the native stage builds the metric of a patch that is exactly planar after the source snap, or declines by name and
-    the kernel builder below runs exactly as it ran before the port existed (the near-planar projection, the unfolding, the band, the refusals with their texts and the exceptions are its). The lineage is minted
-    here, once, before either road, so the token log of the host is the same on both.
+    SEAM OF THE `frame` DISPATCH (`cftuv_envelope.backend.frame_compute`): the native stage builds the metric of a patch exactly planar after the source snap, or declines by name and the kernel builder below runs as
+    before the port existed (near-planar, unfolding, band, refusals and exceptions are its). The lineage is minted once, before either road, so the token log of the host is the same on both.
     """
 
     from cftuv_envelope import backend
@@ -1124,15 +1122,8 @@ def _rational_affine_metric(
 
     source_lineage = frozenset({kernel.LineageId(_typed_value("metric-source", source_revision.value, patch_domain_id.value))})
     native = backend.frame_compute(
-        source_vertices=source_vertices,
-        source_faces=surface_ir.source_faces,
-        owner_patch_id=owner_patch_id,
-        source_revision=source_revision,
-        patch_domain_id=patch_domain_id,
-        source_lineage=source_lineage,
-        grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
-        grid_scale_law=grid_scale_law,
-    )
+        source_vertices=source_vertices, source_faces=surface_ir.source_faces, owner_patch_id=owner_patch_id, source_revision=source_revision, patch_domain_id=patch_domain_id,
+        source_lineage=source_lineage, grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value), grid_scale_law=grid_scale_law)
     if native is not None:
         return native
     try:
