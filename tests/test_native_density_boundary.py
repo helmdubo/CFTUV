@@ -24,7 +24,13 @@ def native():
     path = os.environ.get('CFTUV_DENSITY_CANDIDATE_PACKAGE')
     if path:
         sys.path.insert(0, path)
-    module = importlib.import_module('cftuv_native')
+    try:
+        module = importlib.import_module('cftuv_native')
+    except ModuleNotFoundError as error:
+        # Без явного кандидата отсутствие колеса - названный пропуск, как у соседних нативных модулей (строгий режим CI делает его провалом).
+        if path or error.name != 'cftuv_native':
+            raise
+        pytest.skip('cftuv_native is not built; Density boundary cannot be compared')
     if path:
         assert Path(module.__file__).is_relative_to(Path(path))
     else:
