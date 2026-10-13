@@ -285,7 +285,7 @@ pub fn refreshed_span_bindings(overlay: &Overlay) -> (Option<OrderedMap<Leaf, Bi
 // --------------------------------------------------------------------------
 
 fn line_occurrence(builder: &Builder, edge: i64) -> SkelResult<Val> {
-    Ok(Val::tuple_of([Val::ints(builder.edge_at(edge)?.span.as_slice()), Val::none(), Val::none()]))
+    Ok(Val::tuple_of([builder.edge_at(edge)?.key_val().clone(), Val::none(), Val::none()]))
 }
 
 /// `with_line_ports(builder, snapshot, time)`: the vertices of the frozen front with a line-only occurrence where a live vertex has none (an end stays `None`; its exact place

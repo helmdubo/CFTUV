@@ -265,7 +265,7 @@ pub fn sparse_occurrences(ctx: &mut ExactCtx<'_>, builder: &mut Builder, time: &
     let mut occurrences = HashMap::new();
     for (start, end) in span_starts {
         let next_edge = builder.vertex_at(start)?.next_edge;
-        let key = Val::ints(builder.edge_at(next_edge)?.span.as_slice());
+        let key = builder.edge_at(next_edge)?.key_val().clone();
         let part = |ident: i64| point_keys[ident as usize].clone().unwrap_or_else(Val::none);
         occurrences.insert(next_edge, Val::tuple_of([key, part(start), part(end)]));
     }

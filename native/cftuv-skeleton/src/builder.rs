@@ -30,7 +30,7 @@
 //! gives every support line and every sliding projection an identity (`fresh_ident`) and keeps it as the oracle's object keeps its address: a twin shares its edge's
 //! line, a vertex keeps its projection. Nothing else is identity-keyed.
 
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
@@ -45,6 +45,7 @@ use crate::error::{SkelError, SkelResult};
 use crate::line::{LineValue, SupportLine};
 use crate::motorcycle::{build_motorcycle_graph_with, speed_universe, MotorcycleGraph, Trace, TraceCandidateIndex};
 use crate::polygon::{Point, Polygon};
+use crate::pyval::Val;
 use crate::proof::{EdgeKey, ProofBranch, ProofCause, ProofDisposition, ProofLedger};
 use crate::queue::{CandidateEvent, EventKind, EventQueue};
 use crate::skeleton::{accumulate_nodes, duplicate_node_counts, has_same_time_residual, Skeleton, SkeletonNode, SkeletonOutcome};
@@ -227,9 +228,20 @@ pub struct Edge {
     pub ident: i64,
     pub line: Rc<SupportLine>,
     pub span: Rc<Vec<i64>>,
+    /// `span` as the value the identities of the symbolic layer hold (the key of the source edge), made on first use and shared by the twins and by every occurrence of the edge.
+    key_val: OnceCell<Val>,
 }
 
 impl Edge {
+    pub fn new(ident: i64, line: Rc<SupportLine>, span: Rc<Vec<i64>>) -> Edge {
+        Edge { ident, line, span, key_val: OnceCell::new() }
+    }
+
+    /// `edge.key` as a value (a tuple of ints), made once.
+    pub fn key_val(&self) -> &Val {
+        self.key_val.get_or_init(|| Val::ints(self.span.as_slice()))
+    }
+
     /// `edge.key`.
     pub fn key(&self) -> &[i64] {
         &self.span
@@ -540,7 +552,7 @@ impl Builder {
         for index in 0..size {
             let (start, end) = (points[index], points[(index + 1) % size]);
             let line = SupportLine::with_speed(start, end, each.speeds[index].clone(), self.fresh_ident())?;
-            self.edges.push(Edge { ident: first_edge + index as i64, line: Rc::new(line), span: Rc::new(vec![start.0, start.1, end.0, end.1]) });
+            self.edges.push(Edge::new(first_edge + index as i64, Rc::new(line), Rc::new(vec![start.0, start.1, end.0, end.1])));
         }
         let first_vertex = self.vertices.len() as i64;
         // (prev edge, next edge, point, the flag of a corner without a fan)
@@ -600,7 +612,7 @@ impl Builder {
             let ident = self.edges.len() as i64;
             let constant = i128::from(support.normal.0) * i128::from(point.0) + i128::from(support.normal.1) * i128::from(point.1);
             let line = SupportLine::new(support.normal.0, support.normal.1, constant, support.speed.clone(), self.fresh_ident())?;
-            self.edges.push(Edge { ident, line: Rc::new(line), span: Rc::new(vec![point.0, point.1, point.0, point.1, ordinal as i64 + 1]) });
+            self.edges.push(Edge::new(ident, Rc::new(line), Rc::new(vec![point.0, point.1, point.0, point.1, ordinal as i64 + 1])));
             idents.push(ident);
         }
         Ok(idents)
@@ -938,7 +950,7 @@ impl Builder {
     /// `_twin(edge)`: a copy of the edge under a new identifier, with the same occurrence and the same carrier line (the pieces of a cut edge have one face).
     pub fn twin(&mut self, edge: i64) -> SkelResult<i64> {
         let source = self.edge_at(edge)?.clone();
-        let twin = Edge { ident: self.edges.len() as i64, line: source.line, span: source.span };
+        let twin = Edge { ident: self.edges.len() as i64, line: source.line, span: source.span, key_val: source.key_val };
         let ident = twin.ident;
         self.edges.push(twin.clone());
         self.register_line(&twin);

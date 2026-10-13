@@ -386,8 +386,9 @@ fn validated_birth_context<'c>(builder: &Builder, overlay: &'c Overlay, active: 
         if binding.physical_edge_id < 0 || binding.physical_edge_id as usize >= builder.edges.len() {
             return Err("SYMBOLIC_RUNTIME_PHYSICAL_EDGE_UNRESOLVABLE");
         }
-        let source = &builder.edges[binding.physical_edge_id as usize].span;
-        let source_key = Val::ints(source);
+        let edge = &builder.edges[binding.physical_edge_id as usize];
+        let source = &edge.span;
+        let source_key = edge.key_val().clone();
         let occurrence_source = leaf.occurrence().get(0).cloned();
         let family_source = leaf.family().field("occurrence").and_then(|occurrence| occurrence.get(0)).cloned();
         let listed = leaf.participant_keys().iter().any(|key| key.as_slice() == source.as_slice());
