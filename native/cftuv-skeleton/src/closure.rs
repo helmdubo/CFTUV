@@ -14,7 +14,7 @@ use cftuv_core::sqrt_sum::{SqrtSum, SIGN_FILTER_BITS};
 
 use crate::error::{SkelError, SkelResult};
 use crate::plans::{plan_superlevel_components, ComponentPlan, PlanVal, SplitCutPlan};
-use crate::pyval::{sorted_by_repr, Val};
+use crate::pyval::{repr_cmp, repr_less, sorted_by_repr, Val};
 use crate::snapshot::{event_identity, time_key, EventIdentity, Incident, Snapshot};
 
 /// `SplitContactV1`: a stable key and the projection of the contact on its span.
@@ -59,7 +59,7 @@ fn contact_less(ctx: &mut ExactCtx<'_>, first: (&Val, Option<&SqrtSum>), second:
     if first.0 == second.0 {
         return Ok(false);
     }
-    Ok(first.0.repr().as_bytes() < second.0.repr().as_bytes())
+    Ok(repr_less(first.0, second.0))
 }
 
 /// `sorted_as_cpython311(items, lambda a, b: _contact_compare(a, b, budget))` over anything that has a key and a projection (the contacts of a family, the interior contacts of a
@@ -264,7 +264,7 @@ pub fn plan_split_materialization(ctx: &mut ExactCtx<'_>, snapshot: &Snapshot) -
     }
     let ordered = {
         let mut keyed: Vec<FamilyNormalForm> = families;
-        keyed.sort_by_cached_key(|item| item.family.repr().to_string());
+        keyed.sort_by(|left, right| repr_cmp(&left.family, &right.family));
         keyed
     };
     let distinct: std::collections::HashSet<&Val> = ordered.iter().map(|family| &family.family).collect();

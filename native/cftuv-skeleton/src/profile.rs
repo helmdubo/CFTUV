@@ -166,6 +166,8 @@ pub enum Stat {
     TimeKeysRepeated,
     ReprRoots,
     ReprRootsRepeated,
+    ReprHeads,
+    ReprHeadTies,
     ValNone,
     ValBool,
     ValSmallInt,
@@ -177,7 +179,7 @@ pub enum Stat {
     ValOther,
 }
 
-pub const STATS: [(&str, Stat); 27] = [
+pub const STATS: [(&str, Stat); 29] = [
     ("position lookups", Stat::PositionLookups),
     ("position hits", Stat::PositionHits),
     ("exact_point_key calls", Stat::PointKeys),
@@ -196,6 +198,8 @@ pub const STATS: [(&str, Stat); 27] = [
     ("... of a time keyed before", Stat::TimeKeysRepeated),
     ("repr roots", Stat::ReprRoots),
     ("... structurally equal to an earlier root", Stat::ReprRootsRepeated),
+    ("repr heads built (bounded text)", Stat::ReprHeads),
+    ("repr comparisons tied on the heads", Stat::ReprHeadTies),
     ("Val None", Stat::ValNone),
     ("Val bool", Stat::ValBool),
     ("Val int < 256", Stat::ValSmallInt),

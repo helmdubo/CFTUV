@@ -19,11 +19,11 @@ use crate::omap::OrderedMap;
 use crate::overlay::{JRef, Leaf, Overlay};
 use crate::profile::{timed, Phase};
 use crate::plans::PlanVal;
-use crate::pyval::Val;
+use crate::pyval::{repr_cmp, sort_by_repr_key, Val};
 use crate::snapshot::direction;
 
 fn repr_order(left: &Val, right: &Val) -> std::cmp::Ordering {
-    left.repr().as_bytes().cmp(right.repr().as_bytes())
+    repr_cmp(left, right)
 }
 
 // --------------------------------------------------------------------------
@@ -205,9 +205,9 @@ fn multi_delta(builder: &Builder, overlay: &Overlay, component: &[JunctionContac
         .collect();
     let text = |item: &Rewire| {
         let port = |found: &(Option<JRef>, Leaf)| Val::tuple_of([found.0.as_ref().map_or_else(Val::none, |reference| reference.val().clone()), found.1.val().clone()]);
-        Val::tuple_of([port(&item.0), port(&item.1), item.2.val().clone()]).repr()
+        Val::tuple_of([port(&item.0), port(&item.1), item.2.val().clone()])
     };
-    rewires.sort_by_cached_key(|item| text(item).to_string());
+    sort_by_repr_key(&mut rewires, text);
     let leaf_values: Vec<Val> = dead.iter().filter_map(|reference| overlay.vertices.get(reference)).flat_map(|vertex| [vertex.prev_leaf.val().clone(), vertex.next_leaf.val().clone()]).collect();
     let leaf_resources: Vec<Leaf> = Val::set(leaf_values, true).set_items().unwrap_or(&[]).iter().map(Leaf::from_val).collect::<SkelResult<Vec<_>>>()?;
     Ok((
@@ -257,7 +257,7 @@ pub fn normalize_junction_generation(builder: &Builder, overlay: &Overlay, conta
         occupied.extend(delta.dead_refs.iter().cloned());
         deltas.push(delta);
     }
-    deltas.sort_by_cached_key(|item| Val::tuple(item.contact_keys.clone()).repr().to_string());
+    sort_by_repr_key(&mut deltas, |item| Val::tuple(item.contact_keys.clone()));
     Ok((Some(JunctionGeneration { contacts: ordered, deltas }), None))
 }
 
@@ -445,7 +445,7 @@ pub fn normalize_mixed_generation(
     }
     let mut deltas: Vec<Delta> = junction_deltas;
     deltas.extend(interior_deltas);
-    deltas.sort_by_cached_key(|item| Val::tuple(item.contact_keys.clone()).repr().to_string());
+    sort_by_repr_key(&mut deltas, |item| Val::tuple(item.contact_keys.clone()));
     let mut interior_sorted = interior.to_vec();
     interior_sorted.sort_by(|left, right| repr_order(&left.key.val, &right.key.val));
     Ok(Ok((expanded, MixedGeneration { junction_contacts: translated, interior_contacts: interior_sorted, deltas })))

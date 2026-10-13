@@ -21,7 +21,7 @@ use crate::error::{SkelError, SkelResult};
 use crate::overlay::{frozen_keys, refreshed_span_bindings, JRef, Leaf, Overlay, SymVertex, TraceInfo};
 use crate::plans::{point_val, time_val, PlanVal};
 use crate::profile::{timed, Phase};
-use crate::pyval::Val;
+use crate::pyval::{repr_cmp, Val};
 use crate::time::{EventPoint, EventTime, PointRef, TimeRef};
 
 /// `(prev junction | None, leaf)`: one arm of the boundary of a component: the junction it comes from and the leaf it runs along.
@@ -41,7 +41,7 @@ pub struct Delta {
 }
 
 fn repr_order(left: &Val, right: &Val) -> std::cmp::Ordering {
-    left.repr().as_bytes().cmp(right.repr().as_bytes())
+    repr_cmp(left, right)
 }
 
 fn port_val(port: &Option<Port>) -> Val {
@@ -357,7 +357,7 @@ pub fn overlay_signature(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelRes
 }
 
 fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> {
-    let mut rows: Vec<(Rc<str>, Val)> = Vec::new();
+    let mut rows: Vec<(Val, Val)> = Vec::new();
     for vertex in overlay.vertices.values() {
         if !vertex.alive {
             continue;
@@ -370,7 +370,7 @@ fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> 
         let provenance = memo.provenance(&vertex.provenance);
         let link = |reference: &Option<JRef>| reference.as_ref().map_or_else(none, |found| found.val().clone());
         rows.push((
-            vertex.reference.val().repr(),
+            vertex.reference.val().clone(),
             Val::tuple_of([
                 vertex.reference.val().clone(),
                 link(&vertex.prev),
@@ -385,17 +385,17 @@ fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> 
             ]),
         ));
     }
-    rows.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    rows.sort_by(|left, right| repr_cmp(&left.0, &right.0));
     let vertices = Val::tuple(rows.into_iter().map(|(_, row)| row).collect());
-    let mut spans: Vec<(Rc<str>, Val)> = overlay
+    let mut spans: Vec<(Val, Val)> = overlay
         .spans
         .iter()
         .map(|(leaf, binding)| {
             let link = |reference: &Option<JRef>| reference.as_ref().map_or_else(Val::none, |found| found.val().clone());
-            (leaf.val().repr(), Val::tuple_of([leaf.val().clone(), Val::int(binding.physical_edge_id), link(&binding.start), link(&binding.end)]))
+            (leaf.val().clone(), Val::tuple_of([leaf.val().clone(), Val::int(binding.physical_edge_id), link(&binding.start), link(&binding.end)]))
         })
         .collect();
-    spans.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    spans.sort_by(|left, right| repr_cmp(&left.0, &right.0));
     let spans = Val::tuple(spans.into_iter().map(|(_, row)| row).collect());
     let changed = Val::tuple(overlay.changed_by_repr().iter().map(|leaf| leaf.val().clone()).collect());
     Ok(Val::tuple_of([vertices, spans, changed]))

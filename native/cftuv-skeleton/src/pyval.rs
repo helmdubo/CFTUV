@@ -38,6 +38,9 @@ pub struct Val(Rc<Node>);
 struct Node {
     hash: u64,
     text: OnceCell<Rc<str>>,
+    /// The first [`HEAD_BYTES`] bytes (a little more) of the text of a value whose text is longer: what a comparison of two texts reads when it is decided that early (see
+    /// [`repr_cmp`]). A text shorter than that is the whole text and lives in `text`; this one is never set then.
+    head: OnceCell<Box<str>>,
     /// How many times a text that was being written reached this value without its own text: the first time it is written through (no text is made for it), the
     /// second makes and keeps its own (see [`write_child`]).
     visits: Cell<u8>,
@@ -248,7 +251,7 @@ impl Val {
             1,
         );
         let hash = kind_hash(&kind);
-        Val(Rc::new(Node { hash, text: OnceCell::new(), visits: Cell::new(0), kind }))
+        Val(Rc::new(Node { hash, text: OnceCell::new(), head: OnceCell::new(), visits: Cell::new(0), kind }))
     }
 
     pub fn none() -> Val {
@@ -321,7 +324,7 @@ impl Val {
                 unique.push(item);
             }
         }
-        unique.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+        unique.sort_by(repr_cmp);
         Val::new(Kind::Set(unique, frozen))
     }
 
@@ -460,96 +463,303 @@ impl Val {
         }))
     }
 
+    /// The text as far as a comparison needs it first: the whole text where it is known or short, else its first [`HEAD_BYTES`] bytes, made by the same writer and stopped
+    /// there (never the whole text of a value that is only compared).
+    fn head(&self) -> Head<'_> {
+        if let Some(text) = self.0.text.get() {
+            return Head { text, complete: true };
+        }
+        if let Some(head) = self.0.head.get() {
+            return Head { text: head, complete: false };
+        }
+        let mut sink = Bounded { out: HEAD_SCRATCH.with(RefCell::take), limit: HEAD_BYTES, stopped: false };
+        sink.out.clear();
+        write_repr(&self.0.kind, &mut sink);
+        crate::profile::count(crate::profile::Stat::ReprHeads, 1);
+        let Bounded { out, stopped, .. } = sink;
+        if stopped {
+            let _ = self.0.head.set(Box::from(out.as_str()));
+        } else {
+            let _ = self.0.text.set(Rc::from(out.as_str()));
+        }
+        HEAD_SCRATCH.with(|slot| *slot.borrow_mut() = out);
+        match (self.0.text.get(), self.0.head.get()) {
+            (Some(text), _) => Head { text, complete: true },
+            (None, Some(head)) => Head { text: head, complete: false },
+            (None, None) => Head { text: "", complete: false },
+        }
+    }
+
     pub fn same(&self, other: &Val) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
 }
 
-/// The text of a part of a text being written: the part's own text when it has one, else written through into `out` (no allocation, no copy of a copy). A part that is
-/// reached a second time without a text makes its own, so a value that many texts hold is formatted twice at most.
-fn write_child(out: &mut String, item: &Val) {
-    if let Some(text) = item.0.text.get() {
-        out.push_str(text);
-    } else if item.0.visits.get() == 0 {
-        item.0.visits.set(1);
-        write_repr(&item.0.kind, out);
-    } else {
-        out.push_str(&item.repr());
+/// How many bytes of a text [`repr_cmp`] looks at before it asks for the whole text. Two values of the planning layer differ, as a rule, within their first hundred bytes
+/// (the key of the edge comes first); the texts are two and ten kilobytes long.
+const HEAD_BYTES: usize = 192;
+
+thread_local! {
+    static HEAD_SCRATCH: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+struct Head<'a> {
+    text: &'a str,
+    /// `text` is the whole `repr`, not its beginning.
+    complete: bool,
+}
+
+/// `repr(left).as_bytes().cmp(repr(right).as_bytes())` without making the whole of either text unless the first bytes of both are the same: the order of the planning layer
+/// (`sorted(..., key=repr)`) decided by the heads of the texts, which are exact beginnings of them.
+pub fn repr_cmp(left: &Val, right: &Val) -> Ordering {
+    if left.same(right) {
+        return Ordering::Equal;
+    }
+    let (first, second) = (left.head(), right.head());
+    let common = first.text.len().min(second.text.len());
+    match first.text.as_bytes()[..common].cmp(&second.text.as_bytes()[..common]) {
+        Ordering::Equal => {}
+        decided => return decided,
+    }
+    // a whole text that is shorter than the cut one is a beginning of it (the cut one is not over where the whole one is), so the smaller; anything else the heads do not tell
+    match (first.complete, second.complete) {
+        (true, true) => return first.text.len().cmp(&second.text.len()),
+        (true, false) if first.text.len() < second.text.len() => return Ordering::Less,
+        (false, true) if second.text.len() < first.text.len() => return Ordering::Greater,
+        _ => {}
+    }
+    crate::profile::count(crate::profile::Stat::ReprHeadTies, 1);
+    if strictly_same(left, right) {
+        return Ordering::Equal;
+    }
+    left.repr().as_bytes().cmp(right.repr().as_bytes())
+}
+
+/// `repr(left) < repr(right)` as [`repr_cmp`] decides it.
+pub fn repr_less(left: &Val, right: &Val) -> bool {
+    repr_cmp(left, right) == Ordering::Less
+}
+
+/// Two values that print alike because they are made alike: the same kinds all the way down (`2` and `Fraction(2, 1)` are equal numbers and print differently, so they are
+/// not this).
+fn strictly_same(left: &Val, right: &Val) -> bool {
+    if left.same(right) {
+        return true;
+    }
+    if left.0.hash != right.0.hash {
+        return false;
+    }
+    match (&left.0.kind, &right.0.kind) {
+        (Kind::None, Kind::None) => true,
+        (Kind::Bool(first), Kind::Bool(second)) => first == second,
+        (Kind::Int(first), Kind::Int(second)) => first == second,
+        (Kind::Str(first), Kind::Str(second)) => first == second,
+        (Kind::Frac(first), Kind::Frac(second)) => first == second,
+        (Kind::Tuple(first), Kind::Tuple(second)) | (Kind::List(first), Kind::List(second)) => first.len() == second.len() && first.iter().zip(second).all(|(a, b)| strictly_same(a, b)),
+        (Kind::Data(first_name, first), Kind::Data(second_name, second)) => {
+            first_name == second_name && first.len() == second.len() && first.iter().zip(second).all(|((name_a, a), (name_b, b))| name_a == name_b && strictly_same(a, b))
+        }
+        (Kind::Member(first_class, first_member, first), Kind::Member(second_class, second_member, second)) => first_class == second_class && first_member == second_member && strictly_same(first, second),
+        (Kind::Set(first, first_frozen), Kind::Set(second, second_frozen)) => first_frozen == second_frozen && first.len() == second.len() && first.iter().zip(second).all(|(a, b)| strictly_same(a, b)),
+        (Kind::Dict(first), Kind::Dict(second)) => first.len() == second.len() && first.iter().zip(second).all(|((key_a, a), (key_b, b))| strictly_same(key_a, key_b) && strictly_same(a, b)),
+        _ => false,
     }
 }
 
-fn write_items(out: &mut String, open: char, close: char, items: &[Val], one_tuple: bool) {
-    out.push(open);
-    for (index, item) in items.iter().enumerate() {
-        if index > 0 {
-            out.push_str(", ");
+/// Where a text is written: a whole `String`, or a [`Bounded`] one that stops taking bytes at its limit.
+trait Sink {
+    fn text(&mut self, text: &str);
+    fn ch(&mut self, character: char);
+    /// A piece the writer of a number or a string makes into a `String`.
+    fn piece(&mut self, write: impl FnOnce(&mut String));
+    /// The text of a part.
+    fn child(&mut self, item: &Val);
+    /// No more bytes are taken.
+    fn done(&self) -> bool;
+}
+
+impl Sink for String {
+    fn text(&mut self, text: &str) {
+        self.push_str(text);
+    }
+
+    fn ch(&mut self, character: char) {
+        self.push(character);
+    }
+
+    fn piece(&mut self, write: impl FnOnce(&mut String)) {
+        write(self);
+    }
+
+    /// The part's own text when it has one, else written through into `self` (no allocation, no copy of a copy). A part that is reached a second time without a text makes
+    /// its own, so a value that many texts hold is formatted twice at most.
+    fn child(&mut self, item: &Val) {
+        if let Some(text) = item.0.text.get() {
+            self.push_str(text);
+        } else if item.0.visits.get() == 0 {
+            item.0.visits.set(1);
+            write_repr(&item.0.kind, self);
+        } else {
+            self.push_str(&item.repr());
         }
-        write_child(out, item);
+    }
+
+    fn done(&self) -> bool {
+        false
+    }
+}
+
+/// The beginning of a text: bytes are taken up to `limit` (the piece that crosses it is taken whole, a cached text is cut), and then no more, so what was taken is exactly the
+/// beginning of the whole text.
+struct Bounded {
+    out: String,
+    limit: usize,
+    stopped: bool,
+}
+
+impl Bounded {
+    fn check(&mut self) {
+        if self.out.len() >= self.limit {
+            self.stopped = true;
+        }
+    }
+
+    /// The first bytes of a text that is already made, as many as the room takes.
+    fn take_beginning(&mut self, text: &str) {
+        let room = self.limit - self.out.len();
+        if text.len() >= room {
+            self.out.push_str(&text[..room]);
+            self.stopped = true;
+        } else {
+            self.out.push_str(text);
+        }
+    }
+}
+
+impl Sink for Bounded {
+    fn text(&mut self, text: &str) {
+        if !self.stopped {
+            self.out.push_str(text);
+            self.check();
+        }
+    }
+
+    fn ch(&mut self, character: char) {
+        if !self.stopped {
+            self.out.push(character);
+            self.check();
+        }
+    }
+
+    fn piece(&mut self, write: impl FnOnce(&mut String)) {
+        if !self.stopped {
+            write(&mut self.out);
+            self.check();
+        }
+    }
+
+    fn child(&mut self, item: &Val) {
+        if self.stopped {
+            return;
+        }
+        let room = self.limit - self.out.len();
+        if let Some(text) = item.0.text.get() {
+            self.take_beginning(text);
+        } else if let Some(head) = item.0.head.get().filter(|head| head.len() >= room) {
+            self.take_beginning(head);
+        } else {
+            write_repr(&item.0.kind, self);
+        }
+    }
+
+    fn done(&self) -> bool {
+        self.stopped
+    }
+}
+
+fn write_items<S: Sink>(out: &mut S, open: char, close: char, items: &[Val], one_tuple: bool) {
+    out.ch(open);
+    for (index, item) in items.iter().enumerate() {
+        if out.done() {
+            return;
+        }
+        if index > 0 {
+            out.text(", ");
+        }
+        out.child(item);
     }
     if one_tuple && items.len() == 1 {
-        out.push(',');
+        out.ch(',');
     }
-    out.push(close);
+    out.ch(close);
 }
 
-fn write_repr(kind: &Kind, out: &mut String) {
+fn write_repr<S: Sink>(kind: &Kind, out: &mut S) {
     match kind {
-        Kind::None => out.push_str("None"),
-        Kind::Bool(flag) => out.push_str(if *flag { "True" } else { "False" }),
-        Kind::Int(number) => push_ibig(out, number),
+        Kind::None => out.text("None"),
+        Kind::Bool(flag) => out.text(if *flag { "True" } else { "False" }),
+        Kind::Int(number) => out.piece(|buffer| push_ibig(buffer, number)),
         Kind::Str(text) => {
             // ASCII by construction (`Val::str`); the call cannot refuse.
-            let _ = repr_str(text, out);
+            out.piece(|buffer| {
+                let _ = repr_str(text, buffer);
+            });
         }
-        Kind::Frac(number) => repr_frac(number, out),
+        Kind::Frac(number) => out.piece(|buffer| repr_frac(number, buffer)),
         Kind::Tuple(items) => write_items(out, '(', ')', items, true),
         Kind::List(items) => write_items(out, '[', ']', items, false),
         Kind::Data(name, fields) => {
-            out.push_str(name);
-            out.push('(');
+            out.text(name);
+            out.ch('(');
             for (index, (field, item)) in fields.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
+                if out.done() {
+                    return;
                 }
-                out.push_str(field);
-                out.push('=');
-                write_child(out, item);
+                if index > 0 {
+                    out.text(", ");
+                }
+                out.text(field);
+                out.ch('=');
+                out.child(item);
             }
-            out.push(')');
+            out.ch(')');
         }
         Kind::Member(class, member, value) => {
-            out.push('<');
-            out.push_str(class);
-            out.push('.');
-            out.push_str(member);
-            out.push_str(": ");
-            write_child(out, value);
-            out.push('>');
+            out.ch('<');
+            out.text(class);
+            out.ch('.');
+            out.text(member);
+            out.text(": ");
+            out.child(value);
+            out.ch('>');
         }
         Kind::Set(items, frozen) => match (items.is_empty(), frozen) {
-            (true, false) => out.push_str("set()"),
-            (true, true) => out.push_str("frozenset()"),
+            (true, false) => out.text("set()"),
+            (true, true) => out.text("frozenset()"),
             (false, _) => {
                 if *frozen {
-                    out.push_str("frozenset(");
+                    out.text("frozenset(");
                 }
                 write_items(out, '{', '}', items, false);
                 if *frozen {
-                    out.push(')');
+                    out.ch(')');
                 }
             }
         },
         Kind::Dict(pairs) => {
-            out.push('{');
+            out.ch('{');
             for (index, (key, item)) in pairs.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
+                if out.done() {
+                    return;
                 }
-                write_child(out, key);
-                out.push_str(": ");
-                write_child(out, item);
+                if index > 0 {
+                    out.text(", ");
+                }
+                out.child(key);
+                out.text(": ");
+                out.child(item);
             }
-            out.push('}');
+            out.ch('}');
         }
     }
 }
@@ -676,10 +886,20 @@ pub fn sorted_by_val_or_refuse<T: Clone>(items: &[T], key: impl Fn(&T) -> Val, s
     sorted_by_val(items, key).map_err(|pair| pair.refusal(site))
 }
 
+/// `items.sort(key=repr)` in place, the key of each made once: [`sorted_by_repr`] on the vector itself.
+pub fn sort_by_repr_key<T>(items: &mut Vec<T>, key: impl Fn(&T) -> Val) {
+    if items.len() < 2 {
+        return;
+    }
+    let mut keyed: Vec<(Val, T)> = items.drain(..).map(|item| (key(&item), item)).collect();
+    keyed.sort_by(|left, right| repr_cmp(&left.0, &right.0));
+    items.extend(keyed.into_iter().map(|(_, item)| item));
+}
+
 /// `sorted(items, key=repr)` where the key is the `repr` of a value: a total order, so the standard stable sort is the oracle's.
 pub fn sorted_by_repr<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Vec<T> {
-    let mut keyed: Vec<(Rc<str>, T)> = items.iter().map(|item| (key(item).repr(), item.clone())).collect();
-    keyed.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let mut keyed: Vec<(Val, T)> = items.iter().map(|item| (key(item), item.clone())).collect();
+    keyed.sort_by(|left, right| repr_cmp(&left.0, &right.0));
     keyed.into_iter().map(|(_, item)| item).collect()
 }
 
@@ -760,6 +980,89 @@ mod tests {
         let (low, high) = (pair(Val::int(1), Val::int(2)), pair(Val::int(1), Val::int(3)));
         assert_eq!(py_less(&low, &high).unwrap(), py_less(&identity_order_val(&low), &identity_order_val(&high)).unwrap());
         assert_eq!(py_less(&high, &low).unwrap(), py_less(&identity_order_val(&high), &identity_order_val(&low)).unwrap());
+    }
+
+    /// A value of every shape the planning layer keys by, made from a seed: the long ones are what the head of a text cuts.
+    fn next(seed: &mut u64, bound: u64) -> u64 {
+        *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (*seed >> 33) % bound
+    }
+
+    fn sample(seed: &mut u64, depth: u32) -> Val {
+        let shape = next(seed, if depth == 0 { 6 } else { 10 });
+        match shape {
+            0 => Val::none(),
+            1 => Val::int(next(seed, 2000) as i64 - 1000),
+            2 => Val::frac(Rat::new(IBig::from(next(seed, 100000) as i64 - 50000), IBig::from(next(seed, 900) as i64 + 1)).unwrap()),
+            3 => Val::str(["EXISTING", "BIRTH", "SPLIT", "a'b"][next(seed, 4) as usize]),
+            4 => Val::boolean(next(seed, 2) == 0),
+            5 => Val::ints(&[next(seed, 500) as i64, -(next(seed, 500) as i64), 7, next(seed, 3) as i64]),
+            6 | 7 => {
+                let count = next(seed, 6);
+                Val::tuple((0..count).map(|_| sample(seed, depth - 1)).collect())
+            }
+            8 => Val::data("Thing", vec![("a", sample(seed, depth - 1)), ("b", sample(seed, depth - 1)), ("c", sample(seed, depth - 1))]),
+            _ => {
+                let count = next(seed, 5);
+                let frozen = next(seed, 2) == 0;
+                Val::set((0..count).map(|_| sample(seed, depth - 1)).collect(), frozen)
+            }
+        }
+    }
+
+    /// The same list of values every call: random ones, and the ones that make a head tie or end early.
+    fn head_cases() -> Vec<Val> {
+        let mut seed = 0x5eed_u64;
+        let mut values: Vec<Val> = (0..300).map(|_| sample(&mut seed, 5)).collect();
+        // texts longer than the head, equal on the head and different after it, and equal values made twice
+        let long = |tail: i64| Val::tuple(vec![Val::tuple((0..HEAD_BYTES as i64).map(Val::int).collect()), Val::int(tail)]);
+        values.extend([long(1), long(2), long(1), long(10), long(9)]);
+        values.push(Val::tuple((0..HEAD_BYTES as i64).map(Val::int).collect()));
+        values.push(Val::int(2));
+        values.push(Val::frac(Rat::from_int(IBig::from(2))));
+        values.push(Val::tuple(vec![Val::tuple(vec![Val::int(2)])]));
+        values.push(Val::tuple(vec![Val::tuple(vec![Val::frac(Rat::from_int(IBig::from(2)))])]));
+        // a text of one length is a beginning of a longer one made of the same items
+        let items: Vec<Val> = (0..60).map(Val::int).collect();
+        for count in [40, 50, 60] {
+            values.push(Val::list(items[..count].to_vec()));
+        }
+        values
+    }
+
+    #[test]
+    fn the_order_by_the_head_of_the_text_is_the_order_of_the_texts() {
+        // `values` is only ever compared with `repr_cmp` (a text is made only when the heads tie); `reference` is the same list whose whole texts are the expected order
+        let (values, reference) = (head_cases(), head_cases());
+        let mut pairs = 0;
+        for (index, left) in values.iter().enumerate() {
+            for (other, right) in values.iter().enumerate().skip(index.saturating_sub(40)) {
+                let expected = reference[index].repr().as_bytes().cmp(reference[other].repr().as_bytes());
+                assert_eq!(repr_cmp(left, right), expected, "{:?} against {:?}", left, right);
+                assert_eq!(repr_cmp(right, left), expected.reverse());
+                pairs += 1;
+            }
+        }
+        assert!(pairs > 10_000);
+        // sorted by the head, sorted by the text
+        let mut order: Vec<usize> = (0..values.len()).collect();
+        order.sort_by(|a, b| repr_cmp(&values[*a], &values[*b]));
+        let mut by_text: Vec<usize> = (0..values.len()).collect();
+        by_text.sort_by(|a, b| reference[*a].repr().as_bytes().cmp(reference[*b].repr().as_bytes()));
+        assert_eq!(order, by_text);
+    }
+
+    #[test]
+    fn a_text_cut_at_the_head_is_the_beginning_of_the_whole_text() {
+        let long = Val::tuple(vec![Val::tuple((0..400).map(Val::int).collect()), Val::str("end")]);
+        let head = long.head();
+        assert!(!head.complete && head.text.len() >= HEAD_BYTES);
+        assert!(long.repr().starts_with(head.text));
+        // once the whole text is there it is the head
+        assert!(long.head().complete);
+        let short = Val::tuple(vec![Val::int(1)]);
+        assert!(short.head().complete);
+        assert_eq!(short.head().text, "(1,)");
     }
 
     #[test]

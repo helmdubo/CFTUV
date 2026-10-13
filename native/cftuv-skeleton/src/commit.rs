@@ -33,7 +33,7 @@ use crate::error::{SkelError, SkelResult};
 use crate::overlay::{edge_key_of, with_view, JRef, Leaf, Overlay, SymVertex};
 use crate::poststate::{classify_poststate_span, PoststateDisposition};
 use crate::proof::{EdgeKey, ProofBranch, ProofDisposition};
-use crate::pyval::Val;
+use crate::pyval::{sort_by_repr_key, Val};
 use crate::queue::{CandidateEvent, EventKind};
 use crate::snapshot::{same_event, time_key, Snapshot};
 use crate::superlevel::emit_component_nodes;
@@ -79,8 +79,8 @@ pub struct CommitPlan<'c> {
 
 type Planned<'c> = (Option<CommitPlan<'c>>, Option<&'static str>);
 
-fn by_repr<T>(items: &mut [T], text: impl Fn(&T) -> Rc<str>) {
-    items.sort_by(|left, right| text(left).as_bytes().cmp(text(right).as_bytes()));
+fn by_repr<T>(items: &mut Vec<T>, value: impl Fn(&T) -> Val) {
+    sort_by_repr_key(items, value);
 }
 
 fn key_error(what: &str) -> SkelError {
@@ -194,14 +194,14 @@ fn ordered_lineage(leaves: &[Leaf]) -> Option<Vec<Leaf>> {
         return None;
     }
     let mut ordered = leaves.to_vec();
-    by_repr(&mut ordered, |leaf| leaf.occurrence().repr());
+    by_repr(&mut ordered, |leaf| leaf.occurrence());
     Some(ordered)
 }
 
 /// The alive junctions of the overlay in the order of the `repr` of their reference (`sorted(alive, key=repr)`).
 fn alive_by_repr(overlay: &Overlay) -> Vec<&SymVertex> {
     let mut alive: Vec<&SymVertex> = overlay.vertices.values().filter(|vertex| vertex.alive).collect();
-    by_repr(&mut alive, |vertex| vertex.reference.val().repr());
+    by_repr(&mut alive, |vertex| vertex.reference.val().clone());
     alive
 }
 
@@ -365,7 +365,7 @@ fn validated_active_leaf_groups(builder: &Builder, overlay: &Overlay) -> Result<
 /// `_validated_birth_context`: the births (never a virtual boundary), their leaves in the overlay, and every referenced leaf against the source key of its physical edge.
 fn validated_birth_context<'c>(builder: &Builder, overlay: &'c Overlay, active: &HashSet<Leaf, FxBuild>) -> Result<Vec<&'c SymVertex>, &'static str> {
     let mut births: Vec<&SymVertex> = overlay.vertices.values().filter(|vertex| !vertex.reference.is_existing()).collect();
-    by_repr(&mut births, |vertex| vertex.reference.val().repr());
+    by_repr(&mut births, |vertex| vertex.reference.val().clone());
     if births.iter().any(|vertex| vertex.reference.is_virtual_boundary()) {
         return Err("SYMBOLIC_RUNTIME_VIRTUAL_VERTEX_UNRESOLVABLE");
     }
@@ -378,7 +378,7 @@ fn validated_birth_context<'c>(builder: &Builder, overlay: &'c Overlay, active: 
         referenced.insert(vertex.next_leaf.clone());
     }
     let mut referenced: Vec<Leaf> = referenced.into_iter().collect();
-    by_repr(&mut referenced, |leaf| leaf.val().repr());
+    by_repr(&mut referenced, |leaf| leaf.val().clone());
     for leaf in &referenced {
         let Some(binding) = overlay.spans.get(leaf) else {
             return Err("SYMBOLIC_RUNTIME_BIRTH_SPAN_UNRESOLVABLE");

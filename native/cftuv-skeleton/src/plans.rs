@@ -24,7 +24,7 @@ use crate::error::{SkelError, SkelResult};
 use crate::germ::{absorbed_by_locus, locus_ends, GermLedger};
 use crate::proof::EdgeKey;
 use crate::pyset::PySet;
-use crate::pyval::{identity_order_val, sorted_by_repr, sorted_by_val_or_refuse, Val};
+use crate::pyval::{identity_order_val, repr_cmp, sort_by_repr_key, sorted_by_repr, sorted_by_val_or_refuse, Val};
 use crate::queue::{CandidateEvent, EventKind};
 use crate::snapshot::{exact_point_key, Incident, IncidentSortKey, Snapshot, VertexSnapshot};
 use crate::time::{EventPoint, EventTime, PointRef, TimeRef};
@@ -149,7 +149,7 @@ pub struct ComponentPlan {
 /// the canonical minimum by `repr` (and an ambiguity is for the caller to name, not for the ledger).
 pub fn fold_germ(previous: &BoundaryBirth, repeated: &BoundaryBirth) -> BoundaryBirth {
     if previous.key != repeated.key {
-        return if previous.key.repr().as_bytes() <= repeated.key.repr().as_bytes() { previous.clone() } else { repeated.clone() };
+        return if repr_cmp(&previous.key, &repeated.key).is_le() { previous.clone() } else { repeated.clone() };
     }
     let merged: BTreeSet<i64> = previous.replaces.iter().chain(&repeated.replaces).copied().collect();
     BoundaryBirth { replaces: merged.into_iter().collect(), ..previous.clone() }
@@ -291,7 +291,7 @@ pub fn component_fields(component: &[&Incident]) -> ComponentFields {
         sorted_by_repr(&unique, Val::clone)
     };
     // `min(component, key=repr(point_key))`: the FIRST of the equal keys
-    let sample = component.iter().skip(1).fold(component[0], |best, incident| if incident.point_key.repr().as_bytes() < best.point_key.repr().as_bytes() { incident } else { best });
+    let sample = component.iter().skip(1).fold(component[0], |best, incident| if repr_cmp(&incident.point_key, &best.point_key).is_lt() { incident } else { best });
     ComponentFields {
         event_kinds: sorted_kinds(component.iter().map(|incident| incident.event.kind)),
         time: Rc::clone(&sample.event.time),
@@ -331,7 +331,7 @@ impl<'a, T> Grouped<'a, T> {
     /// The keys sorted by `repr` (`sorted(grouped, key=repr)`), each with its group.
     fn by_repr(&self) -> Vec<(&Val, &Vec<&'a T>)> {
         let mut found: Vec<(&Val, &Vec<&'a T>)> = self.groups.iter().map(|(key, group)| (key, group)).collect();
-        found.sort_by(|left, right| left.0.repr().as_bytes().cmp(right.0.repr().as_bytes()));
+        found.sort_by(|left, right| repr_cmp(left.0, right.0));
         found
     }
 }
@@ -611,7 +611,7 @@ pub fn split_cut_plans(ctx: &mut ExactCtx<'_>, splits: &[&Incident], vertices: &
             births.push(right);
         }
         let port_text = |port: &(Val, bool, bool)| Val::tuple_of([port.0.clone(), Val::boolean(port.1), Val::boolean(port.2)]);
-        final_ports.sort_by_cached_key(|port| port_text(port).repr().to_string());
+        sort_by_repr_key(&mut final_ports, port_text);
         plans.push(SplitCutPlan {
             edge_id: first.event.edge,
             target_occurrence: target_occurrence.clone(),
@@ -709,7 +709,7 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
     let mut seen: HashSet<&Val> = HashSet::new();
     let mut components: Vec<Vec<Val>> = Vec::new();
     let mut roots: Vec<&Val> = key_order.iter().copied().filter(|key| !incoming.contains(key)).collect();
-    roots.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+    roots.sort_by(|left, right| repr_cmp(left, right));
     for root in roots {
         let mut chain: Vec<Val> = Vec::new();
         let mut cursor = root;
@@ -724,7 +724,7 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
         components.push(chain);
     }
     let mut rest: Vec<&Val> = key_order.iter().copied().filter(|key| !seen.contains(key)).collect();
-    rest.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+    rest.sort_by(|left, right| repr_cmp(left, right));
     for root in rest {
         if seen.contains(root) {
             continue;
@@ -742,7 +742,7 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
         if !cycle.contains(&cursor) {
             return (Vec::new(), false);
         }
-        let offset = cycle.iter().enumerate().fold(0usize, |best, (index, key)| if key.repr().as_bytes() < cycle[best].repr().as_bytes() { index } else { best });
+        let offset = cycle.iter().enumerate().fold(0usize, |best, (index, key)| if repr_cmp(key, cycle[best]).is_lt() { index } else { best });
         let rotated: Vec<Val> = cycle[offset..].iter().chain(cycle[..offset].iter()).map(|key| (*key).clone()).collect();
         components.push(rotated);
     }
@@ -850,7 +850,7 @@ pub fn wire_births(births: Vec<BoundaryBirth>, dead: &BTreeSet<i64>, vertices: &
         }
         wiring.push((item.key.clone(), predecessors[0].clone(), successors[0].clone()));
     }
-    wiring.sort_by_cached_key(|wire| wire.0.repr().to_string());
+    sort_by_repr_key(&mut wiring, |wire| wire.0.clone());
     rewrites.sort_by_key(|(ident, _, _)| *ident);
     Ok((rewritten, wiring, rewrites, components, true))
 }

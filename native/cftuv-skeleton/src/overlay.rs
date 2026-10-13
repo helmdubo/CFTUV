@@ -29,7 +29,7 @@ use crate::line::SupportLine;
 use crate::component::point_from_key;
 use crate::omap::OrderedMap;
 use crate::plans::{point_val, time_val, ComponentPlan};
-use crate::pyval::Val;
+use crate::pyval::{repr_cmp, Val};
 use crate::snapshot::{exact_point_key, port_identity, sparse_occurrences, VertexSnapshot};
 use crate::time::{times_are_equal, EventPoint, EventTime, PointRef, TimeRef};
 use crate::profile::{timed, Phase};
@@ -251,7 +251,7 @@ impl Overlay {
     /// `sorted(overlay.changed, key=repr)`.
     pub fn changed_by_repr(&self) -> Vec<Leaf> {
         let mut leaves: Vec<Leaf> = self.changed.iter().cloned().collect();
-        leaves.sort_by(|left, right| left.val().repr().as_bytes().cmp(right.val().repr().as_bytes()));
+        leaves.sort_by(|left, right| repr_cmp(left.val(), right.val()));
         leaves
     }
 }
@@ -1008,7 +1008,7 @@ pub fn overlay_val(overlay: &Overlay) -> Val {
             )
         })
         .collect();
-    spans.sort_by(|left, right| left.0.repr().as_bytes().cmp(right.0.repr().as_bytes()));
+    spans.sort_by(|left, right| repr_cmp(&left.0, &right.0));
     Val::data(
         "SymbolicOverlayV1",
         vec![
