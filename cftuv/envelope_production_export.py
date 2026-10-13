@@ -161,6 +161,7 @@ from .envelope_production_task import (  # noqa: F401 - переэкспорт: 
     solve_production_task,
 )
 from .envelope_snap_retry import retry_snap_lottery
+from .envelope_production_stream import plan as plan_streamed
 from .envelope_byte_check_background import PendingByteCheckV1, deferred_domains, launch as launch_byte_check
 from .envelope_snapshot_byte_check import finish_press, resolve_plan
 from .envelope_scan_memo import remember_inputs
@@ -477,27 +478,37 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
-    laws = ColdProductionInputV1(run.uv_policy_id, run.topology_law, run.topology_export.snapshot_byte_check)
+    laws = cold_laws(run)
     for entry in cold:
-        snapshot, request = entry.inputs or (None, None)
-        tasks.append(
-            DomainTaskV1(
-                len(tasks),
-                entry.patch_id,
-                entry.domain_id,
-                snapshot,
-                request,
-                run.alpha_text,
-                entry.selected,
-                export=entry.export,
-                cold=laws,
-                affinity=entry.domain_id,
-                backend=run.backend,
-                skeleton_backend=run.skeleton_backend,
-                embedding_backend=run.embedding_backend,
-            )
-        )
+        tasks.append(cold_task(run, entry, len(tasks), laws))
     return tasks
+
+
+def cold_laws(run: _RunInputsV1) -> ColdProductionInputV1:
+    return ColdProductionInputV1(run.uv_policy_id, run.topology_law, run.topology_export.snapshot_byte_check)
+
+
+def cold_task(run: _RunInputsV1, entry: _DomainEntryV1, task_id: int, laws: ColdProductionInputV1):
+    """Задача пула холодного домена: вход выгрузки (или готовые снапшот и запрос) и законы прогона; общая для полного списка и для потокового обхода (SCAN_BEHIND_THE_POOL_V1)."""
+
+    from .envelope_domain_pool import DomainTaskV1
+
+    snapshot, request = entry.inputs or (None, None)
+    return DomainTaskV1(
+        task_id,
+        entry.patch_id,
+        entry.domain_id,
+        snapshot,
+        request,
+        run.alpha_text,
+        entry.selected,
+        export=entry.export,
+        cold=laws,
+        affinity=entry.domain_id,
+        backend=run.backend,
+        skeleton_backend=run.skeleton_backend,
+        embedding_backend=run.embedding_backend,
+    )
 
 
 def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
@@ -513,14 +524,7 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
     поднимают пул и так: тогда готовые идут с ними в одной партии.
     """
 
-    from .envelope_queue_pool import (
-        _note_task_fallback,
-        _record_pool_counters,
-        _run_tasks,
-        _ship_preparations,
-        _task_error,
-        _worth_the_pool,
-    )
+    from .envelope_queue_pool import _run_tasks, _ship_preparations, _worth_the_pool
 
     controller = run.controller
     triples = [
@@ -541,6 +545,14 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
     pooled, failure = (
         _run_tasks(domain_pool, tasks, run.profile, cancel=run.cancel) if tasks else (None, "")
     )
+    return settle_dispatch(run, ready, cold, domain_pool, tasks, pooled, failure, shipping_failures)
+
+
+def settle_dispatch(run: _RunInputsV1, ready, cold, domain_pool, tasks, pooled, failure, shipping_failures):
+    """Вторая половина `_dispatch`: ответы пула (`pooled`, `failure`) на `tasks` - приём холодных доменов по порядку задач, досчёт упавших и готовых, счётчики. Общая для полного списка и для потокового обхода."""
+
+    from .envelope_queue_pool import _note_task_fallback, _record_pool_counters, _task_error
+
     _check_cancel(run)  # остановленный пул отдал только сделанное: докончить за него нельзя
     entry_of = {item.domain_id: item for item in (*ready, *cold)}
     done: dict[str, ProductionDomainResultV1] = {}
@@ -779,6 +791,20 @@ def _dispatch_work(run: _RunInputsV1, work, pool):
     return _dispatch(run, ready, [item for item in work if item.prepared is None and item.carried is None], pool)
 
 
+def _scan_and_dispatch(run: _RunInputsV1, pool):
+    """`(записи доменов, {домен: результат}, {домен: отказ входа})`: скан и пул. На холодной сессии с пулом и большой партией скан остатка идёт ЗА пулом (SCAN_BEHIND_THE_POOL_V1, `envelope_production_stream`), иначе - прежний путь."""
+
+    streamed = plan_streamed(run, pool)
+    if streamed is not None:
+        with run.profile.measure("PRODUCTION_DOMAINS_WALL"):
+            return streamed.execute()
+    entries = _scan(run)
+    _check_cancel(run)
+    with run.profile.measure("PRODUCTION_DOMAINS_WALL"):
+        done, refused = _dispatch_work(run, [item for item in entries if item.needs_work], pool)
+    return entries, done, refused
+
+
 def run_production(
     controller,
     analysis_bundle,
@@ -890,12 +916,8 @@ def run_production(
         served={patch: result for patch, result in dict(served or {}).items() if patch not in refused_by_byte_check},
         skipped=frozenset(int(item) for item in (skipped or ())) - refused_by_byte_check,
     )
-    entries = _scan(run)
-    _check_cancel(run)
+    entries, done, refused = _scan_and_dispatch(run, pool)
     cold = any(item.is_cold for item in entries)
-    work = [item for item in entries if item.needs_work]
-    with profile.measure("PRODUCTION_DOMAINS_WALL"):
-        done, refused = _dispatch_work(run, work, pool)
     results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
     produced = _production_run(run, entries, results, cold, started, builds_before, lazy_before)
     _start_byte_check(controller, run, pool, entries, defer_byte_check)

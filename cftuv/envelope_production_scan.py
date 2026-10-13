@@ -420,78 +420,81 @@ def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record,
     )
 
 
-def _scan(run: _RunInputsV1):
-    """Домены по кэшам сессии, БЕЗ сборки: чего нет в кэше, то холодно.
+class _Scan:
+    """Один обход доменов прогона: состояние (`records`, счёт доменов из записей) и `entry(patch_id)` - то, что сессия знает об ОДНОМ домене (`_scan` ходит по патчам по порядку, потоковый обход - `envelope_production_stream`)."""
 
-    Метрика, снапшот, подготовка и результат читаются из кэшей контроллера; промах метрики
-    называется холодным доменом с лёгким входом выгрузки, а не собирается здесь в родителе
-    (сборка метрик — работа воркеров пула в холодной задаче). Вход домена с готовой записью сборки
-    (`envelope_scan_memo`: тот же снапшот, то же выделение и политика) берёт из неё всё, что не зависит
-    от ширины, а ширину подставляет в запрос; ширина, которой запрос не строится, идёт прежним путём.
-    """
+    __slots__ = ("run", "alpha", "records", "reused")
+    def __init__(self, run: _RunInputsV1) -> None:
+        from . import envelope_scan_memo as memo
 
-    from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
-    from .envelope_scan_memo import request_alpha, scan_key
+        self.run = run
+        self.alpha = memo.request_alpha(run.alpha)
+        key = None if self.alpha is None else memo.scan_key(run)
+        self.records = run.scan_records["records"] = None if key is None else run.controller.scan_memo.records_of(key)
+        self.reused = 0
 
-    controller = run.controller
-    alpha = request_alpha(run.alpha)
-    key = None if alpha is None else scan_key(run)
-    records = run.scan_records["records"] = None if key is None else controller.scan_memo.records_of(key)
-    reused = 0
+    def entry(self, patch_id) -> _DomainEntryV1 | None:
+        """Домен патча по кэшам сессии (`None` - патч не считается этим прогоном)."""
 
-    def snapshots(patch_id, _domain_id):
-        metric = controller.get_patch_metric(run.topology_export, patch_id)
-        return controller.get_domain_geometry(metric).snapshot
+        from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
 
-    entries = []
-    for patch_id in run.patch_ids:
+        run = self.run
+        controller = run.controller
         if patch_id in run.skipped:
-            continue
+            return None
         domain_id = _typed_value("patch-domain", run.revision, patch_id)
         refusal = controller.byte_check_refusal(domain_id)
         if refusal is not None:
             # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: фон нашёл, что байты снапшота домена не прошли круг кодека; следующее действие отказывает домен тем же исходом, что дала бы проверка на нажатии.
-            entries.append(_DomainEntryV1(patch_id, domain_id, frozenset(run.selected_by_domain[domain_id]), failure=refusal))
-            continue
+            return _DomainEntryV1(patch_id, domain_id, frozenset(run.selected_by_domain[domain_id]), failure=refusal)
         result = run.served.get(patch_id)
         if result is not None and result.domain_id in run.selected_by_domain:
             # WIDTH_REFRESH_INCREMENTAL_V1: домен обслужен сертификатом (идентичность домена - у самого результата, он про эту ревизию), ни записей, ни кэшей, ни выгрузки.
-            entries.append(_DomainEntryV1(patch_id, result.domain_id, frozenset(run.selected_by_domain[result.domain_id]), cached=result, rebased=True))
-            continue
+            return _DomainEntryV1(patch_id, result.domain_id, frozenset(run.selected_by_domain[result.domain_id]), cached=result, rebased=True)
         selected = frozenset(run.selected_by_domain[domain_id])
+        records = self.records
         record = None if records is None else records.get(patch_id)
         if record is not None and record.selected != selected:
             record = None
-        bound = _bound_entry(
-            run, patch_id, domain_id, selected, _NO_BINDING if record is None else record.binding
-        )
+        bound = _bound_entry(run, patch_id, domain_id, selected, _NO_BINDING if record is None else record.binding)
         if bound is not None:
-            entries.append(bound)
-            continue
-        export = run.hooks.export_provider(
-            patch_id, run.alpha, run.request_id, run.density
-        )
+            return bound
+        export = run.hooks.export_provider(patch_id, run.alpha, run.request_id, run.density)
         if export is not None:
-            entries.append(_content_entry(run, patch_id, domain_id, selected, export))
-            continue
+            return _content_entry(run, patch_id, domain_id, selected, export)
         with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger:
             try:
-                snapshot = snapshots(patch_id, domain_id)
+                snapshot = controller.get_domain_geometry(controller.get_patch_metric(run.topology_export, patch_id)).snapshot
                 if record is not None and record.snapshot is snapshot:
-                    entry = _entry_from_record(run, patch_id, domain_id, selected, record, alpha)
+                    entry = _entry_from_record(run, patch_id, domain_id, selected, record, self.alpha)
                     entry.export_records.append(ledger_record(ledger))
-                    entries.append(entry)
-                    reused += 1
-                    continue
+                    self.reused += 1
+                    return entry
                 inputs = _inputs_of(run, (patch_id, domain_id, selected), lambda _patch, _domain: snapshot)
             except EnvelopeHostAdapterError as exc:
-                entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=released(exc), export_records=[ledger_record(ledger)]))
-                continue
+                return _DomainEntryV1(patch_id, domain_id, selected, failure=released(exc), export_records=[ledger_record(ledger)])
         entry = _entry_with_inputs(run, patch_id, domain_id, selected, inputs)
         entry.export_records.append(ledger_record(ledger))
-        entries.append(entry)
         if records is not None:
             remember_inputs(records, patch_id, selected, inputs, entry.result_key[0], _binding(run, patch_id, domain_id, selected))
-    # Повтор лотереи привязки идёт тем же `_scan` в тот же профиль: счётчик копится, а не затирается числом повтора.
-    run.profile.add_counter(PRODUCTION_SCAN_RECORDS_REUSED, reused)
+        return entry
+
+    def finish(self) -> None:
+        # Повтор лотереи привязки идёт тем же `_scan` в тот же профиль: счётчик копится, а не затирается числом повтора.
+        self.run.profile.add_counter(PRODUCTION_SCAN_RECORDS_REUSED, self.reused)
+
+
+def _scan(run: _RunInputsV1):
+    """Домены по кэшам сессии, БЕЗ сборки: чего нет в кэше, то холодно (промах метрики - холодный домен с лёгким входом выгрузки: сборка метрик - работа воркеров пула).
+
+    Вход домена с готовой записью сборки (`envelope_scan_memo`: тот же снапшот, выделение и политика) берёт из неё всё, что не зависит от ширины, а ширину подставляет в запрос; ширина, которой запрос не строится, идёт прежним путём.
+    """
+
+    scan = _Scan(run)
+    entries = []
+    for patch_id in run.patch_ids:
+        entry = scan.entry(patch_id)
+        if entry is not None:
+            entries.append(entry)
+    scan.finish()
     return entries

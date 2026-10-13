@@ -341,6 +341,15 @@ class PoolStatsV1:
 
 
 @dataclass(frozen=True, slots=True)
+class LateTasksV1:
+    """Задачи, которые вызывающий достроит ПОКА воркеры считают (SCAN_BEHIND_THE_POOL_V1): `total` - сколько задач будет всего (решает, идёт ли прогон по отбору кандидатов), `provide()` - остаток задач,
+    его зовёт поток вызывающего после старта воркеров (один раз); задачи с теми же `task_id`, что у полного списка. Исключение `provide` вызывающий ловит сам и отдаёт пустой остаток: прогон кончается, а отказ он бросает после."""
+
+    total: int
+    provide: object
+
+
+@dataclass(frozen=True, slots=True)
 class DomainPoolRunV1:
     """Итог прогона: ответы по `task_id` и сколько воркеров в нём участвовало.
 
@@ -1054,34 +1063,57 @@ class _PendingTasks:
     """Очередь невзятых задач, тяжёлые первыми; воркер предпочитает задачу, подготовку которой держит (меньше пересылок).
 
     Очередь, которую наполняют позже (`fill`, HEAD_STREAMED_FIRST_ROUND_V1), держит воркеров на `take` до наполнения: первый круг уже считается, а остаток ещё упорядочивается.
+    Очередь, у которой есть готовая часть и будет остаток (`prefill`, потом `extend`; SCAN_BEHIND_THE_POOL_V1), отдаёт готовую часть сразу, а воркер, опустошивший её раньше остатка, ждёт остаток, а не уходит.
     """
 
     def __init__(self, items=None, big_cost: float = 0.0) -> None:
         self._items: list = []
         self._big = big_cost
-        self._lock = threading.Lock()
+        self._cond = threading.Condition()
         self._warm = 0
-        self._ready = threading.Event()
+        #: Очередь можно брать (`fill` или `prefill` были) и очередь полна (остатка не будет): пустая неполная очередь держит воркера на `take`.
+        self._ready = False
+        self._final = False
         if items is not None:
             self.fill(items, big_cost)
 
+    def _set(self, items, big_cost: float, final: bool) -> None:
+        self._items = list(items)
+        self._big = big_cost
+        #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и вперёд ответа его делать нельзя.
+        self._warm = sum(1 for item in self._items if item[0].cold is None)
+        self._ready = True
+        self._final = self._final or final
+        self._cond.notify_all()
+
     def fill(self, items, big_cost: float) -> None:
-        with self._lock:
-            self._items = list(items)
-            self._big = big_cost
-            #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и вперёд ответа его делать нельзя.
-            self._warm = sum(1 for item in self._items if item[0].cold is None)
-        self._ready.set()
+        with self._cond:
+            self._set(items, big_cost, True)
+
+    def prefill(self, items, big_cost: float) -> None:
+        """Готовая часть очереди: воркеры берут её сразу; остаток придёт в `extend`."""
+
+        with self._cond:
+            self._set(items, big_cost, False)
+
+    def extend(self, items, big_cost: float) -> None:
+        """Остаток пришёл: он встаёт в нерасхваченную часть очереди по цене (порядок `order_by_cost`), очередь полна."""
+
+        with self._cond:
+            merged = sorted([*self._items, *items], key=lambda item: (-_frame_cost(*item), item[0].task_id))
+            self._set(merged, big_cost, True)
 
     def release(self) -> None:
-        """Очередь, которую так и не наполнили, становится пустой: воркеры не ждут того, чего не будет."""
+        """Очередь, которую так и не наполнили до конца, становится полной как есть: воркеры не ждут того, чего не будет."""
 
-        if not self._ready.is_set():
-            self.fill([], 0.0)
+        with self._cond:
+            if not self._final:
+                self._set(self._items, self._big, True)
 
     def take(self, worker):
-        self._ready.wait()
-        with self._lock:
+        with self._cond:
+            while not self._ready or (not self._items and not self._final):
+                self._cond.wait()
             if not self._items:
                 return None
             head = self._items[0]
@@ -1099,10 +1131,8 @@ class _PendingTasks:
         разбора ответа, который эту память пополняет (EARLY_DISPATCH_BEFORE_UNPICKLE_V1): выбранное то же, что выбрал бы `take` после разбора. Есть в очереди хоть одна не холодная - `None`, и выбирает `take`.
         """
 
-        if not self._ready.is_set():
-            return None
-        with self._lock:
-            if self._warm or not self._items:
+        with self._cond:
+            if not self._ready or self._warm or not self._items:
                 return None
             return self._pop(0)
 
@@ -1196,7 +1226,7 @@ def _exchange(worker, task, frame: bytes, counted: _PoolCounter, sent: bool = Fa
 class _Run:
     """Один прогон `DomainPool`: звенья воркеров, очередь, ответы и счёт пересылок; потоки воркеров (`feed`) и потоки-читатели (`ahead`) работают с ним."""
 
-    def __init__(self, last_worker: dict, participants, tasks, cancel) -> None:
+    def __init__(self, last_worker: dict, participants, tasks, cancel, late: LateTasksV1 | None = None) -> None:
         self.last_worker = last_worker  # `{ключ привязки: индекс воркера}` пула: поток воркера дописывает, кто считал задачу
         self.participants = participants
         self.cancel = cancel
@@ -1208,9 +1238,12 @@ class _Run:
         self.lanes = {item.index: _Lane() for item in participants}
         self.streamed = (
             STREAMED_HEAD
-            and len(tasks) >= STREAMED_HEAD_MIN_TASKS_PER_WORKER * self.count
+            and (len(tasks) if late is None else late.total) >= STREAMED_HEAD_MIN_TASKS_PER_WORKER * self.count
             and all(task.export is not None for task in tasks)
         )
+        if late is not None and not self.streamed:
+            tasks, late = [*tasks, *late.provide()], None  # отбора кандидатов нет: остаток нужен до старта, как у полного списка
+        self.late = late
         if self.streamed:
             self.head, self.rest_tasks = split_first_round(tasks, self.count)
             first = plan_first_round(self.head, self.indices, self.owners)
@@ -1251,10 +1284,22 @@ class _Run:
         return ordering_failure
 
     def _order_rest(self) -> None:
-        rest = order_by_cost(self.rest_tasks)
+        early: list = []
+        if self.late is None:
+            rest = order_by_cost(self.rest_tasks)
+        else:
+            early = order_by_cost(self.rest_tasks) if self.rest_tasks else []
+            if early:  # SCAN_BEHIND_THE_POOL_V1: кандидаты, которых вызывающий дал вместе с головой, уже готовы - воркеры берут их, пока он достраивает остальное
+                self.pending.prefill(early, sum(_frame_cost(*item) for item in (*self.head, *early)) / (PULL_BIG_DIVISOR * self.count))
+            late = order_by_cost(self.late.provide())
+            rest = sorted([*early, *late], key=lambda item: (-_frame_cost(*item), item[0].task_id))
         lightest = min(_frame_cost(*item) for item in self.head)
         self.counted.add(head=1, head_misses=sum(1 for item in rest if _frame_cost(*item) > lightest))
-        self.pending.fill(rest, sum(_frame_cost(*item) for item in (*self.head, *rest)) / (PULL_BIG_DIVISOR * self.count))
+        big = sum(_frame_cost(*item) for item in (*self.head, *rest)) / (PULL_BIG_DIVISOR * self.count)
+        if self.late is None:
+            self.pending.fill(rest, big)
+        else:
+            self.pending.extend(late, big)
 
     def ahead(self, worker: _Worker) -> None:
         """Поток-читатель: байты ответа прочитаны, разбор впереди. Следующая холодная задача уходит воркеру сейчас (`_PendingTasks.take_ahead`)."""
@@ -1519,19 +1564,23 @@ class DomainPool:
             version, False, rejection.outcome, str(rejection), rejection.code
         )
 
-    def run(self, tasks, cancel=None) -> DomainPoolRunV1:
+    #: Пул принимает `late` (`LateTasksV1`): вызывающий достраивает остаток задач, пока воркеры считают (SCAN_BEHIND_THE_POOL_V1).
+    streams_late = True
+
+    def run(self, tasks, cancel=None, late=None) -> DomainPoolRunV1:
         """Считает задачи воркерами, тяжёлые первыми, и собирает ответы.
 
         Один прогон за раз (`_run_lock`). `cancel` — `threading.Event`: после его установки воркеры
         не берут НОВЫЕ задачи (идущая дочитывается), и ответ вернёт только сделанное; кто отменил,
         тот и разбирает неполный ответ (`SliderCoveragePool.cover` бросает `CoverageCancelled`).
+        `late` (`LateTasksV1`) - остаток задач, который вызывающий достроит ПОСЛЕ старта воркеров: `tasks` тогда голова (отобранные кандидаты первого круга), а порядок и первый круг те же, что дал бы полный список.
         """
 
         with self._wanted:
             self._foreground += 1  # ДО замка: фоновый шаг, идущий сейчас, дочитывается (не дольше одного шага), следующего он не начнёт
         try:
             with self._run_lock:
-                return self._run_locked(tasks, cancel)
+                return self._run_locked(tasks, cancel) if late is None else self._run_locked(tasks, cancel, late)
         finally:
             with self._wanted:
                 self._foreground -= 1
@@ -1586,10 +1635,10 @@ class DomainPool:
                 self._workers = [item for item in self._workers if not item.dead]
         return (not pending and not failures and not stop.is_set()), failures
 
-    def _run_locked(self, tasks, cancel) -> DomainPoolRunV1:
+    def _run_locked(self, tasks, cancel, late=None) -> DomainPoolRunV1:
         self.ensure_started()
         participants = list(self._workers)
-        run = _Run(self._last_worker, participants, list(tasks), cancel)
+        run = _Run(self._last_worker, participants, list(tasks), cancel, late)
         before = {worker.index: (worker.received_bytes, worker.unpickle_cpu, worker.unpickle_wall) for worker in participants}
         ordering_failure = run.execute()
         for worker in participants:
