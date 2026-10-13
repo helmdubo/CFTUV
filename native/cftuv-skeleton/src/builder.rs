@@ -1145,6 +1145,10 @@ impl CandidateView for Builder {
         })
     }
 
+    fn span_line(&self, span: SpanRef) -> SkelResult<&SupportLine> {
+        Ok(&self.edge_at(i64::from(span))?.line)
+    }
+
     fn span_state(&self, span: SpanRef) -> SkelResult<SpanState<'_>> {
         let edge = self.edge_at(i64::from(span))?;
         let end_of = |vertex: Option<&Vertex>| vertex.map(|found| narrow(found.ident, "the vertex")).transpose();

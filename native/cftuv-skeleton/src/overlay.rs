@@ -889,6 +889,11 @@ impl CandidateView for OverlayView<'_> {
         Ok(VertexState { prev_span: leaf_slot(&found.prev_leaf), next_span: leaf_slot(&found.next_leaf), birth: &found.birth, sliding })
     }
 
+    fn span_line(&self, span: SpanRef) -> SkelResult<&SupportLine> {
+        let (_, binding) = self.overlay.spans.at(span as usize).ok_or_else(|| key_error("a leaf that is not in the overlay"))?;
+        Ok(&self.builder.edge_at(binding.physical_edge_id)?.line)
+    }
+
     fn span_state(&self, span: SpanRef) -> SkelResult<SpanState<'_>> {
         let (_, binding) = self.overlay.spans.at(span as usize).ok_or_else(|| key_error("a leaf that is not in the overlay"))?;
         let edge = self.builder.edge_at(binding.physical_edge_id)?;
