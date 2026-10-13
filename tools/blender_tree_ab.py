@@ -84,7 +84,7 @@ LEAN_UNCARRIED_FIELDS = ("content_digest", "semantic_digest", "vertex_normals_ha
 #: Counters a lean run adds or moves on purpose: its own class counters, and the registration in the content store (a lean result is never stored).
 LEAN_COUNTER_PREFIXES = ("PRODUCTION_REFRESH_LEAN", "PRODUCTION_CONTENT_REGISTERED")
 #: Fields that say HOW the answer was reached (counted and listed, never a failure).
-LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran", "materialize_ran", "snapshot_check_ran")
+LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran", "materialize_ran", "snapshot_check_ran", "frame_ran")
 #: Counters whose value depends on which worker a domain landed on; each group is compared by its sum.
 SCHEDULING_GROUPS = {
     "interval path": lambda name: name == "PRODUCTION_INTERVAL_FAST_HITS" or name.startswith("PRODUCTION_INTERVAL_FALLBACK_"),
@@ -361,6 +361,8 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
     for side, press in (("base", a), ("branch", b)):
         if press.get("snapshot_check_calls") and any(press["snapshot_check_calls"]):
             out.notes.append(f"[{label}] {side}: snapshot checks (EXPORT validators, two per domain) proved natively {press['snapshot_check_calls'][0]}, run by the Python validators after a named decline {press['snapshot_check_calls'][1]}")
+        if press.get("frame_calls") and any(press["frame_calls"]):
+            out.notes.append(f"[{label}] {side}: frame admissions (EXPORT, one per exported patch) built natively {press['frame_calls'][0]}, by the Python builder after a named decline {press['frame_calls'][1]}")
     _counter_difference(a["profile_counters"], b["profile_counters"], allowed, is_volatile_run_counter, f"[{label}] run profile", out)
     by_name_a, by_name_b = a.get("profile_domain_counters_by_name"), b.get("profile_domain_counters_by_name")
     if by_name_a is not None and by_name_b is not None:
@@ -1069,6 +1071,8 @@ def verify_native(native_path: str, expect_prefix: str) -> dict:
     if "snapshot_check" in host and os.environ.get("CFTUV_SNAPSHOT_CHECK_BACKEND", "").strip().upper() != "PYTHON" and SNAPSHOT_RECORD_ENVIRONMENT not in os.environ:
         # a tree that has the EXPORT stage orders it natively by default (SNAPSHOT_CHECK_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation
         assert host.get("snapshot_check") == "available", f"native stage snapshot_check is {host.get('snapshot_check')}"
+    if "frame" in host and os.environ.get("CFTUV_FRAME_BACKEND", "").strip().upper() != "PYTHON" and SNAPSHOT_RECORD_ENVIRONMENT not in os.environ:
+        assert host.get("frame") == "available", f"native stage frame is {host.get('frame')}"  # FRAME_NATIVE_DEFAULT_V1: the tree that has the stage orders it natively by default
     return {"module": str(module.__file__), "build_id": build, "host_native_status": {key: str(value) for key, value in host.items()}}
 
 
@@ -1136,6 +1140,8 @@ def domain_rows(run) -> list:
             "materialize_calls": None if record is None else [getattr(record, "materialize_native_calls", 0), getattr(record, "materialize_python_calls", 0)],
             "snapshot_check_ran": None if record is None else (getattr(record, "snapshot_check_ran", None) or None),
             "snapshot_check_calls": None if record is None else [getattr(record, "snapshot_check_native_calls", 0), getattr(record, "snapshot_check_python_calls", 0)],
+            "frame_ran": None if record is None else (getattr(record, "frame_ran", None) or None),
+            "frame_calls": None if record is None else [getattr(record, "frame_native_calls", 0), getattr(record, "frame_python_calls", 0)],
         })
     return sorted(rows, key=lambda row: row["patch"])
 
@@ -1178,9 +1184,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     alpha_calls = [sum(row["effective_alpha_calls"][index] for row in rows if row.get("effective_alpha_calls")) for index in (0, 1)]
     materialize_calls = [sum(row["materialize_calls"][index] for row in rows if row.get("materialize_calls")) for index in (0, 1)]
     snapshot_check_calls = [sum(row["snapshot_check_calls"][index] for row in rows if row.get("snapshot_check_calls")) for index in (0, 1)]
+    frame_calls = [sum(row["frame_calls"][index] for row in rows if row.get("frame_calls")) for index in (0, 1)]
     return {
         "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
-        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls,
+        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls, "frame_calls": frame_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_domain_counters_by_name": {
