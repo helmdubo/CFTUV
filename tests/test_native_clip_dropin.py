@@ -150,7 +150,7 @@ def test_a_cap_sweep_through_the_dropin_exhausts_at_the_same_place_with_the_same
         spent = sum(before.budget["articles"])
         delta = sum(record.expected().after.budget["articles"]) - spent
         for level in geometry.cap_levels(delta):
-            state = dataclasses.replace(before, budget={**before.budget, "cap": spent + level})
+            state = nc.bounded_before(before, spent + level)  # потолок накладывает тест: состояние BOUNDED, даже если запись эталонная
             run = runner.compare(record, before=state)
             CHECKED["cap sweep"] += 1
             refused[run.outcome_label] += 1
@@ -398,7 +398,7 @@ def test_a_cap_sweep_that_exhausts_inside_a_replayed_computation_leaves_the_orac
         spent = sum(before.budget["articles"])
         delta = sum(record.expected().after.budget["articles"]) - spent
         for level in geometry.cap_levels(delta) + [delta // 2, delta // 3, delta * 2 // 3]:
-            state = dataclasses.replace(before, budget={**before.budget, "cap": spent + level})
+            state = nc.bounded_before(before, spent + level)  # потолок накладывает тест: состояние BOUNDED, даже если запись эталонная
             run = runner.compare(record, before=state)
             CHECKED["warm cap sweep"] += 1
             refused[run.outcome_label] += 1
