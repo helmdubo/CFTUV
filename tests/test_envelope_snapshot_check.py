@@ -50,6 +50,14 @@ ROW = 5
 ALPHA = 0.25
 
 
+@pytest.fixture(autouse=True)
+def _python_snapshot_check(monkeypatch):
+    """Эти тесты считают вызовы валидатора Python: стадия `snapshot_check` изолирована на `PYTHON` средой (с установленным колесом она доказала бы чистоту сама, и валидатор не вызывался бы)."""
+
+    monkeypatch.setenv("CFTUV_SNAPSHOT_CHECK_BACKEND", "PYTHON")
+
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _no_pool_outlives_the_module():
     yield

@@ -115,9 +115,15 @@ def active_execution() -> tuple | None:
 def request_snapshot_issues(kernel, snapshot, budget) -> tuple:
     """ШОВ ДИСПЕТЧЕРИЗАЦИИ `snapshot_check` (замечания снапшота под допуском запроса): `validate_analysis_snapshot(снапшот, developable_stretch_budget=budget)` как кортеж.
 
-    Единственное место, где воркер считает эти замечания для запроса; чистый ответ, а не замечания, записывает `WorkerSnapshotCheck`.
+    Единственное место, где воркер считает эти замечания для запроса; чистый ответ, а не замечания, записывает `WorkerSnapshotCheck`. Сначала диспетчер стадии `snapshot_check`
+    (`cftuv_envelope.backend.snapshot_check_compute`): нативная проверка доказывает, что замечаний нет, и тогда ответ `()`; иначе (стадия не заказана, колеса нет, снапшот, которого порт не несёт)
+    замечания считает валидатор Python, как раньше. Допуск запроса нативной проверке не нужен: он читается только развёрткой, которой порт не несёт.
     """
 
+    from cftuv_envelope import backend
+
+    if backend.snapshot_check_compute(snapshot, backend.SNAPSHOT_CHECK_ANALYSIS):
+        return ()
     return tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget))
 
 

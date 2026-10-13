@@ -75,8 +75,9 @@ def test_the_object_check_of_the_export_goes_through_the_seam_and_the_byte_check
     byte_calls = _called_names(functions["check_snapshot_bytes"])
     assert byte_calls.count("_reject_snapshot") == 1, "the decoded object is checked by the pure Python validators"
     assert "reject_exported_snapshot" not in byte_calls
-    # the seam is the pure oracle today: one call of `_reject_snapshot` over the object itself
-    assert _called_names(functions["reject_exported_snapshot"]) == ["_reject_snapshot"]
+    # the seam asks the dispatcher of the stage first (native proves "clean", or declines by name) and then runs the pure oracle over the object itself
+    assert _called_names(functions["reject_exported_snapshot"]) == ["snapshot_check_compute", "_reject_snapshot"]
+    assert "snapshot_check_compute" not in byte_calls, "the decoded object of the byte check never meets the native verdict"
 
 
 def test_the_worker_snapshot_check_computes_its_issues_through_the_seam_only():
@@ -84,6 +85,7 @@ def test_the_worker_snapshot_check_computes_its_issues_through_the_seam_only():
     functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
     assert "request_snapshot_issues" in functions
     assert _called_names(functions["request_snapshot_issues"]).count("validate_analysis_snapshot") == 1
+    assert _called_names(functions["request_snapshot_issues"]).count("snapshot_check_compute") == 1
     check_class = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "WorkerSnapshotCheck")
     call = next(node for node in check_class.body if isinstance(node, ast.FunctionDef) and node.name == "__call__")
     calls = _called_names(call)
@@ -99,3 +101,15 @@ def test_the_snapshot_validator_lives_in_its_own_module_and_the_facade_keeps_the
     names = {node.name for node in ast.parse((KERNEL / "validation.py").read_text(encoding="utf-8")).body if isinstance(node, ast.FunctionDef)}
     assert "validate_analysis_snapshot" not in names, "the snapshot validator is defined once, in validation_snapshot.py"
     assert "_junction_route_pairs" not in names and "junction_route_pairs" not in names
+
+
+def test_the_dispatcher_of_the_stage_is_called_from_the_two_seams_and_nowhere_else():
+    callers = {}
+    for path in sorted(HOST.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                count = _called_names(node).count("snapshot_check_compute")
+                if count:
+                    callers[(path.name, node.name)] = count
+    assert callers == {("envelope_angle_certificate.py", "reject_exported_snapshot"): 1, ("envelope_snapshot_check.py", "request_snapshot_issues"): 1}, callers
