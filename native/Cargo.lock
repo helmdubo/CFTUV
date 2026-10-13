@@ -79,6 +79,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cftuv-frame"
+version = "0.1.0"
+dependencies = [
+ "cftuv-core",
+ "cftuv-embedding",
+ "dashu-int",
+]
+
+[[package]]
 name = "cftuv-mesh"
 version = "0.1.0"
 dependencies = [
@@ -97,6 +106,7 @@ dependencies = [
  "cftuv-clip",
  "cftuv-core",
  "cftuv-embedding",
+ "cftuv-frame",
  "cftuv-mesh",
  "cftuv-radical",
  "cftuv-skeleton",

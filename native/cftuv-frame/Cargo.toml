@@ -1,0 +1,11 @@
+[package]
+name = "cftuv-frame"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+cftuv-core = { path = "../cftuv-core" }
+cftuv-embedding = { path = "../cftuv-embedding" }

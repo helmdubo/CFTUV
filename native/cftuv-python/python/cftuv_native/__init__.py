@@ -28,6 +28,10 @@
 ЧИСТО ИЛИ ОТКАЗ. Расширение либо доказывает, что валидаторы Python не нашли бы ничего, и возвращает свидетельство (с приращениями счётчиков, которые эти валидаторы оставили бы), либо отказывает по имени ДО любого
 эффекта (`NativePortUnsupported`), и вызывающий гонит валидаторы Python как раньше: отказ с его текстом выдаёт эталон, а не порт.
 
+Седьмая целая операция — `frame` (допуск плоской рамки домена на выгрузке: первая ступень `planar_metric.build_rational_affine_planar_metric` на источнике, привязанном к решётке, — точная плоскость, окно шага, перебор масштабов, канонический репер;
+контракт — `frame_op.py`): ПРИНЯТЬ ИЛИ ОТКАЗАТЬ. Расширение либо строит `RationalAffinePlanarMetricV2`, который построил бы Python, либо отказывает по имени ДО любого эффекта (`NativePortUnsupported`): околоплоская проекция, развёртка
+кривого патча и полосы, отказы с их текстом и исключения — это эталон, а не порт.
+
 `radical_v2_eval` — не стадия продукта, а ВОЗМОЖНОСТЬ расширения (`native_status()["radical_v2"]`, закрепление `reference/radical_v2.py`): программа операций над `RadicalSumV2` (`native/cftuv-radical`, побитовое
 зеркало эталона S2 — цены, отказы, тексты, провода) для сверки с эталоном и замеров; хост её не зовёт, потребитель появится с переносом ядра плотности на Rust. Контракт программы — `tools/native_radical_v2_corpus.py`.
 
@@ -47,7 +51,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, materialize_w1_op, pin, snapshot_check_op
+from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, frame_op, materialize_w1_op, pin, snapshot_check_op
 
 __all__ = (
     "CostMirror",
@@ -66,9 +70,12 @@ __all__ = (
     "divided_by",
     "effective_alpha_contacts",
     "exact_mesh",
+    "frame_metric",
+    "frame_raw_layouts",
     "canonical_triangles",
     "last_w1_timings",
     "last_snapshot_check_timings",
+    "last_frame_timings",
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
@@ -99,6 +106,7 @@ __all__ = (
     "snapshot_check",
     "snapshot_check_raw_layouts",
     "warm_snapshot_check",
+    "warm_frame",
     "squarefree_split",
     "tree_digest",
 )
@@ -308,6 +316,43 @@ def last_snapshot_check_timings() -> tuple:
     """Nanoseconds of the last `snapshot_check`: `(read the graph, check the model)`."""
 
     return snapshot_check_op.last_timings()
+
+
+def frame_metric(*, source_vertices, source_faces, owner_patch_id, source_revision, patch_domain_id, source_lineage, grid_policy, grid_scale_law=None):
+    """`RationalAffinePlanarMetricV2` владельца, как его построил бы `planar_metric.build_rational_affine_planar_metric` для патча, точно плоского после привязки источника, иначе `NativePortUnsupported` с причиной (см. `frame_op.py`).
+
+    Отказ порта (`NATIVE_REFUSALS`: устаревший пин, патч, которого порт не несёт) ничего не меняет; вызывающий гонит построитель Python на тех же аргументах.
+    """
+
+    return frame_op.frame_metric(
+        _core,
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+        owner_patch_id=owner_patch_id,
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        source_lineage=source_lineage,
+        grid_policy=grid_policy,
+        grid_scale_law=grid_scale_law,
+    )
+
+
+def warm_frame() -> bool:
+    """Binds the `frame` reader/builder to the live kernel ahead of the first domain (see `frame_op.warm`); `True` when bound."""
+
+    return frame_op.warm(_core)
+
+
+def frame_raw_layouts() -> dict:
+    """`{class name: True when the raw slot access confirmed that class's layout}` of the `frame` reader/builder (all True under `auto`/`raw`, all False under `attr`; see `CFTUV_NATIVE_SLOTS`)."""
+
+    return frame_op.raw_layouts(_core)
+
+
+def last_frame_timings() -> tuple:
+    """Nanoseconds of the last `frame_metric`: `(read the graph, compute, build the metric)`."""
+
+    return frame_op.last_timings()
 
 
 def effective_alpha_contacts(source, boundary, frame):

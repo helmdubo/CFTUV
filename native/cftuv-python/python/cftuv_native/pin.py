@@ -136,6 +136,13 @@ MATERIALIZE_W1_FILES = (
 #: (`snapshot_check_op.SHAPE_FUNCTIONS`), not pinned whole.
 SNAPSHOT_CHECK_FILES = ("validation_snapshot.py", "validation_source_edges.py", "reference/angle_certificate_sign.py", "numeric.py")
 
+#: `planar_metric.build_rational_affine_planar_metric` for a patch that is exactly planar after the source snap (EXPORT: the frame admission): the builder and its ladder (`planar_metric.py`, pinned
+#: whole: the Python rungs above the first are the decline road and stay the oracle), the window, the scale search and the snap (`source_grid.py`, `robust/snapping.py`: the window and the
+#: admissible scales; `robust/grid.py`: `snap_value` and the grid spec), the declared authoring error and detail (`_authoring_intent.py`), the exact Newell normal and the embedding certificate
+#: (`_embedding.py`, the file of the `snap_embedding` pin) and the canonical primitive normal (`numeric.py`). The contracts the result is built from (`contracts/metric.py`) and the angle certificate
+#: path the count of restored right corners relies on (`reference/angle_measure.py`) change for other reasons: `frame_op._bind` checks the digest of the functions the port mirrors when the classes bind.
+FRAME_FILES = ("planar_metric.py", "source_grid.py", "_authoring_intent.py", "robust/grid.py", "robust/snapping.py", "_embedding.py", "numeric.py")
+
 #: `reference/radical_v2.py`: the ORACLE of `RadicalSumV2` (slice S2), which `native/cftuv-radical` mirrors bit for bit (prices, refusals, texts, wires). A CAPABILITY of the extension (`radical_v2_eval`, the
 #: differential and bench entry), not a product stage: no host consumer reads it yet (R3 ports the density core onto it), so it is NOT in `RUST_ONLY_OPERATIONS` and the oracle may still move; a move
 #: makes the mirror `stale(reference/radical_v2.py)` until the port catches up and the pin is reissued.
@@ -149,12 +156,14 @@ OPERATION_FILES = {
     "effective_alpha": EFFECTIVE_ALPHA_FILES,
     "materialize_w1": MATERIALIZE_W1_FILES,
     "snapshot_check": SNAPSHOT_CHECK_FILES,
+    "frame": FRAME_FILES,
     "radical_v2": RADICAL_V2_FILES,
 }
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
 #: operations above overlap, a file has one digest). Regenerate by `python cftuv_native/pin.py <cftuv_envelope dir>` after a catch-up.
 PINS: dict = {
+    "_authoring_intent.py": "1404ef8cffb6ee90fab12a70f40c9e299b16b127ef511125cdd378b29e19dbee",
     "_cpython311.py": "d0ce9f6eccb090f0ef1e0615830f0534ac5211615da0d04103934d017e97e034",
     "_embedding.py": "57e849ee98c454ca9702fea0cf1b894cc2f96aa303db7408bffb9ad0f7ae1725",
     "_radicand_products.py": "9d64abad54bd202442384fe79cc9c2f45582bcebf0781043c36968c4cf979f70",
@@ -173,11 +182,15 @@ PINS: dict = {
     "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
+    "planar_metric.py": "eba51fedd37424c13be6e34350fe4d9b23e044f7807a7f071f430cdc72cb0f6a",
     "reference/angle_certificate_sign.py": "3114f1d3784f7ebfbda707455fe499fa9496d8b9a340ce692b584764824191be",
     "reference/boundary_native.py": "f9d16e0fea57a9c8c1d274c798fa903bb3ebfe2c35943bdcff5f54ed5db2f9b7",
     "reference/native_exact.py": "f9c3b7b7132e5fb4463f94d577d18237c474e61d16d2357062d97ef776e6026d",
     "reference/radical_v2.py": "e77eb1091b763567599d6c6e018972f89750f632c5c8ca88a81405d7f1cdc490",
+    "robust/grid.py": "3b66b682292f10c42f4d596816ec34426a835c675e0e5af76fbf77aedbb6dd9a",
     "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
+    "robust/snapping.py": "6f725ca1b4c42e8153f38d5bb41023da6655ab76c65d99dec16702a00f77f91b",
+    "source_grid.py": "a76e21a8109a2ff2fe6760664a217d703c3b3d18e231e2487937a6fd5bf2fab8",
     "validation_snapshot.py": "1817684854415e39aae91cbce4fed2eb7bda79bf1b1496b2e0eb67d8d57df856",
     "validation_source_edges.py": "f4958c7f19b2716957531d952ed43c3917299819efb18298cb656fe9ab617f0c",
     "wavefront/candidate_law.py": "d8a84854151b170cc3543ad53d4b0db2eeafb7587cc68e45500e6e4df36fd4c0",
