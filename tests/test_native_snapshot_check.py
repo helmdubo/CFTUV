@@ -404,3 +404,16 @@ def test_the_native_stage_equals_the_validators_on_the_field_corpora(path):
     assert summary["tasks"] >= 1 and summary["equal"] == summary["tasks"]
     CHECKED[f"field {path.name}"] += summary["tasks"]
     CHECKED["field declined"] += sum(summary["declined"].values())
+
+
+@needs_field
+def test_a_refusal_through_the_worker_is_the_validators_with_the_same_name_text_and_domain():
+    """Tasks of the field corpus whose snapshot is replaced by a mutant (one per issue class) at both seams: `task_inputs` under both orders of the stage refuses, raises or passes identically."""
+
+    import native_snapshot_check_corpus as corpus
+
+    summary = corpus.refusal_replay(FIELD_BASE, name="building", tasks=6)
+    assert summary["mutants"] >= 100 and not summary["differences"], summary["differences"][:2]
+    assert summary["refused"] >= 100 and dict(summary["outcomes"]) == {"ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID": summary["refused"]}
+    assert summary["native_clean"] == summary["clean"], "what the oracle passes the native stage attests"
+    CHECKED["field refusals"] += summary["refused"]

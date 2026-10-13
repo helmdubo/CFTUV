@@ -4,6 +4,7 @@
     python tools/native_snapshot_check_corpus.py bench  <каталог корпуса> [--repeat 3]
     python tools/native_snapshot_check_corpus.py seam   <каталог корпуса> [--name ЧАСТЬ_ИМЕНИ] [--repeat 2]
     python tools/native_snapshot_check_corpus.py seam-once <каталог корпуса> --stage PYTHON|NATIVE [--name ЧАСТЬ_ИМЕНИ]   # один проход, по процессу на стадию
+    python tools/native_snapshot_check_corpus.py refusals <каталог корпуса> [--name ЧАСТЬ_ИМЕНИ] [--tasks 40] [--seed 1]   # отказы выгрузки сквозь воркера: снапшот подменён мутантом на обоих швах
 
 Запись (`Recorder`, ставится рабочим процессом `tools/blender_tree_ab.py` при `CFTUV_SNAPSHOT_RECORD_DIR=<каталог>` и `--workers >= 2`): в родителе `DomainPool.run` обёрнут, и каждая задача С ВЫГРУЗКОЙ
 (`DomainTaskV1.export`: `HostExportInputV1` + допуски + выделение; и остаток, который вызывающий достраивает за пулом, `LateTasksV1.provide`) пишется ровно так, как уходит воркеру, - в `<каталог>/<случай>.tasks.xz` (поток pickle `(случай, задача)` под lzma; повтор того же
@@ -325,15 +326,83 @@ def seam_once(directory, master: str, name: str = "", warm: int = 8) -> dict:
     return result
 
 
+def refusal_replay(directory, name: str = "", tasks: int = 40, seed: int = 1) -> dict:
+    """ОТКАЗЫ выгрузки сквозь воркера: задачи корпуса, у которых снапшот ПЕРЕД проверкой подменён мутантом (по одному на класс замечания, `targeted_mutants`), под стадией `PYTHON` и `NATIVE`.
+
+    Подмена стоит на обоих швах (`reject_exported_snapshot` и `request_snapshot_issues`), так что `task_inputs` идёт настоящим путём: проверка объекта, затем проверка под допуском запроса, отказ выгрузки с именем исхода
+    и ТЕКСТОМ, домен, процессные счётчики. Сравнивается всё, что сравнивает `replay`: порт не принимает того, что Python отказывает, и отказ выдаёт эталон тем же текстом.
+    """
+
+    import random
+
+    install_host_stubs()
+    sys.path.insert(0, str(ROOT / "tools"))
+    import native_snapshot_check_mutations as mutations
+    from cftuv import envelope_angle_certificate as certificate
+    from cftuv import envelope_snapshot_check as check
+
+    rng = random.Random(seed)
+    items = [(case, task) for path in corpus_files(directory, name) for case, task in read_tasks(path)]
+    rng.shuffle(items)
+    reject, issues = certificate.reject_exported_snapshot, check.request_snapshot_issues
+    summary = {"tasks": 0, "mutants": 0, "equal": 0, "differences": [], "refused": 0, "raised": 0, "clean": 0, "outcomes": Counter(), "native_clean": 0, "declined": Counter()}
+    try:
+        for case, task in items[:tasks]:
+            seen: list = []
+
+            def recording(kernel, snapshot, _seen=seen):
+                _seen.append(snapshot)
+                return reject(kernel, snapshot)
+
+            certificate.reject_exported_snapshot = recording
+            run_task(task, "PYTHON")
+            certificate.reject_exported_snapshot = reject
+            if not seen:
+                continue
+            summary["tasks"] += 1
+            for label, mutant in mutations.targeted_mutants(seen[0], rng):
+                certificate.reject_exported_snapshot = lambda kernel, snapshot, _m=mutant: reject(kernel, _m)
+                check.request_snapshot_issues = lambda kernel, snapshot, budget, _m=mutant: issues(kernel, _m, budget)
+                oracle = run_task(task, "PYTHON")
+                native = run_task(task, "NATIVE")
+                summary["mutants"] += 1
+                if oracle.comparable() == native.comparable():
+                    summary["equal"] += 1
+                else:
+                    summary["differences"].append((case, task.domain_id, label, _describe(oracle, native)))
+                if oracle.refusal is not None:
+                    summary["refused"] += 1
+                    summary["outcomes"][oracle.refusal[0]] += 1
+                elif oracle.exception is not None:
+                    summary["raised"] += 1
+                else:
+                    summary["clean"] += 1
+                    summary["native_clean"] += bool(native.snapshot_clean)
+                if native.ledger and native.ledger[1]:
+                    summary["declined"][native.ledger[2]] += 1
+    finally:
+        certificate.reject_exported_snapshot, check.request_snapshot_issues = reject, issues
+    return summary
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("replay", "bench", "seam", "seam-once"))
+    parser.add_argument("command", choices=("replay", "bench", "seam", "seam-once", "refusals"))
     parser.add_argument("directory")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--name", default="")
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--stage", choices=("PYTHON", "NATIVE"), default="NATIVE")
+    parser.add_argument("--tasks", type=int, default=40)
+    parser.add_argument("--seed", type=int, default=1)
     arguments = parser.parse_args(argv)
+    if arguments.command == "refusals":
+        summary = refusal_replay(arguments.directory, arguments.name, arguments.tasks, arguments.seed)
+        print(f"tasks {summary['tasks']} mutants {summary['mutants']} equal {summary['equal']} differences {len(summary['differences'])}; the oracle refused {summary['refused']} (outcomes {dict(summary['outcomes'])}), raised {summary['raised']}, passed {summary['clean']}")
+        print(f"the native stage attested {summary['native_clean']} of the {summary['clean']} the oracle passed; declined by the port: {dict(summary['declined'])}")
+        for difference in summary["differences"][:10]:
+            print("DIFFERENCE", difference)
+        return 1 if summary["differences"] else 0
     if arguments.command == "seam-once":
         print(seam_once(arguments.directory, arguments.stage, arguments.name))
         return 0
