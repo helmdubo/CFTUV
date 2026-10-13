@@ -7,6 +7,7 @@
 mod clip;
 mod clip_seams;
 mod coverage;
+mod density;
 mod effective_alpha;
 mod embedding;
 mod memlog;
@@ -437,6 +438,8 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<effective_alpha::AlphaFrame>()?;
     module.add_function(wrap_pyfunction!(effective_alpha::alpha_frame, module)?)?;
     module.add_function(wrap_pyfunction!(radical_v2::radical_v2_eval, module)?)?;
+    module.add_function(wrap_pyfunction!(density::density_compute, module)?)?;
+    module.add_function(wrap_pyfunction!(density::density_compute_with_memo, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;
     module.add_function(wrap_pyfunction!(skeleton_seams::skeleton_seam_run, module)?)?;

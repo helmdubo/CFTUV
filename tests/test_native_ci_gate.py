@@ -187,7 +187,7 @@ def _extension():
 
 def test_all_native_operations_are_available_against_this_tree_of_the_kernel():
     status = _extension().native_status()
-    assert status == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "radical_v2": "available"}, f"a native operation is not compared with THIS kernel (the pin moved, or the interpreter is below the floor): {status}"
+    assert status == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "radical_v2": "available", "density": "available"}, f"a native operation is not compared with THIS kernel (the pin moved, or the interpreter is below the floor): {status}"
 
 
 def test_the_installed_build_is_the_build_of_this_tree():

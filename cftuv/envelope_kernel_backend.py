@@ -96,6 +96,9 @@ _STATUS_FLAGS = {
 STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND"}
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
+#: Кандидат density не входит в публичные стадии до полевой приёмки.
+_DENSITY_ENVIRONMENT = "CFTUV_DENSITY_BACKEND"
+_DENSITY_STAGE = ("density", "density candidate")
 
 _LAST_BACKEND = [DEFAULT_KERNEL_BACKEND]
 
@@ -147,6 +150,15 @@ def stage_orders(kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, e
         master if embedding_backend is None else normalize_kernel_backend(embedding_backend),
         environment_order("effective_alpha", master) if effective_alpha_backend is None else normalize_kernel_backend(effective_alpha_backend),
     )
+
+
+def _density_order(master, explicit=None) -> str:
+    """Кандидат включается явно; главный PYTHON всегда оставляет эталон."""
+
+    if normalize_kernel_backend(master) == KERNEL_BACKEND_PYTHON:
+        return KERNEL_BACKEND_PYTHON
+    choice = os.environ.get(_DENSITY_ENVIRONMENT, "").strip() if explicit is None else explicit
+    return normalize_kernel_backend(choice) if choice else KERNEL_BACKEND_PYTHON
 
 
 def settle_stage_orders(record, master_field: str = "backend") -> None:
@@ -212,7 +224,7 @@ def fold_legacy_skeleton_setting(mesh_settings):
     return legacy
 
 
-def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None) -> str:
+def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, *, density_backend=None) -> str:
     """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...` и `|effective_alpha=...` при нативных стадиях.
 
     Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
@@ -224,8 +236,10 @@ def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend
     except ImportError:
         base = orders.coverage_clip if orders.skeleton == KERNEL_BACKEND_PYTHON else f"{orders.coverage_clip}|skeleton={orders.skeleton}"
         base = base if orders.snap_embedding == KERNEL_BACKEND_PYTHON else f"{base}|snap_embedding={orders.snap_embedding}"
-        return base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
-    return backend_identity(*orders.as_arguments())
+        base = base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
+        density = _density_order(kernel_backend, density_backend)
+        return base if density == KERNEL_BACKEND_PYTHON else f"{base}|density={density}"
+    return backend_identity(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend))
 
 
 def skeleton_identity_of(skeleton_backend=None) -> str:
@@ -243,7 +257,7 @@ def skeleton_identity_of(skeleton_backend=None) -> str:
 
 
 @contextmanager
-def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=None):
+def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None):
     """`use_backend` ядра; смена бэкенда покрытия и резки в ЭТОМ процессе сбрасывает память стадии резки.
 
     Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если все `PYTHON`. Память резки сбрасывается потому, что её ключ бэкенд не несёт;
@@ -258,7 +272,7 @@ def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=Non
 
         MEMO.clear()
         _LAST_BACKEND[0] = orders.coverage_clip
-    with use_backend(*orders.as_arguments()) as ledger:
+    with use_backend(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend)) as ledger:
         yield ledger
 
 
@@ -275,7 +289,7 @@ class PreparationRefused(RuntimeError):
         self.record = record
 
 
-def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, borrowed_ledger=None):
+def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, density_backend=None, borrowed_ledger=None):
     """`(подготовка, запись | None)`: `build()` под блоком бэкенда, скелет считается в нём.
 
     Заимствованный журнал принадлежит вызывающему: при нём возвращаемая запись — None, чтобы счёт не удвоился.
@@ -287,7 +301,7 @@ def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleto
     from cftuv_envelope.backend import NativeDomainRefused, use_backend
 
     orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
-    with use_backend(*orders.as_arguments(), borrowed_ledger=borrowed_ledger) as ledger:
+    with use_backend(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend), borrowed_ledger=borrowed_ledger) as ledger:
         try:
             prepared = build()
         except NativeDomainRefused as exc:
@@ -329,8 +343,8 @@ def with_kernel_backend(produce):
     """
 
     @functools.wraps(produce)
-    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, **kwargs):
-        with entered_backend(backend, skeleton_backend, embedding_backend) as ledger:
+    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, density_backend=None, **kwargs):
+        with entered_backend(backend, skeleton_backend, embedding_backend, density_backend=density_backend) as ledger:
             result = produce(*args, **kwargs)
         if ledger is None:
             return result
@@ -391,7 +405,7 @@ def _outcome_list(patches: dict) -> tuple:
     return tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(patches.items()))
 
 
-def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> BackendSummaryV1:
+def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> BackendSummaryV1:
     """Сводка по результатам прогона; результат без записи (отказ входа, пропавший домен) в счёт не идёт.
 
     Порядки стадий называют записи доменов (`BackendRecordV1.requested`, `skeleton_requested`, `embedding_requested`: что заказал прогон на самом деле); пока записей нет,
@@ -405,8 +419,10 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
     recorded = next((item.backend_record for item in results if getattr(item, "backend_record", None) is not None), None)
     if recorded is not None:
         orders = StageOrdersV1(recorded.requested, recorded.skeleton_requested, recorded.embedding_requested, recorded.effective_alpha_requested)
-    counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
-    patches = {name: {} for name, _label in STAGES}
+    density = _density_order(kernel_backend, density_backend) if recorded is None else getattr(recorded, "density_requested", KERNEL_BACKEND_PYTHON)
+    summary_stages = (*STAGES, _DENSITY_STAGE) if density == KERNEL_BACKEND_NATIVE else STAGES
+    counts = {name: {"native": 0, "python": 0} for name, _label in summary_stages}
+    patches = {name: {} for name, _label in summary_stages}
     cached = memo_hits = 0
     for item in results:
         record = getattr(item, "backend_record", None)
@@ -420,8 +436,9 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             "skeleton": (record.skeleton_ran, record.skeleton_outcomes) if fresh else ("", ()),
             "snap_embedding": (record.embedding_ran, record.embedding_outcomes),
             "effective_alpha": (record.effective_alpha_ran, record.effective_alpha_outcomes),
+            "density": (getattr(record, "density_ran", ""), getattr(record, "density_outcomes", ())) if fresh else ("", ()),
         }
-        for name, _label in STAGES:
+        for name, _label in summary_stages:
             ran, outcomes = views[name]
             ran = ran or ("python" if outcomes else "")  # домен, которому стадию отказали по имени, нативно её не считал
             if not ran:
@@ -430,8 +447,8 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             for outcome in outcomes:
                 patches[name].setdefault(outcome, set()).add(int(item.patch_id))
     tallies = tuple(
-        StageTallyV1(name, getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]))
-        for name, _label in STAGES
+        StageTallyV1(name, density if name == "density" else getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]))
+        for name, _label in summary_stages
     )
     return BackendSummaryV1(tallies, cached, memo_hits if orders.snap_embedding == KERNEL_BACKEND_NATIVE else 0)
 
@@ -449,7 +466,7 @@ def _outcomes_text(outcomes) -> str:
 def _tally_segments(summary: BackendSummaryV1, *, reasons: bool) -> list:
     """Части строки по порядку: `native: ...`, `python: ...`, `ordered python: ...`; стадия без откатов в `python:` не попадает."""
 
-    labels = dict(STAGES)
+    labels = dict((*STAGES, _DENSITY_STAGE))
     segments = []
     ordered = summary.native_stages
     if ordered:
@@ -479,19 +496,19 @@ def backend_text(summary: BackendSummaryV1) -> str:
     return " | ".join(segments)
 
 
-def backend_console_lines(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> list:
+def backend_console_lines(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> list:
     """Одна строка журнала прогона; пусто, пока все стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE`, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
 
-    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend)
+    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     if not summary.native_stages:
         return []
     return [f"[CFTUV][Production] BACKEND {backend_text(summary)}"]
 
 
-def backend_timing_suffix(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> str:
+def backend_timing_suffix(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> str:
     """` | native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2, skeleton 4` в строку панели (без причин); пусто, пока все стадии `PYTHON`."""
 
-    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend)
+    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     if not summary.native_stages:
         return ""
     return "".join(f" | {segment}" for segment in _tally_segments(summary, reasons=False) if not segment.startswith("ordered"))

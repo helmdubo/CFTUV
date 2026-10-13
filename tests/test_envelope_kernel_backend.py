@@ -637,7 +637,7 @@ def _master(bundle, master, *, controller=None, workers=0):
     )
 
 
-def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_every_kernel_stage():
+def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_every_kernel_stage(monkeypatch):
     import dataclasses
     import inspect
 
@@ -653,7 +653,12 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     # КАЖДАЯ стадия ядра принадлежит главному переключателю: новый аргумент `use_backend` без поля порядка, подписи и признака статуса красит этот тест
     stages = [name for name, _label in host_backend.STAGES]
     assert stages == [item.name for item in dataclasses.fields(host_backend.StageOrdersV1)]
-    stage_arguments = [name for name in inspect.signature(kernel_backend.use_backend).parameters if name != "borrowed_ledger"]
+    stage_arguments = [name for name in inspect.signature(kernel_backend.use_backend).parameters if name not in {"borrowed_ledger", "density_backend"}]
+    # Density пока кандидат: отдельный keyword-крюк, вне публичных стадий.
+    monkeypatch.delenv("CFTUV_DENSITY_BACKEND", raising=False)
+    assert inspect.signature(kernel_backend.use_backend).parameters["density_backend"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert host_backend._density_order("NATIVE") == "PYTHON"
+    assert "density" not in stages
     assert len(stage_arguments) == len(stages), (stage_arguments, stages)
     assert {kernel_backend.SKELETON, kernel_backend.EMBEDDING} <= set(stages)
     assert set(host_backend._STATUS_FLAGS) == set(stages)

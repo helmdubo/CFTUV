@@ -1,0 +1,262 @@
+{
+  "schema": "cftuv.native.density_batch.inputs.v1",
+  "cases": 92,
+  "batch_laws": [
+    "NARROW_ROTATION_BAND",
+    "VORONOI_OF_NEIGHBOUR_MIDPOINTS"
+  ],
+  "compressed_sha256": "f69bd99ad667abb6ab8a85ad8ec86c88fde9659207e2d9ac1d77a38d220dfae4",
+  "payload_sha256": "df32d5cbe193e261d5aeb2a2edeb0a1f9b46d4a501cbcac0d7f683e5a782d220",
+  "compressed_bytes": 47816,
+  "field_q_coverage": [
+    4
+  ],
+  "field_compile_rows": [
+    0,
+    1,
+    3,
+    6,
+    7,
+    10,
+    44,
+    122,
+    244,
+    628,
+    942,
+    1083,
+    1297,
+    2350,
+    2352,
+    2354,
+    2359,
+    2364,
+    2366,
+    2368,
+    2400
+  ],
+  "field_selection_window_law": "NARROW_ROTATION_BAND",
+  "field_coverage": [
+    "adaptive-authority",
+    "count-lift",
+    "empty-compile-scope",
+    "grid-straw:1657/5120",
+    "grid-straw:3647/5120",
+    "metric-diagonal",
+    "metric-skew",
+    "multispec",
+    "named-failure:DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    "noise-record",
+    "owner:-1",
+    "owner:1",
+    "q:4",
+    "run:building/w0",
+    "run:building/w12",
+    "run:cover008/w0",
+    "run:cover008/w12",
+    "run:half_sphere/w0",
+    "run:half_sphere/w12",
+    "run:rounded/w0",
+    "run:rounded/w12",
+    "run:sagging0987/w0",
+    "run:sagging0987/w12",
+    "run:two/w0",
+    "run:two/w12",
+    "shell:DENSITY_DECIMAL_GRID_POINT_V2",
+    "shell:DENSITY_DECIMAL_NON_DYADIC_GRID_STRAW_V2",
+    "shell:DENSITY_DECIMAL_SHELL_V2_APPLIED",
+    "source-H:1",
+    "source-H:2",
+    "source-H:3",
+    "successful-memo-reuse"
+  ],
+  "field_selection": [
+    {
+      "id": "field-representative-0000",
+      "compile_row": 0,
+      "run": "building/w0",
+      "selected_for": [
+        "adaptive-authority",
+        "metric-skew",
+        "multispec",
+        "noise-record",
+        "owner:-1",
+        "q:4",
+        "run:building/w0",
+        "shell:DENSITY_DECIMAL_SHELL_V2_APPLIED",
+        "source-H:1"
+      ]
+    },
+    {
+      "id": "field-representative-0001",
+      "compile_row": 1,
+      "run": "building/w0",
+      "selected_for": [
+        "empty-compile-scope"
+      ]
+    },
+    {
+      "id": "field-representative-0003",
+      "compile_row": 3,
+      "run": "building/w0",
+      "selected_for": [
+        "owner:1",
+        "source-H:2"
+      ]
+    },
+    {
+      "id": "field-representative-0006",
+      "compile_row": 6,
+      "run": "building/w0",
+      "selected_for": [
+        "count-lift"
+      ]
+    },
+    {
+      "id": "field-representative-0007",
+      "compile_row": 7,
+      "run": "building/w0",
+      "selected_for": [
+        "metric-diagonal"
+      ]
+    },
+    {
+      "id": "field-representative-0010",
+      "compile_row": 10,
+      "run": "building/w0",
+      "selected_for": [
+        "successful-memo-reuse"
+      ]
+    },
+    {
+      "id": "field-representative-0044",
+      "compile_row": 44,
+      "run": "building/w0",
+      "selected_for": [
+        "source-H:3"
+      ]
+    },
+    {
+      "id": "field-representative-0122",
+      "compile_row": 122,
+      "run": "building/w12",
+      "selected_for": [
+        "run:building/w12"
+      ]
+    },
+    {
+      "id": "field-representative-0244",
+      "compile_row": 244,
+      "run": "cover008/w0",
+      "selected_for": [
+        "run:cover008/w0"
+      ]
+    },
+    {
+      "id": "field-representative-0628",
+      "compile_row": 628,
+      "run": "cover008/w0",
+      "selected_for": [
+        "named-failure:DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
+      ]
+    },
+    {
+      "id": "field-representative-0942",
+      "compile_row": 942,
+      "run": "cover008/w0",
+      "selected_for": [
+        "grid-straw:1657/5120",
+        "shell:DENSITY_DECIMAL_GRID_POINT_V2",
+        "shell:DENSITY_DECIMAL_NON_DYADIC_GRID_STRAW_V2"
+      ]
+    },
+    {
+      "id": "field-representative-1083",
+      "compile_row": 1083,
+      "run": "cover008/w0",
+      "selected_for": [
+        "grid-straw:3647/5120"
+      ]
+    },
+    {
+      "id": "field-representative-1297",
+      "compile_row": 1297,
+      "run": "cover008/w12",
+      "selected_for": [
+        "run:cover008/w12"
+      ]
+    },
+    {
+      "id": "field-representative-2350",
+      "compile_row": 2350,
+      "run": "half_sphere/w0",
+      "selected_for": [
+        "run:half_sphere/w0"
+      ]
+    },
+    {
+      "id": "field-representative-2352",
+      "compile_row": 2352,
+      "run": "half_sphere/w12",
+      "selected_for": [
+        "run:half_sphere/w12"
+      ]
+    },
+    {
+      "id": "field-representative-2354",
+      "compile_row": 2354,
+      "run": "rounded/w0",
+      "selected_for": [
+        "run:rounded/w0"
+      ]
+    },
+    {
+      "id": "field-representative-2359",
+      "compile_row": 2359,
+      "run": "rounded/w12",
+      "selected_for": [
+        "run:rounded/w12"
+      ]
+    },
+    {
+      "id": "field-representative-2364",
+      "compile_row": 2364,
+      "run": "sagging0987/w0",
+      "selected_for": [
+        "run:sagging0987/w0"
+      ]
+    },
+    {
+      "id": "field-representative-2366",
+      "compile_row": 2366,
+      "run": "sagging0987/w12",
+      "selected_for": [
+        "run:sagging0987/w12"
+      ]
+    },
+    {
+      "id": "field-representative-2368",
+      "compile_row": 2368,
+      "run": "two/w0",
+      "selected_for": [
+        "run:two/w0"
+      ]
+    },
+    {
+      "id": "field-representative-2400",
+      "compile_row": 2400,
+      "run": "two/w12",
+      "selected_for": [
+        "run:two/w12"
+      ]
+    }
+  ],
+  "inputs_only": true,
+  "host_high_angle_q_coverage": [
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "host_high_angle_source_payload_sha256": "419044c62919eb96da1254f76867981d6360f08759eb47dd2091783fbe57d8bd"
+}

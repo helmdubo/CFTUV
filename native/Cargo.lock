@@ -72,6 +72,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cftuv-density"
+version = "0.1.0"
+dependencies = [
+ "cftuv-radical",
+]
+
+[[package]]
 name = "cftuv-embedding"
 version = "0.1.0"
 dependencies = [
@@ -86,6 +93,7 @@ dependencies = [
  "cftuv-canon",
  "cftuv-clip",
  "cftuv-core",
+ "cftuv-density",
  "cftuv-embedding",
  "cftuv-radical",
  "cftuv-skeleton",
