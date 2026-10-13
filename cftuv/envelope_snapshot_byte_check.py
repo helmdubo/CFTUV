@@ -137,18 +137,18 @@ def mode_of_environment(environ=None) -> tuple[str, str]:
     return (mode, "") if mode in MODES else (MODE_ALL, raw)
 
 
-def execution_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None) -> tuple | None:
+def execution_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> tuple | None:
     """Идентичность исполнения нажатия (`execution_identity`) либо `None`, если её не определить: тогда нажатие считается первым и проверяется целиком."""
 
     try:
         from .envelope_content_key import ContentKeyUnsupported, execution_identity
 
-        return execution_identity(kernel_backend, skeleton_backend, embedding_backend)
+        return execution_identity(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     except (ImportError, ContentKeyUnsupported):
         return None
 
 
-def resolve_plan(kernel_backend, skeleton_backend=None, embedding_backend=None, *, environ=None, defer: bool = False) -> SnapshotByteCheckPlanV1:
+def resolve_plan(kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None, environ=None, defer: bool = False) -> SnapshotByteCheckPlanV1:
     """План проверки байтов этого нажатия: режим из переменной; в `sample` - первое ли это нажатие этой идентичности кода в процессе.
 
     `defer=True` - нажатие идёт через пул с фоновыми шагами (`DomainPool.run_idle`): первое нажатие откладывает круг кодека воркеров (см. модуль). Идентичность, чья проверка уже идёт фоном, первой не считается.
@@ -162,7 +162,7 @@ def resolve_plan(kernel_backend, skeleton_backend=None, embedding_backend=None, 
         )
     if mode != MODE_SAMPLE:
         return SnapshotByteCheckPlanV1(mode, False, None, invalid)
-    identity = execution_identity_of(kernel_backend, skeleton_backend, embedding_backend)
+    identity = execution_identity_of(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     first = identity is None or (identity not in _CHECKED_IDENTITIES and identity not in _PENDING_IDENTITIES)
     deferring = bool(defer) and first and identity is not None
     return SnapshotByteCheckPlanV1(mode, first, identity, invalid, deferring, uuid.uuid4().hex if deferring else "")

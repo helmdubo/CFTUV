@@ -334,6 +334,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "kernel_backend",
         "skeleton_backend",
         "embedding_backend",
+        "density_backend",
         "pool",
         "cancel",
         "exc",
@@ -382,6 +383,12 @@ def test_the_width_live_worker_thread_function_touches_no_blender_data():
     used = {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}
     used -= {arg.arg for arg in compute.args.args}
     foreign = used - _WIDTH_COMPUTE_NAMES
+    captured = [node for node in begin.body if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == "density_backend" for target in node.targets)]
+    assert len(captured) == 1
+    assert isinstance(captured[0].value, ast.Attribute) and captured[0].value.attr == "density_backend"
+    assert isinstance(captured[0].value.value, ast.Name) and captured[0].value.value.id == "record"
+    assert captured[0].lineno < compute.lineno
     assert not foreign, (
         f"функция потока точной ширины использует {sorted(foreign)}: потоку нельзя ничего, "
         "что читает или пишет данные Blender."

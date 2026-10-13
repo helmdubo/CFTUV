@@ -422,10 +422,11 @@ def test_the_key_of_a_domain_carries_the_band_key_of_its_patch(row, monkeypatch)
     seen = []
     real = envelope_content_key.domain_content_key
 
-    def spy(export, selected, band_key=None, *backends):
+    def spy(export, selected, band_key=None, *backends, density_backend=None):
         # `backends` — идентичности исполнителей (ядро, скелет, встройка): входят в ключ, но не в то, что доказывает тест
         seen.append(band_key)
-        return real(export, selected, band_key, *backends)
+        assert density_backend == "PYTHON"
+        return real(export, selected, band_key, *backends, density_backend=density_backend)
 
     monkeypatch.setattr(envelope_content_key, "domain_content_key", spy)
     reach = Fraction(3, 4)

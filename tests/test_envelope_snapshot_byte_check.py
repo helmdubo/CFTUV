@@ -144,9 +144,13 @@ def test_every_decision_is_counted_under_its_domain():
 
 def test_the_first_press_of_an_identity_is_checked_fully_and_marked_only_after_it_ran(monkeypatch):
     identity = ("kernel", "host", "NATIVE:build-1")
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: identity)
+    choices = []
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, **kwargs: choices.append(kwargs["density_backend"]) or identity)
 
     first = byte_check.resolve_plan("NATIVE", environ={})
+    assert choices == [None]
+    byte_check.resolve_plan("NATIVE", density_backend="NATIVE", environ={})
+    assert choices[-1] == "NATIVE"
     assert (first.mode, first.first_press, first.identity) == (MODE_SAMPLE, True, identity)
 
     # Нажатие, где FIRST_PRESS не отработал (всё из кэша), идентичность проверенной не делает.
@@ -161,10 +165,10 @@ def test_the_first_press_of_an_identity_is_checked_fully_and_marked_only_after_i
     assert (second.mode, second.first_press) == (MODE_SAMPLE, False)
 
     # Другая идентичность (новый код либо другая сборка нативного ядра) - снова первое нажатие.
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: ("kernel", "host", "NATIVE:build-2"))
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, **kwargs: ("kernel", "host", "NATIVE:build-2"))
     assert byte_check.resolve_plan("NATIVE", environ={}).first_press is True
     # Идентичность не определить - нажатие считается первым всегда.
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: None)
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, **kwargs: None)
     unknown = byte_check.resolve_plan("NATIVE", environ={})
     assert unknown.first_press is True
     profile = EnvelopeDebugProfileBuilderV1("t", "t")

@@ -885,6 +885,7 @@ def run_queue_domain(
     preparation_provider=None,
     backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str | None = None,
+    density_backend: str | None = None,
 ):
     """Две ступени очереди на одном домене, каждая под своей стадией профиля.
 
@@ -929,7 +930,7 @@ def run_queue_domain(
         )
 
     with _measure(profile, "QUEUE_PREPARE", patch_domain_id):
-        prepared, record = prepared_under_backend(prepare, backend, skeleton_backend)
+        prepared, record = prepared_under_backend(prepare, backend, skeleton_backend, density_backend=density_backend)
     prepare_seconds = time.perf_counter() - started
 
     return prepared, replace(

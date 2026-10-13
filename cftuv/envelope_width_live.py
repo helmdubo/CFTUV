@@ -71,7 +71,7 @@ lean-тактом, а подтверждение всегда COMMIT; сверк
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from .envelope_alpha_preview import (
     AlphaPreviewScheduler,
@@ -81,7 +81,7 @@ from .envelope_alpha_preview import (
 )
 from .envelope_gc_pause import gc_paused, gc_paused_function
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, mark_attempt, verification_reason
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
     capture_ownership,
@@ -146,9 +146,11 @@ class LastProductionBuildV1:
     #: под ключом стадии скелета (подготовки Python и Rust не смешиваются).
     skeleton_backend: str | None = None
     embedding_backend: str | None = None
+    density_backend: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self, "kernel_backend")
+        object.__setattr__(self, "density_backend", resolve_density_backend(self.kernel_backend, self.density_backend))
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +214,7 @@ def remember_build(
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
+    density_backend: str | None = None,
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
@@ -231,6 +234,7 @@ def remember_build(
         kernel_backend=str(kernel_backend),
         skeleton_backend=None if skeleton_backend is None else str(skeleton_backend),
         embedding_backend=None if embedding_backend is None else str(embedding_backend),
+        density_backend=run.density_backend if density_backend is None else density_backend,
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -626,6 +630,7 @@ def _begin(controller, request):
     kernel_backend = record.kernel_backend
     skeleton_backend = record.skeleton_backend
     embedding_backend = record.embedding_backend
+    density_backend = record.density_backend
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     grade = target.grade
     lean = grade in DRAG_GRADES  # WIDTH_REFRESH_LEAN_V1; инкрементальный такт (WIDTH_REFRESH_INCREMENTAL_V1) - тоже lean-прогон
@@ -658,6 +663,7 @@ def _begin(controller, request):
                 kernel_backend=kernel_backend,
                 skeleton_backend=skeleton_backend,
                 embedding_backend=embedding_backend,
+                density_backend=density_backend,
                 lean=lean,
                 skipped=None if plan is None else plan.served,
             )

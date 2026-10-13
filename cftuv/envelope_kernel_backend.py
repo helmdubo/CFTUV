@@ -37,7 +37,7 @@
 
 ПОДГОТОВКА ПОД БЛОКОМ БЭКЕНДА. Скелет считается в подготовке (`prepare_conveyor` -> `_prepare_region`), которая идёт ДО `produce_domain` — в родителе и в воркерах пула. Поэтому блок `use_backend`
 стоит и вокруг подготовки (`prepared_under_backend`, `prepare_for_production`, `run_queue_domain`), а запись домена — слияние записи подготовки и записи материализации
-(`BackendRecordV1.merged`). Подготовка зависит только от бэкенда скелета, поэтому ключ её кэша в сессии несёт `skeleton_identity_of` (`PYTHON` | `NATIVE:<native_build_id()>`):
+(`BackendRecordV1.merged`). Ключ подготовки сессии несёт `skeleton_identity_of`: скелет и явно выбранный Density (`PYTHON` | `NATIVE:<native_build_id()>`):
 подготовка, построенная Python, не читается как построенная Rust и наоборот. Ключи результата и хранилища по содержимому несут идентичность всех стадий (`backend_identity_of`).
 Домен, чей скелет нативное ядро отказало по имени (`NATIVE_DIVISION_DIVERGED`), отказан этим именем (`PreparationRefused`), а не посчитан эталоном.
 
@@ -177,6 +177,12 @@ def _density_order(master, explicit=None) -> str:
     return normalize_kernel_backend(choice) if choice else KERNEL_BACKEND_PYTHON
 
 
+def resolve_density_backend(master, explicit=None) -> str:
+    """Зафиксировать выбор кандидата до передачи задачи и ключей кэша."""
+
+    return _density_order(master, explicit)
+
+
 def settle_stage_orders(record, master_field: str = "backend") -> None:
     """Приводит поля порядков записи (`skeleton_backend`, `embedding_backend` со значением `None` — «как главный переключатель») к конкретным именам.
 
@@ -262,18 +268,29 @@ def backend_identity_of(
     return backend_identity(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend))
 
 
-def skeleton_identity_of(skeleton_backend=None) -> str:
-    """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ кэша подготовки сессии несёт её, и только её (подготовка от покрытия и резки не зависит).
+def skeleton_identity_of(skeleton_backend=None, *, density_backend=KERNEL_BACKEND_PYTHON) -> str:
+    """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ подготовки сессии несёт скелет и явно выбранный Density; от покрытия и резки подготовка не зависит.
 
     `None` — порядок скелета по умолчанию (как главный переключатель по умолчанию).
     """
 
     skeleton = stage_orders(DEFAULT_KERNEL_BACKEND, skeleton_backend).skeleton
+    density_backend = normalize_kernel_backend(density_backend)
     try:
         from cftuv_envelope.backend import stage_identity
     except ImportError:
-        return skeleton
-    return stage_identity(skeleton)
+        return skeleton if density_backend == KERNEL_BACKEND_PYTHON else f"{skeleton}|density={density_backend}"
+    identity = stage_identity(skeleton)
+    return identity if density_backend == KERNEL_BACKEND_PYTHON else f"{identity}|density={stage_identity(density_backend)}"
+
+
+def settle_run_backend_identities(record) -> None:
+    """Идентичности результата и подготовки выводятся из уже фиксированных порядков."""
+
+    if record.backend_id is None:
+        object.__setattr__(record, "backend_id", backend_identity_of(record.backend, record.skeleton_backend, record.embedding_backend, density_backend=record.density_backend))
+    if record.skeleton_id is None:
+        object.__setattr__(record, "skeleton_id", skeleton_identity_of(record.skeleton_backend, density_backend=record.density_backend))
 
 
 @contextmanager
@@ -607,6 +624,8 @@ __all__ = (
     "native_status_line",
     "normalize_kernel_backend",
     "prepared_under_backend",
+    "resolve_density_backend",
+    "settle_run_backend_identities",
     "settle_stage_orders",
     "skeleton_identity_of",
     "stage_orders",

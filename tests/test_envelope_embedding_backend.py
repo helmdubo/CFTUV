@@ -95,7 +95,7 @@ def test_worker_export_refusal_or_error_keeps_the_b1_record(monkeypatch, error):
 
 
 def _run_stub(**parts):
-    return SimpleNamespace(backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="NATIVE", cancel=None,
+    return SimpleNamespace(backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="NATIVE", density_backend="PYTHON", cancel=None,
         revision="r", alpha=.25, alpha_text=".25", request_id="q", density=None, topology_law=production.PRODUCTION_TOPOLOGY_LAW,
         uv_policy_id=production.PRODUCTION_UV_POLICY, profile=EnvelopeDebugProfileBuilderV1("parent", "QUEUE"), scan_records={}, served={}, skipped=frozenset(), byte_check_ledger=[], **parts)
 
