@@ -253,3 +253,28 @@ def test_an_unregistered_timer_failure_in_the_idle_is_named_and_does_not_reach_t
     world.fake.timers.fire()  # исключение не уходит в цикл Blender
 
     assert f"{live.INPUTS_BUILD_FAILED}: the idle preparation failed: RuntimeError: boom" in capsys.readouterr().out
+
+
+def test_the_idle_build_runs_under_the_freezing_pause_and_hands_the_collector_back(monkeypatch):
+    import gc
+
+    world = _World(monkeypatch)
+    was_enabled = gc.isenabled()
+    gc.enable()
+    gc.unfreeze()
+    seen = []
+    real = preview_module.PendingPreviewInputsV1.complete
+
+    def watching(self, built_by):
+        seen.append(gc.isenabled())  # внутри построения сборщик стоит на паузе
+        return real(self, built_by)
+
+    monkeypatch.setattr(preview_module.PendingPreviewInputsV1, "complete", watching)
+    try:
+        assert live.run_idle_preparation(world.controller, world.record) == live.IDLE_BUILT
+        assert seen == [False] and gc.isenabled()
+        assert gc.get_freeze_count() > 0  # построенное перенесено в постоянное поколение, как у кнопки
+    finally:
+        gc.unfreeze()
+        if not was_enabled:
+            gc.disable()
