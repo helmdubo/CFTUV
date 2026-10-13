@@ -771,7 +771,9 @@ def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
         MaxSubturnValueId.LINEAR_REFLEX_DENSITY_4_V1,
         ExactAngleSymbol.PI_OVER_6,
     )
-    compiled = compile_reference_envelopes(snapshot, request)
+    from cftuv_envelope.reference import compile as compiler
+    compiled = compile_reference_envelopes(snapshot, request,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
     lifted = min(
         (
             item

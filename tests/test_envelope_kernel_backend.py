@@ -665,7 +665,13 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     # КАЖДАЯ стадия ядра принадлежит главному переключателю: новый аргумент `use_backend` без поля порядка, подписи и признака статуса красит этот тест
     stages = [name for name, _label in host_backend.STAGES]
     assert stages == [item.name for item in dataclasses.fields(host_backend.StageOrdersV1)]
-    stage_arguments = [name for name in inspect.signature(kernel_backend.use_backend).parameters if name != "borrowed_ledger"]
+    signature = inspect.signature(kernel_backend.use_backend)
+    # R3 canon: Density остаётся Python-кандидатом вне продуктового master switch.
+    density = signature.parameters["density_backend"]
+    assert density.kind is inspect.Parameter.KEYWORD_ONLY
+    assert density.default is kernel_backend.KernelBackendV1.PYTHON
+    assert kernel_backend.DENSITY not in stages
+    stage_arguments = [name for name in signature.parameters if name not in ("borrowed_ledger", "density_backend")]
     assert len(stage_arguments) == len(stages), (stage_arguments, stages)
     assert {kernel_backend.SKELETON, kernel_backend.EMBEDDING} <= set(stages)
     assert set(host_backend._STATUS_FLAGS) == set(stages)
@@ -677,6 +683,8 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     with host_backend.entered_backend("NATIVE") as ledger:
         assert (ledger.requested, ledger.skeleton_requested, ledger.embedding_requested) == ("NATIVE",) * 3
         assert (kernel_backend.active_backend(), kernel_backend.active_skeleton_backend(), kernel_backend.active_embedding_backend()) == (kernel_backend.KernelBackendV1.NATIVE,) * 3
+        assert ledger.density_requested == kernel_backend.KernelBackendV1.PYTHON.value
+        assert kernel_backend.active_density_backend() is kernel_backend.KernelBackendV1.PYTHON
 
 
 @pytest.mark.parametrize("master", ["PYTHON", "NATIVE"])

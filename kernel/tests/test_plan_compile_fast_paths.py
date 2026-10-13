@@ -18,7 +18,9 @@ import pytest
 import sympy as sp
 
 import cftuv_envelope as kernel
-from cftuv_envelope.reference import angular, adaptive_density_fan as fan_module
+from cftuv_envelope.reference import (
+    angular, adaptive_density_fan as fan_module, density_turn, density_vectors,
+)
 from cftuv_envelope.reference.adaptive_density_atlas import DensityExactWorkBudget
 from cftuv_envelope.reference.compile import _density_ideal_is_subturn_feasible
 from cftuv_envelope.reference.metric import ExactPlanarMetric
@@ -201,7 +203,10 @@ def _legacy_functions(monkeypatch):
         "_density_left_unit_normal", "_huber_density_interpolated_normals",
     ):
         monkeypatch.setattr(angular, name, getattr(legacy, name))
-    monkeypatch.setattr(fan_module, "_covectors", legacy._covectors)
+        for owner in (density_vectors, density_turn):
+            if hasattr(owner, name):
+                monkeypatch.setattr(owner, name, getattr(legacy, name))
+    monkeypatch.setattr(fan_module, "_covectors", lambda *args, laws=None: legacy._covectors(*args))
 
 
 @pytest.mark.parametrize("cap", (None, 0, 1))
@@ -251,7 +256,9 @@ def test_fixture_compilation_bytes_and_exact_search_budgets_match_old_functions(
 
     def result():
         budgets.clear()
-        compiled = kernel.compile_reference_envelopes(snapshot, request)
+        from cftuv_envelope.reference import compile as compiler
+        compiled = kernel.compile_reference_envelopes(snapshot, request,
+            _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
         return kernel.canonical_json_bytes(compiled), tuple((b.cap, b.counters()) for b in budgets)
 
     with monkeypatch.context() as scope:

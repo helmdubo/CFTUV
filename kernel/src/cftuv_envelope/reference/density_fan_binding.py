@@ -29,6 +29,11 @@ from .direction_binding import (
     certify_adaptive_huber_density_direction_fan,
     certify_huber_density_bindings_with_adaptive_fallback,
 )
+from .density_shell_events import (
+    DensityFanBindingMemoEntry,
+    capture_density_shell_candidates,
+    replay_density_shell_outcomes,
+)
 
 _BAND_REFUSALS = (
     AdaptiveDensityFanInvalid,
@@ -51,6 +56,7 @@ def bind_density_fan(
     law: str,
     spec_id: str,
     refusals: list,
+    shell_event_collector=None,
 ):
     """`(построчные сертификаты, власть)` под законом окна `law`, отказ полосы — в `refusals`."""
 
@@ -74,16 +80,22 @@ def bind_density_fan(
         )
         cached = remembered.get(key)
         if cached is not None:
-            return cached
-        if adaptive_only:
-            result = (None,) * (len(ideal) - 2), certify_adaptive_huber_density_direction_fan(
-                metric, ideal, orientation, q, binding_reasons, window_law=window_law
-            )
-        else:
-            result = certify_huber_density_bindings_with_adaptive_fallback(
-                metric, ideal, orientation, q, binding_reasons
-            )
-        remembered[key] = result
+            replay_density_shell_outcomes(metric, spec_id, cached.shell_outcomes, shell_event_collector)
+            return cached.result
+        with capture_density_shell_candidates(metric) as captured:
+            try:
+                if adaptive_only:
+                    result = (None,) * (len(ideal) - 2), certify_adaptive_huber_density_direction_fan(
+                        metric, ideal, orientation, q, binding_reasons, window_law=window_law
+                    )
+                else:
+                    result = certify_huber_density_bindings_with_adaptive_fallback(
+                        metric, ideal, orientation, q, binding_reasons
+                    )
+            finally:
+                bundle = tuple(sorted(captured.items()))
+                replay_density_shell_outcomes(metric, spec_id, bundle, shell_event_collector)
+        remembered[key] = DensityFanBindingMemoEntry(result, bundle)
         return result
 
     if law == WINDOW_LAW_VORONOI:

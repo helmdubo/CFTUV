@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
@@ -706,13 +705,11 @@ def _density_1_inputs():
 def test_box_refinement_exhaustion_name_survives_an_undecided_limit_hint(monkeypatch):
     """Подсказка в сообщении не заменяет имя отказа, даже если сама не решена."""
 
-    original = adaptive_density_fan._subturn_boundary
+    from cftuv_envelope.reference.density_legacy_laws_v1 import DensityLegacyLawsV1
 
     def undecided(*args, **kwargs):
-        # Не решён только вопрос подсказки в сообщении; остальным вызовам
-        # (признак «на пределе» в компиляции) предикат отвечает как обычно.
-        if sys._getframe(1).f_code.co_name != "_termination_boxes":
-            return original(*args, **kwargs)
+        # Эта seam обслуживает подсказку контроллера; прямой предикат
+        # признака «на пределе» в компиляции остаётся исходным.
         raise ReferenceGeometryError(
             ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE, "hint"
         )
@@ -720,14 +717,16 @@ def test_box_refinement_exhaustion_name_survives_an_undecided_limit_hint(monkeyp
     monkeypatch.setattr(
         adaptive_density_fan, "_box_is_feasible", lambda *args, **kwargs: False
     )
-    monkeypatch.setattr(adaptive_density_fan, "_subturn_boundary", undecided)
+    monkeypatch.setattr(DensityLegacyLawsV1, "subturn_boundary", staticmethod(undecided))
     # `building_patch3` — канонический угол: лучи его лифтованного веера теперь
     # ставит таблица поворотов, атлас им не нужен. Пустая таблица — это закон
     # рациональных лучей, ОТКАЗАВШИЙ (`NO_CANONICAL_ROTATION_TABLE_ENTRY`), и
     # лифтованный веер идёт прежним адаптивным путём, ради которого тест.
     monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
     snapshot, request = _load("building_patch3", 4)
-    result = compile_reference_envelopes(snapshot, request)
+    from cftuv_envelope.reference import compile as compiler
+    result = compile_reference_envelopes(snapshot, request,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
     assert result.outcome is ReferenceOutcome.DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED
     assert "subturn limit: undecided" in result.diagnostics[0].message
 
@@ -753,7 +752,9 @@ def test_box_refinement_exhaustion_has_its_own_honest_name(monkeypatch, route):
         snapshot, request = _load("building_patch3", 4)
     else:
         snapshot, request = _density_1_inputs()
-    result = compile_reference_envelopes(snapshot, request)
+    from cftuv_envelope.reference import compile as compiler
+    result = compile_reference_envelopes(snapshot, request,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
     assert result.outcome is ReferenceOutcome.DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED
     message = result.diagnostics[0].message
     assert "termination box refinement exhausted" in message
@@ -762,7 +763,12 @@ def test_box_refinement_exhaustion_has_its_own_honest_name(monkeypatch, route):
         # После лифта предела нет: причина названа как нехватка уточнения.
         assert "subturn limit: False" in message
     assert result.outcome is not ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE
-    prepared = prepare_conveyor(snapshot, request)
+    from cftuv_envelope.wavefront import conveyor
+    from functools import partial
+    with monkeypatch.context() as scoped:
+        scoped.setattr(conveyor, "compile_reference_envelopes", partial(compiler.compile_reference_envelopes,
+            _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1))
+        prepared = prepare_conveyor(snapshot, request)
     assert prepared.outcome.value == "PLAN_IS_NOT_COMPILED"
     assert prepared.detail == "DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED"
 

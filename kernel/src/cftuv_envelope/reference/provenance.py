@@ -163,3 +163,42 @@ def merge_provenance(*items: ReferenceProvenanceV1) -> ReferenceProvenanceV1:
             *(item.coverage_contributors for item in items)
         ),
     )
+
+
+def initial_front_support_features(envelope_specs):
+    """Собрать исходные support features с прежней семантикой множества."""
+    from ..contracts.envelopes import (
+        AngularEnvelopeSpec, CapEnvelopeSpec, JunctionEnvelopeSpec, StripEnvelopeSpec,
+    )
+    from ..contracts.events import InitialFrontFeatureKind, InitialFrontFeatureRefV1
+
+    support_features = set()
+    for spec in envelope_specs:
+        if isinstance(spec, StripEnvelopeSpec):
+            support_features.add(
+                InitialFrontFeatureRefV1(
+                    InitialFrontFeatureKind.STRIP_SUPPORT, spec.envelope_spec_id
+                )
+            )
+        elif isinstance(spec, AngularEnvelopeSpec):
+            support_features.update(
+                InitialFrontFeatureRefV1(
+                    InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT,
+                    item.hidden_support_id,
+                )
+                for item in spec.hidden_supports
+            )
+        elif isinstance(spec, JunctionEnvelopeSpec):
+            support_features.add(
+                InitialFrontFeatureRefV1(
+                    InitialFrontFeatureKind.JUNCTION_SUPPORT, spec.envelope_spec_id
+                )
+            )
+        elif isinstance(spec, CapEnvelopeSpec):
+            support_features.add(
+                InitialFrontFeatureRefV1(
+                    InitialFrontFeatureKind.CAP_CLOSURE, spec.envelope_spec_id
+                )
+            )
+
+    return support_features

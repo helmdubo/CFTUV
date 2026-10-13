@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from fractions import Fraction
 import math
+from typing import TYPE_CHECKING
 
 import sympy as sp
 
@@ -37,6 +38,9 @@ from .planar_types import (
     point_add,
     vector_scale,
 )
+
+if TYPE_CHECKING:
+    from .density_shell_events import DensityFanBindingMemoEntry
 
 
 def _scalar(value: ExactRationalV1) -> sp.Rational:
@@ -291,6 +295,8 @@ class _DensityExactMemo:
         "fans",
         "covector_rows",
         "fan_bindings",
+        "density_attempt_memo",
+        "shell_event_capture",
         "settled",
     )
 
@@ -316,7 +322,11 @@ class _DensityExactMemo:
         self.covector_rows: dict[tuple, tuple] = {}
         # Результат `density_fan_binding.bind_density_fan` по ЗНАЧЕНИЮ входов (Грамм, лучи идеала, ориентация, q,
         # причины привязки, закон окна): угол с теми же значениями на другом углу домена получает ту же власть.
-        self.fan_bindings: dict[tuple, tuple] = {}
+        self.fan_bindings: dict[tuple, DensityFanBindingMemoEntry] = {}
+        # Портативные success-only receipts принадлежат host-транзакции и пиклятся пустыми.
+        self.density_attempt_memo: dict = {}
+        # Только временный per-build capture; итоговые uses принадлежат compilation.
+        self.shell_event_capture: dict | None = None
         # Результаты чистых проверок и планов по ТОЖДЕСТВУ их неизменяемых входов (`common.settled_result`):
         # ключ - `id` входов, запись держит сами входы живыми, поэтому чужой объект на том же адресе её не прочтёт.
         self.settled: dict[tuple, tuple] = {}

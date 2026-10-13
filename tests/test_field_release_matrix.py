@@ -499,6 +499,33 @@ RED_CONTROLS = [
 ]
 
 
+@pytest.mark.parametrize("pin_fans", [None, OLD_FAN_LAWS, OLD_FAN_RAY_WINDOW])
+def test_only_the_full_historical_fan_law_uses_the_frozen_binding_callback(pin_fans):
+    # Изоляция подмен закрепок совпадает с полевым маршрутом: отдельный процесс.
+    script = (
+        "import runpy, sys\n"
+        "route = runpy.run_path(sys.argv[1])\n"
+        "from cftuv_envelope.reference import compile as compiler\n"
+        "from cftuv_envelope.wavefront import conveyor\n"
+        "original = compiler.compile_reference_envelopes\n"
+        "name = sys.argv[2]\n"
+        "if name: route['install_fans_pin'](name)\n"
+        "current = compiler.compile_reference_envelopes\n"
+        "if name == route['FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE']:\n"
+        "    assert current.func is original\n"
+        "    assert current.keywords == {'_direction_binding_attachment': compiler._attach_direction_bindings_legacy_v1}\n"
+        "    assert conveyor.compile_reference_envelopes is current\n"
+        "else:\n"
+        "    assert current is original\n"
+        "    assert conveyor.compile_reference_envelopes is original\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script, str(ROUTE), pin_fans or ""],
+        cwd=ROOT, env=dict(os.environ), capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+
+
 @pytest.mark.parametrize(
     "snapshot,patch_id,pin_lift,pin_frame,pin_fans,pin_join,finding", RED_CONTROLS
 )
@@ -516,6 +543,7 @@ def test_anchor_gate_goes_red_when_an_old_law_is_re_enabled(
     substitutions = route(snapshot, pin_lift, pin_frame, None, pin_fans, pin_join)["substitutions"]
     if pin_fans is not None:
         assert f"KERNEL_FAN_LAWS_PINNED:{pin_fans}" in substitutions
+    assert ("DENSITY_BINDING_CALLBACK_PINNED:LEGACY_V1" in substitutions) == (pin_fans == OLD_FAN_LAWS)
     if pin_join is not None:
         assert f"KERNEL_JOIN_THRESHOLD_PINNED:{pin_join}" in substitutions
     record = domain(snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join)
