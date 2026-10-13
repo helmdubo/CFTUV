@@ -361,6 +361,9 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
     for side, press in (("base", a), ("branch", b)):
         if press.get("snapshot_check_calls") and any(press["snapshot_check_calls"]):
             out.notes.append(f"[{label}] {side}: snapshot checks (EXPORT validators, two per domain) proved natively {press['snapshot_check_calls'][0]}, run by the Python validators after a named decline {press['snapshot_check_calls'][1]}")
+    for side, press in (("base", a), ("branch", b)):
+        if press.get("density_calls") and any(press["density_calls"]):
+            out.notes.append(f"[{label}] {side}: Density calls native {press['density_calls'][0]}, Python {press['density_calls'][1]}, named fallbacks {press['density_calls'][2]}")
     _counter_difference(a["profile_counters"], b["profile_counters"], allowed, is_volatile_run_counter, f"[{label}] run profile", out)
     by_name_a, by_name_b = a.get("profile_domain_counters_by_name"), b.get("profile_domain_counters_by_name")
     if by_name_a is not None and by_name_b is not None:
@@ -1136,6 +1139,8 @@ def domain_rows(run) -> list:
             "materialize_calls": None if record is None else [getattr(record, "materialize_native_calls", 0), getattr(record, "materialize_python_calls", 0)],
             "snapshot_check_ran": None if record is None else (getattr(record, "snapshot_check_ran", None) or None),
             "snapshot_check_calls": None if record is None else [getattr(record, "snapshot_check_native_calls", 0), getattr(record, "snapshot_check_python_calls", 0)],
+            "density_requested": None if record is None else getattr(record, "density_requested", None),
+            "density_calls": None if record is None else [getattr(record, "density_native_calls", 0), getattr(record, "density_python_calls", 0), len(getattr(record, "density_fallbacks", ()))],
         })
     return sorted(rows, key=lambda row: row["patch"])
 
@@ -1178,9 +1183,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     alpha_calls = [sum(row["effective_alpha_calls"][index] for row in rows if row.get("effective_alpha_calls")) for index in (0, 1)]
     materialize_calls = [sum(row["materialize_calls"][index] for row in rows if row.get("materialize_calls")) for index in (0, 1)]
     snapshot_check_calls = [sum(row["snapshot_check_calls"][index] for row in rows if row.get("snapshot_check_calls")) for index in (0, 1)]
+    density_calls = [sum(row["density_calls"][index] for row in rows if row.get("density_calls")) for index in (0, 1, 2)]
     return {
         "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
-        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls,
+        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls, "density_calls": density_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_domain_counters_by_name": {
