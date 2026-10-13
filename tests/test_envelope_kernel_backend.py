@@ -162,11 +162,11 @@ def test_the_default_press_is_the_native_press_and_names_who_computed_while_an_e
     assert all(record is not None and record.requested == "NATIVE" and record.ran == "python" for record in records)
     assert all(record.outcomes and set(record.outcomes) <= {"NATIVE_UNAVAILABLE", "NATIVE_NOT_REACHED"} for record in records)
     line = host_backend.backend_console_lines(default.results, default.kernel_backend)[0]
-    assert line.startswith("[CFTUV][Production] BACKEND native: coverage/clip 0, skeleton 0, embedding 0, effective alpha 0, materialize W1 0, snapshot check 0 | python: coverage/clip " + str(ROW))
+    assert line.startswith("[CFTUV][Production] BACKEND native: coverage/clip 0, skeleton 0, embedding 0, effective alpha 0, materialize W1 0, snapshot check 0, density 0 | python: coverage/clip " + str(ROW))
     assert f", skeleton {ROW} (NATIVE_UNAVAILABLE:" in line and f", embedding {ROW} (NATIVE_UNAVAILABLE:" in line and f", effective alpha {ROW} (NATIVE_UNAVAILABLE:" in line
     assert f", materialize W1 {ROW} (NATIVE_UNAVAILABLE:" in line and f", snapshot check {ROW} (NATIVE_UNAVAILABLE:" in line
     assert "NATIVE_UNAVAILABLE: patch" in line or "NATIVE_NOT_REACHED: patch" in line
-    assert f" | native: coverage/clip 0, skeleton 0, embedding 0, effective alpha 0, materialize W1 0, snapshot check 0 | python: coverage/clip {ROW}, skeleton {ROW}, embedding {ROW}, effective alpha {ROW}, materialize W1 {ROW}, snapshot check {ROW}" in production.production_timing_text(default)
+    assert f" | native: coverage/clip 0, skeleton 0, embedding 0, effective alpha 0, materialize W1 0, snapshot check 0, density 0 | python: coverage/clip {ROW}, skeleton {ROW}, embedding {ROW}, effective alpha {ROW}, materialize W1 {ROW}, snapshot check {ROW}" in production.production_timing_text(default)
     # явный `PYTHON`: записи нет, строки журнала нет, в строке панели бэкенда нет
     assert all(item.backend_record is None for item in python.results)
     assert host_backend.backend_console_lines(python.results, "PYTHON", "PYTHON") == []
@@ -211,7 +211,7 @@ def test_a_native_press_without_the_wheel_gives_the_python_answer_and_names_ever
     lines = host_backend.backend_console_lines(native.results, "NATIVE")
     assert len(lines) == 1 and lines[0].startswith("[CFTUV][Production] BACKEND native: coverage/clip 0 | python: coverage/clip " + str(ROW))
     assert "NATIVE_UNAVAILABLE: patch" in lines[0] or "NATIVE_NOT_REACHED: patch" in lines[0]
-    assert lines[0].endswith(" | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check")  # `_run` изолирует покрытие и резку: остальные стадии заказаны на PYTHON порядками API
+    assert lines[0].endswith(" | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density")  # `_run` изолирует покрытие и резку: остальные стадии заказаны на PYTHON порядками API
     assert f" | native: coverage/clip 0 | python: coverage/clip {ROW}" in production.production_timing_text(native)
 
 
@@ -246,7 +246,7 @@ def test_a_native_press_after_a_python_press_recomputes_and_never_reads_the_pyth
     assert all(item.placement == PLACEMENT_CACHED for item in again.results)
     # Домен из кэша не считался в этом прогоне: в счёт исполнителей он не идёт, а назван отдельно.
     line = host_backend.backend_console_lines(again.results, "NATIVE", "PYTHON", "PYTHON")[0]
-    assert line == f"[CFTUV][Production] BACKEND native: coverage/clip 0 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check | cached {ROW}"
+    assert line == f"[CFTUV][Production] BACKEND native: coverage/clip 0 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density | cached {ROW}"
 
     back = _python(row, controller=controller)
     assert (back.counter(production.PRODUCTION_RESULT_CACHE_HIT), back.counter(production.PRODUCTION_RESULT_CACHE_MISS)) == (ROW, 0)
@@ -301,15 +301,15 @@ def test_a_backend_switch_clears_the_clip_memo_once_per_switch(row, monkeypatch)
 def test_an_installed_native_module_changes_the_identity_not_the_answer(row):
     module = _fake_native()
 
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON", density_backend="PYTHON") == f"NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "PYTHON"
     # сертификат вложения, лист эффективной alpha и W1 материализации без слова - как главный переключатель (`NATIVE`): идентичность несёт и их
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == f"NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}|materialize_w1=NATIVE:{BUILD_ID}|snapshot_check=NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == f"NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}|materialize_w1=NATIVE:{BUILD_ID}|snapshot_check=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
     assert _projection(_run(row, backend="NATIVE")) == _projection(_python(row))
     # другая сборка при том же номере колеса — другая идентичность (ключи кэшей не читают результат прежней сборки)
     module.native_build_id = lambda: "cd" * 32
     kernel_backend.refresh_native()
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "NATIVE:" + "cd" * 32
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON", density_backend="PYTHON") == "NATIVE:" + "cd" * 32
 
 
 # --------------------------------------------------------------------------
@@ -331,7 +331,7 @@ def test_the_execution_identity_adds_the_backend_to_the_code_fingerprint_and_lea
     assert content_key.execution_identity("NATIVE", "PYTHON", "PYTHON") == (
         kernel_fingerprint,
         host_fingerprint,
-        "NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable",
+        "NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable|density=NATIVE:unavailable",
     )  # умолчание: обе стадии идут за переключателем
     assert len(content_key.code_identity()) == 2
     for variable in host_backend.STAGE_ENVIRONMENT.values():
@@ -347,7 +347,7 @@ def test_the_content_key_and_the_result_slot_carry_the_backend(row):
     # без идентичности слот несёт идентичность умолчания продукта (без колеса — `NATIVE:unavailable`), а не молчаливый `PYTHON`
     default = content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT")
     assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", host_backend.backend_identity_of(host_backend.DEFAULT_KERNEL_BACKEND))
-    assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable") != first
+    assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable|density=NATIVE:unavailable") != first
     assert content_key.execution_identity() == content_key.execution_identity(host_backend.DEFAULT_KERNEL_BACKEND)
     assert content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", f"NATIVE:{BUILD_ID}") != content_key.result_slot(
         "0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:" + "cd" * 32
@@ -400,9 +400,9 @@ def test_the_journal_line_names_native_python_mixed_cached_and_the_patches_of_ev
 
     tally = summary.stage("coverage_clip")
     assert (tally.native, tally.python, summary.cached) == (118, 2, 0)
-    assert host_backend.backend_text(summary) == "native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check"
+    assert host_backend.backend_text(summary) == "native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
     assert host_backend.backend_console_lines(results, "NATIVE", "PYTHON") == [
-        "[CFTUV][Production] BACKEND native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check"
+        "[CFTUV][Production] BACKEND native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
     ]
     # строка панели: те же части без причин; стадия на PYTHON по порядку API в ней не называется
     assert host_backend.backend_timing_suffix(results, "NATIVE", "PYTHON") == " | native: coverage/clip 118 | python: coverage/clip 2"
@@ -424,7 +424,7 @@ def test_a_domain_that_called_no_native_operation_is_named_not_reached_in_the_li
 
     result = SimpleNamespace(patch_id=4, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 0, 0))
     assert host_backend.backend_text(host_backend.backend_summary([result], "NATIVE", "PYTHON")) == (
-        "native: coverage/clip 0 | python: coverage/clip 1 (NATIVE_NOT_REACHED: patch 4) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check"
+        "native: coverage/clip 0 | python: coverage/clip 1 (NATIVE_NOT_REACHED: patch 4) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
     )
 
 
@@ -666,15 +666,16 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     stages = [name for name, _label in host_backend.STAGES]
     assert stages == [item.name for item in dataclasses.fields(host_backend.StageOrdersV1)]
     signature = inspect.signature(kernel_backend.use_backend)
-    # R3 canon: Density остаётся Python-кандидатом вне продуктового master switch.
+    # Density — публичная стадия, но API ядра сохраняет шесть позиционных аргументов.
     density = signature.parameters["density_backend"]
     assert density.kind is inspect.Parameter.KEYWORD_ONLY
     assert density.default is kernel_backend.KernelBackendV1.PYTHON
-    assert kernel_backend.DENSITY not in stages
+    assert kernel_backend.DENSITY == stages[-1]
     stage_arguments = [name for name in signature.parameters if name not in ("borrowed_ledger", "density_backend")]
     monkeypatch.delenv("CFTUV_DENSITY_BACKEND", raising=False)
-    assert host_backend._density_order("NATIVE") == "PYTHON"
-    assert len(stage_arguments) == len(stages), (stage_arguments, stages)
+    assert host_backend.resolve_density_backend("NATIVE") == "NATIVE"
+    assert len(stage_arguments) == len(stages) - 1, (stage_arguments, stages)
+    assert host_backend.stage_orders().as_keywords() == {"density_backend": "NATIVE"}
     assert {kernel_backend.SKELETON, kernel_backend.EMBEDDING} <= set(stages)
     assert set(host_backend._STATUS_FLAGS) == set(stages)
     assert all(hasattr(kernel_backend.NativeStatusV1, flag) for flag in host_backend._STATUS_FLAGS.values())
@@ -685,8 +686,8 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     with host_backend.entered_backend("NATIVE") as ledger:
         assert (ledger.requested, ledger.skeleton_requested, ledger.embedding_requested) == ("NATIVE",) * 3
         assert (kernel_backend.active_backend(), kernel_backend.active_skeleton_backend(), kernel_backend.active_embedding_backend()) == (kernel_backend.KernelBackendV1.NATIVE,) * 3
-        assert ledger.density_requested == kernel_backend.KernelBackendV1.PYTHON.value
-        assert kernel_backend.active_density_backend() is kernel_backend.KernelBackendV1.PYTHON
+        assert ledger.density_requested == kernel_backend.KernelBackendV1.NATIVE.value
+        assert kernel_backend.active_density_backend() is kernel_backend.KernelBackendV1.NATIVE
 
 
 @pytest.mark.parametrize("master", ["PYTHON", "NATIVE"])
@@ -782,28 +783,29 @@ def test_the_status_line_lists_the_stages_available_natively_for_either_position
         return kernel_backend.NativeStatusV1(
             stages.get("coverage", "available"), stages.get("clip", "available"), "0.1.0", "", BUILD_ID,
             stages.get("skeleton", "available"), stages.get("embedding", "available"), stages.get("effective_alpha", "available"), stages.get("materialize_w1", "available"), stages.get("snapshot_check", "available"),
+            density=stages.get("density", "available"),
         )
 
     line = host_backend.native_status_line
-    assert line("NATIVE", status()) == ("Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check", "CHECKMARK")
-    assert line("NATIVE", status(skeleton="stale(x)")) == ("Native: coverage/clip, embedding, effective alpha, materialize W1, snapshot check; Python: skeleton", "ERROR")
-    assert line("NATIVE", status(clip="unavailable")) == ("Native: skeleton, embedding, effective alpha, materialize W1, snapshot check; Python: coverage/clip", "ERROR")
-    assert line("NATIVE", status(effective_alpha="unavailable")) == ("Native: coverage/clip, skeleton, embedding, materialize W1, snapshot check; Python: effective alpha", "ERROR")
-    assert line("NATIVE", status(materialize_w1="unavailable")) == ("Native: coverage/clip, skeleton, embedding, effective alpha, snapshot check; Python: materialize W1", "ERROR")
-    assert line("NATIVE", status(snapshot_check="unavailable")) == ("Native: coverage/clip, skeleton, embedding, effective alpha, materialize W1; Python: snapshot check", "ERROR")
-    assert line("NATIVE", status(coverage="unavailable", clip="unavailable", skeleton="unavailable", embedding="unavailable", effective_alpha="unavailable", materialize_w1="unavailable", snapshot_check="unavailable")) == (
+    assert line("NATIVE", status()) == ("Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density", "CHECKMARK")
+    assert line("NATIVE", status(skeleton="stale(x)")) == ("Native: coverage/clip, embedding, effective alpha, materialize W1, snapshot check, density; Python: skeleton", "ERROR")
+    assert line("NATIVE", status(clip="unavailable")) == ("Native: skeleton, embedding, effective alpha, materialize W1, snapshot check, density; Python: coverage/clip", "ERROR")
+    assert line("NATIVE", status(effective_alpha="unavailable")) == ("Native: coverage/clip, skeleton, embedding, materialize W1, snapshot check, density; Python: effective alpha", "ERROR")
+    assert line("NATIVE", status(materialize_w1="unavailable")) == ("Native: coverage/clip, skeleton, embedding, effective alpha, snapshot check, density; Python: materialize W1", "ERROR")
+    assert line("NATIVE", status(snapshot_check="unavailable")) == ("Native: coverage/clip, skeleton, embedding, effective alpha, materialize W1, density; Python: snapshot check", "ERROR")
+    assert line("NATIVE", status(coverage="unavailable", clip="unavailable", skeleton="unavailable", embedding="unavailable", effective_alpha="unavailable", materialize_w1="unavailable", snapshot_check="unavailable", density="unavailable")) == (
         "Native unavailable: Python computes every stage",
         "ERROR",
     )
-    assert line("PYTHON", status()) == ("Python for all stages; native ready: coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check", "INFO")
-    assert line("PYTHON", status(embedding="unavailable", skeleton="unavailable", effective_alpha="unavailable", materialize_w1="unavailable", snapshot_check="unavailable")) == ("Python for all stages; native ready: coverage/clip", "INFO")
+    assert line("PYTHON", status()) == ("Python for all stages; native ready: coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density", "INFO")
+    assert line("PYTHON", status(embedding="unavailable", skeleton="unavailable", effective_alpha="unavailable", materialize_w1="unavailable", snapshot_check="unavailable", density="unavailable")) == ("Python for all stages; native ready: coverage/clip", "INFO")
     # настоящее состояние ядра в процессе: подставное колесо со всеми семью операциями
     _fake_native(
         native_status=lambda: {
-            "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available",
+            "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "density": "available",
         }
     )
-    assert line("NATIVE", kernel_backend.native_status())[0] == "Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check"
+    assert line("NATIVE", kernel_backend.native_status())[0] == "Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
 
 
 class _SceneGroup:
@@ -872,7 +874,7 @@ SNAPSHOT_ENVIRONMENT = host_backend.STAGE_ENVIRONMENT["snapshot_check"]
 
 def test_the_effective_alpha_stage_follows_the_master_switch_and_only_the_environment_isolates_it(monkeypatch):
     monkeypatch.delenv(ALPHA_ENVIRONMENT, raising=False)
-    assert ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND" and host_backend.STAGE_ENVIRONMENT == {"effective_alpha": ALPHA_ENVIRONMENT, "materialize_w1": W1_ENVIRONMENT, "snapshot_check": SNAPSHOT_ENVIRONMENT}
+    assert ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND" and host_backend.STAGE_ENVIRONMENT == {"effective_alpha": ALPHA_ENVIRONMENT, "materialize_w1": W1_ENVIRONMENT, "snapshot_check": SNAPSHOT_ENVIRONMENT, "density": "CFTUV_DENSITY_BACKEND"}
     assert not hasattr(host_backend, "STAGE_HOLDS") and not hasattr(host_backend, "held_order"), "no stage is held back from the master switch: the mechanism is gone"
     assert [host_backend.stage_orders(master).effective_alpha for master in ("PYTHON", "NATIVE")] == ["PYTHON", "NATIVE"]
     assert host_backend.stage_orders().effective_alpha == host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
@@ -919,7 +921,7 @@ def test_the_journal_names_the_effective_alpha_stage_as_ordered_python_when_it_i
         return SimpleNamespace(patch_id=patch, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 3, 0, **fields))
 
     isolated = [result(1), result(2)]
-    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check"
+    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
     ordered = [
         result(1, effective_alpha_requested="NATIVE", effective_alpha_native_calls=40),
         result(2, effective_alpha_requested="NATIVE", effective_alpha_native_calls=38, effective_alpha_python_calls=2, effective_alpha_fallbacks=(("NATIVE_PORT_UNSUPPORTED", "effective_alpha", 2, "d"),)),
@@ -927,12 +929,12 @@ def test_the_journal_names_the_effective_alpha_stage_as_ordered_python_when_it_i
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("effective_alpha").native == 1 and summary.stage("effective_alpha").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, effective alpha 1 | python: effective alpha 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, materialize W1, snapshot check"
+        "native: coverage/clip 2, effective alpha 1 | python: effective alpha 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, materialize W1, snapshot check, density"
     )
     assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, effective alpha 1 | python: effective alpha 1"
     # the panel line is the owner's switch: the stage is part of what it promises, like the other four
     absent = kernel_backend.NativeStatusV1("available", "available", "0.1.0", "", BUILD_ID, "available", "available", "unavailable")
-    assert host_backend.native_status_line("NATIVE", absent) == ("Native: coverage/clip, skeleton, embedding; Python: effective alpha, materialize W1, snapshot check", "ERROR")
+    assert host_backend.native_status_line("NATIVE", absent) == ("Native: coverage/clip, skeleton, embedding; Python: effective alpha, materialize W1, snapshot check, density", "ERROR")
 
 
 # --------------------------------------------------------------------------
@@ -990,7 +992,7 @@ def test_the_journal_and_the_panel_count_the_w1_stage_like_the_others():
 
     # isolated (ordered to the reference): named in `ordered python` without a count, like the stages the API orders to Python
     isolated = [result(1, materialize_requested="PYTHON"), result(2, materialize_requested="PYTHON")]
-    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check"
+    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
     ordered = [
         result(1, materialize_requested="NATIVE", materialize_native_calls=40),
         result(2, materialize_requested="NATIVE", materialize_native_calls=38, materialize_python_calls=2, materialize_fallbacks=(("NATIVE_PORT_UNSUPPORTED", "materialize_w1", 2, "d"),)),
@@ -998,15 +1000,15 @@ def test_the_journal_and_the_panel_count_the_w1_stage_like_the_others():
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("materialize_w1").native == 1 and summary.stage("materialize_w1").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, materialize W1 1 | python: materialize W1 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, snapshot check"
+        "native: coverage/clip 2, materialize W1 1 | python: materialize W1 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, snapshot check, density"
     )
     assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, materialize W1 1 | python: materialize W1 1"
     # the panel line is the owner's switch: the stage is part of what it promises, like the others
-    ready = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "available")
-    assert host_backend.native_status_line("NATIVE", ready) == ("Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check", "CHECKMARK")
-    missing = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "unavailable", "available")
-    assert host_backend.native_status_line("NATIVE", missing) == ("Native: coverage/clip, skeleton, embedding, effective alpha, snapshot check; Python: materialize W1", "ERROR")
-    assert host_backend.native_status_line("PYTHON", ready)[0].endswith("native ready: coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check")
+    ready = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "available", density="available")
+    assert host_backend.native_status_line("NATIVE", ready) == ("Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density", "CHECKMARK")
+    missing = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "unavailable", "available", density="available")
+    assert host_backend.native_status_line("NATIVE", missing) == ("Native: coverage/clip, skeleton, embedding, effective alpha, snapshot check, density; Python: materialize W1", "ERROR")
+    assert host_backend.native_status_line("PYTHON", ready)[0].endswith("native ready: coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density")
 
 
 # --------------------------------------------------------------------------
@@ -1038,7 +1040,7 @@ def test_the_snapshot_check_stage_enters_the_kernel_block_and_the_identity_by_de
     monkeypatch.delenv(SNAPSHOT_ENVIRONMENT, raising=False)
     default = host_backend.backend_identity_of("NATIVE")
     word = f"|snapshot_check={kernel_backend.stage_identity('NATIVE')}"
-    assert default.endswith(word), "the default of the product names the executor of the stage"
+    assert word + "|density=" in default, "the default of the product names the executor of the stage"
     with host_backend.entered_backend("NATIVE") as ledger:
         assert (ledger.requested, ledger.snapshot_check_requested) == ("NATIVE", "NATIVE")
         assert kernel_backend.active_snapshot_check_backend() is kernel_backend.KernelBackendV1.NATIVE
@@ -1066,14 +1068,14 @@ def test_the_journal_and_the_panel_count_the_snapshot_check_stage_like_the_other
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("snapshot_check").native == 1 and summary.stage("snapshot_check").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, snapshot check 1 | python: snapshot check 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, materialize W1"
+        "native: coverage/clip 2, snapshot check 1 | python: snapshot check 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, materialize W1, density"
     )
     assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, snapshot check 1 | python: snapshot check 1"
     record = BackendRecordV1("NATIVE", 3, 0, snapshot_check_requested="NATIVE", snapshot_check_native_calls=2).as_record()
     assert record["snapshot_check_ran"] == "native" and record["snapshot_check_native_calls"] == 2 and record["snapshot_check_outcomes"] == []
     merged = BackendRecordV1("NATIVE", 3, 0, snapshot_check_requested="NATIVE", snapshot_check_native_calls=2).merged(BackendRecordV1("NATIVE", 0, 0, snapshot_check_requested="NATIVE", snapshot_check_python_calls=1))
     assert (merged.snapshot_check_native_calls, merged.snapshot_check_python_calls, merged.snapshot_check_ran) == (2, 1, "mixed")
-    ready = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "available")
-    assert host_backend.native_status_line("NATIVE", ready) == ("Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check", "CHECKMARK")
-    missing = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "unavailable")
-    assert host_backend.native_status_line("NATIVE", missing) == ("Native: coverage/clip, skeleton, embedding, effective alpha, materialize W1; Python: snapshot check", "ERROR")
+    ready = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "available", density="available")
+    assert host_backend.native_status_line("NATIVE", ready) == ("Native (Rust): coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density", "CHECKMARK")
+    missing = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "unavailable", density="available")
+    assert host_backend.native_status_line("NATIVE", missing) == ("Native: coverage/clip, skeleton, embedding, effective alpha, materialize W1, density; Python: snapshot check", "ERROR")

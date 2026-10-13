@@ -1,4 +1,4 @@
-"""Явный Density-кандидат переживает очередь, кэши и смену среды без cutover."""
+"""Density следует главному переключателю и сохраняет выбор в очереди, кэшах и заимствованных журналах."""
 
 import dataclasses
 import builtins
@@ -68,13 +68,44 @@ def test_frozen_choice_survives_environment_change_and_pickle(monkeypatch, cls, 
     assert inspect.signature(cls).parameters['density_backend'].kind is inspect.Parameter.KEYWORD_ONLY
 
 
-def test_candidate_default_and_six_public_stages_are_preserved():
-    assert len(host.STAGES) == 6
-    assert 'density' not in {name for name, _ in host.STAGES}
+def test_density_is_the_seventh_public_stage_with_six_positional_arguments():
+    assert host.STAGES[-1] == ('density', 'density')
+    assert len(host.STAGES) == 7
+    assert host.stage_orders().as_arguments() == ('NATIVE',) * 3 + ('PYTHON',) * 3
+    assert host.stage_orders().as_keywords() == {'density_backend': 'NATIVE'}
     with host.entered_backend('NATIVE') as ledger:
-        assert backend.active_density_backend() is backend.KernelBackendV1.PYTHON
-        assert ledger.density_requested == 'PYTHON'
-    assert host.resolve_density_backend('PYTHON', 'NATIVE') == 'PYTHON'
+        assert backend.active_density_backend() is backend.KernelBackendV1.NATIVE
+        assert ledger.density_requested == 'NATIVE'
+
+
+@pytest.mark.parametrize('master,explicit,ambient,wanted', [
+    ('NATIVE', None, None, 'NATIVE'), ('PYTHON', None, 'NATIVE', 'PYTHON'),
+    ('NATIVE', None, 'PYTHON', 'PYTHON'), ('NATIVE', 'NATIVE', 'PYTHON', 'NATIVE'),
+    ('NATIVE', 'PYTHON', 'NATIVE', 'PYTHON'), ('PYTHON', 'NATIVE', 'PYTHON', 'NATIVE'),
+    ('NATIVE', 'NATIVE', 'INVALID', 'NATIVE'), ('PYTHON', None, 'INVALID', 'PYTHON'),
+])
+def test_density_uses_the_public_master_environment_and_explicit_order_law(monkeypatch, master, explicit, ambient, wanted):
+    if ambient is None:
+        monkeypatch.delenv('CFTUV_DENSITY_BACKEND', raising=False)
+    else:
+        monkeypatch.setenv('CFTUV_DENSITY_BACKEND', ambient)
+    assert host.stage_orders(master, density_backend=explicit).density == wanted
+    assert host.resolve_density_backend(master, explicit) == wanted
+
+
+def test_mixed_python_master_can_borrow_the_explicit_native_density_ledger(monkeypatch):
+    require_native()
+    with host.entered_backend('PYTHON', density_backend='NATIVE') as ledger:
+        assert ledger.requested == 'PYTHON' and ledger.density_requested == 'NATIVE'
+        assert backend.active_density_backend() is backend.KernelBackendV1.NATIVE
+        prepared, record = host.prepared_under_backend(
+            backend.active_density_backend, 'PYTHON', density_backend='NATIVE', borrowed_ledger=ledger)
+        assert prepared is backend.KernelBackendV1.NATIVE and record is None
+        with pytest.raises(ValueError, match='BACKEND_BORROW_SCOPE_MISMATCH'):
+            host.prepared_under_backend(lambda: None, 'PYTHON', borrowed_ledger=ledger)
+    monkeypatch.setenv('CFTUV_DENSITY_BACKEND', 'NATIVE')
+    with host.entered_backend('PYTHON') as ledger:
+        assert ledger is None and backend.active_density_backend() is backend.KernelBackendV1.PYTHON
 
 
 def test_preparation_identity_validates_before_the_optional_kernel_import(monkeypatch):
@@ -92,7 +123,7 @@ def test_preparation_identity_validates_before_the_optional_kernel_import(monkey
 @pytest.mark.parametrize('skeleton', ['PYTHON', 'NATIVE'])
 def test_preparation_partition_uses_the_same_native_build_identity(skeleton):
     build = require_native()
-    old = host.skeleton_identity_of(skeleton)
+    old = host.skeleton_identity_of(skeleton, density_backend='PYTHON')
     assert host.skeleton_identity_of(skeleton, density_backend='PYTHON') == old
     assert host.skeleton_identity_of(skeleton, density_backend='python') == old
     with pytest.raises(ValueError):
@@ -101,6 +132,7 @@ def test_preparation_partition_uses_the_same_native_build_identity(skeleton):
         host.skeleton_identity_of(skeleton, density_backend='unknown')
     native = host.skeleton_identity_of(skeleton, density_backend='NATIVE')
     assert native == old + '|density=NATIVE:' + build
+    assert host.skeleton_identity_of(skeleton) == native
 
 
 def test_direct_preparation_preserves_explicit_borrowed_density(monkeypatch):
@@ -158,3 +190,29 @@ def test_real_product_switch_partitions_preparation_and_returns_to_warm_python(m
     assert all(r.placement == production.PLACEMENT_CACHED for r in warm.results)
     assert warm.density_backend == 'PYTHON'
     assert [result_projection(r) for r in warm.results] == [result_projection(r) for r in first.results]
+
+
+@pytest.mark.parametrize('workers', [0, 2], ids=['parent', 'real-pool'])
+def test_real_default_density_runs_natively_and_warm_cache_preserves_the_reference(monkeypatch, workers):
+    require_native()
+    from cftuv import envelope_queue_pool
+    monkeypatch.setattr(envelope_queue_pool, 'COVERAGE_POOL_MIN_BYTES', 0)
+    for name in host.STAGE_ENVIRONMENT.values():
+        monkeypatch.delenv(name, raising=False)
+    bundle = quad_row_bundle(5)
+    native, controller = _production(bundle, workers=workers, density=2)
+    assert native.kernel_backend == native.density_backend == 'NATIVE'
+    assert all(r.backend_record.density_requested == 'NATIVE' for r in native.results)
+    assert sum(r.backend_record.density_native_calls for r in native.results) > 0
+    assert sum(r.backend_record.density_python_calls for r in native.results) == 0
+    assert all(not r.backend_record.density_outcomes for r in native.results)
+    builds = controller.build_counts['CONVEYOR_PREPARATION']
+    warm, _ = _production(bundle, controller, workers=workers, density=2)
+    assert controller.build_counts['CONVEYOR_PREPARATION'] == builds
+    assert all(r.placement == production.PLACEMENT_CACHED for r in warm.results)
+    reference, _ = _production(bundle, workers=workers, density=2, kernel_backend='PYTHON')
+    assert reference.density_backend == 'PYTHON'
+    assert all(r.backend_record is None for r in reference.results)
+    expected = [result_projection(r) for r in reference.results]
+    assert [result_projection(r) for r in native.results] == [result_projection(r) for r in warm.results] == expected
+    assert host.backend_identity_of(native.kernel_backend, density_backend=native.density_backend) != host.backend_identity_of(reference.kernel_backend, density_backend=reference.density_backend)

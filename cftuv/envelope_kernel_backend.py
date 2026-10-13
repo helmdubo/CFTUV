@@ -86,6 +86,7 @@ STAGES = (
     ("effective_alpha", "effective alpha"),
     ("materialize_w1", "materialize W1"),
     ("snapshot_check", "snapshot check"),
+    ("density", "density"),
 )
 #: Какой признак `NativeStatusV1` говорит, что стадия готова нативно.
 _STATUS_FLAGS = {
@@ -95,16 +96,13 @@ _STATUS_FLAGS = {
     "effective_alpha": "effective_alpha_available",
     "materialize_w1": "materialize_w1_available",
     "snapshot_check": "snapshot_check_available",
+    "density": "density_available",
 }
 #: Переменная среды, которой A/B и тесты заказывают порядок ОДНОЙ стадии мимо главного переключателя (`PYTHON` | `NATIVE`; крюк инструментов, не настройка продукта): читается только без явного порядка
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
-STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND"}
+STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND", "density": "CFTUV_DENSITY_BACKEND"}
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
-#: Кандидат density не входит в публичные стадии до полевой приёмки.
-_DENSITY_ENVIRONMENT = "CFTUV_DENSITY_BACKEND"
-_DENSITY_STAGE = ("density", "density candidate")
-
 _LAST_BACKEND = [DEFAULT_KERNEL_BACKEND]
 
 
@@ -127,11 +125,17 @@ class StageOrdersV1:
     effective_alpha: str
     materialize_w1: str
     snapshot_check: str
+    density: str
 
     def as_arguments(self) -> tuple:
         """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend)` для `cftuv_envelope.backend.use_backend`."""
 
         return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha, self.materialize_w1, self.snapshot_check)
+
+    def as_keywords(self) -> dict:
+        """Density передаётся только именем: шесть прежних позиционных аргументов ядра сохраняются."""
+
+        return {"density_backend": self.density}
 
 
 def environment_order(stage: str, master: str) -> str:
@@ -150,6 +154,8 @@ def stage_orders(
     effective_alpha_backend=None,
     materialize_backend=None,
     snapshot_check_backend=None,
+    *,
+    density_backend=None,
 ) -> StageOrdersV1:
     """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
@@ -165,22 +171,14 @@ def stage_orders(
         environment_order("effective_alpha", master) if effective_alpha_backend is None else normalize_kernel_backend(effective_alpha_backend),
         environment_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
         environment_order("snapshot_check", master) if snapshot_check_backend is None else normalize_kernel_backend(snapshot_check_backend),
+        environment_order("density", master) if density_backend is None else normalize_kernel_backend(density_backend),
     )
 
 
-def _density_order(master, explicit=None) -> str:
-    """Кандидат включается явно; главный PYTHON всегда оставляет эталон."""
-
-    if normalize_kernel_backend(master) == KERNEL_BACKEND_PYTHON:
-        return KERNEL_BACKEND_PYTHON
-    choice = os.environ.get(_DENSITY_ENVIRONMENT, "").strip() if explicit is None else explicit
-    return normalize_kernel_backend(choice) if choice else KERNEL_BACKEND_PYTHON
-
-
 def resolve_density_backend(master, explicit=None) -> str:
-    """Зафиксировать выбор кандидата до передачи задачи и ключей кэша."""
+    """Зафиксировать порядок Density до передачи задачи и ключей кэша."""
 
-    return _density_order(master, explicit)
+    return stage_orders(master, density_backend=explicit).density
 
 
 def settle_stage_orders(record, master_field: str = "backend") -> None:
@@ -189,7 +187,8 @@ def settle_stage_orders(record, master_field: str = "backend") -> None:
     Для замороженных записей прогона, задачи пула и живой ширины: зовётся из их `__post_init__`, поле главного переключателя называется `master_field`.
     """
 
-    orders = stage_orders(getattr(record, master_field), record.skeleton_backend, record.embedding_backend)
+    orders = stage_orders(getattr(record, master_field), record.skeleton_backend, record.embedding_backend,
+                          density_backend=getattr(record, "density_backend", None))
     object.__setattr__(record, master_field, orders.coverage_clip)
     object.__setattr__(record, "skeleton_backend", orders.skeleton)
     object.__setattr__(record, "embedding_backend", orders.snap_embedding)
@@ -254,7 +253,7 @@ def backend_identity_of(
     Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend, density_backend=density_backend)
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
@@ -263,19 +262,18 @@ def backend_identity_of(
         base = base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
         base = base if orders.materialize_w1 == KERNEL_BACKEND_PYTHON else f"{base}|materialize_w1={orders.materialize_w1}"
         base = base if orders.snapshot_check == KERNEL_BACKEND_PYTHON else f"{base}|snapshot_check={orders.snapshot_check}"
-        density = _density_order(kernel_backend, density_backend)
-        return base if density == KERNEL_BACKEND_PYTHON else f"{base}|density={density}"
-    return backend_identity(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend))
+        return base if orders.density == KERNEL_BACKEND_PYTHON else f"{base}|density={orders.density}"
+    return backend_identity(*orders.as_arguments(), **orders.as_keywords())
 
 
-def skeleton_identity_of(skeleton_backend=None, *, density_backend=KERNEL_BACKEND_PYTHON) -> str:
+def skeleton_identity_of(skeleton_backend=None, *, density_backend=None) -> str:
     """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ подготовки сессии несёт скелет и явно выбранный Density; от покрытия и резки подготовка не зависит.
 
     `None` — порядок скелета по умолчанию (как главный переключатель по умолчанию).
     """
 
-    skeleton = stage_orders(DEFAULT_KERNEL_BACKEND, skeleton_backend).skeleton
-    density_backend = normalize_kernel_backend(density_backend)
+    orders = stage_orders(DEFAULT_KERNEL_BACKEND, skeleton_backend, density_backend=density_backend)
+    skeleton, density_backend = orders.skeleton, orders.density
     try:
         from cftuv_envelope.backend import stage_identity
     except ImportError:
@@ -301,7 +299,7 @@ def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=Non
     скелет в этой памяти не участвует (ответ скелета побитово один), поэтому его смена память резки не трогает.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     from cftuv_envelope.backend import use_backend
 
     if _LAST_BACKEND[0] != orders.coverage_clip:
@@ -309,7 +307,7 @@ def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=Non
 
         MEMO.clear()
         _LAST_BACKEND[0] = orders.coverage_clip
-    with use_backend(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend)) as ledger:
+    with use_backend(*orders.as_arguments(), **orders.as_keywords()) as ledger:
         yield ledger
 
 
@@ -337,8 +335,8 @@ def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleto
 
     from cftuv_envelope.backend import NativeDomainRefused, use_backend
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
-    with use_backend(*orders.as_arguments(), density_backend=_density_order(kernel_backend, density_backend), borrowed_ledger=borrowed_ledger) as ledger:
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
+    with use_backend(*orders.as_arguments(), **orders.as_keywords(), borrowed_ledger=borrowed_ledger) as ledger:
         try:
             prepared = build()
         except NativeDomainRefused as exc:
@@ -452,7 +450,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
 
     from .envelope_production_export import PLACEMENT_CACHED
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     recorded = next((item.backend_record for item in results if getattr(item, "backend_record", None) is not None), None)
     if recorded is not None:
         orders = StageOrdersV1(
@@ -462,11 +460,10 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             recorded.effective_alpha_requested,
             recorded.materialize_requested,
             recorded.snapshot_check_requested,
+            recorded.density_requested,
         )
-    density = _density_order(kernel_backend, density_backend) if recorded is None else getattr(recorded, "density_requested", KERNEL_BACKEND_PYTHON)
-    summary_stages = (*STAGES, _DENSITY_STAGE) if density == KERNEL_BACKEND_NATIVE else STAGES
-    counts = {name: {"native": 0, "python": 0} for name, _label in summary_stages}
-    patches = {name: {} for name, _label in summary_stages}
+    counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
+    patches = {name: {} for name, _label in STAGES}
     cached = memo_hits = 0
     for item in results:
         record = getattr(item, "backend_record", None)
@@ -484,7 +481,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             "snapshot_check": (record.snapshot_check_ran, record.snapshot_check_outcomes),
             "density": (getattr(record, "density_ran", ""), getattr(record, "density_outcomes", ())) if fresh else ("", ()),
         }
-        for name, _label in summary_stages:
+        for name, _label in STAGES:
             ran, outcomes = views[name]
             ran = ran or ("python" if outcomes else "")  # домен, которому стадию отказали по имени, нативно её не считал
             if not ran:
@@ -493,8 +490,8 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             for outcome in outcomes:
                 patches[name].setdefault(outcome, set()).add(int(item.patch_id))
     tallies = tuple(
-        StageTallyV1(name, density if name == "density" else getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]))
-        for name, _label in summary_stages
+        StageTallyV1(name, getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]))
+        for name, _label in STAGES
     )
     return BackendSummaryV1(tallies, cached, memo_hits if orders.snap_embedding == KERNEL_BACKEND_NATIVE else 0)
 
@@ -512,7 +509,7 @@ def _outcomes_text(outcomes) -> str:
 def _tally_segments(summary: BackendSummaryV1, *, reasons: bool) -> list:
     """Части строки по порядку: `native: ...`, `python: ...`, `ordered python: ...`; стадия без откатов в `python:` не попадает."""
 
-    labels = dict((*STAGES, _DENSITY_STAGE))
+    labels = dict(STAGES)
     segments = []
     ordered = summary.native_stages
     if ordered:
