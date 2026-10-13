@@ -11,7 +11,8 @@
 //! * every discovery asks the candidate laws over the view of the overlay, in the oracle's order (the leaves by `repr`, the emitters by `repr` of their junction, a contact found
 //!   only when its time is exactly `now`), and so pays what the oracle pays.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
@@ -243,7 +244,7 @@ pub fn initial_interior_contacts(snapshot: &Snapshot) -> SkelResult<(Vec<SymSpli
 
 /// `_required_keys(contacts)`: the keys of the edges whose ends a compilation of the contacts must hydrate (the family of every contact and the two edges of an existing emitter).
 fn required_keys(contacts: &[SymSplitContact]) -> HashSet<EdgeKey> {
-    let mut required: HashSet<EdgeKey> = HashSet::new();
+    let mut required: HashSet<EdgeKey> = HashSet::default();
     for contact in contacts {
         required.extend(contact.key.occurrence().get(0).and_then(edge_key_of));
         if !contact.key.emitter.is_existing() {

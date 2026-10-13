@@ -5,7 +5,7 @@
 //! 3.11's sequence of questions, each comparison a paid sign), then die as one junction and are born as two. [`plan_mixed_generations`] grows the causal chain of generations
 //! until the overlay has no contact left: every round REPLAYS the chain from the initial overlay (the oracle's cost is the cost of the replay), then discovers.
 
-use std::collections::{HashMap, HashSet};
+use crate::fxcoll::{HashMap, HashSet};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::exact::ExactCtx;
@@ -235,7 +235,7 @@ pub fn normalize_junction_generation(builder: &Builder, overlay: &Overlay, conta
     }
     let ordered = identity_sorted(&unique.values().cloned().collect::<Vec<_>>());
     let mut deltas: Vec<Delta> = Vec::new();
-    let mut occupied: HashSet<JRef> = HashSet::new();
+    let mut occupied: HashSet<JRef> = HashSet::default();
     for component in components(overlay, &ordered) {
         let stale = component.iter().any(|item| match item.kind {
             ContactKind::Edge => !item.edge.as_ref().is_some_and(|found| valid_edge_contact(overlay, found)),

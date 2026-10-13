@@ -13,7 +13,8 @@
 //! Plans carry [`Val`]s for keys: births, occurrences and points are compared by value, hashed and printed as the oracle's tuples are. [`PlanVal`] turns a plan into the
 //! `repr` the oracle's dataclass would print, which the seams compare byte for byte.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
@@ -287,7 +288,7 @@ fn sorted_unique<T: Ord>(items: impl IntoIterator<Item = T>) -> Vec<T> {
 /// `_component_fields(component)`.
 pub fn component_fields(component: &[&Incident]) -> ComponentFields {
     let point_keys: Vec<Val> = {
-        let mut seen: HashSet<Val> = HashSet::new();
+        let mut seen: HashSet<Val> = HashSet::default();
         let unique: Vec<Val> = component.iter().map(|incident| incident.point_key.clone()).filter(|key| seen.insert(key.clone())).collect();
         sorted_by_repr(&unique, Val::clone)
     };
@@ -358,7 +359,7 @@ pub fn edge_contact_plans<'a>(edges: &[&'a Incident], splits: &[&'a Incident], v
         grouped.push(&incident.point_key, incident);
     }
     let mut contacts = Vec::new();
-    let mut absorbed: HashSet<crate::snapshot::EventIdentity> = HashSet::new();
+    let mut absorbed: HashSet<crate::snapshot::EventIdentity> = HashSet::default();
     let mut valid = true;
     for (point_key, group) in grouped.by_repr() {
         let local_edges = sorted_incidents(group);
@@ -707,7 +708,7 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
         }
     }
     let incoming: HashSet<&Val> = successor.values().copied().collect();
-    let mut seen: HashSet<&Val> = HashSet::new();
+    let mut seen: HashSet<&Val> = HashSet::default();
     let mut components: Vec<Vec<Val>> = Vec::new();
     let mut roots: Vec<&Val> = key_order.iter().copied().filter(|key| !incoming.contains(key)).collect();
     roots.sort_by(|left, right| repr_cmp(left, right));

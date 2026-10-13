@@ -18,7 +18,8 @@
 //! the `repr`: the leaves referenced by the commit are checked in that order, so that the REASON of a refusal of a packet with two different faults is fixed (the oracle's
 //! is not). A packet with ONE fault names it either way.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;

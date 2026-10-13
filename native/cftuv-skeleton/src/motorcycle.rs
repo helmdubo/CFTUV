@@ -10,7 +10,7 @@
 //! Everything is exact: no float anywhere. The grid is a filter (`grid.rs`); a box or a margin beyond the machine range of the grid is a named
 //! `Unsupported`, never a wrap.
 
-use std::collections::HashMap;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::QValue;
@@ -515,7 +515,7 @@ fn apply_trace_crash(ctx: &mut ExactCtx<'_>, graph: &mut MotorcycleGraph, entry:
 
 /// `_drain_crashes`: the queue only shrinks; a cancelled candidate (the neighbour crashed before the meeting) is dropped.
 fn drain_crashes(ctx: &mut ExactCtx<'_>, graph: &mut MotorcycleGraph, heap: &mut Vec<CrashEntry>, universe: &[UBig]) -> SkelResult<()> {
-    let mut settled: HashMap<i64, TimeRef> = HashMap::new();
+    let mut settled: HashMap<i64, TimeRef> = HashMap::default();
     loop {
         let popped = heappop(heap, &mut crash_less(ctx))?;
         let Some(entry) = popped else {
@@ -564,7 +564,7 @@ fn resolve_trace_crashes(ctx: &mut ExactCtx<'_>, graph: &mut MotorcycleGraph, un
     boxes.sort_by_key(|(ident, _)| *ident);
     let position: HashMap<i64, usize> = live.iter().enumerate().map(|(slot, trace)| (trace.ident, slot)).collect();
     let find = |ident: i64| &live[position[&ident]];
-    let mut seen: std::collections::HashSet<(i64, i64)> = std::collections::HashSet::new();
+    let mut seen: HashSet<(i64, i64)> = HashSet::default();
     for (ident, found) in &boxes {
         for other in index.lookup(&graph.grid.box_cells_int(found.0, found.1, found.2, found.3)) {
             if other <= *ident || !seen.insert((*ident, other)) {

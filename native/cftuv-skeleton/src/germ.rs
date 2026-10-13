@@ -9,7 +9,8 @@
 //! The scope of a ledger is the whole packet: 35 of the 63 corpus figures carry more than one component per level, and a ledger per unit would bring back the double
 //! materialisation it exists to prevent.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
@@ -30,7 +31,7 @@ fn end_of(occurrence: &Val, ray: (i64, i64)) -> Val {
 }
 
 fn unique(ends: Vec<Val>) -> Vec<Val> {
-    let mut seen: HashSet<Val> = HashSet::new();
+    let mut seen: HashSet<Val> = HashSet::default();
     ends.into_iter().filter(|end| seen.insert(end.clone())).collect()
 }
 

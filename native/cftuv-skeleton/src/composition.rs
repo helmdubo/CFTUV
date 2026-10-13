@@ -6,7 +6,8 @@
 //! of the chain); then the two births of the cut are replaced by two COMPOSED births (`head.prev` to the first piece, the second piece to `tail.next`) and the contact
 //! gives up its own. Any other overlap is an ambiguity, answered `false`.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 
 use cftuv_canon::fxhash::FxBuild;
 

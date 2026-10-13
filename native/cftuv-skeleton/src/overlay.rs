@@ -13,7 +13,8 @@
 //! iteration over `spans` that decides something sorts by `repr` or asks `any`. The port builds them in the order the occurrences are met.
 
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -361,7 +362,7 @@ fn hydrate_f0(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexS
 }
 
 fn hydrate_f0_body(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexSnapshot], plans: &[ComponentPlan], time: &EventTime) -> SkelResult<Option<Vec<VertexSnapshot>>> {
-    let mut required: HashSet<Vec<i64>> = HashSet::new();
+    let mut required: HashSet<Vec<i64>> = HashSet::default();
     for vertex in vertices {
         for occurrence in [&vertex.prev_occurrence, &vertex.next_occurrence].into_iter().flatten() {
             required.extend(occurrence.get(0).and_then(edge_key_of));
@@ -400,7 +401,7 @@ fn hydrate_f0_body(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[Ve
 
 /// `_occurrences(snapshot, plans)`: every occurrence the packet names, each once (the oracle's is a set; the order of the port is the order they are met in).
 fn occurrences_of(vertices: &[VertexSnapshot], plans: &[ComponentPlan]) -> Vec<Val> {
-    let mut seen: HashSet<Val> = HashSet::new();
+    let mut seen: HashSet<Val> = HashSet::default();
     let mut found: Vec<Val> = Vec::new();
     let mut add = |occurrence: &Val| {
         if seen.insert(occurrence.clone()) {

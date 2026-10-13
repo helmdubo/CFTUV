@@ -8,7 +8,7 @@
 //!   result; a vertex row is ordered by the text of its row, which is decided by the junction (the first item of a row, whose `repr` is never a prefix of another's), so the text of
 //!   the provenance, the one item the oracle prints in hash order, never decides.
 
-use std::collections::{HashMap, HashSet};
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
@@ -177,7 +177,7 @@ fn rewires_of(delta: &Delta) -> SkelResult<Vec<(Port, Port, JRef)>> {
 /// `apply_component_deltas(overlay, deltas, collision_reason=...)`: disjoint normalised components as one simultaneous generation; the new overlay, or the named reason.
 pub fn apply_component_deltas(overlay: &Overlay, deltas: &[Delta], collision_reason: &'static str) -> SkelResult<(Option<Overlay>, Option<&'static str>)> {
     let mut result = overlay.clone();
-    let mut dead: HashSet<&JRef> = HashSet::new();
+    let mut dead: HashSet<&JRef> = HashSet::default();
     let mut dead_count = 0usize;
     for delta in deltas {
         dead.extend(delta.dead_refs.iter());

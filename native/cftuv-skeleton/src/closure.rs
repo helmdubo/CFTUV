@@ -6,7 +6,7 @@
 //! projections on the span (CPython 3.11's sequence of questions, each comparison a paid sign), then by the `repr` of their keys. A packet whose incidents or families
 //! cannot be told apart is answered with a NAMED reason, never an arbitrary choice.
 
-use std::collections::HashMap;
+use crate::fxcoll::{HashMap, HashSet};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::exact::{self, ExactCtx};
@@ -143,7 +143,7 @@ pub fn family_contacts(ctx: &mut ExactCtx<'_>, cut: &SplitCutPlan, incident_by_e
         contacts.push(SplitContact { key, projection });
     }
     let ordered = sort_contacts(ctx, &contacts)?;
-    let distinct: std::collections::HashSet<&Val> = ordered.iter().map(|contact| &contact.key).collect();
+    let distinct: HashSet<&Val> = ordered.iter().map(|contact| &contact.key).collect();
     if distinct.len() != ordered.len() {
         return Ok(None);
     }
@@ -267,7 +267,7 @@ pub fn plan_split_materialization(ctx: &mut ExactCtx<'_>, snapshot: &Snapshot) -
         keyed.sort_by(|left, right| repr_cmp(&left.family, &right.family));
         keyed
     };
-    let distinct: std::collections::HashSet<&Val> = ordered.iter().map(|family| &family.family).collect();
+    let distinct: HashSet<&Val> = ordered.iter().map(|family| &family.family).collect();
     let receipt = signature(&ordered);
     if distinct.len() != ordered.len() {
         return Ok(unresolved(plans, ordered, receipt, "SPLIT_FAMILY_OWNER_AMBIGUOUS"));

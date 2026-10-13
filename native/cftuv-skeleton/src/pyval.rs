@@ -390,7 +390,7 @@ impl Val {
             return Val::new(Kind::Set(items, frozen));
         }
         let mut unique: Vec<Val> = Vec::with_capacity(items.len());
-        let mut seen: std::collections::HashSet<Val> = std::collections::HashSet::new();
+        let mut seen: std::collections::HashSet<Val, cftuv_canon::fxhash::FxBuild> = std::collections::HashSet::default();
         for item in items {
             if seen.insert(item.clone()) {
                 unique.push(item);

@@ -42,6 +42,7 @@ pub mod composition;
 pub mod contacts;
 pub mod coordinator;
 pub mod error;
+mod fxcoll;
 pub mod generations;
 pub mod germ;
 pub mod grid;
