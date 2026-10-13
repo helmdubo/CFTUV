@@ -1062,7 +1062,10 @@ MODULE_LINE_ALLOWANCE = {
     # 2882 -> 2884. +2 за закон масштаба решётки повторной попытки после отказа лотереи привязки (SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1): строка
     # передачи закона ядру (только если он заказан) и строка его чтения из экспорта топологии. Повтор, множество отказов, ключи и запись
     # исхода живут в `envelope_snap_retry.py`. Число поднято осознанно, до фактического.
-    "cftuv/envelope_request_export.py": 2884,
+    # 2884 -> 2410. -474: EXPORT_SLICE_S0, ПЕРЕНОС без изменения поведения: цикл угловых отношений (`_build_angular_relations`, замыкания `owner_support` и
+    # `direction_payload`, 399 строк) ушёл в `envelope_angular_relations.py` (шов `angular`), в большом файле остался псевдоним прежнего имени и вызов. Число опущено до
+    # фактического: храповик затягивается там, где освободилось место. Блокер HOST_REQUEST_EXPORT_COMPLEXITY по-прежнему открыт.
+    "cftuv/envelope_request_export.py": 2410,
     # 2913 -> 3055. +142 за движок QUEUE в панели: EnumProperty движка,
     # строка тайминга, чекбокс слоёв очереди, update-callback ползунка alpha
     # (лёгкий путь без единой компиляции) и запоминание тёплой сессии. Панель
@@ -1124,7 +1127,9 @@ MODULE_LINE_ALLOWANCE = {
     # 1753 -> 1750. −3 при ДОБАВЛЕННЫХ проверках плана станций цепей и граней соседа шва: сами проверки живут в
     # `validation_chain_station.py` (два вызова и одна строка импорта здесь), а место оплачено сведением семистрочного импорта
     # `validation_issues` в одну строку. Число опущено до фактического: храповик затягивается там, где освободилось место.
-    "kernel/src/cftuv_envelope/validation.py": 1750,
+    # 1750 -> 1265. -485: EXPORT_SLICE_S0, ПЕРЕНОС без изменения поведения: `validate_analysis_snapshot` с интервальными предикатами и разбором пар маршрутов стыка ушла в
+    # `validation_snapshot.py` (шов `snapshot_check`), три помощника списка - в `validation_issues.py`. Число опущено до фактического.
+    "kernel/src/cftuv_envelope/validation.py": 1265,
     # 1987 -> 2010. +23 за выбор бэкенда ядра (KERNEL-BACKEND): бэкенд едет в прогон, задачу пула и ключи кэшей результата
     # (`_result_key`, `_slot`, `_binding`, ключ записи сборки, ключ содержимого), запись бэкенда лежит в результате домена, а
     # строка журнала и сама настройка живут в `envelope_kernel_backend.py` (здесь — декоратор `produce_domain`, пять мест проводки
@@ -1164,7 +1169,10 @@ FUNCTION_LINE_ALLOWANCE = {
     "kernel/src/cftuv_envelope/debug_scene.py": 595,
     "tools/validate_envelope_ec0.py": 594,
     "kernel/src/cftuv_envelope/reference/compile.py": 538,
-    "cftuv/envelope_request_export.py": 509,
+    # 509 -> 504. -5: цикл угловых отношений ушёл в `envelope_angular_relations.py` (EXPORT_SLICE_S0); самой длинной стала сборка снапшота.
+    "cftuv/envelope_request_export.py": 504,
+    # ПЕРЕНОС той же функции без изменения (EXPORT_SLICE_S0): 400 строк, как были в большом файле; долг не вырос, а переехал и разбиению подлежит там же.
+    "cftuv/envelope_angular_relations.py": 400,
     # 480 -> 487. +7 за развязку эталона закона сохранения от `RawCoverage`:
     # параметр `conservation` со значением по умолчанию, его строка разрешения
     # и четыре строки докстроки о том, что от эталона требуется. Логика
@@ -1176,7 +1184,10 @@ FUNCTION_LINE_ALLOWANCE = {
     # 426 -> 395: блок сверки метрики с источником ушёл в `validation_metric`.
     # 395 -> 401. +6 в `validate_analysis_snapshot`: параметр допуска запроса в сигнатуре (+4) и в сверке метрики с
     # источником (+2), без склейки строк.
-    "kernel/src/cftuv_envelope/validation.py": 401,
+    # 401 -> 339. -62: `validate_analysis_snapshot` ушла в `validation_snapshot.py` (EXPORT_SLICE_S0); самой длинной стала проверка прямой цепочки.
+    "kernel/src/cftuv_envelope/validation.py": 339,
+    # ПЕРЕНОС той же функции без изменения (EXPORT_SLICE_S0): 400 строк, как были; долг переехал вместе с функцией, а не вырос.
+    "kernel/src/cftuv_envelope/validation_snapshot.py": 400,
     # +5: снятие дельты счётчика локализации точки и два поля в union. Плата за
     # то, чтобы следующий полевой прогон отвечал на вопрос, а не ставил его
     # заново; `exact_union` всё равно подлежит разбиению на этапы конвейера.
