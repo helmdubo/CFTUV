@@ -99,8 +99,29 @@ class Recorder:
         return {"case": self.case, "tasks": self.count, "raw_bytes": self.raw_bytes, "file_bytes": self.path.stat().st_size}
 
 
+#: Стадия Density до публикации была Python-стадией: запись, сделанная раньше, не знает поля `density_backend`, и её исторический порядок - `PYTHON`.
+#: Продуктовое умолчание новых задач (`DEFAULT_KERNEL_BACKEND`) здесь НЕ участвует и не меняется.
+HISTORICAL_DENSITY_BACKEND = "PYTHON"
+
+
+def restore_historical_density_backend(task):
+    """Ограниченный адаптер чтения: задача архива без слота `density_backend` (слот-датакласс, `__setstate__` оставил его пустым) получает явное `PYTHON`.
+
+    Только отсутствие именно этого поля; запись, у которой оно есть (в том числе явное `NATIVE`), возвращается как есть. Любое другое недостающее поле адаптер не трогает:
+    `dataclasses.replace` падает на нём громко (`AttributeError`), молчаливого умолчания нет. Бинарные blobs архива не переписываются: поправлен только прочитанный объект.
+    """
+
+    if not any(field.name == "density_backend" for field in dataclasses.fields(task)):
+        return task
+    try:
+        object.__getattribute__(task, "density_backend")
+    except AttributeError:
+        object.__setattr__(task, "density_backend", HISTORICAL_DENSITY_BACKEND)
+    return task
+
+
 def read_tasks(path):
-    """`(случай, задача)` файла в порядке записи."""
+    """`(случай, задача)` файла в порядке записи (задачи архива до публикации Density получают `PYTHON`: `restore_historical_density_backend`)."""
 
     with lzma.open(path, "rb") as handle:
         while True:
@@ -108,7 +129,7 @@ def read_tasks(path):
                 case, blob = pickle.load(handle)
             except EOFError:
                 return
-            yield case, pickle.loads(blob)
+            yield case, restore_historical_density_backend(pickle.loads(blob))
 
 
 def corpus_files(directory, name: str = "") -> list:
