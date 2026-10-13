@@ -773,6 +773,10 @@ def warm_worker_identities() -> dict:
             from cftuv_envelope.backend import warm_snapshot_check
 
             warm_snapshot_check()  # привязка нативной проверки снапшота (дайджесты функций эталона, таблица классов): разовые десятки мс, не на первом домене
+        if stage_orders(DEFAULT_KERNEL_BACKEND).frame == "NATIVE":
+            from cftuv_envelope.backend import warm_frame
+
+            warm_frame()  # привязка нативного допуска рамки (дайджесты функций контрактов, таблица классов): разовые десятки мс, не на первом домене
         outcome = WORKER_IDENTITY_PREWARMED
     except Exception as exc:  # noqa: BLE001 - прогрев не ломает воркера: именованный исход и строка в stderr
         outcome = WORKER_IDENTITY_PREWARM_UNAVAILABLE
