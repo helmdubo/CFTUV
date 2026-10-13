@@ -53,7 +53,8 @@ def test_embedding_follows_the_master_switch_unless_the_api_orders_it_apart_and_
     assert host.backend_identity_of("PYTHON", "PYTHON", "PYTHON") == "PYTHON"
     assert host.backend_identity_of("PYTHON", "PYTHON") == host.backend_identity_of("PYTHON") == "PYTHON"  # стадия без слова - как главный переключатель
     assert host.backend_identity_of("PYTHON", "PYTHON", "NATIVE").startswith("PYTHON|snap_embedding=NATIVE:")
-    assert host.skeleton_identity_of("PYTHON") == "PYTHON"
+    assert host.skeleton_identity_of("PYTHON", density_backend="PYTHON") == "PYTHON"
+    assert host.skeleton_identity_of("PYTHON") == "PYTHON|density=NATIVE:unavailable"
 
 
 def test_worker_cold_export_preparation_and_materialization_are_recorded_once(monkeypatch):

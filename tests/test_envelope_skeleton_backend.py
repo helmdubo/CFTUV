@@ -91,21 +91,23 @@ def test_the_skeleton_stage_follows_the_master_switch_and_has_no_setting_or_defa
 
 
 def test_the_identity_of_the_stage_and_of_the_execution(monkeypatch):
-    assert host_backend.skeleton_identity_of("PYTHON") == "PYTHON" and host_backend.skeleton_identity_of() == "NATIVE:unavailable"
+    assert host_backend.skeleton_identity_of("PYTHON", density_backend="PYTHON") == "PYTHON"
+    assert host_backend.skeleton_identity_of("PYTHON") == "PYTHON|density=NATIVE:unavailable"
+    assert host_backend.skeleton_identity_of() == "NATIVE:unavailable|density=NATIVE:unavailable"
     # идентичность двух стадий (сертификат вложения, лист эффективной alpha и W1 материализации заказаны явно на PYTHON: они не меняют строку)
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE", embedding_backend="PYTHON", effective_alpha_backend="PYTHON", materialize_backend="PYTHON", snapshot_check_backend="PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON", density_backend="PYTHON") == "NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", embedding_backend="PYTHON", effective_alpha_backend="PYTHON", materialize_backend="PYTHON", snapshot_check_backend="PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|density=NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|density=NATIVE:unavailable"
     # умолчания третьей, четвёртой и пятой стадий - Native (EMBEDDING_NATIVE_DEFAULT_V1, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1, MATERIALIZE_W1_NATIVE_DEFAULT_V1): идентичность умолчания продукта несёт все шесть
     assert host_backend.backend_identity_of("NATIVE") == (
-        "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable"
+        "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable|density=NATIVE:unavailable"
     )
     _fake_native()
-    assert host_backend.skeleton_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}"
+    assert host_backend.skeleton_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("PYTHON", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"PYTHON|skeleton=NATIVE:{BUILD_ID}"
-    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("NATIVE", "NATIVE") == (
-        f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}|materialize_w1=NATIVE:{BUILD_ID}|snapshot_check=NATIVE:{BUILD_ID}"
+        f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}|materialize_w1=NATIVE:{BUILD_ID}|snapshot_check=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
     )
 
 
@@ -131,7 +133,7 @@ def test_a_native_skeleton_press_gives_the_python_answer_computes_the_skeleton_i
     assert all((record.skeleton_native_calls, record.skeleton_python_calls, record.skeleton_outcomes) == (1, 0, ()) for record in records)
     assert all(record.requested == "PYTHON" and (record.native_calls, record.python_calls) == (0, 0) for record in records)
     line = host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")
-    assert line == [f"[CFTUV][Production] BACKEND native: skeleton {ROW} | ordered python: coverage/clip, embedding, effective alpha, materialize W1, snapshot check"]
+    assert line == [f"[CFTUV][Production] BACKEND native: skeleton {ROW} | ordered python: coverage/clip, embedding, effective alpha, materialize W1, snapshot check, density"]
     assert production.production_timing_text(native).endswith(f" | native: skeleton {ROW}")
     assert native.skeleton_backend == "NATIVE" and native.kernel_backend == "PYTHON"
     assert keys_of(controller) == [f"NATIVE:{BUILD_ID}"] * ROW
@@ -162,7 +164,7 @@ def test_both_stages_native_are_named_apart_in_one_line(row):
     native_skeleton(module)
     run, _ = press(row, skeleton="NATIVE", backend="NATIVE")
     line = host_backend.backend_console_lines(run.results, "NATIVE", "NATIVE")[0]
-    assert "BACKEND native: coverage/clip " in line and f", skeleton {ROW}" in line and line.endswith("ordered python: embedding, effective alpha, materialize W1, snapshot check")  # `press` изолирует скелет: вложение заказано на PYTHON
+    assert "BACKEND native: coverage/clip " in line and f", skeleton {ROW}" in line and line.endswith("ordered python: embedding, effective alpha, materialize W1, snapshot check, density")  # `press` изолирует скелет: остальные стадии заказаны на PYTHON
 
 
 def test_a_cold_press_in_the_worker_pool_ships_the_stage_computes_the_skeleton_in_the_worker_block_and_brings_the_record_back(row, pool):
@@ -271,14 +273,16 @@ def test_the_debug_session_preparation_is_keyed_by_the_default_stage_and_a_produ
     controller = EnvelopeDebugSessionController()
 
     _debug_build(row, controller)  # провайдер подготовки отладочной сессии: умолчание стадии (`NATIVE`)
-    assert len(calls) == ROW and keys_of(controller) == [f"NATIVE:{BUILD_ID}"] * ROW
+    assert len(calls) == ROW and keys_of(controller) == [f"NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"] * ROW
 
-    same, _ = press(row, skeleton="NATIVE", backend="NATIVE", controller=controller)  # умолчание: подготовки отладки берутся
-    assert same.counter(production.PRODUCTION_PREPARATION_BUILDS) == 0 and same.counter(production.PRODUCTION_PREPARATION_REUSED) == ROW
+    same, _ = press(row, skeleton="NATIVE", backend="NATIVE", controller=controller)  # помощник изолирует Density на PYTHON: нативная подготовка отладки не читается
+    assert same.counter(production.PRODUCTION_PREPARATION_BUILDS) == ROW and same.counter(production.PRODUCTION_PREPARATION_REUSED) == 0
+    again, _ = press(row, skeleton="NATIVE", backend="NATIVE", controller=controller)
+    assert again.counter(production.PRODUCTION_PREPARATION_BUILDS) == 0 and again.counter(production.PRODUCTION_PREPARATION_REUSED) == ROW
 
     python, _ = press(row, skeleton="PYTHON", controller=controller)  # другая стадия: подготовки отладки не читаются
     assert python.counter(production.PRODUCTION_PREPARATION_BUILDS) == ROW and python.counter(production.PRODUCTION_PREPARATION_REUSED) == 0
-    assert len(calls) == ROW
+    assert len(calls) == 2 * ROW
 
 
 def test_the_content_key_and_the_scan_memo_key_carry_the_stage(row, monkeypatch):
@@ -425,7 +429,7 @@ def test_the_queue_preparation_runs_in_the_block_through_the_session_provider_an
         from cftuv_envelope.wavefront import prepare_conveyor
 
         return controller.get_conveyor_preparation(
-            "rev", domain_id, selected, request_, lambda: prepare_conveyor(snapshot_, request_), skeleton_id=host_backend.skeleton_identity_of("NATIVE")
+            "rev", domain_id, selected, request_, lambda: prepare_conveyor(snapshot_, request_), skeleton_id=host_backend.skeleton_identity_of("NATIVE", density_backend=kernel_backend.active_density_backend().value)
         )
 
     prepared, domain = queue_export.run_queue_domain(

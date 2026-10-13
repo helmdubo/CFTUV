@@ -1,4 +1,4 @@
-"""Кандидат density: явный process hook, без смены публичного умолчания."""
+"""Density — седьмая публичная стадия: общий выбор, идентичности, журнал и именованный Python-откат."""
 import pytest
 from cftuv import envelope_kernel_backend as host
 from cftuv import envelope_production_export as production
@@ -11,28 +11,31 @@ def clean_density_environment(monkeypatch):
     monkeypatch.delenv('CFTUV_DENSITY_BACKEND',raising=False)
 
 
-def test_density_is_python_until_explicitly_ordered_and_master_python_wins(monkeypatch):
-    assert host._density_order('NATIVE')=='PYTHON'
-    assert 'density' not in dict(host.STAGES)
-    assert 'density' not in host._STATUS_FLAGS
+def test_density_follows_the_master_environment_and_explicit_public_order(monkeypatch):
+    assert host.resolve_density_backend('NATIVE')=='NATIVE'
+    assert host.STAGES[-1]==('density','density') and len(host.STAGES)==7
+    assert host._STATUS_FLAGS['density']=='density_available'
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','NATIVE')
-    assert host._density_order('NATIVE')=='NATIVE'
-    assert host._density_order('PYTHON')=='PYTHON'
-    assert host._density_order('PYTHON','NATIVE')=='PYTHON'
-    assert host._density_order('NATIVE','PYTHON')=='PYTHON'
+    assert host.resolve_density_backend('NATIVE')=='NATIVE'
+    assert host.resolve_density_backend('PYTHON')=='PYTHON'
+    assert host.resolve_density_backend('PYTHON','NATIVE')=='NATIVE'
+    assert host.resolve_density_backend('NATIVE','PYTHON')=='PYTHON'
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','RUST')
-    with pytest.raises(ValueError,match='unknown kernel backend'):host._density_order('NATIVE')
-    assert host._density_order('PYTHON')=='PYTHON'
+    with pytest.raises(ValueError,match='unknown kernel backend'):host.resolve_density_backend('NATIVE')
+    assert host.resolve_density_backend('PYTHON')=='PYTHON'
+    assert host.resolve_density_backend('NATIVE','NATIVE')=='NATIVE'
 
 
-def test_candidate_identity_changes_only_when_requested(monkeypatch):
+def test_density_default_and_explicit_python_have_separate_execution_identities(monkeypatch):
     _fake_native()
-    old=host.backend_identity_of('NATIVE')
-    assert '|density=' not in old
+    python_density=host.backend_identity_of('NATIVE',density_backend='PYTHON')
+    default=host.backend_identity_of('NATIVE')
+    assert default==python_density+'|density=NATIVE:'+BUILD_ID
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','NATIVE')
-    assert host.backend_identity_of('NATIVE')==old+'|density=NATIVE:'+BUILD_ID
+    assert host.backend_identity_of('NATIVE')==default
     assert host.backend_identity_of('PYTHON')=='PYTHON'
-    assert host.backend_identity_of('NATIVE',density_backend='PYTHON')==old
+    assert host.backend_identity_of('NATIVE',density_backend='PYTHON')==python_density
+    assert host.backend_identity_of('PYTHON',density_backend='NATIVE')=='PYTHON|density=NATIVE:'+BUILD_ID
 
 
 def test_preparation_keyword_and_borrowed_owner_ledger_are_preserved(monkeypatch):
@@ -63,13 +66,15 @@ def test_production_wrapper_records_native_density_and_summary(monkeypatch):
     summary=host.backend_summary([result],'NATIVE')
     assert summary.stage('density').requested=='NATIVE'
     assert summary.stage('density').native==1
-    assert 'density candidate 1' in host.backend_text(summary)
+    assert 'density 1' in host.backend_text(summary)
     cached=result.with_changes(placement=production.PLACEMENT_CACHED)
     assert host.backend_summary([cached],'NATIVE').stage('density').native==0
-    assert 'density' not in [x.stage for x in host.backend_summary([],'NATIVE').stages]
+    empty=host.backend_summary([],'NATIVE')
+    assert [x.stage for x in empty.stages]==[name for name,_label in host.STAGES]
+    assert empty.stage('density').requested=='PYTHON' and empty.stage('density').native==0
 
 
-def test_explicit_python_candidate_does_not_leak_to_producer(monkeypatch):
+def test_explicit_python_reference_does_not_leak_native_density_to_producer(monkeypatch):
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','NATIVE')
     @host.with_kernel_backend
     def produce():
