@@ -476,6 +476,14 @@ impl Val {
         }
     }
 
+    /// The terms of a value made by [`Val::terms_of`] (the pairs are not made of them to be read): `None` for any other value.
+    pub fn as_terms(&self) -> Option<&[Term]> {
+        match &self.0.kind {
+            Kind::Tuple(Items::Terms(terms, _)) => Some(terms),
+            _ => None,
+        }
+    }
+
     pub fn is_tuple(&self) -> bool {
         matches!(self.0.kind, Kind::Tuple(_))
     }

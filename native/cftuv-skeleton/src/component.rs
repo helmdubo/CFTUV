@@ -84,6 +84,9 @@ pub fn by_repr<T: Clone>(items: &[T], val: impl Fn(&T) -> &Val) -> Vec<T> {
 pub fn point_from_key(key: &Val) -> SkelResult<EventPoint> {
     let sum = |terms: Option<&Val>| -> SkelResult<SqrtSum> {
         let refusal = || SkelError::Unsupported("a point key whose terms are not (radicand, coefficient) pairs".to_string());
+        if let Some(kept) = terms.and_then(Val::as_terms) {
+            return SqrtSum::from_terms(kept.to_vec()).map_err(|error| SkelError::Unsupported(format!("a point key that is not canonical: {error:?}")));
+        }
         let mut found = Vec::new();
         for term in terms.and_then(Val::items).ok_or_else(refusal)? {
             let (radicand, coefficient) = (term.get(0).and_then(Val::as_int).ok_or_else(refusal)?, term.get(1).ok_or_else(refusal)?);
