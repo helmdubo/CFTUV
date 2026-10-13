@@ -9,13 +9,18 @@
 или через отложенный импорт внутри функции. Ни то ни другое не выражает того,
 что здесь на самом деле есть: общий предок.
 
-Здесь нет ни одной проверки — только форма, в которой они говорят.
+Здесь нет ни одной проверки — только форма, в которой они говорят, и три общих помощника сборки списка (`values_of`, `check_unique`, `require_refs`):
+их зовут и проверка снапшота (`validation_snapshot`), и проверки плана и пакета (`validation`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ids import OpaqueId
 
 
 class ValidationCode(str, Enum):
@@ -75,3 +80,35 @@ def add_issue(
     message: str,
 ) -> None:
     issues.append(ValidationIssue(code, path, message))
+
+
+def values_of(records: frozenset[object], attribute: str) -> set[OpaqueId]:
+    return {getattr(record, attribute) for record in records}
+
+
+def check_unique(
+    issues: list[ValidationIssue],
+    records: frozenset[object],
+    attribute: str,
+    path: str,
+) -> set[OpaqueId]:
+    values = [getattr(record, attribute) for record in records]
+    if len(values) != len(set(values)):
+        add_issue(issues, ValidationCode.DUPLICATE_ID, (path,), f"duplicate {attribute}")
+    return set(values)
+
+
+def require_refs(
+    issues: list[ValidationIssue],
+    refs: set[OpaqueId],
+    targets: set[OpaqueId],
+    path: tuple[str, ...],
+) -> None:
+    missing = refs - targets
+    if missing:
+        add_issue(
+            issues,
+            ValidationCode.MISSING_REFERENCE,
+            path,
+            "missing: " + ", ".join(sorted(str(value) for value in missing)),
+        )

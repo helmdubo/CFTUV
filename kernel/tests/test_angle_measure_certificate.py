@@ -35,7 +35,7 @@ from cftuv_envelope.contracts.analysis import (
 from cftuv_envelope.numeric import IntervalEndpointKind
 from cftuv_envelope.reference import angle_measure
 from cftuv_envelope.reference.compile import _resolve_hidden_edge_count
-from cftuv_envelope.validation import (
+from cftuv_envelope.validation_snapshot import (
     _interval_strictly_above,
     _interval_strictly_below,
 )

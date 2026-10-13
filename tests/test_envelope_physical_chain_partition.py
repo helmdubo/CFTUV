@@ -24,7 +24,7 @@ if str(KERNEL_SRC) not in sys.path:
     sys.path.insert(0, str(KERNEL_SRC))
 
 import cftuv_envelope as kernel  # noqa: E402
-from cftuv import envelope_request_export  # noqa: E402
+from cftuv import envelope_angular_relations, envelope_request_export  # noqa: E402
 from cftuv.envelope_debug_profile import (  # noqa: E402
     ANGULAR_STAGE_COUNTERS,
     SEAM_PARTITION_COUNTERS,
@@ -422,7 +422,7 @@ def test_reflex_kink_without_a_certified_measure_is_a_named_refusal(monkeypatch)
         )
 
     monkeypatch.setattr(
-        envelope_request_export, "certified_reflex_measure", unavailable
+        envelope_angular_relations, "certified_reflex_measure", unavailable
     )
     with pytest.raises(Exception) as error:
         build_envelope_analysis_snapshot(u_route_bundle())
