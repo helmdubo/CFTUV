@@ -267,7 +267,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 source_object_key,
                 source_data_key,
                 source_revision,
-                lambda: build_analysis_bundle(source_bm, face_indices, source_obj),
+                lambda: build_analysis_bundle(source_bm, face_indices, source_obj, source_revision),  # отпечаток уже взят выше: второй раз его не берут
             )
             run = run_production(
                 controller,

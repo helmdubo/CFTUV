@@ -331,11 +331,15 @@ def validate_analysis_bundle(bundle: AnalysisBundle) -> None:
                         )
 
 
-def build_analysis_bundle(bm, face_indices, obj, build_patch_graph):
-    """Build both IRs from one source snapshot and validate before publish."""
+def build_analysis_bundle(bm, face_indices, obj, build_patch_graph, source_revision=None):
+    """Build both IRs from one source snapshot and validate before publish.
+
+    `source_revision` is the fingerprint the caller already took of THIS bmesh with THESE `face_indices` (the Build button needs it for the session cache key before it
+    knows whether to build): it is taken once, not twice. Without it the bundle takes its own, as before.
+    """
 
     face_indices = tuple(int(value) for value in face_indices)
-    revision = source_revision_from_bmesh(bm, obj, face_indices)
+    revision = source_revision_from_bmesh(bm, obj, face_indices) if source_revision is None else source_revision
     graph = build_patch_graph(bm, face_indices, obj, source_revision=revision)
     surface = build_patch_surface_ir(bm, graph, revision)
     bundle = AnalysisBundle(

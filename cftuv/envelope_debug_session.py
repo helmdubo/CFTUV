@@ -22,6 +22,7 @@ from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
 from .envelope_scan_memo import ScanMemoV1
 from .envelope_snapshot_check import SNAPSHOT_CHECK_COUNTERS, budget_key, refusal_reason
+from .envelope_identity_held import IdentityHeldDict
 from .envelope_export_input import (
     build_host_export_input,
     patch_metric_from_worker,
@@ -238,7 +239,7 @@ class EnvelopeDebugSessionController:
         # содержит: только ревизия источника, домен и выделенные рёбра домена.
         self._conveyor_preparation_cache: dict[
             tuple[str, str, frozenset[int], tuple[str, ...]], object
-        ] = {}
+        ] = IdentityHeldDict()  # HELD_BY_IDENTITY_INDEX_V1: `holds(подготовка)` за O(1), без обхода значений на каждую вытесненную запись хранилища
         self._queue_session: QueueSessionStateV1 | None = None
         # Пролог продуктового прогона (сцена топологии, перечень доменов, `DecalRequestId`) по `(ревизия, выделение)`:
         # ширина, плотность и допуски его не меняют, а считался он на каждом шаге. Живёт, пока жива ревизия.
@@ -445,9 +446,7 @@ class EnvelopeDebugSessionController:
         вытесняет из 256 записей хранилища три четверти доменов, и первый шаг ширины перепикливал их все (~6 с родителя).
         """
 
-        if self._preparation_blobs is not None and not any(
-            item is prepared for item in tuple(self._conveyor_preparation_cache.values())
-        ):
+        if self._preparation_blobs is not None and not self._conveyor_preparation_cache.holds(prepared):
             self._preparation_blobs.discard(prepared)
 
     @property

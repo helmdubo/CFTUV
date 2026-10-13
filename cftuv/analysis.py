@@ -66,14 +66,15 @@ except ImportError:
     )
 
 
-def build_analysis_bundle(bm, face_indices, obj=None):
-    """Build the atomic PatchGraph + PatchSurfaceIR analysis result."""
+def build_analysis_bundle(bm, face_indices, obj=None, source_revision=None):
+    """Build the atomic PatchGraph + PatchSurfaceIR analysis result (`source_revision`: the fingerprint the caller took of the same bmesh, see `analysis_surface.build_analysis_bundle`)."""
 
     return _build_analysis_bundle_impl(
         bm,
         face_indices,
         obj,
         build_patch_graph,
+        source_revision,
     )
 
 
