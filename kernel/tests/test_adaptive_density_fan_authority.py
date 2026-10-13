@@ -116,6 +116,14 @@ def legacy_count_law(monkeypatch):
     from cftuv_envelope.reference import compile as compile_module
     from cftuv_envelope.reference import evaluation_binding_noise as noise_module
     from cftuv_envelope.reference.adaptive_density_band import WINDOW_LAW_VORONOI
+    from cftuv_envelope.wavefront import conveyor
+    from functools import partial
+
+    # Эта fixture намеренно проверяет прежнюю машинерию, выбирая oracle явно.
+    oracle_compile = partial(compile_module.compile_reference_envelopes,
+        _direction_binding_attachment=compile_module._attach_direction_bindings_legacy_v1)
+    monkeypatch.setattr(kernel, "compile_reference_envelopes", oracle_compile)
+    monkeypatch.setattr(conveyor, "compile_reference_envelopes", oracle_compile)
 
     monkeypatch.setattr(compile_module, "FAN_WINDOW_LAW", WINDOW_LAW_VORONOI)
 

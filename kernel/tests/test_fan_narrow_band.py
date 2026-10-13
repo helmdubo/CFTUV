@@ -410,7 +410,8 @@ def test_a_band_that_cannot_hold_a_ray_is_a_named_refusal_and_the_voronoi_window
 
     monkeypatch.setattr(binding_module, "certify_adaptive_huber_density_direction_fan", refuse_the_band)
     monkeypatch.setattr(binding_module, "certify_huber_density_bindings_with_adaptive_fallback", voronoi)
-    result = compile_reference_envelopes(snapshot, request)
+    result = compile_reference_envelopes(snapshot, request,
+        _direction_binding_attachment=compile_module._attach_direction_bindings_legacy_v1)
     assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
     refusals = [
         item
@@ -430,7 +431,12 @@ def test_a_band_that_cannot_hold_a_ray_is_a_named_refusal_and_the_voronoi_window
         and authority_window_law(spec.direction_fan_authority) == WINDOW_LAW_VORONOI
     }
     assert refused_ids <= voronoi_bound
-    prepared = prepare_conveyor(snapshot, request)
+    from cftuv_envelope.wavefront import conveyor
+    from functools import partial
+    with monkeypatch.context() as scoped:
+        scoped.setattr(conveyor, "compile_reference_envelopes", partial(compile_module.compile_reference_envelopes,
+            _direction_binding_attachment=compile_module._attach_direction_bindings_legacy_v1))
+        prepared = prepare_conveyor(snapshot, request)
     assert prepared.outcome.value == "EXACT"
     assert prepared.counter("CONVEYOR_FAN_NARROW_BAND_REFUSED") == len(refusals)
 

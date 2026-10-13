@@ -250,6 +250,14 @@ def _piece_vectors(
     return start, end
 
 
+def _strict_between(lower, value, upper, metric=None):
+    return lower < value < upper
+
+
+def _literal_unit(value):
+    return int(value) if value in (-1, 1) else None
+
+
 def build_atlas_window_record(
     metric,
     ideal,
@@ -261,6 +269,8 @@ def build_atlas_window_record(
     vector,
     decimal_envelope,
     invalid,
+    strict_between=_strict_between,
+    literal_unit=_literal_unit,
 ) -> AtlasWindowPrepared:
     """Разбить oriented окно по каноническим coordinate cells без дыр."""
 
@@ -297,14 +307,16 @@ def build_atlas_window_record(
         if order == 0:
             raise invalid(_UNREPRESENTABLE)
         slope_increases = order > 0
+        start_unit = literal_unit(start_exact)
         start = (
-            _exact_decimal_interval(int(start_exact))
-            if start_exact in (-1, 1)
+            _exact_decimal_interval(start_unit)
+            if start_unit is not None
             else decimal_envelope(start_exact, metric)
         )
+        end_unit = literal_unit(end_exact)
         end = (
-            _exact_decimal_interval(int(end_exact))
-            if end_exact in (-1, 1)
+            _exact_decimal_interval(end_unit)
+            if end_unit is not None
             else decimal_envelope(end_exact, metric)
         )
         lower, upper = (start, end) if slope_increases else (end, start)
@@ -348,10 +360,11 @@ def build_atlas_window_record(
         termination_piece.use_x_denominator,
         metric,
     )
-    if not (
-        Fraction(termination_piece.lower_slope_envelope.upper)
-        < ideal_slope
-        < Fraction(termination_piece.upper_slope_envelope.lower)
+    if not strict_between(
+        Fraction(termination_piece.lower_slope_envelope.upper),
+        ideal_slope,
+        Fraction(termination_piece.upper_slope_envelope.lower),
+        metric,
     ):
         raise invalid(_UNREPRESENTABLE)
     return AtlasWindowPrepared(

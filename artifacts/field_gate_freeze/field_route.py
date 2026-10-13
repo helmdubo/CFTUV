@@ -200,6 +200,20 @@ def install_fans_pin(name: str) -> None:
             raise SystemExit(f"unknown fan-laws pin: {item}")
     for item in names:
         _FAN_LAW_INSTALLERS[item]()
+    if name == FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE:
+        # Полный исторический закон проверяется его замороженной привязкой.
+        # Обычный маршрут и одиночные закрепки сохраняют продуктовую raw-привязку.
+        from functools import partial
+
+        from cftuv_envelope.reference import compile as compile_module
+        from cftuv_envelope.wavefront import conveyor as conveyor_module
+
+        pinned_compile = partial(
+            compile_module.compile_reference_envelopes,
+            _direction_binding_attachment=compile_module._attach_direction_bindings_legacy_v1,
+        )
+        compile_module.compile_reference_envelopes = pinned_compile
+        conveyor_module.compile_reference_envelopes = pinned_compile
 
 
 def install_join_pin(name: str) -> None:
@@ -508,6 +522,8 @@ def _main() -> None:
         # перестали видеть закон. Имя едет в `substitutions`.
         install_fans_pin(pinned_fans)
         substitutions.append(f"KERNEL_FAN_LAWS_PINNED:{pinned_fans}")
+        if pinned_fans == FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE:
+            substitutions.append("DENSITY_BINDING_CALLBACK_PINNED:LEGACY_V1")
     pinned_join = pins.get(PIN_JOIN_FLAG)
     if pinned_join:
         # Пятая ИМЕНОВАННАЯ закрепка — тоже красный контроль: порог JOIN 30° возвращает

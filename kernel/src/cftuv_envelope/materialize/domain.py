@@ -82,6 +82,7 @@ from ..exact_sqrt_sum import (
 from ..ids import GeometryDiagnosticId, LineageId
 from ..outcomes import NamedOutcome
 from ..reference.native_exact import ExactScalarTextCanonUnsupported
+from ..reference.density_shell_events import density_shell_materialization_facts
 from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
 from .audit import audit_batch, batch_shape_counters
@@ -1175,13 +1176,14 @@ def _materialize_domain(
     if certify and parametric is not None and built.parametric_inputs is not None:
         certificate = certificate_of(built.parametric_inputs, batch, interval, parametric, bool(offset_normals), prepared, coverage)
         clock.lap("PARAMETRIC")
+    shell_counters, shell_lines = density_shell_materialization_facts(prepared.compilation.diagnostics)
     return MaterializationV1(
         outcome=MaterializationOutcome.MATERIALIZED,
         batch=batch,
         detail="",
-        counters=counters,
+        counters=counters + shell_counters,
         timings=tuple(clock.marks),
-        diagnostics=built.lines,
+        diagnostics=built.lines + shell_lines,
         content_digest=digest,
         vertex_normals=offset_normals,
         offset_normal_law=OFFSET_NORMAL_LAW if offset_normals else "",

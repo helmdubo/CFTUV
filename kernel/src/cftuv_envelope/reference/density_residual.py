@@ -67,7 +67,8 @@ def residual_sign(metric, dot, norm_left, norm_right, q: int) -> int:
     verdict = _filtered_sign(metric, dot, norm_left, norm_right, q)
     if verdict is not None:
         return verdict
-    from .adaptive_density_fan import AdaptiveDensityFanInvalid, _sign
+    from .density_fan_types import AdaptiveDensityFanInvalid
+    from .density_sign import _density_exact_sign as _sign
 
     norm_product = norm_left * norm_right
     dot_squared = squared(dot)

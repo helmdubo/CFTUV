@@ -102,7 +102,9 @@ def _answer(coverage):
 
 def _memo_entries(prepared) -> int:
     memo = prepared.context.metric._density_exact_memo
-    return sum(len(getattr(memo, slot)) for slot in memo.__slots__)
+    # Capture принадлежит только активному вызову; подготовка не несёт его между процессами.
+    assert memo.shell_event_capture is None
+    return sum(len(getattr(memo, slot)) for slot in memo.__slots__ if slot != "shell_event_capture")
 
 
 def test_the_obstacle_is_a_real_interval_in_the_memo_and_not_the_preparation():

@@ -62,6 +62,12 @@ from cftuv_envelope.reference.evaluation_binding_noise import NOISE_DIRECTION_SI
 from cftuv_envelope.reference.validation import validate_reference_geometry_payload
 from cftuv_envelope.wavefront import prepare_conveyor
 
+def _legacy_compile(*args, **kwargs):
+    from cftuv_envelope.reference import compile as compiler
+    return compile_reference_envelopes(*args,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1, **kwargs)
+
+
 KERNEL = Path(__file__).resolve().parents[1]
 NOISE_FIXTURE = KERNEL / "fixtures" / "binding_noise_canonical_v1"
 EXACT_FIXTURE = KERNEL / "fixtures" / "density4_exact_limit_v1"
@@ -546,7 +552,7 @@ def test_an_atlas_fan_on_an_angle_where_the_law_applies_is_refused(compiled, mon
     snapshot, request = _load(EXACT_FIXTURE, "building_patch20", 4)
     with monkeypatch.context() as scoped:
         scoped.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
-        atlas = compile_reference_envelopes(snapshot, request).compilation
+        atlas = _legacy_compile(snapshot, request).compilation
     _, compilation, spec = _table_spec(compiled)
     donor = next(
         item for item in _lifted(atlas) if item.envelope_spec_id == spec.envelope_spec_id
@@ -621,7 +627,7 @@ def _refusals(compilation):
 def test_a_missing_table_entry_is_named_and_the_old_atlas_decides(monkeypatch):
     snapshot, request = _load(EXACT_FIXTURE, "building_patch20", 4)
     monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
-    result = compile_reference_envelopes(snapshot, request)
+    result = _legacy_compile(snapshot, request)
     assert result.outcome is ReferenceOutcome.EXACT
     lifted = _lifted(result.compilation)
     assert lifted
@@ -632,7 +638,10 @@ def test_a_missing_table_entry_is_named_and_the_old_atlas_decides(monkeypatch):
     assert _refusals(result.compilation) == [
         CanonicalFanRaysRefusalV1.NO_CANONICAL_ROTATION_TABLE_ENTRY.value
     ] * len(lifted)
-    prepared = prepare_conveyor(snapshot, request)
+    from cftuv_envelope.wavefront import conveyor
+    with monkeypatch.context() as scoped:
+        scoped.setattr(conveyor, "compile_reference_envelopes", _legacy_compile)
+        prepared = prepare_conveyor(snapshot, request)
     assert prepared.outcome.value == "EXACT"
     assert prepared.counter("CONVEYOR_CANONICAL_FAN_RAYS_LAW_REFUSED") == len(lifted)
     assert prepared.counter("CONVEYOR_CANONICAL_FAN_RAYS_FANS") == 0
@@ -652,7 +661,7 @@ def test_a_ray_that_is_irrational_in_the_chart_is_named_and_the_old_atlas_decide
     monkeypatch.setattr(
         direction_binding, "has_rational_density_support_direction", lambda *_: False
     )
-    result = compile_reference_envelopes(snapshot, request)
+    result = _legacy_compile(snapshot, request)
     assert result.outcome is ReferenceOutcome.EXACT
     assert _refusals(result.compilation) == [
         CanonicalFanRaysRefusalV1.CANONICAL_RAYS_IRRATIONAL_IN_CHART.value
@@ -665,7 +674,7 @@ def test_a_fan_that_breaks_the_subturn_guarantee_is_named_and_not_placed(monkeyp
     snapshot, request = _load(EXACT_FIXTURE, "mesh2_patch2", 4)
     wide = {(Fraction(1, 2), 4, 6): ((1, 1), (1, 2), (1, 3))}
     monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", wide)
-    result = compile_reference_envelopes(snapshot, request)
+    result = _legacy_compile(snapshot, request)
     assert result.outcome is ReferenceOutcome.EXACT
     assert _refusals(result.compilation) == [
         CanonicalFanRaysRefusalV1.CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE.value
@@ -838,7 +847,7 @@ def test_a_per_ray_or_atlas_binding_where_the_unlifted_law_applies_is_refused(
             continue
         with monkeypatch.context() as scoped:
             scoped.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
-            donor_compilation = compile_reference_envelopes(snapshot, request).compilation
+            donor_compilation = _legacy_compile(snapshot, request).compilation
         spec = tables[0]
         donor = next(
             item
@@ -878,7 +887,7 @@ def test_a_missing_table_row_of_an_unlifted_corner_is_not_a_refusal_and_the_old_
 
     snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 3)
     monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
-    result = compile_reference_envelopes(snapshot, request)
+    result = _legacy_compile(snapshot, request)
     assert result.outcome is ReferenceOutcome.EXACT
     assert _refusals(result.compilation) == []
     assert _table_fans(result.compilation) == []
@@ -889,7 +898,7 @@ def test_an_unlifted_ray_irrational_in_the_chart_is_named_and_the_old_path_decid
     monkeypatch.setattr(
         direction_binding, "has_rational_density_support_direction", lambda *_: False
     )
-    result = compile_reference_envelopes(snapshot, request)
+    result = _legacy_compile(snapshot, request)
     assert result.outcome is ReferenceOutcome.EXACT
     names = _refusals(result.compilation)
     assert set(names) <= {CanonicalFanRaysRefusalV1.CANONICAL_RAYS_IRRATIONAL_IN_CHART.value}
@@ -908,7 +917,7 @@ def test_binding_noise_outside_the_declared_bound_is_named_for_the_rays_of_an_un
     assert _refusals(default.compilation) == []
     assert _table_fans(default.compilation)
     monkeypatch.setattr(noise_module, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, 10**6))
-    refused = compile_reference_envelopes(snapshot, request)
+    refused = _legacy_compile(snapshot, request)
     assert refused.outcome is ReferenceOutcome.EXACT
     names = _refusals(refused.compilation)
     assert names
@@ -967,7 +976,7 @@ def test_without_a_binding_the_table_applies_at_zero_noise(
     # Контроль: с выключенной таблицей тот же угол идёт другим путём и в другую форму.
     with monkeypatch.context() as scoped:
         scoped.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
-        other = compile_reference_envelopes(snapshot, request).compilation
+        other = _legacy_compile(snapshot, request).compilation
     (other_spec,) = _specs(other)
     assert type(other_spec.direction_fan_authority) is not (
         CanonicalRationalRotationFanAuthorityV1
@@ -981,7 +990,7 @@ def test_a_tight_d2_corner_without_a_row_is_not_named_by_the_noise_refusal(monke
 
     snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 2)
     monkeypatch.setattr(noise_module, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, 10**6))
-    result = compile_reference_envelopes(snapshot, request)
+    result = _legacy_compile(snapshot, request)
     assert result.outcome is ReferenceOutcome.EXACT
     named = {
         item.envelope_spec_id

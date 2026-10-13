@@ -2,7 +2,38 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from .density_fan_types import (
+    DensityRationalAuthorityExhausted,
+    AdaptiveDensityFanInvalid,
+    DensityWindowChartUnrepresentable,
+    DensityTerminationBoxesExhausted,
+)
+from .density_projective import (
+    _DensityVector,
+    _ratio,
+    _fraction,
+    _height,
+    _expected_orientation,
+    _dual_dot,
+    _oriented_cross,
+    _sign,
+    _vector,
+    _inside_ordinal,
+    _slope,
+    _vector_from_slope,
+    _chart_for_window,
+    _subturn,
+    _subturn_boundary,
+    _quarter_turn,
+    _exact_q_trig,
+    _rotate_q,
+    _subturn_boundary_vectors,
+)
+
+from dataclasses import replace
+from functools import partial
+
+from .density_controller_v1 import resolve_density_laws
 from decimal import Decimal
 from fractions import Fraction
 from math import gcd, isqrt
@@ -36,7 +67,6 @@ from .adaptive_density_atlas import (
     validate_atlas_structure,
 )
 from . import adaptive_density_band as _band
-from . import density_residual as _residual
 from .common import ReferenceGeometryError, stable_id
 from .metric import ExactPlanarMetric
 from .planar_types import ExactPlanarVector
@@ -87,34 +117,8 @@ _BOX_REFINEMENT_CAP = 96
 _DENSITY_EXACT_WORK_CAP = 1 << 17
 
 
-class DensityRationalAuthorityExhausted(ValueError):
-    """Именованный отказ только при превышении доказанного resource cap."""
-
-
-class AdaptiveDensityFanInvalid(ValueError):
-    """Запись V2 не следует из production metric/ideal facts."""
-
-
-class DensityWindowChartUnrepresentable(AdaptiveDensityFanInvalid):
-    """Допустимое projective-окно не представимо принятым chart-контрактом."""
-
-
-class DensityTerminationBoxesExhausted(AdaptiveDensityFanInvalid):
-    """Ящик вокруг ideal не нашёл осуществимого веера за `_BOX_REFINEMENT_CAP`.
-
-    Это ИМЕННО нехватка уточнения, а не неразрешимость предиката: предел
-    подшага с иррациональным лучом (допустимая область — точка) отсекается
-    раньше, точным признаком `ideal_is_exact_limit_with_irrational_direction`,
-    и сюда не доходит. Сюда доходит положительный запас, который не уместился
-    в ящик шириной `2^-24 ... 2^-120` от окна, и, редкий случай, предел с
-    рациональным лучом evaluation-геометрии, привязанный из-за иррационального
-    исходного: сообщение называет, стоит ли веер ровно на пределе.
-    """
-
-
 def _work_budget(cap: int | None = None) -> DensityExactWorkBudget:
     """Свежий счётчик точной работы одной транзакции поиска D*."""
-
     return DensityExactWorkBudget(
         DensityRationalAuthorityExhausted,
         _DENSITY_EXACT_WORK_CAP if cap is None else cap,
@@ -123,205 +127,33 @@ def _work_budget(cap: int | None = None) -> DensityExactWorkBudget:
 
 def _preparation_budget(cap: int | None = None) -> DensityExactWorkBudget:
     """Счётчик точной работы подготовки власти. Закон капа — в atlas."""
-
     return preparation_budget(DensityRationalAuthorityExhausted, cap)
 
 
-@dataclass(frozen=True, slots=True)
-class _DensityVector:
-    """Транзакционный exact-вектор без wire srepr/reparse."""
-
-    x: sp.Expr
-    y: sp.Expr
-
-    def expressions(self, transaction_memo=None):
-        del transaction_memo
-        return self.x, self.y
-
-
-def _ratio(value: Fraction) -> tuple[int, int]:
-    return value.numerator, value.denominator
-
-
-def _fraction(value: tuple[int, int]) -> Fraction:
-    numerator, denominator = value
-    if (
-        type(numerator) is not int
-        or type(denominator) is not int
-        or denominator <= 0
-        or gcd(abs(numerator), denominator) != 1
-    ):
-        raise AdaptiveDensityFanInvalid("fan rational is not reduced")
-    return Fraction(numerator, denominator)
-
-
-def _height(vector: tuple[int, int]) -> int:
-    return max(abs(vector[0]), abs(vector[1]))
-
-
-def _expected_orientation(orientation: TurnOrientation) -> int:
-    return (
-        1
-        if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
-        else -1
-    )
-
-
-def _dual_dot(metric, left, right):
-    lx, ly = metric.density_expressions(left)
-    rx, ry = metric.density_expressions(right)
-    key = (lx, ly, rx, ry)
-    cached = metric._density_exact_memo.dual_dots.get(key)
-    if cached is not None:
-        return cached
-    inverse = metric.inverse_gram
-    result = (
-        lx * (inverse[0][0] * rx + inverse[0][1] * ry)
-        + ly * (inverse[1][0] * rx + inverse[1][1] * ry)
-    )
-    metric._density_exact_memo.dual_dots[key] = result
-    metric._density_exact_memo.dual_dots[(rx, ry, lx, ly)] = result
-    return result
-
-
-def _oriented_cross(metric, left, right):
-    lx, ly = metric.density_expressions(left)
-    rx, ry = metric.density_expressions(right)
-    key = (lx, ly, rx, ry)
-    cached = metric._density_exact_memo.crosses.get(key)
-    if cached is not None:
-        return cached
-    result = metric.owner_orientation_sign * (lx * ry - ly * rx)
-    metric._density_exact_memo.crosses[key] = result
-    metric._density_exact_memo.crosses[(rx, ry, lx, ly)] = -result
-    return result
-
-
-def _sign(expression, metric: ExactPlanarMetric | None = None) -> int:
-    from .angular import _density_exact_sign
-
-    return _density_exact_sign(expression, metric)
-
-
-def _vector(
-    x,
-    y,
-    metric: ExactPlanarMetric | None = None,
-) -> _DensityVector:
-    del metric
-    return _DensityVector(sp.sympify(x), sp.sympify(y))
-
-
-def _inside_ordinal(metric, candidate, previous, ideal, following) -> bool:
-    """Voronoi-окно ordinal без материализации двух midpoint-лучей."""
-
-    px, py = metric.density_expressions(previous)
-    ix, iy = metric.density_expressions(ideal)
-    fx, fy = metric.density_expressions(following)
-    toward_ideal_from_previous = _vector(
-        ix - px,
-        iy - py,
-        metric,
-    )
-    toward_ideal_from_following = _vector(
-        ix - fx,
-        iy - fy,
-        metric,
-    )
-    return (
-        _sign(
-            _dual_dot(metric, candidate, toward_ideal_from_previous),
-            metric,
-        )
-        > 0
-        and _sign(
-            _dual_dot(metric, candidate, toward_ideal_from_following),
-            metric,
-        )
-        > 0
-    )
-
-
-def _slope(
-    vector,
-    use_x: bool,
-    metric: ExactPlanarMetric | None = None,
-):
-    x, y = (
-        vector.expressions()
-        if metric is None
-        else metric.density_expressions(vector)
-    )
-    denominator = x if use_x else y
-    if _sign(denominator, metric) == 0:
-        raise AdaptiveDensityFanInvalid("fan chart denominator is zero")
-    return (y if use_x else x) / denominator
-
-
-def _vector_from_slope(
-    slope: Fraction,
-    use_x: bool,
-    denominator_sign: int,
-) -> tuple[int, int]:
-    numerator = slope.numerator * denominator_sign
-    denominator = slope.denominator * denominator_sign
-    return (
-        (denominator, numerator)
-        if use_x
-        else (numerator, denominator)
-    )
-
-
-def _chart_for_window(
-    metric,
-    ideal,
-    left,
-    right,
-) -> tuple[bool, int]:
-    """Выбрать один неособый projective chart всего ordinal-окна."""
-
-    ix, iy = metric.density_expressions(ideal)
-    preferred = _sign(ix * ix - iy * iy, metric) >= 0
-    for use_x in (preferred, not preferred):
-        denominator_index = 0 if use_x else 1
-        values = (
-            metric.density_expressions(left)[denominator_index],
-            metric.density_expressions(ideal)[denominator_index],
-            metric.density_expressions(right)[denominator_index],
-        )
-        signs = tuple(_sign(value, metric) for value in values)
-        if 0 in signs or len(set(signs)) != 1:
-            continue
-        return use_x, signs[0]
-    raise DensityWindowChartUnrepresentable(
-        "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
-    )
-
-
-def _window_envelopes(ideal):
-    from .direction_binding import _density_decimal_envelope
+def _window_envelopes(ideal, *, laws=None):
+    laws = resolve_density_laws(laws)
 
     windows = []
     records = []
     metric = ideal.metric
     for ordinal in range(1, len(ideal) - 1):
-        previous, following = _band.window_neighbours(ideal, ordinal)
+        previous, following = laws.window_neighbours(ideal, ordinal)
         left_values = metric.density_expressions(previous)
         center_values = metric.density_expressions(ideal[ordinal])
         right_values = metric.density_expressions(following)
         # Для projective slope нормирующий множитель midpoint не нужен.
-        left = _vector(
+        left = laws.vector(
             left_values[0] + center_values[0],
             left_values[1] + center_values[1],
             metric,
         )
-        right = _vector(
+        right = laws.vector(
             center_values[0] + right_values[0],
             center_values[1] + right_values[1],
             metric,
         )
         try:
-            use_x, denominator_sign = _chart_for_window(
+            use_x, denominator_sign = laws.chart_for_window(
                 metric,
                 ideal[ordinal],
                 left,
@@ -335,25 +167,27 @@ def _window_envelopes(ideal):
                     ideal[ordinal],
                     left,
                     right,
-                    sign=_sign,
-                    slope=_slope,
-                    vector=_vector,
-                    decimal_envelope=_density_decimal_envelope,
+                    sign=laws.sign,
+                    slope=laws.slope,
+                    vector=laws.vector,
+                    decimal_envelope=laws.envelope,
                     invalid=DensityWindowChartUnrepresentable,
+                    strict_between=laws.strict_between,
+                    literal_unit=laws.literal_unit,
                 )
             )
             continue
         slopes = (
-            _slope(left, use_x, metric),
-            _slope(right, use_x, metric),
+            laws.slope(left, use_x, metric),
+            laws.slope(right, use_x, metric),
         )
         lower_exact, upper_exact = (
             slopes
-            if _sign(slopes[1] - slopes[0], metric) > 0
+            if laws.sign(slopes[1] - slopes[0], metric) > 0
             else (slopes[1], slopes[0])
         )
-        lower = _density_decimal_envelope(lower_exact, metric)
-        upper = _density_decimal_envelope(upper_exact, metric)
+        lower = laws.envelope(lower_exact, metric)
+        upper = laws.envelope(upper_exact, metric)
         if lower.upper >= upper.lower:
             raise AdaptiveDensityFanInvalid(
                 "ordinal rational envelopes overlap"
@@ -375,7 +209,9 @@ def _covectors(
     ideal_unit_normals,
     window_law: str = _band.WINDOW_LAW_VORONOI,
     orientation: TurnOrientation | None = None,
+    *, laws=None,
 ):
+    laws = resolve_density_laws(laws)
     remembered = metric._density_exact_memo.covector_rows
     covectors = []
     for normal in ideal_unit_normals:
@@ -384,7 +220,7 @@ def _covectors(
         if row is None:
             # Ковектор нормали — чистая функция её выражений; повтор (а нормаль входит и в веер своего
             # счёта, и в веера соседних счетов, и в обе геометрии) берётся из памяти транзакции.
-            row = remembered[(nx, ny)] = _vector(
+            row = remembered[(nx, ny)] = laws.vector(
                 metric.gram[0][0] * nx + metric.gram[0][1] * ny,
                 metric.gram[1][0] * nx + metric.gram[1][1] * ny,
                 metric,
@@ -405,123 +241,12 @@ def _candidate_vector(
     use_x: bool,
     denominator_sign: int,
     metric: ExactPlanarMetric | None = None,
+    *, laws=None,
 ) -> ExactPlanarVector:
-    return _vector(
+    laws = resolve_density_laws(laws)
+    return laws.vector(
         *_vector_from_slope(slope, use_x, denominator_sign),
         metric,
-    )
-
-
-def _subturn(metric, left, right, q: int) -> bool:
-    left_values = metric.density_expressions(left)
-    right_values = metric.density_expressions(right)
-    key = (
-        *left_values,
-        *right_values,
-        q,
-    )
-    reverse_key = (
-        *right_values,
-        *left_values,
-        q,
-    )
-    cached = metric._density_exact_memo.subturns.get(key)
-    if cached is not None:
-        return cached
-    dot = _dual_dot(metric, left, right)
-    dot_sign = _sign(dot, metric)
-    if q == 2:
-        result = dot_sign >= 0
-        metric._density_exact_memo.subturns[key] = result
-        metric._density_exact_memo.subturns[reverse_key] = result
-        return result
-    if dot_sign <= 0:
-        metric._density_exact_memo.subturns[key] = False
-        metric._density_exact_memo.subturns[reverse_key] = False
-        return False
-    result = _residual.residual_sign(
-        metric,
-        dot,
-        _dual_dot(metric, left, left),
-        _dual_dot(metric, right, right),
-        q,
-    ) >= 0
-    metric._density_exact_memo.subturns[key] = result
-    metric._density_exact_memo.subturns[reverse_key] = result
-    return result
-
-
-def _subturn_boundary(metric, left, right, q: int) -> bool:
-    dot = _dual_dot(metric, left, right)
-    if _sign(dot, metric) < 0:
-        return False
-    norm_left = _dual_dot(metric, left, left)
-    norm_right = _dual_dot(metric, right, right)
-    if q == 2:
-        return _sign(dot, metric) == 0
-    return _residual.residual_sign(metric, dot, norm_left, norm_right, q) == 0
-
-
-def _quarter_turn(metric, vector, orientation: int):
-    """Dual-Gram перпендикуляр с заданным oriented-cross знаком."""
-
-    x, y = metric.density_expressions(vector)
-    inverse = metric.inverse_gram
-    dual_x = inverse[0][0] * x + inverse[0][1] * y
-    dual_y = inverse[1][0] * x + inverse[1][1] * y
-    determinant = (
-        inverse[0][0] * inverse[1][1]
-        - inverse[0][1] * inverse[1][0]
-    )
-    scale = (
-        orientation
-        * metric.owner_orientation_sign
-        / sp.sqrt(determinant)
-    )
-    return _vector(
-        -scale * dual_y,
-        scale * dual_x,
-        metric,
-    )
-
-
-def _exact_q_trig(q: int):
-    if q == 2:
-        return sp.Integer(0), sp.Integer(1)
-    if q == 3:
-        return sp.Rational(1, 2), sp.sqrt(3) / 2
-    if q == 4:
-        value = sp.sqrt(2) / 2
-        return value, value
-    if q == 5:
-        return (
-            (1 + sp.sqrt(5)) / 4,
-            sp.sqrt(10 - 2 * sp.sqrt(5)) / 4,
-        )
-    if q == 6:
-        return sp.sqrt(3) / 2, sp.Rational(1, 2)
-    raise AdaptiveDensityFanInvalid("unsupported Density q")
-
-
-def _rotate_q(metric, vector, orientation: int, q: int):
-    cosine, sine = _exact_q_trig(q)
-    perpendicular = _quarter_turn(metric, vector, orientation)
-    x, y = metric.density_expressions(vector)
-    px, py = metric.density_expressions(perpendicular)
-    return _vector(
-        cosine * x + sine * px,
-        cosine * y + sine * py,
-        metric,
-    )
-
-
-def _subturn_boundary_vectors(metric, ideal, ordinal, orientation, q):
-    """Два крайних луча subturn-ограничений ordinal — без всякой карты."""
-
-    expected = _expected_orientation(orientation)
-    return (
-        _rotate_q(metric, ideal[ordinal - 1], expected, q),
-        _rotate_q(metric, ideal[ordinal + 1], -expected, q),
     )
 
 
@@ -532,13 +257,14 @@ def _sealed_local_interval(
     orientation,
     q,
     record,
+    *, laws=None,
 ):
     """Один раз запечатать inner/outward рациональную оболочку окна."""
+    laws = resolve_density_laws(laws)
 
-    from .direction_binding import _density_decimal_envelope
 
     use_x, _, ordinal_lower, ordinal_upper = record
-    boundary_vectors = _subturn_boundary_vectors(
+    boundary_vectors = laws.subturn_boundary_vectors(
         metric,
         ideal,
         ordinal,
@@ -550,16 +276,16 @@ def _sealed_local_interval(
         denominator = metric.density_expressions(
             boundary_vector
         )[0 if use_x else 1]
-        if _sign(denominator, metric) == 0:
+        if laws.sign(denominator, metric) == 0:
             continue
         boundaries.append(
-            _density_decimal_envelope(
-                _slope(boundary_vector, use_x, metric),
+            laws.envelope(
+                laws.slope(boundary_vector, use_x, metric),
                 metric,
             )
         )
-    center_envelope = _density_decimal_envelope(
-        _slope(ideal[ordinal], use_x, metric),
+    center_envelope = laws.envelope(
+        laws.slope(ideal[ordinal], use_x, metric),
         metric,
     )
     center = (
@@ -611,6 +337,7 @@ def _sealed_local_interval(
                 denominator_sign,
             ),
             q,
+            laws=laws,
         )
         and _local_candidate(
             metric,
@@ -622,6 +349,7 @@ def _sealed_local_interval(
                 denominator_sign,
             ),
             q,
+            laws=laws,
         )
     ):
         raise AdaptiveDensityFanInvalid(
@@ -630,17 +358,18 @@ def _sealed_local_interval(
     return sealed
 
 
-def _box_is_feasible(metric, ideal, orientation, q, boxes) -> bool:
+def _box_is_feasible(metric, ideal, orientation, q, boxes, *, laws=None) -> bool:
+    laws = resolve_density_laws(laws)
     expected = _expected_orientation(orientation)
     endpoints = []
     for ordinal, (lower, upper, use_x, sign) in enumerate(boxes, start=1):
         pair = (
-            _candidate_vector(lower, use_x, sign, metric),
-            _candidate_vector(upper, use_x, sign, metric),
+            _candidate_vector(lower, use_x, sign, metric, laws=laws),
+            _candidate_vector(upper, use_x, sign, metric, laws=laws),
         )
-        previous, following = _band.window_neighbours(ideal, ordinal)
+        previous, following = laws.window_neighbours(ideal, ordinal)
         if any(
-            not _inside_ordinal(
+            not laws.inside_ordinal(
                 metric,
                 item,
                 previous,
@@ -657,8 +386,8 @@ def _box_is_feasible(metric, ideal, orientation, q, boxes) -> bool:
     for hidden in sequences:
         sequence = (ideal[0], *hidden, ideal[-1])
         if any(
-            _sign(
-                _oriented_cross(metric, left, right),
+            laws.sign(
+                laws.oriented_cross(metric, left, right),
                 metric,
             )
             != expected
@@ -666,21 +395,21 @@ def _box_is_feasible(metric, ideal, orientation, q, boxes) -> bool:
         ):
             return False
         if any(
-            not _subturn(metric, left, right, q)
+            not laws.subturn(metric, left, right, q)
             for left, right in zip(sequence, sequence[1:])
         ):
             return False
     return True
 
 
-def _termination_boxes(metric, ideal, orientation, q, records):
+def _termination_boxes(metric, ideal, orientation, q, records, *, laws=None):
+    laws = resolve_density_laws(laws)
     centers = []
     gaps = []
     for ordinal, (use_x, _, lower, upper) in enumerate(records, start=1):
-        from .direction_binding import _density_decimal_envelope
 
-        ideal_envelope = _density_decimal_envelope(
-            _slope(ideal[ordinal], use_x, metric),
+        ideal_envelope = laws.envelope(
+            laws.slope(ideal[ordinal], use_x, metric),
             metric,
         )
         center = (
@@ -704,9 +433,10 @@ def _termination_boxes(metric, ideal, orientation, q, records):
     # Каждое уточнение стоит ровно 2^k проверенных угловых последовательностей
     # (`_box_is_feasible` строит их полный декартов набор), поэтому работа
     # оплачивается вперёд и по точному числу, а не по факту.
-    budget = _preparation_budget()
+    budget = laws.preparation_budget(_preparation_budget)
     divisor = 1 << 24
-    for _ in range(_BOX_REFINEMENT_CAP):
+    refinement_cap = _BOX_REFINEMENT_CAP if laws.box_cap is None else laws.box_cap
+    for _ in range(refinement_cap):
         budget.spend_order_steps(1 << len(centers))
         boxes = tuple(
             (
@@ -717,23 +447,24 @@ def _termination_boxes(metric, ideal, orientation, q, records):
             )
             for index, (center, gap) in enumerate(zip(centers, gaps))
         )
-        if _box_is_feasible(metric, ideal, orientation, q, boxes):
+        if _box_is_feasible(metric, ideal, orientation, q, boxes, laws=laws):
             return boxes
         divisor *= 2
     # Подсказка в сообщении не вправе заменить собой честное имя отказа: сам
     # предикат может быть не решён, и тогда так и сказано.
     try:
-        at_limit = str(_subturn_boundary(metric, ideal[0], ideal[1], q))
+        at_limit = str(laws.subturn_boundary(metric, ideal[0], ideal[1], q))
     except ReferenceGeometryError:
         at_limit = "undecided"
     raise DensityTerminationBoxesExhausted(
-        f"termination box refinement exhausted after {_BOX_REFINEMENT_CAP} "
+        f"termination box refinement exhausted after {refinement_cap} "
         f"halvings for {len(centers)} hidden rays: no feasible box was "
         f"witnessed (ideal fan exactly at the subturn limit: {at_limit})"
     )
 
 
-def _termination_height(boxes) -> int:
+def _termination_height(boxes, *, laws=None) -> int:
+    laws = resolve_density_laws(laws)
     bounds = []
     for lower, upper, _, _ in boxes:
         width = upper - lower
@@ -745,28 +476,30 @@ def _termination_height(boxes) -> int:
     return max(bounds, default=0)
 
 
-def _local_record(record):
+def _local_record(record, *, laws=None):
+    laws = resolve_density_laws(laws)
     return record.local_record if type(record) is AtlasWindowPrepared else record
 
 
-def _local_candidate(metric, ideal, ordinal, vector, q) -> bool:
-    candidate = _vector(*vector, metric)
-    previous, following = _band.window_neighbours(ideal, ordinal)
+def _local_candidate(metric, ideal, ordinal, vector, q, *, laws=None) -> bool:
+    laws = resolve_density_laws(laws)
+    candidate = laws.vector(*vector, metric)
+    previous, following = laws.window_neighbours(ideal, ordinal)
     return (
-        _inside_ordinal(
+        laws.inside_ordinal(
             metric,
             candidate,
             previous,
             ideal[ordinal],
             following,
         )
-        and _subturn(
+        and laws.subturn(
             metric,
             ideal[ordinal - 1],
             candidate,
             q,
         )
-        and _subturn(
+        and laws.subturn(
             metric,
             candidate,
             ideal[ordinal + 1],
@@ -779,7 +512,9 @@ def _strict_numerator_bounds(
     lower: Fraction,
     upper: Fraction,
     height: int,
+    *, laws=None,
 ) -> tuple[int, int]:
+    laws = resolve_density_laws(laws)
     first = (
         lower.numerator * height // lower.denominator
     ) + 1
@@ -798,8 +533,10 @@ def _farey_shell_candidates(
     sealed_interval,
     height,
     budget,
+    *, laws=None,
 ):
     """Высота Farey: integer-only внутри inner, exact только в shell."""
+    laws = resolve_density_laws(laws)
 
     use_x, denominator_sign, *_ = record
     outer_lower, inner_lower, inner_upper, outer_upper = (
@@ -809,6 +546,7 @@ def _farey_shell_candidates(
         outer_lower,
         outer_upper,
         height,
+        laws=laws,
     )
     # Пустая высота тоже стоит один probe: иначе последовательность пустых
     # высот прошла бы под капом без единой единицы работы.
@@ -836,6 +574,7 @@ def _farey_shell_candidates(
                     denominator_sign,
                 ),
                 q,
+                laws=laws,
             )
         else:
             valid = False
@@ -850,45 +589,46 @@ def _farey_shell_candidates(
     return tuple(candidates)
 
 
-def _segment_plan_laws() -> SegmentPlanLaws:
+def _segment_plan_laws(*, laws=None) -> SegmentPlanLaws:
     """Точные предикаты, которыми sibling-модуль atlas не владеет."""
+    laws = resolve_density_laws(laws)
 
-    from .direction_binding import _density_decimal_envelope
 
     return SegmentPlanLaws(
-        sign=_sign,
-        slope=_slope,
-        decimal_envelope=_density_decimal_envelope,
-        local_candidate=_local_candidate,
+        sign=laws.sign,
+        slope=laws.slope,
+        decimal_envelope=laws.envelope,
+        local_candidate=partial(_local_candidate, laws=laws),
         vector_from_slope=_vector_from_slope,
-        subturn_boundary_vectors=_subturn_boundary_vectors,
+        subturn_boundary_vectors=laws.subturn_boundary_vectors,
         invalid=DensityWindowChartUnrepresentable,
     )
 
 
-def _objective(metric, ideal, ordinal, vector):
+def _objective(metric, ideal, ordinal, vector, *, laws=None):
     """Cos² Gram-score; его максимум равен минимуму старого расстояния."""
+    laws = resolve_density_laws(laws)
 
-    candidate = _vector(*vector, metric)
-    dot = _dual_dot(metric, candidate, ideal[ordinal])
-    norm = _dual_dot(metric, candidate, candidate)
+    candidate = laws.vector(*vector, metric)
+    dot = laws.dual_dot(metric, candidate, ideal[ordinal])
+    norm = laws.dual_dot(metric, candidate, candidate)
     return dot * dot / norm
 
 
-def _candidate_compare(metric, ideal, ordinal):
-    from .direction_binding import _density_decimal_envelope
+def _candidate_compare(metric, ideal, ordinal, *, laws=None):
+    laws = resolve_density_laws(laws)
 
     scores = {}
     envelopes = {}
 
     def score(vector):
         if vector not in scores:
-            scores[vector] = _objective(metric, ideal, ordinal, vector)
+            scores[vector] = _objective(metric, ideal, ordinal, vector, laws=laws)
         return scores[vector]
 
     def envelope(vector):
         if vector not in envelopes:
-            envelopes[vector] = _density_decimal_envelope(
+            envelopes[vector] = laws.envelope(
                 score(vector),
                 metric,
             )
@@ -901,7 +641,7 @@ def _candidate_compare(metric, ideal, ordinal):
             return -1
         if right_envelope.lower > left_envelope.upper:
             return 1
-        sign = _sign(
+        sign = laws.sign(
             score(right) - score(left),
             metric,
         )
@@ -921,7 +661,8 @@ def _candidate_compare(metric, ideal, ordinal):
     return compare
 
 
-def _legacy_authority_budget(width: Fraction) -> int:
+def _legacy_authority_budget(width: Fraction, *, laws=None) -> int:
+    laws = resolve_density_laws(laws)
     quotient_ceiling = (
         width.denominator + width.numerator - 1
     ) // width.numerator
@@ -942,8 +683,10 @@ def _legacy_density_certificate(
     ordinal,
     q,
     record,
+    *, laws=None,
 ) -> DirectionBindingCertificateV1 | None:
-    from .direction_binding import _PROVEN_PREDICATES
+    laws = resolve_density_laws(laws)
+    from .density_binding_types import _PROVEN_PREDICATES
 
     if type(record) is AtlasWindowPrepared:
         return None
@@ -953,12 +696,12 @@ def _legacy_density_certificate(
     width = upper - lower
     if width <= 0:
         raise AdaptiveDensityFanInvalid("legacy Density window is empty")
-    budget = _legacy_authority_budget(width)
+    budget = _legacy_authority_budget(width, laws=laws)
     # Длина развёртки известна ТОЧНО до первого шага, поэтому она оплачивается
     # вперёд: узкое окно отказывает именем за микросекунды, а не после часа
     # перебора. Сам перебор ниже не тронут — на доменах под капом он побитово
     # прежний.
-    _preparation_budget().spend_shell_probes(budget)
+    laws.preparation_budget(_preparation_budget).spend_shell_probes(budget)
     winner = None
     for denominator in range(1, budget + 1):
         scaled_lower = lower * denominator
@@ -976,18 +719,18 @@ def _legacy_density_certificate(
                 use_x,
                 denominator_sign,
             )
-            candidate = _vector(*vector, metric)
+            candidate = laws.vector(*vector, metric)
             if not (
-                _subturn(metric, ideal[ordinal - 1], candidate, q)
-                and _subturn(metric, candidate, ideal[ordinal + 1], q)
+                laws.subturn(metric, ideal[ordinal - 1], candidate, q)
+                and laws.subturn(metric, candidate, ideal[ordinal + 1], q)
             ):
                 continue
-            score = _objective(metric, ideal, ordinal, vector)
+            score = _objective(metric, ideal, ordinal, vector, laws=laws)
             if (
                 winner is None
-                or _sign(score - winner[0], metric) > 0
+                or laws.sign(score - winner[0], metric) > 0
                 or (
-                    _sign(score - winner[0], metric) == 0
+                    laws.sign(score - winner[0], metric) == 0
                     and slope > winner[1]
                 )
             ):
@@ -999,7 +742,7 @@ def _legacy_density_certificate(
         ideal_window_lower_slope_envelope=lower_envelope,
         ideal_window_upper_slope_envelope=upper_envelope,
         certified_window_width_lower_bound=(
-            upper_envelope.lower - lower_envelope.upper
+            laws.width(lower_envelope.upper, upper_envelope.lower)
         ),
         proven_predicates=_PROVEN_PREDICATES,
     )
@@ -1012,14 +755,16 @@ def _legacy_full_fan_valid(
     q,
     records,
     certificates,
+    *, laws=None,
 ) -> bool:
-    from .direction_binding import _PROVEN_PREDICATES
+    laws = resolve_density_laws(laws)
+    from .density_binding_types import _PROVEN_PREDICATES
 
     expected = _expected_orientation(orientation)
     resolved = tuple(
         ideal[ordinal]
         if certificate is None
-        else _vector(
+        else laws.vector(
             *certificate.bound_primitive_integer_vector,
             metric,
         )
@@ -1033,8 +778,8 @@ def _legacy_full_fan_valid(
     ):
         return False
     if any(
-        _sign(_oriented_cross(metric, left, right), metric) != expected
-        or not _subturn(metric, left, right, q)
+        laws.sign(laws.oriented_cross(metric, left, right), metric) != expected
+        or not laws.subturn(metric, left, right, q)
         for left, right in zip(sequence, sequence[1:])
     ):
         return False
@@ -1042,14 +787,14 @@ def _legacy_full_fan_valid(
         certificate is None
         or (
             type(record) is not AtlasWindowPrepared
-            and _inside_ordinal(
+            and laws.inside_ordinal(
                 metric,
                 candidate,
-                *_band.window_triple(ideal, ordinal),
+                *laws.window_triple(ideal, ordinal),
             )
             and (
                 Fraction(record[2].upper)
-                < Fraction(_slope(candidate, record[0], metric))
+                < laws.fraction(laws.slope(candidate, record[0], metric))
                 < Fraction(record[3].lower)
             )
         )
@@ -1104,6 +849,7 @@ def certify_density_bindings_and_adaptive_fallback(
     *,
     binding_reasons: tuple[DirectionBindingReasonV1 | None, ...],
     resource_height_cap: int = _RESOURCE_HEIGHT_CAP,
+    laws=None,
 ) -> tuple[
     tuple[DirectionBindingCertificateV1 | None, ...],
     AdaptiveMinimalRationalFanAuthorityV2 | None,
@@ -1114,13 +860,14 @@ def certify_density_bindings_and_adaptive_fallback(
     Повторное их построение здесь было бы не независимой проверкой, а только
     повтором той же власти внутри одной compile-транзакции.
     """
+    laws = resolve_density_laws(laws)
 
     if max_subturn_q not in range(2, 7):
         raise AdaptiveDensityFanInvalid("unsupported Density q")
     if len(ideal_unit_normals) < 3:
         return (), None
-    ideal = _covectors(metric, ideal_unit_normals)
-    _, records = _window_envelopes(ideal)
+    ideal = _covectors(metric, ideal_unit_normals, laws=laws)
+    _, records = _window_envelopes(ideal, laws=laws)
     certificates = tuple(
         _legacy_density_certificate(
             metric,
@@ -1128,6 +875,7 @@ def certify_density_bindings_and_adaptive_fallback(
             ordinal,
             max_subturn_q,
             records[ordinal - 1],
+            laws=laws,
         )
         for ordinal in range(1, len(ideal) - 1)
     )
@@ -1138,6 +886,7 @@ def certify_density_bindings_and_adaptive_fallback(
         max_subturn_q,
         records,
         certificates,
+        laws=laws,
     )
     if (
         legacy_full_fan_valid
@@ -1159,6 +908,7 @@ def certify_density_bindings_and_adaptive_fallback(
         records,
         binding_reasons=binding_reasons,
         resource_height_cap=resource_height_cap,
+        laws=laws,
     )
     return certificates, authority
 
@@ -1238,14 +988,15 @@ def verify_legacy_density_bindings_factor_free(
         )
 
 
-def _best_fan(metric, ideal, orientation, q, candidates, budget):
+def _best_fan(metric, ideal, orientation, q, candidates, budget, *, laws=None):
+    laws = resolve_density_laws(laws)
     expected = _expected_orientation(orientation)
     budget.spend_order_steps(sum(len(items) for items in candidates))
     ordered = tuple(
         tuple(
             sorted_as_cpython311(
                 items,
-                _candidate_compare(metric, ideal, ordinal),
+                _candidate_compare(metric, ideal, ordinal, laws=laws),
             )
         )
         for ordinal, items in enumerate(candidates, start=1)
@@ -1256,16 +1007,16 @@ def _best_fan(metric, ideal, orientation, q, candidates, budget):
             last = (
                 ideal[0]
                 if not prefix
-                else _vector(*prefix[-1], metric)
+                else laws.vector(*prefix[-1], metric)
             )
             return (
                 prefix
-                if _sign(
-                    _oriented_cross(metric, last, ideal[-1]),
+                if laws.sign(
+                    laws.oriented_cross(metric, last, ideal[-1]),
                     metric,
                 )
                 == expected
-                and _subturn(
+                and laws.subturn(
                     metric,
                     last,
                     ideal[-1],
@@ -1276,18 +1027,18 @@ def _best_fan(metric, ideal, orientation, q, candidates, budget):
         previous = (
             ideal[0]
             if not prefix
-            else _vector(*prefix[-1], metric)
+            else laws.vector(*prefix[-1], metric)
         )
         for vector in ordered[ordinal]:
             budget.spend_order_steps(1)
-            candidate = _vector(*vector, metric)
+            candidate = laws.vector(*vector, metric)
             if (
-                _sign(
-                    _oriented_cross(metric, previous, candidate),
+                laws.sign(
+                    laws.oriented_cross(metric, previous, candidate),
                     metric,
                 )
                 != expected
-                or not _subturn(
+                or not laws.subturn(
                     metric,
                     previous,
                     candidate,
@@ -1312,7 +1063,9 @@ def _search(
     sealed_intervals,
     stop_height,
     budget,
+    *, laws=None,
 ):
+    laws = resolve_density_laws(laws)
     candidates = [set() for _ in records]
     previous_counts = tuple(0 for _ in records)
     # Внешние границы окон целыми: на большинстве высот оболочка пуста, и пустая высота стоит ровно один probe, как
@@ -1337,10 +1090,11 @@ def _search(
                     sealed_intervals[ordinal - 1],
                     height,
                     budget,
+                    laws=laws,
                 )
             )
         fan = (
-            _best_fan(metric, ideal, orientation, q, candidates, budget)
+            _best_fan(metric, ideal, orientation, q, candidates, budget, laws=laws)
             if all(candidates)
             else None
         )
@@ -1354,7 +1108,8 @@ def _search(
     )
 
 
-def _authority_id(q, height, fan, windows) -> str:
+def _authority_id(q, height, fan, windows, *, laws=None) -> str:
+    laws = resolve_density_laws(laws)
     if any(
         type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
         for item in windows
@@ -1398,11 +1153,13 @@ def certify_adaptive_density_fan(
     binding_reasons: tuple[DirectionBindingReasonV1 | None, ...],
     resource_height_cap: int = _RESOURCE_HEIGHT_CAP,
     window_law: str = _band.WINDOW_LAW_VORONOI,
+    laws=None,
 ) -> AdaptiveMinimalRationalFanAuthorityV2:
     """Построить одну V2-власть полного coupled Density-веера."""
+    laws = resolve_density_laws(laws)
 
-    ideal = _covectors(metric, ideal_unit_normals, window_law, orientation)
-    _, records = _window_envelopes(ideal)
+    ideal = _covectors(metric, ideal_unit_normals, window_law, orientation, laws=laws)
+    _, records = _window_envelopes(ideal, laws=laws)
     return _certify_adaptive_density_fan_prepared(
         metric,
         ideal,
@@ -1411,11 +1168,13 @@ def certify_adaptive_density_fan(
         records,
         binding_reasons=binding_reasons,
         resource_height_cap=resource_height_cap,
+        laws=laws,
     )
 
 
-def _authority_windows(records, boxes, sealed_intervals):
+def _authority_windows(records, boxes, sealed_intervals, *, laws=None):
     """Собрать wire-окна власти: atlas и одно-картное — по своей форме."""
+    laws = resolve_density_laws(laws)
 
     windows = []
     for ordinal, (record, box, sealed) in enumerate(
@@ -1462,10 +1221,12 @@ def _certify_adaptive_density_fan_prepared(
     *,
     binding_reasons,
     resource_height_cap,
+    laws=None,
 ) -> AdaptiveMinimalRationalFanAuthorityV2:
     """Достроить V2 из фактов, уже выведенных в этой транзакции."""
+    laws = resolve_density_laws(laws)
 
-    local_records = tuple(_local_record(record) for record in records)
+    local_records = tuple(_local_record(record, laws=laws) for record in records)
     uses_atlas = any(type(record) is AtlasWindowPrepared for record in records)
     boxes = _termination_boxes(
         metric,
@@ -1473,6 +1234,7 @@ def _certify_adaptive_density_fan_prepared(
         orientation,
         max_subturn_q,
         local_records,
+        laws=laws,
     )
     sealed_intervals = tuple(
         _sealed_local_interval(
@@ -1482,16 +1244,17 @@ def _certify_adaptive_density_fan_prepared(
             orientation,
             max_subturn_q,
             local_record,
+            laws=laws,
         )
         for ordinal, local_record in enumerate(local_records, start=1)
     )
     termination_height = (
         global_termination_height(
             boxes,
-            local_height=_termination_height,
+            local_height=partial(_termination_height, laws=laws),
         )
         if uses_atlas
-        else _termination_height(boxes)
+        else _termination_height(boxes, laws=laws)
     )
     stop_height = min(termination_height, resource_height_cap)
     height, fan, previous_counts, _ = (
@@ -1509,12 +1272,12 @@ def _certify_adaptive_density_fan_prepared(
                 records,
                 local_records,
                 sealed_intervals,
-                _segment_plan_laws(),
+                _segment_plan_laws(laws=laws),
             ),
-            local_candidate=_local_candidate,
+            local_candidate=partial(_local_candidate, laws=laws),
             vector_from_slope=_vector_from_slope,
-            best_fan=_best_fan,
-            budget=_work_budget(),
+            best_fan=partial(_best_fan, laws=laws),
+            budget=laws.search_budget(_work_budget),
         )
         if uses_atlas
         else _search(
@@ -1525,15 +1288,16 @@ def _certify_adaptive_density_fan_prepared(
             records,
             sealed_intervals,
             stop_height,
-            _work_budget(),
+            laws.search_budget(_work_budget),
+            laws=laws,
         )
     )
     if fan is None:
         raise DensityRationalAuthorityExhausted(
             "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
         )
-    windows = _authority_windows(records, boxes, sealed_intervals)
-    authority_id = _authority_id(max_subturn_q, height, fan, windows)
+    windows = _authority_windows(records, boxes, sealed_intervals, laws=laws)
+    authority_id = _authority_id(max_subturn_q, height, fan, windows, laws=laws)
     return AdaptiveMinimalRationalFanAuthorityV2(
         authority_id=authority_id,
         max_subturn_q=max_subturn_q,
