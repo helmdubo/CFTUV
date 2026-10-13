@@ -1,0 +1,60 @@
+R3 — локальные Windows/Blender-гейты (локальная Rust-сессия, 2026-10-14)
+=======================================================================
+
+Код: codex/r3-density-cloud-20261013 @ 61492d49 + c49955e6 (только tools/blender_tree_ab.py:
+счётчики Density native/Python/fallback в отчёте пресса; этот коммит можно взять cherry-pick'ом,
+этот файл отчёта — нет, он лишь носитель результатов).
+Колесо: maturin build --release на Windows из 61492d49, build id
+ab93d1820a2bd69601cfd57da607a7e6b99387cc56812077b9e018c58c9e25e9 (= tree id). Blender 4.5, headless.
+Сцены заморожены, хеши до/после не изменились: testscene 750baefc…, cover008 a044b5aa….
+
+1. Финальный A/B публичного default — ПРИНЯТ
+--------------------------------------------
+tree_ab, одна и та же версия кода с обеих сторон; base: CFTUV_DENSITY_BACKEND=PYTHON, branch: default.
+6 случаев (building, rounded, two, sagging0987, half_sphere, cover008) × workers 0,12,
+прессы cold,step,tick×5,confirm; native-path с проверкой build id.
+- Меш, точные результаты, бюджеты, effective alpha / W1 / snapshot_check — равны во всех 12 парах.
+- Единственное различие tree_ab: CONTENT KEYS на cold — ожидаемо: execution_identity включает
+  density_backend (envelope_content_key.py:338). Это же доказывает, что env-override сработал на base.
+  Поэтому вердикт tree_ab формально «TREE_AB_DIFFERENT cases=12 differing=12, всё — ключи».
+- Density реально нативная на default-стороне, без отката (сумма по прессам):
+    building 122, rounded 5, two 32, sagging0987 2, half_sphere 2, cover008 1048 native;
+    Python 0, именованных fallback 0 — на обоих числах воркеров.
+  base-сторона (PYTHON): native 0. Замечание: при запрошенном PYTHON счётчик density_python_calls
+  остаётся 0 (путь не идёт через ledger) — счётчик не различает «Python» и «не вызывалось».
+- Отчёты: C:\Users\helmd\.cftuv-native\r3-ab\default_ab2.json (+ work2\runs\*.json), локально.
+
+2. Холодная кнопка, реальный оператор, w12, 3 чередующихся повтора, медиана (с)
+---------------------------------------------------------------------------
+                main b0b9ae1f    R3 default (Native)    R3 Density=PYTHON
+  building      1.849            1.740  (−0.109)        3.377
+  cover008      9.673            9.870  (+0.197)        14.426
+Повторы: building main 1.930/1.849/1.847, r3 1.720/1.740/1.774;
+         cover main 9.664/9.673/9.742, r3 9.870/9.851/9.943 — регресс на cover устойчив.
+Дайджесты линий и превью main == R3 (бит-в-бит).
+Где регресс cover: целиком в пуле — run_tasks 7.473 → 7.659 (+0.186), pool wall 7463 → 7613 мс;
+родитель (bundle, adopt, mesh) без изменений; трафик пула +0.9 МБ (105.1 → 106.0 МБ).
+≈1048 нативных density-вызовов, +0.19 с стены на 12 воркерах ≈ +2 мс CPU на домен.
+Вывод: R3 Native ≈ паритет с main (building −6 %, cover +2 %); заявленного выигрыша на cover нет.
+Python-канон R3 заметно медленнее старого main (cover 14.4 против 9.7 с) — это откат, не продукт.
+
+3. Windows host suite на ветке — НЕ ЗЕЛЁНЫЙ, два дефекта ветки
+---------------------------------------------------------------
+python -m pytest tests (Python 3.13.1, без колеса в sys.path): 3417 passed, 48 skipped, 1 failed, 20 errors.
+a) FAILED test_architecture.py::test_markdown_document_count_does_not_grow — 63 > 62:
+   HANDOFF_R3.md закоммичен в корень. Убрать из дерева (или вынести вне репо) перед слиянием.
+b) 20 ERROR в tests/test_native_density_boundary.py и tests/test_native_density_memo.py:
+   фикстура native() делает importlib.import_module('cftuv_native') без skip →
+   ModuleNotFoundError в чистом клоне без колеса (AGENTS.md: чистый клон обязан быть зелёным).
+   Нужен skip при отсутствии модуля (как у остальных нативных тестов), если не задан
+   CFTUV_DENSITY_CANDIDATE_PACKAGE.
+   С колесом (CFTUV_DENSITY_CANDIDATE_PACKAGE=r3-native): 20 passed на Windows.
+
+4. Ошибка очистки PID «owned PID creation mismatch/stop rejected» — не воспроизведена
+------------------------------------------------------------------------------------
+Строки этого сообщения нет в репозитории — она из внешнего harness Codex.
+Два полных прогона tree_ab выше (48 процессов Blender, включая cover008 w0 и w12) и 18 прогонов
+тайминга: все exit 0, pids.log без ошибок, сцены не изменились. Проверку PID/времени создания
+не трогали. Если нужно воспроизведение — нужен сам тот harness.
+
+Не делалось: kernel-suite на Windows, повтор после будущих правок продукта (сделаю по запросу).
