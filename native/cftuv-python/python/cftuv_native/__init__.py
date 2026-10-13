@@ -24,6 +24,10 @@
 переводится один раз, пара идёт по четырём текстам; чистый лист без состояния; контракт — `effective_alpha_op.py`): пару, которую порт не несёт, он отказывает по имени ДО вычисления (`NativePortUnsupported`),
 и её считает эталон со своими счётами и своим резервным путём через sympy.
 
+Шестая целая операция — `snapshot_check` (проверка снапшота анализа, которую воркер EXPORT делает дважды на домен: `validate_analysis_snapshot` и `validate_reference_geometry_payload`; контракт — `snapshot_check_op.py`):
+ЧИСТО ИЛИ ОТКАЗ. Расширение либо доказывает, что валидаторы Python не нашли бы ничего, и возвращает свидетельство (с приращениями счётчиков, которые эти валидаторы оставили бы), либо отказывает по имени ДО любого
+эффекта (`NativePortUnsupported`), и вызывающий гонит валидаторы Python как раньше: отказ с его текстом выдаёт эталон, а не порт.
+
 `radical_v2_eval` — не стадия продукта, а ВОЗМОЖНОСТЬ расширения (`native_status()["radical_v2"]`, закрепление `reference/radical_v2.py`): программа операций над `RadicalSumV2` (`native/cftuv-radical`, побитовое
 зеркало эталона S2 — цены, отказы, тексты, провода) для сверки с эталоном и замеров; хост её не зовёт, потребитель появится с переносом ядра плотности на Rust. Контракт программы — `tools/native_radical_v2_corpus.py`.
 
@@ -43,7 +47,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, materialize_w1_op, pin
+from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, materialize_w1_op, pin, snapshot_check_op
 
 __all__ = (
     "CostMirror",
@@ -64,6 +68,7 @@ __all__ = (
     "exact_mesh",
     "canonical_triangles",
     "last_w1_timings",
+    "last_snapshot_check_timings",
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
@@ -91,6 +96,9 @@ __all__ = (
     "skeleton_seam_table",
     "slot_counters",
     "slot_mode",
+    "snapshot_check",
+    "snapshot_check_raw_layouts",
+    "warm_snapshot_check",
     "squarefree_split",
     "tree_digest",
 )
@@ -185,7 +193,7 @@ def tree_digest(native_root) -> str:
 
 
 def native_status() -> dict:
-    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`, `effective_alpha`) and the capability `radical_v2` (the mirror of the `RadicalSumV2` oracle, not a product stage).
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`, `effective_alpha`, `materialize_w1`, `snapshot_check`) and the capability `radical_v2` (the mirror of the `RadicalSumV2` oracle, not a product stage).
 
     `unsupported_python` only below the floor (`pin.MINIMUM_PYTHON`, 3.11); the ports are tested on 3.11 and 3.13 (`pin.TESTED_PYTHON`) and nothing in their
     answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
@@ -273,6 +281,33 @@ def snap_embedding_certificate(before, after, faces, intended_corners, unclassif
     """
 
     return embedding_op.snap_embedding_certificate(_core.snap_embedding, before, after, faces, intended_corners, unclassifiable_corners, snapping_law)
+
+
+def snapshot_check(snapshot, scope=snapshot_check_op.SCOPE_ANALYSIS_AND_REFERENCE):
+    """`SnapshotCheckV1` когда валидаторы Python области `scope` ничего бы не нашли в `snapshot`, иначе `NativePortUnsupported` с причиной (см. `snapshot_check_op.py`).
+
+    Отказ порта (`NATIVE_REFUSALS`: устаревший пин, снапшот, которого порт не несёт) ничего не меняет; вызывающий гонит валидаторы Python на том же снапшоте.
+    """
+
+    return snapshot_check_op.snapshot_check(_core, snapshot, scope)
+
+
+def warm_snapshot_check() -> bool:
+    """Binds the `snapshot_check` reader to the live kernel ahead of the first domain (see `snapshot_check_op.warm`); `True` when bound."""
+
+    return snapshot_check_op.warm(_core)
+
+
+def snapshot_check_raw_layouts() -> dict:
+    """`{class name: True when the raw slot reader confirmed that class's layout}` of the `snapshot_check` reader (all True under `auto`/`raw`, all False under `attr`; see `CFTUV_NATIVE_SLOTS`)."""
+
+    return snapshot_check_op.raw_layouts(_core)
+
+
+def last_snapshot_check_timings() -> tuple:
+    """Nanoseconds of the last `snapshot_check`: `(read the graph, check the model)`."""
+
+    return snapshot_check_op.last_timings()
 
 
 def effective_alpha_contacts(source, boundary, frame):

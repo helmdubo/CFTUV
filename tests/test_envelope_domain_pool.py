@@ -1218,6 +1218,15 @@ def test_a_ready_worker_has_its_code_identities_before_its_first_task():
             "assert _fingerprint_once.cache_info().currsize == 0 and kernel_code_identity.cache_info().currsize == 0",
             "report = warm_worker_identities()",
             "print('REPORT', report['outcome'], _fingerprint_once.cache_info().currsize, kernel_code_identity.cache_info().currsize)",
+            # the native reader of the snapshot validators is bound in the start too (its one-time digests are not the first domain's), when the extension is there and its pin holds
+            "try:",
+            "    import cftuv_native",
+            "    ready = cftuv_native.native_status().get('snapshot_check') == 'available'",
+            "except ModuleNotFoundError:",
+            "    ready = False",
+            "if ready:",
+            "    from cftuv_native import snapshot_check_op",
+            "    assert snapshot_check_op._KERNEL, 'the reader of the snapshot validators is not bound by the worker start'",
         )
     )
     environment = dict(os.environ)

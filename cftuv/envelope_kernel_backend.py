@@ -1,19 +1,19 @@
 """Бэкенд ядра в хосте: ГЛАВНЫЙ переключатель «Kernel backend», порядки стадий, запись бэкенда на каждом домене и строка журнала.
 
-Ядро умеет считать горячие операции нативно (`cftuv_envelope.backend`: покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha, W1 материализации: точная сетка слитых граней), и выбор бэкенда — НЕ политика
+Ядро умеет считать горячие операции нативно (`cftuv_envelope.backend`: покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha, W1 материализации: точная сетка слитых граней, проверка снапшота EXPORT: чисто или отказ), и выбор бэкенда — НЕ политика
 запроса: ответ побитово один. Поэтому здесь нет ни слова о геометрии. Здесь четыре вещи:
 
 * ГЛАВНЫЙ ПЕРЕКЛЮЧАТЕЛЬ. `kernel_backend` (`PYTHON` | `NATIVE`) — ЕДИНСТВЕННАЯ настройка владельца: она заказывает ВСЕ стадии, которые ядро считает на Rust
-  (покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha, W1 материализации и любая будущая стадия). `NATIVE` — каждая стадия считает нативную реализацию там, где она есть
+  (покрытие и резка, скелет, вложение привязки источника, лист контактов резолвера эффективной alpha, W1 материализации, проверка снапшота EXPORT и любая будущая стадия). `NATIVE` — каждая стадия считает нативную реализацию там, где она есть
   (нет колеса либо порт устарел — стадия считает Python, и строка журнала это называет: `NATIVE_UNAVAILABLE`, `NATIVE_PORT_STALE`, ...; тихого отката нет);
   `PYTHON` — Python-эталон на каждой стадии. Настройка живёт в настройках сцены (`HOTSPOTUV_DecalMeshSettings`), едет в прогон (`run_production`), в задачу пула
   (`DomainTaskV1`) и в запись живой ширины. Умолчание — `NATIVE` (`DEFAULT_KERNEL_BACKEND`, решение владельца 2026-10-07; Python — замороженный эталон и
   именованный откат). СТАРЫЕ СЦЕНЫ: свойство Blender хранит значение только когда его присвоили, поэтому сцена, где `kernel_backend` не трогали, читает умолчание
   `NATIVE`, а сцена с выбранным `PYTHON` остаётся на нём. Порядок `KERNEL_BACKEND_ITEMS` — формат хранения (в сцене лежит индекс): `PYTHON` — 0, `NATIVE` — 1
   (проверяет `tests/blender/test_envelope_kernel_backend_default.py`).
-* СТАДИИ ПО СРЕДЕ (`STAGE_ENVIRONMENT`). Лист контактов резолвера эффективной alpha (`effective_alpha`, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1) и W1 материализации (`materialize_w1`: точная сетка слитых граней,
-  MATERIALIZE_W1_NATIVE_DEFAULT_V1) идут за главным переключателем, как остальные стадии (умолчание `NATIVE`). Среда процесса — НЕ настройка продукта, а крюк A/B и тестов:
-  `CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON` и `CFTUV_MATERIALIZE_W1_BACKEND=PYTHON` изолируют свою стадию (порядок `run_production` постадийный параметр стадии не несёт), а `NATIVE` подтверждает её.
+* СТАДИИ ПО СРЕДЕ (`STAGE_ENVIRONMENT`). Лист контактов резолвера эффективной alpha (`effective_alpha`, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1), W1 материализации (`materialize_w1`: точная сетка слитых граней,
+  MATERIALIZE_W1_NATIVE_DEFAULT_V1) и проверка снапшота EXPORT (`snapshot_check`, SNAPSHOT_CHECK_NATIVE_DEFAULT_V1) идут за главным переключателем, как остальные стадии (умолчание `NATIVE`). Среда процесса — НЕ настройка продукта, а крюк A/B и тестов:
+  `CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON`, `CFTUV_MATERIALIZE_W1_BACKEND=PYTHON` и `CFTUV_SNAPSHOT_CHECK_BACKEND=PYTHON` изолируют свою стадию (порядок `run_production` постадийный параметр стадии не несёт), а `NATIVE` подтверждает её.
   Переменная читается при каждом выводе порядков, задаётся ДО запуска процесса (воркеры пула берут её из среды родителя) и не поднимает стадию над главным переключателем `PYTHON`.
 * ПОРЯДКИ СТАДИЙ. `stage_orders` — ЕДИНСТВЕННОЕ место, где из главного переключателя выводятся порядки стадий (`StageOrdersV1`). Постадийный выбор остаётся
   ТОЛЬКО в API и инструментах (`run_production(..., skeleton_backend=..., embedding_backend=...)`, A/B-инструменты): `None` значит «как главный переключатель»,
@@ -85,6 +85,7 @@ STAGES = (
     ("snap_embedding", "embedding"),
     ("effective_alpha", "effective alpha"),
     ("materialize_w1", "materialize W1"),
+    ("snapshot_check", "snapshot check"),
 )
 #: Какой признак `NativeStatusV1` говорит, что стадия готова нативно.
 _STATUS_FLAGS = {
@@ -93,10 +94,11 @@ _STATUS_FLAGS = {
     "snap_embedding": "embedding_available",
     "effective_alpha": "effective_alpha_available",
     "materialize_w1": "materialize_w1_available",
+    "snapshot_check": "snapshot_check_available",
 }
 #: Переменная среды, которой A/B и тесты заказывают порядок ОДНОЙ стадии мимо главного переключателя (`PYTHON` | `NATIVE`; крюк инструментов, не настройка продукта): читается только без явного порядка
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
-STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND"}
+STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND"}
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
 
@@ -121,11 +123,12 @@ class StageOrdersV1:
     snap_embedding: str
     effective_alpha: str
     materialize_w1: str
+    snapshot_check: str
 
     def as_arguments(self) -> tuple:
-        """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend)` для `cftuv_envelope.backend.use_backend`."""
+        """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend)` для `cftuv_envelope.backend.use_backend`."""
 
-        return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha, self.materialize_w1)
+        return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha, self.materialize_w1, self.snapshot_check)
 
 
 def environment_order(stage: str, master: str) -> str:
@@ -138,11 +141,16 @@ def environment_order(stage: str, master: str) -> str:
 
 
 def stage_orders(
-    kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None
+    kernel_backend=DEFAULT_KERNEL_BACKEND,
+    skeleton_backend=None,
+    embedding_backend=None,
+    effective_alpha_backend=None,
+    materialize_backend=None,
+    snapshot_check_backend=None,
 ) -> StageOrdersV1:
     """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
-    `kernel_backend` — главный переключатель (он же порядок покрытия и резки); `None` у `skeleton_backend`, `embedding_backend`, `effective_alpha_backend` и `materialize_backend` — «как главный переключатель»
+    `kernel_backend` — главный переключатель (он же порядок покрытия и резки); `None` у `skeleton_backend`, `embedding_backend`, `effective_alpha_backend`, `materialize_backend` и `snapshot_check_backend` — «как главный переключатель»
     (стадия со средой — по `environment_order`), явное имя — постадийный порядок (API и инструменты: A/B одной стадии, корпус эталона). Продуктовый путь (кнопка, живая ширина, воркеры пула) постадийного порядка не задаёт.
     """
 
@@ -153,6 +161,7 @@ def stage_orders(
         master if embedding_backend is None else normalize_kernel_backend(embedding_backend),
         environment_order("effective_alpha", master) if effective_alpha_backend is None else normalize_kernel_backend(effective_alpha_backend),
         environment_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
+        environment_order("snapshot_check", master) if snapshot_check_backend is None else normalize_kernel_backend(snapshot_check_backend),
     )
 
 
@@ -219,20 +228,23 @@ def fold_legacy_skeleton_setting(mesh_settings):
     return legacy
 
 
-def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None) -> str:
-    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...`, `|effective_alpha=...` и `|materialize_w1=...` при нативных стадиях.
+def backend_identity_of(
+    kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None, snapshot_check_backend=None
+) -> str:
+    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...`, `|effective_alpha=...`, `|materialize_w1=...` и `|snapshot_check=...` при нативных стадиях.
 
     Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend)
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
         base = orders.coverage_clip if orders.skeleton == KERNEL_BACKEND_PYTHON else f"{orders.coverage_clip}|skeleton={orders.skeleton}"
         base = base if orders.snap_embedding == KERNEL_BACKEND_PYTHON else f"{base}|snap_embedding={orders.snap_embedding}"
         base = base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
-        return base if orders.materialize_w1 == KERNEL_BACKEND_PYTHON else f"{base}|materialize_w1={orders.materialize_w1}"
+        base = base if orders.materialize_w1 == KERNEL_BACKEND_PYTHON else f"{base}|materialize_w1={orders.materialize_w1}"
+        return base if orders.snapshot_check == KERNEL_BACKEND_PYTHON else f"{base}|snapshot_check={orders.snapshot_check}"
     return backend_identity(*orders.as_arguments())
 
 
@@ -413,7 +425,12 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
     recorded = next((item.backend_record for item in results if getattr(item, "backend_record", None) is not None), None)
     if recorded is not None:
         orders = StageOrdersV1(
-            recorded.requested, recorded.skeleton_requested, recorded.embedding_requested, recorded.effective_alpha_requested, recorded.materialize_requested
+            recorded.requested,
+            recorded.skeleton_requested,
+            recorded.embedding_requested,
+            recorded.effective_alpha_requested,
+            recorded.materialize_requested,
+            recorded.snapshot_check_requested,
         )
     counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
     patches = {name: {} for name, _label in STAGES}
@@ -431,6 +448,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             "snap_embedding": (record.embedding_ran, record.embedding_outcomes),
             "effective_alpha": (record.effective_alpha_ran, record.effective_alpha_outcomes),
             "materialize_w1": (record.materialize_ran, record.materialize_outcomes),
+            "snapshot_check": (record.snapshot_check_ran, record.snapshot_check_outcomes),
         }
         for name, _label in STAGES:
             ran, outcomes = views[name]

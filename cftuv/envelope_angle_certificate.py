@@ -164,10 +164,15 @@ def _reject_snapshot(kernel, snapshot, *, stage: str) -> None:
 def reject_exported_snapshot(kernel, snapshot) -> None:
     """ШОВ ДИСПЕТЧЕРИЗАЦИИ `snapshot_check` (проверка ОБЪЕКТА снапшота на выгрузке): оба валидатора ядра, отказ - `SnapshotExportRejected`.
 
-    Сегодня это `_reject_snapshot` над самим объектом. Круг кодека (`check_snapshot_bytes`) этим швом НЕ идёт: он зовёт `_reject_snapshot` напрямую над ДЕКОДИРОВАННЫМ
-    объектом и остаётся независимым эталоном любого другого вердикта (`tests/test_envelope_export_seams.py`).
+    Сначала диспетчер стадии `snapshot_check` (`cftuv_envelope.backend.snapshot_check_compute`): нативная проверка либо ДОКАЗЫВАЕТ, что оба валидатора ничего бы не нашли (тогда возврат), либо
+    не доказывает (стадия не заказана, колеса нет, снапшот, которого порт не несёт), и валидаторы Python идут как раньше - отказ с его текстом выдают они, а не порт. Круг кодека (`check_snapshot_bytes`)
+    этим швом НЕ идёт: он зовёт `_reject_snapshot` напрямую над ДЕКОДИРОВАННЫМ объектом и остаётся независимым эталоном любого другого вердикта (`tests/test_envelope_export_seams.py`).
     """
 
+    from cftuv_envelope import backend
+
+    if backend.snapshot_check_compute(snapshot, backend.SNAPSHOT_CHECK_EXPORT):
+        return
     _reject_snapshot(kernel, snapshot, stage="snapshot")
 
 

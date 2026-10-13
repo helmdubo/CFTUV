@@ -1872,7 +1872,7 @@ def _load_native_pin():
 def test_the_native_pins_hold_one_digest_per_mirrored_file():
     pin = _load_native_pin()
     listed = {name for files in pin.OPERATION_FILES.values() for name in files}
-    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "radical_v2"}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "radical_v2"}
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
@@ -1892,6 +1892,30 @@ def test_the_radical_v2_mirror_is_a_leaf_crate_with_no_float_in_its_algebra_and_
         source = re.sub(r"//[^\n]*", "", (crate / "src" / f"{module}.rs").read_text(encoding="utf-8"))
         assert not re.search(r"\bf(32|64)\b", source), f"{module}.rs: a float in the exact algebra"
     assert "radical_v2" not in RUST_ONLY_OPERATIONS
+
+
+def test_the_snapshot_check_crate_is_pure_and_can_only_attest_or_decline():
+    """`native/cftuv-snapshot` is the proof that the Python snapshot validators would report nothing (EXPORT S3). It is pure (big integers and the exact layers, no Python, no I/O, no unsafe), and its
+    verdict has two answers only: an attestation or a NAMED decline. There is no third ("refused"): a snapshot with an issue is declined, and the Python validators, which run exactly as before, say
+    what is wrong. Silent acceptance is what the rule 4 of AGENTS.md forbids; the one place where the port speaks is the attestation, and its soundness is the mutation corpus
+    (`tests/test_native_snapshot_check.py`). The shim raises nothing but the decline (or the stale pin), so the host fallback is the only road for everything the port did not prove."""
+
+    import re
+
+    crate = REPO_ROOT / "native" / "cftuv-snapshot"
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    dependencies = re.search(r"^\[dependencies\]\s*$(.*?)(?=^\[|\Z)", manifest, re.MULTILINE | re.DOTALL).group(1)
+    assert {line.split("=")[0].strip().split(".")[0] for line in dependencies.splitlines() if "=" in line and not line.lstrip().startswith("#")} == {"dashu-int", "cftuv-core", "cftuv-canon"}
+    for source in sorted((crate / "src").glob("*.rs")):
+        text = re.sub(r"//[^\n]*", "", source.read_text(encoding="utf-8"))
+        assert not re.search(r"pyo3|\bunsafe\b|std::(fs|env|process|net|thread)\b", text), f"{source.name}: the proof is pure"
+    verdict = re.sub(r"//[^\n]*", "", (crate / "src" / "verdict.rs").read_text(encoding="utf-8"))
+    variants = re.search(r"pub enum Reason \{(.*?)\}", verdict, re.DOTALL).group(1)
+    assert re.findall(r"^\s*([A-Z][A-Za-z]+),", variants, re.MULTILINE) == ["Issue", "Unsupported", "Shape", "Mode", "Undecided"], "a decline has a named reason; there is no refusal"
+    assert not re.search(r"Refus|Reject", verdict)
+    shim = ast.parse((REPO_ROOT / "native" / "cftuv-python" / "python" / "cftuv_native" / "snapshot_check_op.py").read_text(encoding="utf-8"))
+    raised = {ast.unparse(node.exc.func if isinstance(node.exc, ast.Call) else node.exc) for node in ast.walk(shim) if isinstance(node, ast.Raise) and node.exc is not None}
+    assert raised <= {"pin.NativePortUnsupported", "pin.NativePortStale"}, f"the shim answers with an attestation, a decline or a stale pin; raised: {sorted(raised)}"
 
 
 # --------------------------------------------------------------------------
@@ -2136,7 +2160,7 @@ def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
 #: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
 #: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
-RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1")
+RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check")
 
 
 def test_python_sources_of_rust_only_stages_stay_at_their_pin():

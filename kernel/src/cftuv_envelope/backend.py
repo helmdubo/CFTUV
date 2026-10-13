@@ -24,6 +24,11 @@ B1 — отдельный чистый лист `embedding_compute` (`_embedding
 не требует от колеса остальных операций. Оба входа — ЦЕЛЫЕ операции со всеми побочными эффектами эталона (бюджет, память канонизации, `SIGN_COUNTS`, строки `notes`); порт, который вход не несёт, откатывается
 на эталон по имени (`NATIVE_PORT_UNSUPPORTED`).
 
+СЕДЬМАЯ СТАДИЯ — проверка снапшота анализа `snapshot_check_compute` (стадия EXPORT воркера: `validate_analysis_snapshot` и `validate_reference_geometry_payload`; ЧИСТО ИЛИ ОТКАЗ). Заказывается параметром
+`snapshot_check_backend` и, как B1, не требует от колеса остальных операций. Порт НИКОГДА не отказывает снапшот сам: он либо доказывает, что валидаторы Python ничего бы не нашли, и диспетчер оставляет на счётчиках
+`symbolic_backend.BACKEND_COUNTS` те же приращения, что оставили бы валидаторы, либо отказывает по имени (`NATIVE_PORT_UNSUPPORTED`: другой сертификат метрики, угол, который порт не решает), и вызывающий гонит валидаторы
+Python как раньше — отказ с его текстом выдаёт эталон. Эталон остаётся независимым судьёй фоновой проверки байтов: её проверка ДЕКОДИРОВАННОГО объекта диспетчера не зовёт.
+
 СТАДИИ ЗАКАЗЫВАЮТСЯ ПОРОЗНЬ. `use_backend(backend, skeleton_backend)`: `backend` заказывает покрытие и резку, `skeleton_backend`
 (умолчание `PYTHON`) — скелет; продукт переводит стадии на Rust по одной, и покрытие с резкой могут считать нативно, пока скелет
 считает эталон. Журнал домена (`BackendRecordV1`) несёт скелет ОТДЕЛЬНО (`skeleton_*`): счёты, откаты и исходы покрытия с резкой
@@ -107,6 +112,11 @@ EMBEDDING = "snap_embedding"
 EFFECTIVE_ALPHA = "effective_alpha"
 #: Шестая целая операция: W1 материализации (`materialize.mesh.exact_mesh` и `materialize.mesh.canonical_triangles`).
 MATERIALIZE_W1 = "materialize_w1"
+#: Седьмая целая операция: проверка снапшота анализа (`validation_snapshot.validate_analysis_snapshot` и `reference.validation.validate_reference_geometry_payload`), чисто или отказ.
+SNAPSHOT_CHECK = "snapshot_check"
+#: `scope` операции `snapshot_check`: только `validate_analysis_snapshot` (замечания под допуском запроса) либо ещё и `validate_reference_geometry_payload` каждого домена (проверка объекта на выгрузке).
+SNAPSHOT_CHECK_ANALYSIS = 0
+SNAPSHOT_CHECK_EXPORT = 1
 #: Статус операции нативного ядра, когда `cftuv_native` не импортируется.
 UNAVAILABLE = "unavailable"
 #: Сколько символов текста исключения несёт запись об откате.
@@ -236,6 +246,7 @@ class NativeStatusV1:
     embedding: str = UNAVAILABLE
     effective_alpha: str = UNAVAILABLE
     materialize_w1: str = UNAVAILABLE
+    snapshot_check: str = UNAVAILABLE
 
     @property
     def available(self) -> bool:
@@ -257,11 +268,16 @@ class NativeStatusV1:
     def materialize_w1_available(self) -> bool:
         return self.materialize_w1 == "available"
 
+    @property
+    def snapshot_check_available(self) -> bool:
+        return self.snapshot_check == "available"
+
     def as_record(self) -> dict:
         return {
             "snap_embedding": self.embedding,
             "effective_alpha": self.effective_alpha,
             "materialize_w1": self.materialize_w1,
+            "snapshot_check": self.snapshot_check,
             "coverage": self.coverage,
             "clip": self.clip,
             "skeleton": self.skeleton,
@@ -283,7 +299,7 @@ def native_status() -> NativeStatusV1:
         build_id = str(module.native_build_id())
     except Exception as exc:  # noqa: BLE001 - статус, который не удалось снять, назван, а не брошен
         return NativeStatusV1(UNAVAILABLE, UNAVAILABLE, "", f"native_status failed: {type(exc).__name__}: {exc}"[:DETAIL_LIMIT])
-    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)))
+    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)), str(raw.get(SNAPSHOT_CHECK, UNAVAILABLE)))
 
 
 def stage_identity(backend) -> str:
@@ -311,15 +327,16 @@ def backend_identity(
     embedding_backend=KernelBackendV1.PYTHON,
     effective_alpha_backend=KernelBackendV1.PYTHON,
     materialize_backend=KernelBackendV1.PYTHON,
+    snapshot_check_backend=KernelBackendV1.PYTHON,
 ) -> str:
     """Идентичность исполнения для ключей кэшей: стадия покрытия и резки (`stage_identity(backend)`) и, если скелет считает нативное ядро, его стадия.
 
     Скелет на `PYTHON` (умолчание) не меняет строку: ключи прогона без нативного скелета те же, что и были. Нативный скелет добавляет `|skeleton=NATIVE:<id>`,
-    и результат (подготовка, ответ домена), посчитанный одним составом бэкендов, не читается как результат другого. Так же стадии `effective_alpha` и `materialize_w1`: `|effective_alpha=NATIVE:<id>`.
+    и результат (подготовка, ответ домена), посчитанный одним составом бэкендов, не читается как результат другого. Так же стадии `effective_alpha`, `materialize_w1` и `snapshot_check`: `|effective_alpha=NATIVE:<id>`.
     """
 
     base = stage_identity(backend)
-    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend), (EFFECTIVE_ALPHA, effective_alpha_backend), (MATERIALIZE_W1, materialize_backend)):
+    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend), (EFFECTIVE_ALPHA, effective_alpha_backend), (MATERIALIZE_W1, materialize_backend), (SNAPSHOT_CHECK, snapshot_check_backend)):
         if normalize_backend(choice) is KernelBackendV1.NATIVE:
             base += f"|{stage}={stage_identity(choice)}"
     return base
@@ -363,6 +380,10 @@ class BackendRecordV1:
     materialize_native_calls: int = 0
     materialize_python_calls: int = 0
     materialize_fallbacks: tuple = ()
+    snapshot_check_requested: str = KernelBackendV1.PYTHON.value
+    snapshot_check_native_calls: int = 0
+    snapshot_check_python_calls: int = 0
+    snapshot_check_fallbacks: tuple = ()
 
     @property
     def ran(self) -> str:
@@ -438,6 +459,20 @@ class BackendRecordV1:
     def materialize_outcomes(self) -> tuple:
         return tuple(sorted({item[0] for item in self.materialize_fallbacks}))
 
+    @property
+    def snapshot_check_ran(self) -> str:
+        """`native` / `python` / `mixed` по проверкам снапшота этого домена (две на домен: объект на выгрузке и замечания под допуском запроса); пусто — стадия не считала (заказ `PYTHON`, домен из кэша)."""
+
+        if not (self.snapshot_check_native_calls or self.snapshot_check_python_calls):
+            return ""
+        if not self.snapshot_check_native_calls:
+            return "python"
+        return "native" if not self.snapshot_check_python_calls else "mixed"
+
+    @property
+    def snapshot_check_outcomes(self) -> tuple:
+        return tuple(sorted({item[0] for item in self.snapshot_check_fallbacks}))
+
     def merged(self, other: "BackendRecordV1 | None") -> "BackendRecordV1":
         """Запись домена из двух блоков (`other` — второй по времени, обычно материализация): счёты складываются, откаты сливаются по `(исход, операция)`.
 
@@ -468,6 +503,10 @@ class BackendRecordV1:
             self.materialize_native_calls + other.materialize_native_calls,
             self.materialize_python_calls + other.materialize_python_calls,
             _merged_fallbacks(self.materialize_fallbacks, other.materialize_fallbacks),
+            self.snapshot_check_requested,
+            self.snapshot_check_native_calls + other.snapshot_check_native_calls,
+            self.snapshot_check_python_calls + other.snapshot_check_python_calls,
+            _merged_fallbacks(self.snapshot_check_fallbacks, other.snapshot_check_fallbacks),
         )
 
     def as_record(self) -> dict:
@@ -503,6 +542,12 @@ class BackendRecordV1:
             "materialize_python_calls": self.materialize_python_calls,
             "materialize_outcomes": list(self.materialize_outcomes),
             "materialize_fallbacks": [list(item) for item in self.materialize_fallbacks],
+            "snapshot_check_requested": self.snapshot_check_requested,
+            "snapshot_check_ran": self.snapshot_check_ran,
+            "snapshot_check_native_calls": self.snapshot_check_native_calls,
+            "snapshot_check_python_calls": self.snapshot_check_python_calls,
+            "snapshot_check_outcomes": list(self.snapshot_check_outcomes),
+            "snapshot_check_fallbacks": [list(item) for item in self.snapshot_check_fallbacks],
         }
 
 
@@ -522,7 +567,7 @@ class BackendLedgerV1:
     `requested` заказывает покрытие и резку, `skeleton_requested` — скелет; точка диспетчеризации стадии, чей заказ `PYTHON`, зовёт эталон напрямую и журнала не пишет.
     """
 
-    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "effective_alpha_requested", "materialize_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
+    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "effective_alpha_requested", "materialize_requested", "snapshot_check_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
 
     def __init__(
         self,
@@ -531,12 +576,14 @@ class BackendLedgerV1:
         embedding_requested: str = KernelBackendV1.PYTHON.value,
         effective_alpha_requested: str = KernelBackendV1.PYTHON.value,
         materialize_requested: str = KernelBackendV1.PYTHON.value,
+        snapshot_check_requested: str = KernelBackendV1.PYTHON.value,
     ) -> None:
         self.requested = requested
         self.skeleton_requested = skeleton_requested
         self.embedding_requested = embedding_requested
         self.effective_alpha_requested = effective_alpha_requested
         self.materialize_requested = materialize_requested
+        self.snapshot_check_requested = snapshot_check_requested
         self.embedding_cache_hits = 0
         self.native: dict = {}
         self.python: dict = {}
@@ -563,6 +610,10 @@ class BackendLedgerV1:
     @property
     def materialize_native(self) -> bool:
         return self.materialize_requested == KernelBackendV1.NATIVE.value
+
+    @property
+    def snapshot_check_native(self) -> bool:
+        return self.snapshot_check_requested == KernelBackendV1.NATIVE.value
 
     def note_native(self, operation: str) -> None:
         self.native[operation] = self.native.get(operation, 0) + 1
@@ -610,6 +661,10 @@ class BackendLedgerV1:
             self.native.get(MATERIALIZE_W1, 0),
             self.python.get(MATERIALIZE_W1, 0),
             fallbacks((MATERIALIZE_W1,)),
+            self.snapshot_check_requested,
+            self.native.get(SNAPSHOT_CHECK, 0),
+            self.python.get(SNAPSHOT_CHECK, 0),
+            fallbacks((SNAPSHOT_CHECK,)),
         )
 
 
@@ -624,10 +679,11 @@ def use_backend(
     embedding_backend=KernelBackendV1.PYTHON,
     effective_alpha_backend=KernelBackendV1.PYTHON,
     materialize_backend=KernelBackendV1.PYTHON,
+    snapshot_check_backend=KernelBackendV1.PYTHON,
     *,
     borrowed_ledger=None,
 ):
-    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет, B1 (`embedding_backend`) лист резолвера эффективной alpha (`effective_alpha_backend`) и W1 материализации (`materialize_backend`).
+    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет, B1 (`embedding_backend`) лист резолвера эффективной alpha (`effective_alpha_backend`) и W1 материализации (`materialize_backend`) и проверка снапшота (`snapshot_check_backend`).
 
     `borrowed_ledger` допустим только внутри scope владельца с тем же выбором: вложенная подготовка не заводит второй журнал.
 
@@ -639,14 +695,16 @@ def use_backend(
     embedding = normalize_backend(embedding_backend)
     effective_alpha = normalize_backend(effective_alpha_backend)
     materialize = normalize_backend(materialize_backend)
+    snapshot_check = normalize_backend(snapshot_check_backend)
     if borrowed_ledger is not None:
-        requested = (choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value)
+        requested = (choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value, snapshot_check.value)
         actual = (
             borrowed_ledger.requested,
             borrowed_ledger.skeleton_requested,
             borrowed_ledger.embedding_requested,
             borrowed_ledger.effective_alpha_requested,
             borrowed_ledger.materialize_requested,
+            borrowed_ledger.snapshot_check_requested,
         )
         if _SCOPE.get() is not borrowed_ledger or actual != requested:
             raise ValueError("BACKEND_BORROW_SCOPE_MISMATCH: preparation must borrow its active owner ledger")
@@ -654,8 +712,8 @@ def use_backend(
         return
     native = KernelBackendV1.NATIVE
     ledger = (
-        BackendLedgerV1(choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value)
-        if native in (choice, skeleton, embedding, effective_alpha, materialize)
+        BackendLedgerV1(choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value, snapshot_check.value)
+        if native in (choice, skeleton, embedding, effective_alpha, materialize, snapshot_check)
         else None
     )
     token = _SCOPE.set(ledger)
@@ -692,6 +750,11 @@ def active_effective_alpha_backend() -> KernelBackendV1:
 def active_materialize_backend() -> KernelBackendV1:
     ledger = _SCOPE.get()
     return KernelBackendV1.NATIVE if ledger is not None and ledger.materialize_native else KernelBackendV1.PYTHON
+
+
+def active_snapshot_check_backend() -> KernelBackendV1:
+    ledger = _SCOPE.get()
+    return KernelBackendV1.NATIVE if ledger is not None and ledger.snapshot_check_native else KernelBackendV1.PYTHON
 
 
 def note_embedding_cache_hit() -> None:
@@ -1005,6 +1068,53 @@ def canonical_triangles_compute(oracle, frame_faces, cycles, budget, reverse):
     return answer if done else oracle(*arguments)
 
 
+def warm_snapshot_check() -> bool:
+    """Привязывает нативное чтение снапшота к живому ядру ДО первого домена (разовая цена процесса: дайджесты зеркалируемых функций и таблица классов); `False` - расширения или операции нет, либо пин ушёл.
+
+    Воркер пула зовёт это в своём старте (`warm_worker_identities`), так что первая задача не платит. Откат порта (`NATIVE_REFUSALS`) здесь не ошибка: первый домен назовёт его сам (`NATIVE_PORT_STALE`).
+    """
+
+    module, _detail = _native()
+    if module is None or not hasattr(module, "warm_snapshot_check"):
+        return False
+    try:
+        return bool(module.warm_snapshot_check())
+    except module.NATIVE_REFUSALS:
+        return False
+
+
+def snapshot_check_compute(snapshot, scope):
+    """`True`, когда нативная проверка ДОКАЗАЛА, что валидаторы Python области `scope` ничего не нашли бы в `snapshot`; `False` - вызывающий гонит валидаторы Python как раньше.
+
+    `scope`: `SNAPSHOT_CHECK_ANALYSIS` (`validate_analysis_snapshot` под допуском запроса) или `SNAPSHOT_CHECK_EXPORT` (ещё и `validate_reference_geometry_payload` каждого домена, проверка объекта на
+    выгрузке). Чисто-или-отказ: порт не отказывает снапшот сам - непонятое он называет (`NATIVE_PORT_UNSUPPORTED`, текст причины в журнале домена), и отказ с его текстом выдаёт эталон. Вне блока и в блоке, где
+    стадия не заказана, вызов ничего не делает и журнала не пишет. Чистый ответ оставляет на `symbolic_backend.BACKEND_COUNTS` те же приращения, что оставили бы валидаторы
+    (`angle_certificate_sign.certified`, `angle_certificate_sign.exact_fallback.straddles_zero`): счётчики процесса не расходятся с эталоном. Эталон остаётся независимым судьёй фоновой проверки байтов:
+    её проверка декодированного объекта этот диспетчер не зовёт.
+    """
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.snapshot_check_native:
+        return False
+
+    def call(module):
+        if not hasattr(module, "snapshot_check"):
+            raise _OperationAbsent("this cftuv_native wheel has no `snapshot_check` (it predates the EXPORT operation)")
+        return module.snapshot_check(snapshot, scope)
+
+    done, answer = _attempt(ledger, SNAPSHOT_CHECK, call)
+    if not done:
+        return False
+    if answer.certified or answer.straddled:
+        from .reference import symbolic_backend
+
+        if answer.certified:
+            symbolic_backend.count("angle_certificate_sign", "certified", answer.certified)
+        if answer.straddled:
+            symbolic_backend.count("angle_certificate_sign", "exact_fallback.straddles_zero", answer.straddled)
+    return True
+
+
 __all__ = (
     "BackendLedgerV1",
     "BackendOutcomeV1",
@@ -1015,8 +1125,12 @@ __all__ = (
     "EMBEDDING",
     "EFFECTIVE_ALPHA",
     "MATERIALIZE_W1",
+    "SNAPSHOT_CHECK",
+    "SNAPSHOT_CHECK_ANALYSIS",
+    "SNAPSHOT_CHECK_EXPORT",
     "active_effective_alpha_backend",
     "active_materialize_backend",
+    "active_snapshot_check_backend",
     "canonical_triangles_compute",
     "active_embedding_backend",
     "effective_alpha_compute",
@@ -1039,6 +1153,8 @@ __all__ = (
     "normalize_backend",
     "refresh_native",
     "skeleton_compute",
+    "snapshot_check_compute",
+    "warm_snapshot_check",
     "stage_identity",
     "use_backend",
 )

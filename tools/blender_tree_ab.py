@@ -84,7 +84,7 @@ LEAN_UNCARRIED_FIELDS = ("content_digest", "semantic_digest", "vertex_normals_ha
 #: Counters a lean run adds or moves on purpose: its own class counters, and the registration in the content store (a lean result is never stored).
 LEAN_COUNTER_PREFIXES = ("PRODUCTION_REFRESH_LEAN", "PRODUCTION_CONTENT_REGISTERED")
 #: Fields that say HOW the answer was reached (counted and listed, never a failure).
-LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran", "materialize_ran")
+LABEL_FIELDS = ("step_path", "placement", "clip_memo", "ran", "effective_alpha_ran", "materialize_ran", "snapshot_check_ran")
 #: Counters whose value depends on which worker a domain landed on; each group is compared by its sum.
 SCHEDULING_GROUPS = {
     "interval path": lambda name: name == "PRODUCTION_INTERVAL_FAST_HITS" or name.startswith("PRODUCTION_INTERVAL_FALLBACK_"),
@@ -358,6 +358,9 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
     for side, press in (("base", a), ("branch", b)):
         if press.get("materialize_calls") and any(press["materialize_calls"]):
             out.notes.append(f"[{label}] {side}: W1 (exact mesh) calls computed natively {press['materialize_calls'][0]}, in Python after a named refusal {press['materialize_calls'][1]}")
+    for side, press in (("base", a), ("branch", b)):
+        if press.get("snapshot_check_calls") and any(press["snapshot_check_calls"]):
+            out.notes.append(f"[{label}] {side}: snapshot checks (EXPORT validators, two per domain) proved natively {press['snapshot_check_calls'][0]}, run by the Python validators after a named decline {press['snapshot_check_calls'][1]}")
     _counter_difference(a["profile_counters"], b["profile_counters"], allowed, is_volatile_run_counter, f"[{label}] run profile", out)
     by_name_a, by_name_b = a.get("profile_domain_counters_by_name"), b.get("profile_domain_counters_by_name")
     if by_name_a is not None and by_name_b is not None:
@@ -1063,6 +1066,9 @@ def verify_native(native_path: str, expect_prefix: str) -> dict:
         # a tree that has the W1 stage orders it natively by default (MATERIALIZE_W1_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation,
         # or the A/B compares Python with Python (the tree that has no such stage is the base side of an A/B and is not asked)
         assert host.get("materialize_w1") == "available", f"native stage materialize_w1 is {host.get('materialize_w1')}"
+    if "snapshot_check" in host and os.environ.get("CFTUV_SNAPSHOT_CHECK_BACKEND", "").strip().upper() != "PYTHON" and SNAPSHOT_RECORD_ENVIRONMENT not in os.environ:
+        # a tree that has the EXPORT stage orders it natively by default (SNAPSHOT_CHECK_NATIVE_DEFAULT_V1) unless the environment isolates it or the corpus recorder runs: the extension must have the operation
+        assert host.get("snapshot_check") == "available", f"native stage snapshot_check is {host.get('snapshot_check')}"
     return {"module": str(module.__file__), "build_id": build, "host_native_status": {key: str(value) for key, value in host.items()}}
 
 
@@ -1128,6 +1134,8 @@ def domain_rows(run) -> list:
             "effective_alpha_calls": None if record is None else [getattr(record, "effective_alpha_native_calls", 0), getattr(record, "effective_alpha_python_calls", 0)],
             "materialize_ran": None if record is None else (getattr(record, "materialize_ran", None) or None),
             "materialize_calls": None if record is None else [getattr(record, "materialize_native_calls", 0), getattr(record, "materialize_python_calls", 0)],
+            "snapshot_check_ran": None if record is None else (getattr(record, "snapshot_check_ran", None) or None),
+            "snapshot_check_calls": None if record is None else [getattr(record, "snapshot_check_native_calls", 0), getattr(record, "snapshot_check_python_calls", 0)],
         })
     return sorted(rows, key=lambda row: row["patch"])
 
@@ -1169,9 +1177,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     profile = run.profile
     alpha_calls = [sum(row["effective_alpha_calls"][index] for row in rows if row.get("effective_alpha_calls")) for index in (0, 1)]
     materialize_calls = [sum(row["materialize_calls"][index] for row in rows if row.get("materialize_calls")) for index in (0, 1)]
+    snapshot_check_calls = [sum(row["snapshot_check_calls"][index] for row in rows if row.get("snapshot_check_calls")) for index in (0, 1)]
     return {
         "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
-        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls,
+        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_domain_counters_by_name": {
@@ -1388,6 +1397,26 @@ def install_w1_recorder():
     return recorder
 
 
+SNAPSHOT_RECORD_ENVIRONMENT = "CFTUV_SNAPSHOT_RECORD_DIR"
+
+
+def install_snapshot_recorder(args):
+    """The corpus of the EXPORT stage of the pool worker (`task_inputs`) recorded from THIS run: set `CFTUV_SNAPSHOT_RECORD_DIR` to a directory and every task with an export input that the parent sends
+    to the pool is written (`tools/native_snapshot_check_corpus.py`, one file per case). The recorder runs with the stage `snapshot_check` ordered to the reference for the whole process tree (the
+    environment is inherited by the pool workers): the corpus is what the PYTHON validators saw. Pool runs only (`--workers >= 2`): the task with an export input exists only for a worker."""
+
+    directory = os.environ.get(SNAPSHOT_RECORD_ENVIRONMENT, "").strip()
+    if not directory or int(args.workers) < 2:
+        return None
+    os.environ["CFTUV_SNAPSHOT_CHECK_BACKEND"] = "PYTHON"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import native_snapshot_check_corpus as corpus
+
+    recorder = corpus.Recorder(Path(directory), args.case or args.mesh)
+    recorder.install()
+    return recorder
+
+
 def prepare_pool(args, report: dict, state: dict) -> None:
     from cftuv.envelope_domain_pool import get_domain_pool
     from cftuv.envelope_worker_python import read_worker_python
@@ -1445,6 +1474,7 @@ def worker_main(argv: list[str]) -> int:
             report["primed_identity"] = _prime_byte_check(kernel_backend_of(mesh_settings))
         state["content_key_module"], state["real_identity"] = record_content_keys(state["keys"])
         state["w1_recorder"] = install_w1_recorder()
+        state["snapshot_recorder"] = install_snapshot_recorder(args)
         run_presses(args, report, state)
     except Exception:  # noqa: BLE001 - the traceback is the report
         failure = traceback.format_exc()
@@ -1482,6 +1512,10 @@ def _finish(args, report: dict, state: dict, failure) -> int:
     if state.get("w1_recorder") is not None:
         state["w1_recorder"].write_index()
         print(f"W1_RECORDED {len(state['w1_recorder'].rows)} records {state['w1_recorder'].bytes} bytes", flush=True)
+    if state.get("snapshot_recorder") is not None:
+        recorded = state["snapshot_recorder"].close()
+        report["snapshot_recorded"] = recorded
+        print(f"SNAPSHOT_RECORDED {recorded['tasks']} tasks {recorded['file_bytes']} bytes ({recorded['raw_bytes']} raw) case={recorded['case']}", flush=True)
     report["failure"] = failure
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     print(f"TREEAB_{'OK' if failure is None else 'FAILED'} case={args.case} label={args.label} workers={args.workers} origins={report.get('worker_origins_ok')}", flush=True)

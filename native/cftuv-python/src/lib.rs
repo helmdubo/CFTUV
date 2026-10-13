@@ -16,6 +16,7 @@ mod radical_v2;
 mod refusal;
 mod skeleton;
 mod skeleton_seams;
+mod snapshot_check;
 mod view;
 
 // The digest of the Rust sources, shared with `build.rs` (which embeds it) and exposed for the tests to check the algorithm on a tree of their own.
@@ -536,6 +537,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Session>()?;
     module.add_function(wrap_pyfunction!(embedding::snap_embedding, module)?)?;
     module.add_class::<effective_alpha::AlphaFrame>()?;
+    module.add_class::<snapshot_check::SnapshotCheck>()?;
     module.add_function(wrap_pyfunction!(effective_alpha::alpha_frame, module)?)?;
     module.add_function(wrap_pyfunction!(radical_v2::radical_v2_eval, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
