@@ -161,6 +161,16 @@ def _reject_snapshot(kernel, snapshot, *, stage: str) -> None:
             )
 
 
+def reject_exported_snapshot(kernel, snapshot) -> None:
+    """ШОВ ДИСПЕТЧЕРИЗАЦИИ `snapshot_check` (проверка ОБЪЕКТА снапшота на выгрузке): оба валидатора ядра, отказ - `SnapshotExportRejected`.
+
+    Сегодня это `_reject_snapshot` над самим объектом. Круг кодека (`check_snapshot_bytes`) этим швом НЕ идёт: он зовёт `_reject_snapshot` напрямую над ДЕКОДИРОВАННЫМ
+    объектом и остаётся независимым эталоном любого другого вердикта (`tests/test_envelope_export_seams.py`).
+    """
+
+    _reject_snapshot(kernel, snapshot, stage="snapshot")
+
+
 def _reference_validation():
     import importlib
 
@@ -178,7 +188,7 @@ def validate_exported_snapshot(kernel, snapshot, *, byte_check: bool = True) -> 
     проверка декодированного объекта пропущены, байтов нет - `None`. Решение по домену принимает вызывающий и записывает счётчиком.
     """
 
-    _reject_snapshot(kernel, snapshot, stage="snapshot")
+    reject_exported_snapshot(kernel, snapshot)
     if not byte_check:
         return None
     return check_snapshot_bytes(kernel, snapshot)
@@ -207,5 +217,6 @@ __all__ = (
     "canonical_significant_digits",
     "certified_reflex_measure",
     "check_snapshot_bytes",
+    "reject_exported_snapshot",
     "validate_exported_snapshot",
 )
