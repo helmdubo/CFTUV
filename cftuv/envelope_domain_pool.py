@@ -270,6 +270,9 @@ class DomainTaskResultV1:
     backend_record: object | None = None
     #: `SnapshotCleanV1` (`envelope_snapshot_check`): воркер проверил `snapshot` и замечаний нет. Едет ТОЛЬКО со снапшотом, который выгрузил воркер.
     snapshot_check: object | None = None
+    #: REQUEST_CARRIED_IN_REPLY_V1: запрос, который воркер собрал и проверил на ЭТОМ снапшоте (`DecalRequestV1`); едет в том же кадре, что и снапшот (общие объекты остаются общими), и только вместе с ним.
+    #: Родитель берёт его вместо второй сборки того же запроса (0.14 с на `cover.008`); нет запроса (отказ сборки, снапшот родителя) - родитель собирает сам, как прежде.
+    request: object | None = None
 
     @property
     def ok(self) -> bool:

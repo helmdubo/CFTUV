@@ -225,6 +225,23 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
     return _placed(with_preparation_record(produced, ledger_record(ledger)), placement)
 
 
+#: REQUEST_CARRIED_IN_REPLY_V1: родитель берёт запрос из ответа воркера (см. `DomainTaskResultV1.request`); выключатель - для теста, что ответ прежний.
+REQUEST_CARRIED = True
+
+
+def _carried_inputs(run: _RunInputsV1, entry_key, provider, request):
+    """`(снапшот, запрос)` холодного домена: снапшот проходит принятие метрики, как прежде, а запрос - тот, что воркер собрал и проверил на этом снапшоте (REQUEST_CARRIED_IN_REPLY_V1).
+
+    Замечания снапшота читаются из памяти сессии, как их читала бы сборка запроса (`snapshot_issues_of`): принятая чистая проверка воркера лежит там, а непринятая считается здесь. Непустые замечания (воркер
+    их не видел или принять его проверку было нельзя) - сборка запроса как прежде, и она отказывает тем же исходом хоста.
+    """
+
+    snapshot = provider(entry_key[0], entry_key[1])
+    if not run.controller.snapshot_issues(snapshot, request.developable_stretch_budget):
+        return snapshot, request
+    return _inputs_of(run, entry_key, lambda _patch, _domain: snapshot)
+
+
 def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     """Родительская сторона холодного домена: выгрузка, подготовка и результат — в кэши сессии.
 
@@ -251,10 +268,12 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     if inputs is None:
         with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger, record_host_tokens() as parent_log:
             try:
-                inputs = _inputs_of(
-                    run,
-                    (entry.patch_id, entry.domain_id, entry.selected),
-                    run.hooks.snapshot_provider,
+                carried = None if reply is None or not REQUEST_CARRIED or not reply.ok else reply.request
+                entry_key = (entry.patch_id, entry.domain_id, entry.selected)
+                inputs = (
+                    _inputs_of(run, entry_key, run.hooks.snapshot_provider)
+                    if carried is None
+                    else _carried_inputs(run, entry_key, run.hooks.snapshot_provider, carried)
                 )
             except EnvelopeHostAdapterError as exc:
                 entry.export_records.append(ledger_record(ledger))
