@@ -21,6 +21,14 @@ sys.modules[PACKAGE] = package
 pins = importlib.import_module(PACKAGE + ".density_pin")
 pin = importlib.import_module(PACKAGE + ".pin")
 
+# Пин Density определён только там, где нативная операция вообще поддержана (`pin.MINIMUM_PYTHON`): ниже вердикт `unsupported_python`,
+# и живой отпечаток формы там другой по самому интерпретатору (Python 3.10 повторяет унаследованный слот в `__slots__` датакласса с `slots=True`).
+@pytest.fixture(autouse=True)
+def _density_pins_belong_to_a_supported_interpreter():
+    if not pin.python_supported():
+        from native_gate import skip_for_interpreter
+        skip_for_interpreter(f"Density pins belong to Python >= {pin.MINIMUM_PYTHON}")
+
 
 def test_live_closure_matches_loaded_oracle():
     assert pins.runtime_stale() == ()
