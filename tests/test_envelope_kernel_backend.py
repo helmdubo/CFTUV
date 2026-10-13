@@ -646,7 +646,7 @@ def _master(bundle, master, *, controller=None, workers=0):
     )
 
 
-def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_every_kernel_stage():
+def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_every_kernel_stage(monkeypatch):
     import dataclasses
     import inspect
 
@@ -672,6 +672,8 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     assert density.default is kernel_backend.KernelBackendV1.PYTHON
     assert kernel_backend.DENSITY not in stages
     stage_arguments = [name for name in signature.parameters if name not in ("borrowed_ledger", "density_backend")]
+    monkeypatch.delenv("CFTUV_DENSITY_BACKEND", raising=False)
+    assert host_backend._density_order("NATIVE") == "PYTHON"
     assert len(stage_arguments) == len(stages), (stage_arguments, stages)
     assert {kernel_backend.SKELETON, kernel_backend.EMBEDDING} <= set(stages)
     assert set(host_backend._STATUS_FLAGS) == set(stages)

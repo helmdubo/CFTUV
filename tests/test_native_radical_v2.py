@@ -190,7 +190,7 @@ def test_the_outcomes_do_not_depend_on_the_hash_seed_of_the_process():
     )
     digests = set()
     for seed in ("0", "1", "4242"):
-        environment = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONSAFEPATH": "1", "PYTHONPATH": os.pathsep.join([str(ROOT / "kernel" / "src"), str(ROOT / "tools")])}
+        environment = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONSAFEPATH": "1", "PYTHONPATH": os.pathsep.join(filter(None, [str(ROOT / "kernel" / "src"), str(ROOT / "tools"), os.environ.get("PYTHONPATH", "")]))}
         done = subprocess.run([sys.executable, "-c", script], env=environment, capture_output=True, text=True, check=False)
         assert done.returncode == 0, done.stderr[-2000:]
         digests.add(done.stdout.strip())
@@ -216,7 +216,7 @@ def test_the_capability_is_pinned_reported_and_not_a_rust_only_stage():
     assert "radical_v2" not in rust_only, "radical_v2 is a capability, not a stage the product runs: its oracle may still move"
 
 
-def test_a_moved_oracle_stales_only_the_capability_and_the_extension_refuses_by_name():
+def test_a_moved_oracle_stales_the_capability_and_dependent_density_and_refuses_by_name():
     pin = cftuv_native.pin
     original = pin.read_source
 
@@ -229,7 +229,8 @@ def test_a_moved_oracle_stales_only_the_capability_and_the_extension_refuses_by_
     try:
         status = cftuv_native.native_status()
         assert status["radical_v2"] == "stale(reference/radical_v2.py)"
-        assert all(status[name] == "available" for name in status if name != "radical_v2"), status
+        assert status["density"] == "stale(reference/radical_v2.py)"
+        assert all(status[name] == "available" for name in status if name not in ("radical_v2", "density")), status
         with pytest.raises(cftuv_native.NativePortStale, match="radical_v2.py"):
             cftuv_native.radical_v2_eval([("zero",)])
     finally:

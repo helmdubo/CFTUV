@@ -69,6 +69,12 @@ _shard_spec.loader.exec_module(shard_tests)
         ("tests/data/native_materialize_w1_kernel_suite.recs.xz", True),
         ("tests/data/native_radical_v2_ops.recs.xz", True),
         ("tests/data/native_snapshot_check_seed.xz", True),
+        ("tests/data/native_density_batch_inputs.json.xz", True),
+        ("tests/data/native_density_batch_inputs.manifest.json", True),
+        ("tools/density_raw_wire.py", True),
+        ("tools/density_raw_compile_audit.py", True),
+        ("tools/density_raw_compile_diff.py", True),
+        ("tools/density_shell_compile_diff.py", True),
         ("tests/data/native_ci_shard_weights.json", True),
         ("kernel/tools/shard_tests.py", True),
         ("kernel/tools/shard_weights.json", False),
@@ -97,6 +103,9 @@ def test_the_path_set_is_exactly_the_filter_the_workflow_used_to_carry():
         "native/**", "tools/native_*.py", "tests/test_native_*.py", "tests/native_gate.py", "tests/conftest.py", "tests/test_architecture.py",
         "tests/data/native_embedding_kernel_suite.recs.xz", "tests/data/native_effective_alpha_kernel_suite.recs.xz", "tests/data/native_materialize_w1_kernel_suite.recs.xz",
         "tests/data/native_radical_v2_ops.recs.xz", "tests/data/native_snapshot_check_seed.xz",
+        "tests/data/native_density_batch_inputs.json.xz",
+        "tests/data/native_density_batch_inputs.manifest.json", "tools/density_raw_wire.py",
+        "tools/density_raw_compile_audit.py", "tools/density_raw_compile_diff.py", "tools/density_shell_compile_diff.py",
         "tests/data/native_ci_shard_weights.json", "kernel/tools/shard_tests.py",
         "kernel/src/cftuv_envelope/**", "kernel/tests/**", "kernel/pyproject.toml", "pytest.ini", ".github/workflows/native.yml",
     )
@@ -173,6 +182,13 @@ def test_an_embedding_corpus_only_push_requires_the_native_gate(repo):
 
 def test_an_effective_alpha_corpus_only_push_requires_the_native_gate(repo):
     path = "tests/data/native_effective_alpha_kernel_suite.recs.xz"
+    tip = repo.commit(path)
+    decision = push(repo, tip, before=repo.native)
+    assert decision.native is True and decision.files == decision.matched == [path]
+
+
+@pytest.mark.parametrize("path", ("tests/data/native_density_batch_inputs.json.xz", "tests/data/native_density_batch_inputs.manifest.json", "tools/density_raw_wire.py", "tools/density_raw_compile_audit.py", "tools/density_raw_compile_diff.py", "tools/density_shell_compile_diff.py"))
+def test_a_density_raw_seed_input_only_push_requires_the_native_gate(repo, path):
     tip = repo.commit(path)
     decision = push(repo, tip, before=repo.native)
     assert decision.native is True and decision.files == decision.matched == [path]
@@ -426,6 +442,7 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     assert '"materialize_w1": "available"' in available["run"]
     assert '"snapshot_check": "available"' in available["run"] and "snapshot_check_raw_layouts" in available["run"], "the reader of the snapshot validators reports its slot layouts in every leg"
     assert '"radical_v2": "available"' in available["run"], "the capability of the RadicalSumV2 mirror is reported available in every leg"
+    assert '"density": "available"' in available["run"]
 
 
 def test_embedding_inline_and_tracked_kernel_checks_are_mandatory_in_the_strict_matrix(workflow):
@@ -616,3 +633,64 @@ def test_the_pinned_dependencies_of_the_workflow_name_every_package_the_corpus_k
     line = re.search(r"^  TEST_REQUIREMENTS: (.+)$", text, re.MULTILINE).group(1)
     assert {item.split("==")[0] for item in line.split()} >= {"pytest", "sympy", "mpmath", "pyyaml"}, "mpmath's version is part of the answer: it is pinned like sympy's, and so it is part of the key"
     assert "mpmath==1.3.0" in line and "mpmath==1.3.0" in (ROOT / "tests" / "requirements.txt").read_text(encoding="utf-8"), "the workflow pins what the host requirements and the kernel pin"
+
+
+def test_density_pinned_status_and_tracked_live_oracle_seed_are_mandatory_in_every_strict_leg(workflow):
+    differential = workflow['jobs']['differential']
+    strict = _step(differential, 'Differential tests against the live oracle')
+    assert strict['env']['CFTUV_NATIVE_STRICT'] == '1'
+    assert '-m "not native_field"' in strict['run'] and ' -k ' not in strict['run']
+    assert set(differential['strategy']['matrix']['python']) == {'3.11', '3.13'}
+    assert set(differential['strategy']['matrix']['slots']) == {'auto', 'raw', 'attr'}
+    available = _step(differential, 'All native operations are available')
+    script = available['run'].split("<<'PYCODE'", 1)[1].rsplit('PYCODE', 1)[0]
+    guards = [node for node in ast.parse(script).body if isinstance(node, ast.If)
+              and isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Name)
+              and node.test.left.id == 'status']
+    assert len(guards) == 1 and isinstance(guards[0].test.ops[0], ast.NotEq)
+    assert ast.literal_eval(guards[0].test.comparators[0])['density'] == 'available'
+    assert any(isinstance(node, ast.Raise) for node in ast.walk(guards[0])), 'density stale/unavailable must fail before pytest'
+    module = ast.parse((ROOT/'tests/test_native_density_batch.py').read_text(encoding='utf8'))
+    required = next(node for node in module.body if isinstance(node, ast.FunctionDef)
+                    and node.name == 'test_native_density_batch_seed_matches_live_oracle')
+    assert [ast.unparse(item.func) for item in required.decorator_list] == ['pytest.mark.parametrize'], 'the tracked seed is not field/skip tier'
+    call = next(node for node in ast.walk(required) if isinstance(node, ast.Call) and ast.unparse(node.func) == 'corpus.compare_case')
+    assert ast.unparse(call.args[2]) == 'cftuv_native.density_compute', 'CI uses the pinned public operation, never candidate bypass'
+    assert any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'skip_unless_available'
+               and ast.literal_eval(node.args[1]) == 'density' for node in ast.walk(module))
+    seed = ROOT/'tests/data/native_density_batch_inputs.json.xz'
+    manifest = seed.with_name('native_density_batch_inputs.manifest.json')
+    assert seed.is_file() and manifest.is_file()
+    assert changes.is_native_path(seed.relative_to(ROOT).as_posix())
+    assert changes.is_native_path(manifest.relative_to(ROOT).as_posix())
+    assert changes.is_native_path('tools/density_raw_wire.py')
+    spec = importlib.util.spec_from_file_location('ci_density_seed_reader', ROOT/'tools/native_density_batch_corpus.py')
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    cases = reader.read_seed()  # verifies the portable seed and its manifest hashes/cardinality
+    assert len(cases) >= 20 and set(reader.LAWS) == {'NARROW_ROTATION_BAND', 'VORONOI_OF_NEIGHBOUR_MIDPOINTS'}
+    assert {item['selection']['q'] for case in cases for item in case['specs']} == set(range(2, 7))
+    assert 'density' not in corpus.KINDS and 'corpus-density' not in workflow['jobs'], 'tracked live-oracle seed needs no generated corpus job/cache'
+
+
+def test_all_density_test_files_have_explicit_estimates_and_reach_every_matrix_leg(workflow):
+    density = {path.name for path in (ROOT/'tests').glob('test_native_density_*.py')}
+    document = json.loads(SHARD_WEIGHTS.read_text(encoding='utf8'))
+    assert {'test_native_density_batch.py', 'test_native_density_work_replay.py'} <= density
+    assert density <= set(document['seconds'])
+    assert density <= set(document['estimate_provenance'])
+    for name in density:
+        assert document['seconds'][name] > 0
+        status = document['estimate_provenance'][name]['status']
+        assert status in {'PENDING_CI_MEASUREMENT', 'MEASURED_CI'}
+        assert document['estimate_provenance'][name]['basis']
+        if status == 'MEASURED_CI':
+            assert document['estimate_provenance'][name]['evidence'], 'a measured weight needs its CI run/log source'
+    files = shard_tests.discover(ROOT/'tests', 'test_native_*.py')
+    default, weights = shard_tests.load_weights(SHARD_WEIGHTS)
+    matrix = workflow['jobs']['differential']['strategy']['matrix']
+    groups = shard_tests.assign(files, default, weights, len(matrix['shard']))
+    assert shard_tests.problems(files, groups) == []
+    for _python in matrix['python']:
+        for _slots in matrix['slots']:
+            assert all(sum(name in group for group in groups) == 1 for name in density)

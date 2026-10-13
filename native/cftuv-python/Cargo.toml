@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 cftuv-alpha = { path = "../cftuv-alpha" }
 cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }
+cftuv-density = { path = "../cftuv-density" }
 cftuv-embedding = { path = "../cftuv-embedding" }
 cftuv-mesh = { path = "../cftuv-mesh" }
 cftuv-canon = { path = "../cftuv-canon" }

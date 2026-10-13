@@ -47,7 +47,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, effective_alpha_op, embedding_op, materialize_w1_op, pin, snapshot_check_op
+from . import _core, buildid, codec, cost, density_op, effective_alpha_op, embedding_op, materialize_w1_op, pin, snapshot_check_op
 
 __all__ = (
     "CostMirror",
@@ -62,6 +62,11 @@ __all__ = (
     "clip_seam_table",
     "coverage_at",
     "default_mirror",
+    "density_compute",
+    "density_compute_candidate",
+    "density_compute_with_memo",
+    "density_compute_with_memo_candidate",
+    "DensityNativeInternalErrorV1",
     "divide_with_prime_universe",
     "divided_by",
     "effective_alpha_contacts",
@@ -108,6 +113,7 @@ NativePortStale = pin.NativePortStale
 NativePortUnsupported = pin.NativePortUnsupported
 NativeUnsupportedPython = pin.NativeUnsupportedPython
 NativeDivisionDiverged = cost.NativeDivisionDiverged
+DensityNativeInternalErrorV1 = density_op.DensityNativeInternalErrorV1
 
 #: The exceptions `coverage_at` and `clip_geometry` raise for a refusal of the PORT (not an outcome of the oracle). Each of them leaves every Python-visible state
 #: exactly as it was before the call (budget articles, `SIGN_COUNTS`, `UNBUDGETED_WORK`, the four memory tables with their order, `plane._normal_by_position`,
@@ -199,7 +205,38 @@ def native_status() -> dict:
     answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
     """
 
-    return pin.native_status()
+    found = pin.native_status()
+    if "density" not in found:
+        found["density"] = "pending_validation" if hasattr(_core, "density_compute") else "unavailable"
+    return found
+
+
+def density_compute(batch):
+    """Целый raw batch; до согласованного pin доступен только candidate entry."""
+    if not hasattr(_core, "density_compute"):
+        raise NativePortUnsupported("density_compute: extension capability is absent")
+    return density_op.density_compute(_core.density_compute, batch)
+
+
+def density_compute_candidate(batch):
+    """Явный opt-in для differential; никаких product/default изменений."""
+    if not hasattr(_core, "density_compute"):
+        raise NativePortUnsupported("density_compute: extension capability is absent")
+    return density_op.density_compute(_core.density_compute, batch, candidate=True)
+
+
+def density_compute_with_memo(batch, snapshot):
+    """Density с host-owned immutable successful-attempt snapshot и delta."""
+    if not hasattr(_core, "density_compute_with_memo"):
+        raise NativePortUnsupported("density_compute_with_memo: extension capability is absent")
+    return density_op.density_compute_with_memo(_core.density_compute_with_memo, batch, snapshot)
+
+
+def density_compute_with_memo_candidate(batch, snapshot):
+    """Явная candidate сверка; не включает pin/default."""
+    if not hasattr(_core, "density_compute_with_memo"):
+        raise NativePortUnsupported("density_compute_with_memo: extension capability is absent")
+    return density_op.density_compute_with_memo(_core.density_compute_with_memo, batch, snapshot, candidate=True)
 
 
 def int_round_trip(value: int) -> int:

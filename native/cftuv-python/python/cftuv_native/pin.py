@@ -141,6 +141,20 @@ SNAPSHOT_CHECK_FILES = ("validation_snapshot.py", "validation_source_edges.py", 
 #: makes the mirror `stale(reference/radical_v2.py)` until the port catches up and the pin is reissued.
 RADICAL_V2_FILES = ("reference/radical_v2.py",)
 
+#: Полный Density oracle и узкие shared зависимости; glue не закрепляется целиком.
+DENSITY_CLOSURE_DIGEST = "118b9bbcc124a33f25fb8c57a8d6110efd9c81d3ec6bf0c2a6d8d164c7654b08"
+
+DENSITY_FILES = (
+    "reference/adaptive_density_fan.py", "reference/adaptive_density_atlas.py", "reference/adaptive_density_band.py",
+    "reference/density_residual.py", "reference/density_projective.py", "reference/density_binding_types.py", "reference/density_fan_types.py",
+    "reference/density_raw_frontend_v1.py", "reference/density_raw_noise_v1.py", "reference/density_owned_laws_v1.py",
+    "reference/density_construct_v1.py", "reference/density_scalar_v2.py", "reference/density_angle_v1.py",
+    "reference/density_angle_value_v1.py", "reference/density_trig_v1.py", "reference/density_shell_v2.py",
+    "reference/density_oracle_v1.py", "reference/density_controller_v1.py", "reference/density_result_v1.py",
+    "reference/radical_v2.py", "exact_sqrt_sum.py", "_radicand_products.py", "float_filter.py",
+    "reference/density_attempt_memo_v1.py",
+)
+
 OPERATION_FILES = {
     "coverage": COVERAGE_FILES,
     "clip": CLIP_FILES,
@@ -150,6 +164,7 @@ OPERATION_FILES = {
     "materialize_w1": MATERIALIZE_W1_FILES,
     "snapshot_check": SNAPSHOT_CHECK_FILES,
     "radical_v2": RADICAL_V2_FILES,
+    "density": DENSITY_FILES,
 }
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
@@ -214,6 +229,26 @@ PINS: dict = {
     "wavefront/symbolic_sparse_ports.py": "c50aa17461fcf80880992c92ba8f3ba6e22a1eb32c5c2e343d05cab78874b011",
     "wavefront/symbolic_split_endpoint.py": "406d76af4cf802e5e93eb519c7f41f8fe3eeee0e4e33099f672feb20ba82643f",
     "wavefront/symbolic_superlevel_coordinator.py": "c5a724ec5c3272a6555d052341faede65332f1dc9dd5fadac0233f981ff52165",
+    "reference/adaptive_density_fan.py": "3bcf79f637ba6f8d0cb468935dd6f2bf6ed261479035dbc223c428b0a1c637ea",
+    "reference/adaptive_density_atlas.py": "d7efdcc7bf906d075c7f490e0a36fa1a8bb082bdb77985fa3341108123cbcf42",
+    "reference/adaptive_density_band.py": "1fc893577d67c38b7bc8d3d756684d9c55ba1e5a4f9d65846ce34b2a6a4360cf",
+    "reference/density_residual.py": "c1497e67286953f9ca5ec3723f4839919cb2bc17929d981b4b9633fb9d5f92fe",
+    "reference/density_projective.py": "8d4af600ec59cf9038ff5fe02edd218e26e164fa69dcfe377051ea7ba451c010",
+    "reference/density_binding_types.py": "6b6a005545f53343b19f8ee89556ac2dfe6f4f008fa7689ba7f9ecdd73b63886",
+    "reference/density_fan_types.py": "74bcadbd0798167175cd89848ee096342d9f8d31b2175f540058334537f8b952",
+    "reference/density_raw_frontend_v1.py": "7068df4220bc674bb610c1882e2263d0cf45dff8abbdad9649c3d278c6a72453",
+    "reference/density_raw_noise_v1.py": "cd89329a8ab311a2b015c69859cb4356b782096ce3ff3d4ca41c40813a54ff5a",
+    "reference/density_owned_laws_v1.py": "d6234417a61c822e577e86df7610f90a5e7c8e886b8184ef332e83fc0755487b",
+    "reference/density_construct_v1.py": "fb837236a259739e010dd2b1dbd9927a5cbf5c5835d897c85c8b944445bf8e7d",
+    "reference/density_scalar_v2.py": "cc185181f4ad97817951f8d9ebb7e951dc5270fb50678e69eb9842671f9a4635",
+    "reference/density_angle_v1.py": "33d317a93e73df6fb6d6113083804b48c6ed943d6957f07021a1682e9793d45e",
+    "reference/density_angle_value_v1.py": "68b8da9c3e361c5b678551b2d1c888456eec709083866fdde41aeb75eb5f53ff",
+    "reference/density_trig_v1.py": "0a54582b299163f75377df3fe98e2ed72e87ff7cc2f85bcec4118f6b190affaf",
+    "reference/density_shell_v2.py": "74063bff8e7d9db2860c22f4032706c40685c375417c11e4c35c150c51e9a0d0",
+    "reference/density_oracle_v1.py": "3f337f6db52f5174ae151b4f6e900c1ce4f2af1c93daa7c3da8f275c6a2e8c3b",
+    "reference/density_controller_v1.py": "7798442f2e018fae4a75bf03fbecaeb324b32d2984c7f845f5c54a5a58150f24",
+    "reference/density_result_v1.py": "c893b9ff34e821bb6a8d97e39a9319b57f0bb27e6bf80749cdaa5e3ce4c5849e",
+    "reference/density_attempt_memo_v1.py": "1376063e8aa2e56484b6f1912c2a5f3ba06c2c3c2f1dccbe77d3d7732a6c44a1",
 }
 
 
@@ -263,6 +298,8 @@ def fingerprint(operation: str, root: Path | None = None) -> str:
     """One sha256 over the operation's file digests, in the order of the file list (the pin of the operation as one number)."""
 
     lines = "".join(f"{name} {found}\n" for name, found in digests(operation, root).items())
+    if operation == "density":
+        lines += f"density narrow closure {DENSITY_CLOSURE_DIGEST}\n"
     return hashlib.sha256(lines.encode("ascii")).hexdigest()
 
 
@@ -300,8 +337,16 @@ def verdict(operation: str) -> tuple:
             cached = ("unsupported_python",)
         else:
             files = stale_files(operation)
+            if operation == "density":
+                from .density_pin import stale_sources
+                files += stale_sources(kernel_root())
             cached = ("stale", files) if files else ("available",)
         _VERDICTS[operation] = cached
+    if operation == "density" and cached[0] != "unsupported_python":
+        from .density_pin import runtime_stale
+        live = runtime_stale()
+        if live:
+            return ("stale", tuple(dict.fromkeys((*(cached[1] if cached[0] == "stale" else ()), *live))))
     return cached
 
 
