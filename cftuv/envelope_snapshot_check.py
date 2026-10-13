@@ -112,6 +112,15 @@ def active_execution() -> tuple | None:
         return None
 
 
+def request_snapshot_issues(kernel, snapshot, budget) -> tuple:
+    """ШОВ ДИСПЕТЧЕРИЗАЦИИ `snapshot_check` (замечания снапшота под допуском запроса): `validate_analysis_snapshot(снапшот, developable_stretch_budget=budget)` как кортеж.
+
+    Единственное место, где воркер считает эти замечания для запроса; чистый ответ, а не замечания, записывает `WorkerSnapshotCheck`.
+    """
+
+    return tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget))
+
+
 class WorkerSnapshotCheck:
     """`snapshot_issues_of` воркера: проверка, которую `validate_snapshot_request_references` сделала бы сама, плюс запись чистого ответа.
 
@@ -129,7 +138,7 @@ class WorkerSnapshotCheck:
 
         kernel, _ = _load_kernel()
         budget = budget_key(stretch_budget)
-        issues = tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget))
+        issues = request_snapshot_issues(kernel, snapshot, budget)
         execution = None if issues else active_execution()
         self.clean = None if execution is None else SnapshotCleanV1(budget, execution, snapshot_witness(snapshot))
         self._snapshot = snapshot
@@ -174,5 +183,6 @@ __all__ = (
     "active_execution",
     "budget_key",
     "refusal_reason",
+    "request_snapshot_issues",
     "snapshot_witness",
 )
