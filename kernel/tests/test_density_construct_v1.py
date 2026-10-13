@@ -24,7 +24,10 @@ from cftuv_envelope.reference.density_scalar_v2 import (
     DensityScalarProfileUnsupported, ScalarLiteralAstV1, ScalarV2,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+from kernel_test_paths import KERNEL_ROOT, PACKAGE_ROOT
+
+sys.path.insert(0, str(KERNEL_ROOT / "tools"))
+from density_tool_paths import kernel_child
 
 
 def _tree(arena, expr):
@@ -310,7 +313,7 @@ def test_sympy_view_raw_only_and_new_arithmetic_ignores_export(monkeypatch):
 
 
 def test_core_has_no_sympy_math_outside_readonly_adapter():
-    module = ROOT / "kernel/src/cftuv_envelope/reference/density_construct_v1.py"
+    module = PACKAGE_ROOT / "reference/density_construct_v1.py"
     parsed = ast.parse(module.read_text(encoding="utf-8"))
     adapter = next(node for node in ast.walk(parsed) if isinstance(node, ast.FunctionDef) and node.name == "to_sympy_readonly")
     for node in ast.walk(parsed):
@@ -324,7 +327,6 @@ def test_core_has_no_sympy_math_outside_readonly_adapter():
 def test_source_cache_witness_in_isolated_child_keeps_owned_mixed_literal():
     code = r'''
 import json,sys
-sys.path.insert(0,sys.argv[1])
 import sympy as sp
 from sympy.core.cache import clear_cache
 from sympy.ntheory.factor_ import factor_cache
@@ -337,7 +339,8 @@ clear_cache();factor_cache.clear();cold=sp.srepr(sp.sqrt(sp.Integer(n)));left=ca
 clear_cache();factor_cache[n]=p;warm=sp.srepr(sp.sqrt(sp.Integer(n)));right=candidate()
 print(json.dumps({'source_changed':cold!=warm,'candidate_same':left==right}))
 '''
-    process = subprocess.Popen([sys.executable, "-c", code, str(ROOT/"kernel/src")],
+    command, environment = kernel_child(code)
+    process = subprocess.Popen(command, env=environment,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     log = os.environ.get("CFTUV_DENSITY_PID_LOG")
@@ -487,7 +490,7 @@ def test_finite_profile_matches_transient_choices_before_late_cancellation():
 
 def test_lazy_legacy_decision_does_not_expand_source_interval_success(monkeypatch):
     import importlib.util
-    spec = importlib.util.spec_from_file_location("construct_candidate_audit", ROOT/"tools/density_construct_v1_diff.py")
+    spec = importlib.util.spec_from_file_location("construct_candidate_audit", KERNEL_ROOT/"tools/density_construct_v1_diff.py")
     audit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(audit)
     arena = audit._PairedArena()

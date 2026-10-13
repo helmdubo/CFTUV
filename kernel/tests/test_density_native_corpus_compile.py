@@ -9,15 +9,16 @@ import cftuv_envelope as kernel
 from cftuv_envelope import backend
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+from kernel_test_paths import KERNEL_ROOT
+
+sys.path.insert(0, str(KERNEL_ROOT / "tools"))
 
 import native_density_corpus as corpus  # noqa: E402
 
 
 @pytest.mark.parametrize("density", (2, 3, 4))
 def test_real_field_fixture_compilation_is_recorded_and_replays(tmp_path, density):
-    fixture = ROOT / "kernel" / "fixtures" / "building_patch17_crowded_v1"
+    fixture = KERNEL_ROOT / "fixtures" / "building_patch17_crowded_v1"
     snapshot = kernel.AnalysisSnapshotCodecV1.loads((fixture / "analysis_snapshot.json").read_bytes())
     request = kernel.DecalRequestCodecV1.loads((fixture / f"decal_request_density{density}.json").read_bytes())
     recorder = corpus.Recorder(f"kernel:building_patch17:d{density}")

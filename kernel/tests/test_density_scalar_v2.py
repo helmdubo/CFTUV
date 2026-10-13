@@ -20,7 +20,10 @@ from cftuv_envelope.reference.density_scalar_v2 import (
 )
 from cftuv_envelope.reference.density_shell_v2 import DensityShellV2Candidate, density_shell_v2
 
-ROOT = Path(__file__).resolve().parents[2]
+from kernel_test_paths import KERNEL_ROOT, PACKAGE_ROOT
+
+sys.path.insert(0, str(KERNEL_ROOT / "tools"))
+from density_tool_paths import kernel_child
 P, Q, R = 2**89 - 1, 2**61 - 1, 2**31 - 1
 
 
@@ -45,9 +48,9 @@ def _check_literal_value(scalar):
     return literal
 
 
-def _isolated(code, mode=""):
-    command = [sys.executable, "-c", code, str(ROOT / "kernel/src"), mode]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+def _isolated(code, mode="", *, leaf_package=None):
+    command, environment = kernel_child(code, mode, leaf_package=leaf_package)
+    process = subprocess.Popen(command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     log = os.environ.get("CFTUV_DENSITY_PID_LOG")
     if log:
@@ -201,7 +204,6 @@ def test_generated_gram_dot_cross_units_and_principal_root_recipe():
 def test_factor_cache_state_witness_is_isolated_and_scalar_ast_is_identical():
     script = r'''
 import json, sys
-sys.path.insert(0, sys.argv[1])
 import sympy as sp
 from sympy.core.cache import clear_cache
 from sympy.ntheory.factor_ import factor_cache
@@ -245,7 +247,7 @@ assert value == module.ScalarV2.rational(6)
 assert not any(name == "sympy" or name.startswith("sympy.") for name in sys.modules)
 print(json.dumps({"nodes": value.literal_ast().nodes}))
 '''
-    assert _isolated(script)["nodes"] == [["Q", 6, 1]]
-    tree = ast.parse((ROOT/"kernel/src/cftuv_envelope/reference/density_scalar_v2.py").read_text(encoding="utf-8"))
+    assert _isolated(script, leaf_package="isolated_scalar_leaf")["nodes"] == [["Q", 6, 1]]
+    tree = ast.parse((PACKAGE_ROOT/"reference/density_scalar_v2.py").read_text(encoding="utf-8"))
     imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
     assert "sympy" not in imported and "native_exact" not in imported
