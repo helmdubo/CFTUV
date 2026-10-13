@@ -24,10 +24,10 @@ use std::rc::Rc;
 use cftuv_canon::fxhash::FxHasher;
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::rat::Rat;
-use cftuv_core::sqrt_sum::SqrtSum;
+use cftuv_core::sqrt_sum::{SqrtSum, Term};
 
 use crate::error::{SkelError, SkelResult};
-use crate::repr::{push_ibig, repr_frac, repr_str};
+use crate::repr::{push_ibig, push_ubig, repr_frac, repr_str};
 
 /// A class or a field name: static in the code of the port, owned when it came over the wire.
 pub type Name = Cow<'static, str>;
@@ -61,6 +61,9 @@ enum Items {
     Three([Val; 3]),
     Four([Val; 4]),
     Many(Vec<Val>),
+    /// `((radicand, coefficient), ...)`, the terms of a sum ([`Val::terms_of`]): the tuple of pairs of numbers it stands for is made of the terms when somebody reads it as
+    /// a sequence of values (the hash, the equality of two of these and the text are made from the terms themselves).
+    Terms(Rc<[Term]>, OnceCell<Box<[Val]>>),
 }
 
 impl Items {
@@ -76,6 +79,19 @@ impl Items {
             2 => Items::Two([next(), next()]),
             3 => Items::Three([next(), next(), next()]),
             _ => Items::Four([next(), next(), next(), next()]),
+        }
+    }
+
+    /// How many items (the terms of a sum are not made into values to be counted).
+    fn len(&self) -> usize {
+        match self {
+            Items::Zero => 0,
+            Items::One(_) => 1,
+            Items::Two(_) => 2,
+            Items::Three(_) => 3,
+            Items::Four(_) => 4,
+            Items::Many(many) => many.len(),
+            Items::Terms(terms, _) => terms.len(),
         }
     }
 
@@ -106,8 +122,25 @@ impl std::ops::Deref for Items {
             Items::Three(triple) => triple,
             Items::Four(quadruple) => quadruple,
             Items::Many(many) => many,
+            Items::Terms(terms, made) => made.get_or_init(|| terms.iter().map(pair_of_term).collect()),
         }
     }
+}
+
+/// `(radicand, coefficient)` of a term as the values the oracle's keys hold.
+fn pair_of_term(term: &Term) -> Val {
+    Val::tuple_of([Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }])
+}
+
+/// The hash of the tuple `((radicand, coefficient), ...)` of the values [`pair_of_term`] makes of the terms, made from the terms (the hash of a tuple is a fold of the hashes of its
+/// items, and the hash of a number is the one of its value, `True`, `1` and `Fraction(1, 1)` alike).
+fn terms_hash(terms: &[Term]) -> u64 {
+    let pair = |term: &Term| {
+        let radicand = number_hash(&IBig::from(term.radicand.clone()), &UBig::ONE);
+        let coefficient = if term.coef.is_py_int() { number_hash(term.coef.value().numerator(), &UBig::ONE) } else { number_hash(term.coef.value().numerator(), term.coef.value().denominator()) };
+        mix(mix(mix(0x7475_706c, 2), radicand), coefficient)
+    };
+    terms.iter().fold(mix(0x7475_706c, terms.len() as u64), |hash, term| mix(hash, pair(term)))
 }
 
 impl<'a> IntoIterator for &'a Items {
@@ -196,6 +229,7 @@ fn kind_hash(kind: &Kind) -> u64 {
         Kind::Int(number) => number_hash(number, &UBig::ONE),
         Kind::Str(text) => mix(0x7374_72, hash_of(&**text)),
         Kind::Frac(number) => number_hash(number.numerator(), number.denominator()),
+        Kind::Tuple(Items::Terms(terms, _)) => terms_hash(terms),
         Kind::Tuple(items) => items.iter().fold(mix(0x7475_706c, items.len() as u64), |hash, item| mix(hash, item.0.hash)),
         Kind::List(items) => items.iter().fold(mix(0x6c69_7374, items.len() as u64), |hash, item| mix(hash, item.0.hash)),
         Kind::Data(name, fields) => fields.iter().fold(mix(0x6461_7461, hash_of(&**name)), |hash, (_, item)| mix(hash, item.0.hash)),
@@ -366,12 +400,11 @@ impl Val {
     #[cfg_attr(feature = "profile", track_caller)]
     pub fn terms_of(sum: &SqrtSum) -> Val {
         crate::profile::count(crate::profile::Stat::TermsOf, 1);
-        Val::tuple(
-            sum.terms()
-                .iter()
-                .map(|term| Val::tuple_of([Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }]))
-                .collect(),
-        )
+        let terms = sum.terms();
+        if terms.is_empty() {
+            return Val::tuple(Vec::new());
+        }
+        Val::new(Kind::Tuple(Items::Terms(Rc::from(terms), OnceCell::new())))
     }
 
     pub fn is_none(&self) -> bool {
@@ -572,6 +605,9 @@ fn strictly_same(left: &Val, right: &Val) -> bool {
         (Kind::Int(first), Kind::Int(second)) => first == second,
         (Kind::Str(first), Kind::Str(second)) => first == second,
         (Kind::Frac(first), Kind::Frac(second)) => first == second,
+        (Kind::Tuple(Items::Terms(first, _)), Kind::Tuple(Items::Terms(second, _))) => {
+            first.len() == second.len() && first.iter().zip(second.iter()).all(|(a, b)| a.radicand == b.radicand && a.coef.value() == b.coef.value() && a.coef.is_py_int() == b.coef.is_py_int())
+        }
         (Kind::Tuple(first), Kind::Tuple(second)) | (Kind::List(first), Kind::List(second)) => first.len() == second.len() && first.iter().zip(second).all(|(a, b)| strictly_same(a, b)),
         (Kind::Data(first_name, first), Kind::Data(second_name, second)) => {
             first_name == second_name && first.len() == second.len() && first.iter().zip(second).all(|((name_a, a), (name_b, b))| name_a == name_b && strictly_same(a, b))
@@ -711,6 +747,34 @@ fn write_items<S: Sink>(out: &mut S, open: char, close: char, items: &[Val], one
     out.ch(close);
 }
 
+/// The text of the tuple of pairs [`pair_of_term`] makes of the terms.
+fn write_terms<S: Sink>(out: &mut S, terms: &[Term]) {
+    out.ch('(');
+    for (index, term) in terms.iter().enumerate() {
+        if out.done() {
+            return;
+        }
+        if index > 0 {
+            out.text(", ");
+        }
+        out.piece(|buffer| {
+            buffer.push('(');
+            push_ubig(buffer, &term.radicand);
+            buffer.push_str(", ");
+            if term.coef.is_py_int() {
+                push_ibig(buffer, term.coef.value().numerator());
+            } else {
+                repr_frac(term.coef.value(), buffer);
+            }
+            buffer.push(')');
+        });
+    }
+    if terms.len() == 1 {
+        out.ch(',');
+    }
+    out.ch(')');
+}
+
 fn write_repr<S: Sink>(kind: &Kind, out: &mut S) {
     match kind {
         Kind::None => out.text("None"),
@@ -723,6 +787,7 @@ fn write_repr<S: Sink>(kind: &Kind, out: &mut S) {
             });
         }
         Kind::Frac(number) => out.piece(|buffer| repr_frac(number, buffer)),
+        Kind::Tuple(Items::Terms(terms, _)) => write_terms(out, terms),
         Kind::Tuple(items) => write_items(out, '(', ')', items, true),
         Kind::List(items) => write_items(out, '[', ']', items, false),
         Kind::Data(name, fields) => {
@@ -792,6 +857,7 @@ pub fn py_eq(left: &Val, right: &Val) -> bool {
     match (&left.0.kind, &right.0.kind) {
         (Kind::None, Kind::None) => true,
         (Kind::Str(first), Kind::Str(second)) => first == second,
+        (Kind::Tuple(Items::Terms(first, _)), Kind::Tuple(Items::Terms(second, _))) => first.len() == second.len() && first.iter().zip(second.iter()).all(|(a, b)| a.radicand == b.radicand && a.coef.value() == b.coef.value()),
         (Kind::Tuple(first), Kind::Tuple(second)) | (Kind::List(first), Kind::List(second)) => first.len() == second.len() && first.iter().zip(second).all(|(a, b)| py_eq(a, b)),
         (Kind::Data(first_name, first), Kind::Data(second_name, second)) => {
             first_name == second_name && first.len() == second.len() && first.iter().zip(second).all(|((name_a, a), (name_b, b))| name_a == name_b && py_eq(a, b))
@@ -1191,6 +1257,49 @@ mod tests {
             }
         }
         assert!(sorted_ok > 20 && refused > 20, "{sorted_ok} sorted, {refused} refused");
+    }
+
+    /// The tuple of pairs the oracle's key holds for the terms, made value by value (what `terms_of` made before it kept the terms).
+    fn terms_by_values(sum: &SqrtSum) -> Val {
+        Val::tuple(sum.terms().iter().map(pair_of_term).collect())
+    }
+
+    #[test]
+    fn the_terms_of_a_sum_are_the_tuple_of_pairs_they_stand_for() {
+        use cftuv_core::rat::Coef;
+        let fraction = |n: i64, d: i64| Coef::fraction(Rat::new(IBig::from(n), IBig::from(d)).unwrap());
+        let term = |radicand: u64, coef: Coef| Term { radicand: UBig::from(radicand), coef };
+        let sums = [
+            SqrtSum::from_terms(vec![]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, fraction(3, 7))]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, Coef::int(IBig::from(4)))]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, fraction(-1, 2)), term(2, Coef::int(IBig::from(300))), term(54355477354110137, fraction(38365947, 2836155804872))]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, fraction(4, 1)), term(3, fraction(1, 3))]).unwrap(),
+        ];
+        for sum in &sums {
+            let (kept, made) = (Val::terms_of(sum), terms_by_values(sum));
+            assert_eq!(kept.hash_value(), made.hash_value(), "{:?}", made);
+            assert_eq!(&*kept.repr(), &*made.repr());
+            assert_eq!(kept, made);
+            assert_eq!(made, kept);
+            assert_eq!(kept.items().map(<[Val]>::len), made.items().map(<[Val]>::len));
+            assert!(kept.is_tuple());
+            // the head of the text is the beginning of it, the same for both
+            let (fresh, other) = (Val::terms_of(sum), terms_by_values(sum));
+            assert_eq!(repr_cmp(&fresh, &other), Ordering::Equal);
+        }
+        // equal numbers are equal pairs whether the coefficient is an int or a fraction, and the two print differently
+        let (as_int, as_fraction) = (Val::terms_of(&sums[2]), Val::terms_of(&SqrtSum::from_terms(vec![term(1, fraction(4, 1))]).unwrap()));
+        assert_eq!(as_int, as_fraction);
+        assert_ne!(&*as_int.repr(), &*as_fraction.repr());
+        assert!(!strictly_same(&as_int, &as_fraction));
+        assert!(strictly_same(&as_int, &Val::terms_of(&sums[2])));
+        // different sums are different keys, and they order as their pairs do
+        assert_ne!(Val::terms_of(&sums[1]), Val::terms_of(&sums[3]));
+        assert_eq!(py_less(&Val::terms_of(&sums[1]), &Val::terms_of(&sums[3])), py_less(&terms_by_values(&sums[1]), &terms_by_values(&sums[3])));
+        // a key read as a sequence is the pairs
+        let key = Val::tuple_of([Val::terms_of(&sums[3]), Val::terms_of(&sums[1])]);
+        assert_eq!(key.get(0).and_then(|terms| terms.get(1)).and_then(|pair| pair.get(0)).and_then(Val::as_i64), Some(2));
     }
 
     #[test]
