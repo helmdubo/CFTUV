@@ -79,7 +79,7 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
-from .envelope_gc_pause import gc_paused_function
+from .envelope_gc_pause import gc_paused, gc_paused_function
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, mark_attempt, verification_reason
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
@@ -292,7 +292,8 @@ def run_idle_preparation(controller, record=None) -> str:
         return IDLE_NOT_DEFERRED
     if inputs.built:
         return IDLE_ALREADY_BUILT
-    resolved_preview_inputs(controller, record, INPUTS_BUILT_IDLE)
+    with gc_paused(freeze=True):  # как кнопка (GC_FROZEN_AFTER_BUTTON_V1): тысячи долгоживущих объектов путей не обходят сборки поколений, а первый кадр после простоя не платит за их обход
+        resolved_preview_inputs(controller, record, INPUTS_BUILT_IDLE)
     return IDLE_BUILT
 
 
