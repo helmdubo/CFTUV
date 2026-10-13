@@ -6,14 +6,15 @@
 //! of the chain); then the two births of the cut are replaced by two COMPOSED births (`head.prev` to the first piece, the second piece to `tail.next`) and the contact
 //! gives up its own. Any other overlap is an ambiguity, answered `false`.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 
 use cftuv_canon::fxhash::FxBuild;
 
 use crate::error::SkelResult;
 use crate::germ::GermLedger;
 use crate::plans::{birth, births_by_key, port_order_key, BoundaryBirth, EdgeContactPlan, SplitCutPlan};
-use crate::pyval::{sorted_by_val_or_refuse, Val};
+use crate::pyval::{sorted_by_identity_order_or_refuse, Val};
 use crate::queue::EventKind;
 use crate::snapshot::VertexSnapshot;
 
@@ -90,7 +91,7 @@ pub fn compose_edge_split_overlap(contacts: Vec<EdgeContactPlan>, split_cuts: Ve
         };
         ports.push((new_key.clone(), flags[key].0, flags[key].1));
     }
-    let final_birth_ports = sorted_by_val_or_refuse(&ports, |(key, prev, next)| port_order_key(key, *prev, *next), "symbolic_initial_composition.compose_edge_split_overlap")?;
+    let final_birth_ports = sorted_by_identity_order_or_refuse(&ports, |(key, prev, next)| port_order_key(key, *prev, *next), "symbolic_initial_composition.compose_edge_split_overlap")?;
     let births = births_by_key(&composed, "symbolic_initial_composition.compose_edge_split_overlap")?;
     let (mut contact, mut cut) = (contacts[0].clone(), split_cuts[0].clone());
     contact.births = Vec::new();

@@ -26,7 +26,7 @@ use crate::generations::{fixed_point_val, plan_mixed_generations, JunctionFixedP
 use crate::omap::OrderedMap;
 use crate::overlay::{build_f0_overlay, build_symbolic_overlay, overlay_val, with_line_ports, Overlay};
 use crate::plans::{PlanVal, Resolution};
-use crate::pyval::Val;
+use crate::pyval::{repr_cmp, Val};
 use crate::profile::{timed, Phase};
 use crate::queue::EventKind;
 use crate::snapshot::{Incident, Snapshot};
@@ -214,7 +214,7 @@ fn plan_closure(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snapshot: &Snapsh
         all_contacts.insert(item.key.val.clone(), item.clone());
     }
     let mut ordered: Vec<SymSplitContact> = all_contacts.values().cloned().collect();
-    ordered.sort_by(|left, right| left.key.val.repr().as_bytes().cmp(right.key.val.repr().as_bytes()));
+    ordered.sort_by(|left, right| repr_cmp(&left.key.val, &right.key.val));
     let mut signatures = vec![overlay_signature(&split_overlay, memo)?];
     signatures.extend(junction.signatures.iter().cloned());
     signatures.push(junction_signature);

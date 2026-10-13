@@ -13,7 +13,8 @@
 //! Plans carry [`Val`]s for keys: births, occurrences and points are compared by value, hashed and printed as the oracle's tuples are. [`PlanVal`] turns a plan into the
 //! `repr` the oracle's dataclass would print, which the seams compare byte for byte.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
@@ -24,7 +25,7 @@ use crate::error::{SkelError, SkelResult};
 use crate::germ::{absorbed_by_locus, locus_ends, GermLedger};
 use crate::proof::EdgeKey;
 use crate::pyset::PySet;
-use crate::pyval::{identity_order_val, sorted_by_repr, sorted_by_val_or_refuse, Val};
+use crate::pyval::{repr_cmp, sort_by_repr_key, sorted_by_identity_order_or_refuse, sorted_by_repr, Val};
 use crate::queue::{CandidateEvent, EventKind};
 use crate::snapshot::{exact_point_key, Incident, IncidentSortKey, Snapshot, VertexSnapshot};
 use crate::time::{EventPoint, EventTime, PointRef, TimeRef};
@@ -149,7 +150,7 @@ pub struct ComponentPlan {
 /// the canonical minimum by `repr` (and an ambiguity is for the caller to name, not for the ledger).
 pub fn fold_germ(previous: &BoundaryBirth, repeated: &BoundaryBirth) -> BoundaryBirth {
     if previous.key != repeated.key {
-        return if previous.key.repr().as_bytes() <= repeated.key.repr().as_bytes() { previous.clone() } else { repeated.clone() };
+        return if repr_cmp(&previous.key, &repeated.key).is_le() { previous.clone() } else { repeated.clone() };
     }
     let merged: BTreeSet<i64> = previous.replaces.iter().chain(&repeated.replaces).copied().collect();
     BoundaryBirth { replaces: merged.into_iter().collect(), ..previous.clone() }
@@ -179,18 +180,19 @@ pub fn birth(
 
 /// THE order of births: the oracle sorts them by `item.order_key` (`superlevel.BoundaryBirthV1.order_key`, `exact_identity.identity_order_key`: the slots in order, a `None` end of an
 /// occurrence (a vertex without a place BY the law) AFTER any value of the same slot, the order of keys without a `None` the plain one), never by the bare key, whose `<` between a
-/// `None` and a point key is a `TypeError` (oracle commits 3da8cdd, d6b2c49). The one place the port mirrors it is this function and [`port_order_key`].
+/// `None` and a point key is a `TypeError` (oracle commits 3da8cdd, d6b2c49). The one place the port mirrors it is [`crate::pyval::sorted_by_identity_order`], which is given the
+/// bare keys (the key of a birth, the key of a final port) and compares them as the order keys compare, without making those.
 pub fn birth_order_key(item: &BoundaryBirth) -> Val {
-    identity_order_val(&item.key)
+    item.key.clone()
 }
 
-/// The order of the final birth ports `(birth key, keep prev, keep next)`: the oracle sorts them with `key=identity_order_key` (see [`birth_order_key`]).
+/// The key of a final birth port `(birth key, keep prev, keep next)` for the same order (see [`birth_order_key`]).
 pub fn port_order_key(key: &Val, keep_prev: bool, keep_next: bool) -> Val {
-    identity_order_val(&Val::tuple_of([key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]))
+    Val::tuple_of([key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)])
 }
 
 pub fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<BoundaryBirth>> {
-    sorted_by_val_or_refuse(births, birth_order_key, site)
+    sorted_by_identity_order_or_refuse(births, birth_order_key, site)
 }
 
 // --------------------------------------------------------------------------
@@ -286,12 +288,12 @@ fn sorted_unique<T: Ord>(items: impl IntoIterator<Item = T>) -> Vec<T> {
 /// `_component_fields(component)`.
 pub fn component_fields(component: &[&Incident]) -> ComponentFields {
     let point_keys: Vec<Val> = {
-        let mut seen: HashSet<Val> = HashSet::new();
+        let mut seen: HashSet<Val> = HashSet::default();
         let unique: Vec<Val> = component.iter().map(|incident| incident.point_key.clone()).filter(|key| seen.insert(key.clone())).collect();
         sorted_by_repr(&unique, Val::clone)
     };
     // `min(component, key=repr(point_key))`: the FIRST of the equal keys
-    let sample = component.iter().skip(1).fold(component[0], |best, incident| if incident.point_key.repr().as_bytes() < best.point_key.repr().as_bytes() { incident } else { best });
+    let sample = component.iter().skip(1).fold(component[0], |best, incident| if repr_cmp(&incident.point_key, &best.point_key).is_lt() { incident } else { best });
     ComponentFields {
         event_kinds: sorted_kinds(component.iter().map(|incident| incident.event.kind)),
         time: Rc::clone(&sample.event.time),
@@ -331,7 +333,7 @@ impl<'a, T> Grouped<'a, T> {
     /// The keys sorted by `repr` (`sorted(grouped, key=repr)`), each with its group.
     fn by_repr(&self) -> Vec<(&Val, &Vec<&'a T>)> {
         let mut found: Vec<(&Val, &Vec<&'a T>)> = self.groups.iter().map(|(key, group)| (key, group)).collect();
-        found.sort_by(|left, right| left.0.repr().as_bytes().cmp(right.0.repr().as_bytes()));
+        found.sort_by(|left, right| repr_cmp(left.0, right.0));
         found
     }
 }
@@ -357,7 +359,7 @@ pub fn edge_contact_plans<'a>(edges: &[&'a Incident], splits: &[&'a Incident], v
         grouped.push(&incident.point_key, incident);
     }
     let mut contacts = Vec::new();
-    let mut absorbed: HashSet<crate::snapshot::EventIdentity> = HashSet::new();
+    let mut absorbed: HashSet<crate::snapshot::EventIdentity> = HashSet::default();
     let mut valid = true;
     for (point_key, group) in grouped.by_repr() {
         let local_edges = sorted_incidents(group);
@@ -611,7 +613,7 @@ pub fn split_cut_plans(ctx: &mut ExactCtx<'_>, splits: &[&Incident], vertices: &
             births.push(right);
         }
         let port_text = |port: &(Val, bool, bool)| Val::tuple_of([port.0.clone(), Val::boolean(port.1), Val::boolean(port.2)]);
-        final_ports.sort_by_cached_key(|port| port_text(port).repr().to_string());
+        sort_by_repr_key(&mut final_ports, port_text);
         plans.push(SplitCutPlan {
             edge_id: first.event.edge,
             target_occurrence: target_occurrence.clone(),
@@ -706,10 +708,10 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
         }
     }
     let incoming: HashSet<&Val> = successor.values().copied().collect();
-    let mut seen: HashSet<&Val> = HashSet::new();
+    let mut seen: HashSet<&Val> = HashSet::default();
     let mut components: Vec<Vec<Val>> = Vec::new();
     let mut roots: Vec<&Val> = key_order.iter().copied().filter(|key| !incoming.contains(key)).collect();
-    roots.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+    roots.sort_by(|left, right| repr_cmp(left, right));
     for root in roots {
         let mut chain: Vec<Val> = Vec::new();
         let mut cursor = root;
@@ -724,7 +726,7 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
         components.push(chain);
     }
     let mut rest: Vec<&Val> = key_order.iter().copied().filter(|key| !seen.contains(key)).collect();
-    rest.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+    rest.sort_by(|left, right| repr_cmp(left, right));
     for root in rest {
         if seen.contains(root) {
             continue;
@@ -742,7 +744,7 @@ pub fn decompose_birth_function(births: &[BoundaryBirth]) -> (Vec<Vec<Val>>, boo
         if !cycle.contains(&cursor) {
             return (Vec::new(), false);
         }
-        let offset = cycle.iter().enumerate().fold(0usize, |best, (index, key)| if key.repr().as_bytes() < cycle[best].repr().as_bytes() { index } else { best });
+        let offset = cycle.iter().enumerate().fold(0usize, |best, (index, key)| if repr_cmp(key, cycle[best]).is_lt() { index } else { best });
         let rotated: Vec<Val> = cycle[offset..].iter().chain(cycle[..offset].iter()).map(|key| (*key).clone()).collect();
         components.push(rotated);
     }
@@ -850,7 +852,7 @@ pub fn wire_births(births: Vec<BoundaryBirth>, dead: &BTreeSet<i64>, vertices: &
         }
         wiring.push((item.key.clone(), predecessors[0].clone(), successors[0].clone()));
     }
-    wiring.sort_by_cached_key(|wire| wire.0.repr().to_string());
+    sort_by_repr_key(&mut wiring, |wire| wire.0.clone());
     rewrites.sort_by_key(|(ident, _, _)| *ident);
     Ok((rewritten, wiring, rewrites, components, true))
 }

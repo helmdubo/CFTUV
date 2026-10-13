@@ -224,7 +224,7 @@ impl SqrtSum {
         self.terms.get_or_init(|| {
             // The canonical form (one gcd chain over the whole value, then a gcd per term) is not needed to reach the terms: the lowest terms of `a_m / L` are the same whether
             // or not the common content was divided out first, and a value that is only asked for its terms pays one gcd per term instead of two.
-            let form = if self.minimal || self.canonical.get().is_some() { self.canonical_form() } else { self.int_form() };
+            let form = if self.minimal || self.canonical.get().is_some() || self.int_form().common.as_words().len() >= BATCH_WORDS { self.canonical_form() } else { self.int_form() };
             let coefficients = lowest_terms(form);
             form.items.iter().zip(coefficients).map(|((radicand, _), rat)| Term { radicand: radicand.clone(), coef: Coef::fraction(rat) }).collect()
         })

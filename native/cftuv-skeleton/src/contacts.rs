@@ -11,7 +11,8 @@
 //! * every discovery asks the candidate laws over the view of the overlay, in the oracle's order (the leaves by `repr`, the emitters by `repr` of their junction, a contact found
 //!   only when its time is exactly `now`), and so pays what the oracle pays.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
@@ -27,7 +28,7 @@ use crate::omap::OrderedMap;
 use crate::overlay::{edge_key_of, is_symbolic_split_emitter, with_view, JRef, Leaf, Overlay, SymVertex};
 use crate::plans::{point_val, time_val, PlanVal};
 use crate::proof::EdgeKey;
-use crate::pyval::Val;
+use crate::pyval::{repr_cmp, Val};
 use crate::queue::{CandidateEvent, EventKind};
 use crate::snapshot::{exact_point_key, incident, sparse_occurrences, time_key, Incident, Snapshot, VertexSnapshot};
 use crate::time::{compare_times, EventPoint, EventTime, PointRef, TimeRef};
@@ -113,7 +114,7 @@ fn found_at_now(ctx: &mut ExactCtx<'_>, time: &EventTime, now: &EventTime) -> Sk
 }
 
 fn repr_order(left: &Val, right: &Val) -> std::cmp::Ordering {
-    left.repr().as_bytes().cmp(right.repr().as_bytes())
+    repr_cmp(left, right)
 }
 
 pub fn keys_val(keys: &[EdgeKey]) -> Val {
@@ -243,7 +244,7 @@ pub fn initial_interior_contacts(snapshot: &Snapshot) -> SkelResult<(Vec<SymSpli
 
 /// `_required_keys(contacts)`: the keys of the edges whose ends a compilation of the contacts must hydrate (the family of every contact and the two edges of an existing emitter).
 fn required_keys(contacts: &[SymSplitContact]) -> HashSet<EdgeKey> {
-    let mut required: HashSet<EdgeKey> = HashSet::new();
+    let mut required: HashSet<EdgeKey> = HashSet::default();
     for contact in contacts {
         required.extend(contact.key.occurrence().get(0).and_then(edge_key_of));
         if !contact.key.emitter.is_existing() {

@@ -166,6 +166,8 @@ pub enum Stat {
     TimeKeysRepeated,
     ReprRoots,
     ReprRootsRepeated,
+    ReprHeads,
+    ReprHeadTies,
     ValNone,
     ValBool,
     ValSmallInt,
@@ -177,7 +179,7 @@ pub enum Stat {
     ValOther,
 }
 
-pub const STATS: [(&str, Stat); 27] = [
+pub const STATS: [(&str, Stat); 29] = [
     ("position lookups", Stat::PositionLookups),
     ("position hits", Stat::PositionHits),
     ("exact_point_key calls", Stat::PointKeys),
@@ -196,6 +198,8 @@ pub const STATS: [(&str, Stat); 27] = [
     ("... of a time keyed before", Stat::TimeKeysRepeated),
     ("repr roots", Stat::ReprRoots),
     ("... structurally equal to an earlier root", Stat::ReprRootsRepeated),
+    ("repr heads built (bounded text)", Stat::ReprHeads),
+    ("repr comparisons tied on the heads", Stat::ReprHeadTies),
     ("Val None", Stat::ValNone),
     ("Val bool", Stat::ValBool),
     ("Val int < 256", Stat::ValSmallInt),
@@ -231,9 +235,28 @@ mod stats_on {
         }
     }
 
+    thread_local! {
+        static SITES: RefCell<std::collections::HashMap<(&'static str, u32), u64>> = RefCell::new(std::collections::HashMap::new());
+    }
+
+    /// Counts a value made at `site` (the caller of the constructor).
+    pub fn count_site(site: &'static std::panic::Location<'static>) {
+        SITES.with(|sites| *sites.borrow_mut().entry((site.file(), site.line())).or_default() += 1);
+    }
+
+    /// The sites that made values, most first.
+    pub fn take_sites() -> Vec<(String, u64)> {
+        SITES.with(|sites| {
+            let mut rows: Vec<(String, u64)> = sites.borrow().iter().map(|((file, line), count)| (format!("{file}:{line}"), *count)).collect();
+            rows.sort_by_key(|row| std::cmp::Reverse(row.1));
+            rows
+        })
+    }
+
     pub fn reset_stats() {
         COUNTS.with(|counts| *counts.borrow_mut() = [0; STATS.len()]);
         SEEN.with(|seen| seen.borrow_mut().clear());
+        SITES.with(|sites| sites.borrow_mut().clear());
     }
 
     pub fn take_stats() -> Vec<u64> {
@@ -242,7 +265,7 @@ mod stats_on {
 }
 
 #[cfg(feature = "profile")]
-pub use stats_on::{count, count_seen, reset_stats, take_stats};
+pub use stats_on::{count, count_seen, count_site, reset_stats, take_sites, take_stats};
 
 #[cfg(not(feature = "profile"))]
 #[inline(always)]
@@ -251,6 +274,11 @@ pub fn count(_stat: Stat, _by: u64) {}
 #[cfg(not(feature = "profile"))]
 #[inline(always)]
 pub fn count_seen(_stat: Stat, _repeated: Stat, _key: impl FnOnce() -> u64) {}
+
+#[cfg(not(feature = "profile"))]
+pub fn take_sites() -> Vec<(String, u64)> {
+    Vec::new()
+}
 
 #[cfg(not(feature = "profile"))]
 pub fn reset_stats() {}

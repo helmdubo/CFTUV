@@ -24,10 +24,10 @@ use std::rc::Rc;
 use cftuv_canon::fxhash::FxHasher;
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::rat::Rat;
-use cftuv_core::sqrt_sum::SqrtSum;
+use cftuv_core::sqrt_sum::{SqrtSum, Term};
 
 use crate::error::{SkelError, SkelResult};
-use crate::repr::{push_ibig, repr_frac, repr_str};
+use crate::repr::{push_ibig, push_ubig, repr_frac, repr_str};
 
 /// A class or a field name: static in the code of the port, owned when it came over the wire.
 pub type Name = Cow<'static, str>;
@@ -38,6 +38,9 @@ pub struct Val(Rc<Node>);
 struct Node {
     hash: u64,
     text: OnceCell<Rc<str>>,
+    /// The first [`HEAD_BYTES`] bytes (a little more) of the text of a value whose text is longer: what a comparison of two texts reads when it is decided that early (see
+    /// [`repr_cmp`]). A text shorter than that is the whole text and lives in `text`; this one is never set then.
+    head: OnceCell<Box<str>>,
     /// How many times a text that was being written reached this value without its own text: the first time it is written through (no text is made for it), the
     /// second makes and keeps its own (see [`write_child`]).
     visits: Cell<u8>,
@@ -58,6 +61,9 @@ enum Items {
     Three([Val; 3]),
     Four([Val; 4]),
     Many(Vec<Val>),
+    /// `((radicand, coefficient), ...)`, the terms of a sum ([`Val::terms_of`]): the tuple of pairs of numbers it stands for is made of the terms when somebody reads it as
+    /// a sequence of values (the hash, the equality of two of these and the text are made from the terms themselves).
+    Terms(Rc<[Term]>, OnceCell<Box<[Val]>>),
 }
 
 impl Items {
@@ -73,6 +79,19 @@ impl Items {
             2 => Items::Two([next(), next()]),
             3 => Items::Three([next(), next(), next()]),
             _ => Items::Four([next(), next(), next(), next()]),
+        }
+    }
+
+    /// How many items (the terms of a sum are not made into values to be counted).
+    fn len(&self) -> usize {
+        match self {
+            Items::Zero => 0,
+            Items::One(_) => 1,
+            Items::Two(_) => 2,
+            Items::Three(_) => 3,
+            Items::Four(_) => 4,
+            Items::Many(many) => many.len(),
+            Items::Terms(terms, _) => terms.len(),
         }
     }
 
@@ -103,8 +122,25 @@ impl std::ops::Deref for Items {
             Items::Three(triple) => triple,
             Items::Four(quadruple) => quadruple,
             Items::Many(many) => many,
+            Items::Terms(terms, made) => made.get_or_init(|| terms.iter().map(pair_of_term).collect()),
         }
     }
+}
+
+/// `(radicand, coefficient)` of a term as the values the oracle's keys hold.
+fn pair_of_term(term: &Term) -> Val {
+    Val::tuple_of([Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }])
+}
+
+/// The hash of the tuple `((radicand, coefficient), ...)` of the values [`pair_of_term`] makes of the terms, made from the terms (the hash of a tuple is a fold of the hashes of its
+/// items, and the hash of a number is the one of its value, `True`, `1` and `Fraction(1, 1)` alike).
+fn terms_hash(terms: &[Term]) -> u64 {
+    let pair = |term: &Term| {
+        let radicand = number_hash(&IBig::from(term.radicand.clone()), &UBig::ONE);
+        let coefficient = if term.coef.is_py_int() { number_hash(term.coef.value().numerator(), &UBig::ONE) } else { number_hash(term.coef.value().numerator(), term.coef.value().denominator()) };
+        mix(mix(mix(0x7475_706c, 2), radicand), coefficient)
+    };
+    terms.iter().fold(mix(0x7475_706c, terms.len() as u64), |hash, term| mix(hash, pair(term)))
 }
 
 impl<'a> IntoIterator for &'a Items {
@@ -127,6 +163,14 @@ struct Common {
 
 /// The smallest and the largest int that is shared.
 const COMMON_INTS: std::ops::RangeInclusive<i64> = -1..=255;
+
+/// The longest string and the most strings that are shared.
+const SHARED_STR_BYTES: usize = 32;
+const SHARED_STRS: usize = 256;
+
+thread_local! {
+    static STRS: RefCell<std::collections::HashMap<Box<str>, Val, cftuv_canon::fxhash::FxBuild>> = RefCell::new(std::collections::HashMap::default());
+}
 
 thread_local! {
     static COMMON: Common = Common {
@@ -193,6 +237,7 @@ fn kind_hash(kind: &Kind) -> u64 {
         Kind::Int(number) => number_hash(number, &UBig::ONE),
         Kind::Str(text) => mix(0x7374_72, hash_of(&**text)),
         Kind::Frac(number) => number_hash(number.numerator(), number.denominator()),
+        Kind::Tuple(Items::Terms(terms, _)) => terms_hash(terms),
         Kind::Tuple(items) => items.iter().fold(mix(0x7475_706c, items.len() as u64), |hash, item| mix(hash, item.0.hash)),
         Kind::List(items) => items.iter().fold(mix(0x6c69_7374, items.len() as u64), |hash, item| mix(hash, item.0.hash)),
         Kind::Data(name, fields) => fields.iter().fold(mix(0x6461_7461, hash_of(&**name)), |hash, (_, item)| mix(hash, item.0.hash)),
@@ -230,8 +275,11 @@ fn type_name(kind: &Kind) -> &'static str {
 }
 
 impl Val {
+    #[cfg_attr(feature = "profile", track_caller)]
     fn new(kind: Kind) -> Val {
         crate::profile::count(crate::profile::Stat::ValNew, 1);
+        #[cfg(feature = "profile")]
+        crate::profile::count_site(std::panic::Location::caller());
         #[cfg(feature = "profile")]
         crate::profile::count(
             match &kind {
@@ -248,7 +296,7 @@ impl Val {
             1,
         );
         let hash = kind_hash(&kind);
-        Val(Rc::new(Node { hash, text: OnceCell::new(), visits: Cell::new(0), kind }))
+        Val(Rc::new(Node { hash, text: OnceCell::new(), head: OnceCell::new(), visits: Cell::new(0), kind }))
     }
 
     pub fn none() -> Val {
@@ -259,6 +307,7 @@ impl Val {
         COMMON.with(|common| if flag { common.yes.clone() } else { common.no.clone() })
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn int(number: i64) -> Val {
         if COMMON_INTS.contains(&number) {
             return COMMON.with(|common| common.ints[(number + 1) as usize].clone());
@@ -266,6 +315,7 @@ impl Val {
         Val::new(Kind::Int(IBig::from(number)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn big(number: IBig) -> Val {
         match i64::try_from(&number) {
             Ok(small) => Val::int(small),
@@ -274,58 +324,84 @@ impl Val {
     }
 
     /// A string; the repr of a character outside ASCII depends on the Unicode database, and the kernel's texts are ASCII.
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn str(text: &str) -> Val {
         assert!(text.is_ascii(), "a non-ASCII string has no byte-exact repr in the port: {text:?}");
-        Val::new(Kind::Str(Rc::from(text)))
+        if text.len() > SHARED_STR_BYTES {
+            return Val::new(Kind::Str(Rc::from(text)));
+        }
+        // the names and tags of the planning layer (`EXISTING`, `BIRTH`, `CONTACT`, ...) are a few dozen texts that every key holds again and again: one node each per thread, as
+        // the small ints are
+        let found = STRS.with(|table| table.borrow().get(text).cloned());
+        if let Some(found) = found {
+            return found;
+        }
+        let made = Val::new(Kind::Str(Rc::from(text)));
+        STRS.with(|table| {
+            let mut table = table.borrow_mut();
+            if table.len() < SHARED_STRS {
+                table.insert(Box::from(text), made.clone());
+            }
+        });
+        made
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn frac(number: Rat) -> Val {
         Val::new(Kind::Frac(number))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn tuple(items: Vec<Val>) -> Val {
         Val::new(Kind::Tuple(Items::from_vec(items)))
     }
 
     /// A tuple of the items of an array: up to four are kept in the node, no vector is made.
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn tuple_of<const N: usize>(items: [Val; N]) -> Val {
         Val::new(Kind::Tuple(Items::from_array(items)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn list(items: Vec<Val>) -> Val {
         Val::new(Kind::List(Items::from_vec(items)))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn data(name: impl Into<Name>, fields: Vec<(&'static str, Val)>) -> Val {
         Val::new(Kind::Data(name.into(), fields.into_iter().map(|(field, item)| (Cow::Borrowed(field), item)).collect()))
     }
 
     /// A dataclass instance with owned names (the decoder of the wire).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn data_named(name: String, fields: Vec<(String, Val)>) -> Val {
         Val::new(Kind::Data(Cow::Owned(name), fields.into_iter().map(|(field, item)| (Cow::Owned(field), item)).collect()))
     }
 
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn member(class: impl Into<Name>, member: impl Into<Name>, value: Val) -> Val {
         Val::new(Kind::Member(class.into(), member.into(), value))
     }
 
     /// A `set` (`frozen == false`) or `frozenset` of the items: equal items once (the first kept), in the canonical order of their `repr`.
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn set(items: Vec<Val>, frozen: bool) -> Val {
         if items.len() <= 1 {
             return Val::new(Kind::Set(items, frozen));
         }
         let mut unique: Vec<Val> = Vec::with_capacity(items.len());
-        let mut seen: std::collections::HashSet<Val> = std::collections::HashSet::new();
+        let mut seen: std::collections::HashSet<Val, cftuv_canon::fxhash::FxBuild> = std::collections::HashSet::default();
         for item in items {
             if seen.insert(item.clone()) {
                 unique.push(item);
             }
         }
-        unique.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+        unique.sort_by(repr_cmp);
         Val::new(Kind::Set(unique, frozen))
     }
 
     /// A `dict` of the pairs in insertion order (the keys are the caller's to keep unique).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn dict(pairs: Vec<(Val, Val)>) -> Val {
         Val::new(Kind::Dict(pairs))
     }
@@ -339,19 +415,20 @@ impl Val {
     }
 
     /// A tuple of ints (an edge key `(x0, y0, x1, y1)` or `(x, y, x, y, ordinal)`, a ray, a list of vertex ids).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn ints(items: &[i64]) -> Val {
         Val::tuple(items.iter().map(|item| Val::int(*item)).collect())
     }
 
     /// `((radicand, coefficient), ...)`: the `terms` of a sum as the oracle's keys hold them (a coefficient is a `Fraction`, an `int` where the sum kept one).
+    #[cfg_attr(feature = "profile", track_caller)]
     pub fn terms_of(sum: &SqrtSum) -> Val {
         crate::profile::count(crate::profile::Stat::TermsOf, 1);
-        Val::tuple(
-            sum.terms()
-                .iter()
-                .map(|term| Val::tuple_of([Val::big(IBig::from(term.radicand.clone())), if term.coef.is_py_int() { Val::big(term.coef.value().numerator().clone()) } else { Val::frac(term.coef.value().clone()) }]))
-                .collect(),
-        )
+        let terms = sum.terms();
+        if terms.is_empty() {
+            return Val::tuple(Vec::new());
+        }
+        Val::new(Kind::Tuple(Items::Terms(Rc::from(terms), OnceCell::new())))
     }
 
     pub fn is_none(&self) -> bool {
@@ -395,6 +472,14 @@ impl Val {
         match &self.0.kind {
             Kind::Tuple(items) | Kind::List(items) => Some(items),
 
+            _ => None,
+        }
+    }
+
+    /// The terms of a value made by [`Val::terms_of`] (the pairs are not made of them to be read): `None` for any other value.
+    pub fn as_terms(&self) -> Option<&[Term]> {
+        match &self.0.kind {
+            Kind::Tuple(Items::Terms(terms, _)) => Some(terms),
             _ => None,
         }
     }
@@ -460,96 +545,335 @@ impl Val {
         }))
     }
 
+    /// The text as far as a comparison needs it first: the whole text where it is known or short, else its first [`HEAD_BYTES`] bytes, made by the same writer and stopped
+    /// there (never the whole text of a value that is only compared).
+    fn head(&self) -> Head<'_> {
+        if let Some(text) = self.0.text.get() {
+            return Head { text, complete: true };
+        }
+        if let Some(head) = self.0.head.get() {
+            return Head { text: head, complete: false };
+        }
+        let mut sink = Bounded { out: HEAD_SCRATCH.with(RefCell::take), limit: HEAD_BYTES, stopped: false };
+        sink.out.clear();
+        write_repr(&self.0.kind, &mut sink);
+        crate::profile::count(crate::profile::Stat::ReprHeads, 1);
+        let Bounded { out, stopped, .. } = sink;
+        if stopped {
+            let _ = self.0.head.set(Box::from(out.as_str()));
+        } else {
+            let _ = self.0.text.set(Rc::from(out.as_str()));
+        }
+        HEAD_SCRATCH.with(|slot| *slot.borrow_mut() = out);
+        match (self.0.text.get(), self.0.head.get()) {
+            (Some(text), _) => Head { text, complete: true },
+            (None, Some(head)) => Head { text: head, complete: false },
+            (None, None) => Head { text: "", complete: false },
+        }
+    }
+
     pub fn same(&self, other: &Val) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
 }
 
-/// The text of a part of a text being written: the part's own text when it has one, else written through into `out` (no allocation, no copy of a copy). A part that is
-/// reached a second time without a text makes its own, so a value that many texts hold is formatted twice at most.
-fn write_child(out: &mut String, item: &Val) {
-    if let Some(text) = item.0.text.get() {
-        out.push_str(text);
-    } else if item.0.visits.get() == 0 {
-        item.0.visits.set(1);
-        write_repr(&item.0.kind, out);
-    } else {
-        out.push_str(&item.repr());
+/// How many bytes of a text [`repr_cmp`] looks at before it asks for the whole text. Two values of the planning layer differ, as a rule, within their first hundred bytes
+/// (the key of the edge comes first); the texts are two and ten kilobytes long.
+const HEAD_BYTES: usize = 192;
+
+thread_local! {
+    static HEAD_SCRATCH: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+struct Head<'a> {
+    text: &'a str,
+    /// `text` is the whole `repr`, not its beginning.
+    complete: bool,
+}
+
+/// `repr(left).as_bytes().cmp(repr(right).as_bytes())` without making the whole of either text unless the first bytes of both are the same: the order of the planning layer
+/// (`sorted(..., key=repr)`) decided by the heads of the texts, which are exact beginnings of them.
+pub fn repr_cmp(left: &Val, right: &Val) -> Ordering {
+    if left.same(right) {
+        return Ordering::Equal;
+    }
+    let (first, second) = (left.head(), right.head());
+    let common = first.text.len().min(second.text.len());
+    match first.text.as_bytes()[..common].cmp(&second.text.as_bytes()[..common]) {
+        Ordering::Equal => {}
+        decided => return decided,
+    }
+    // a whole text that is shorter than the cut one is a beginning of it (the cut one is not over where the whole one is), so the smaller; anything else the heads do not tell
+    match (first.complete, second.complete) {
+        (true, true) => return first.text.len().cmp(&second.text.len()),
+        (true, false) if first.text.len() < second.text.len() => return Ordering::Less,
+        (false, true) if second.text.len() < first.text.len() => return Ordering::Greater,
+        _ => {}
+    }
+    crate::profile::count(crate::profile::Stat::ReprHeadTies, 1);
+    if strictly_same(left, right) {
+        return Ordering::Equal;
+    }
+    left.repr().as_bytes().cmp(right.repr().as_bytes())
+}
+
+/// `repr(left) < repr(right)` as [`repr_cmp`] decides it.
+pub fn repr_less(left: &Val, right: &Val) -> bool {
+    repr_cmp(left, right) == Ordering::Less
+}
+
+/// Two values that print alike because they are made alike: the same kinds all the way down (`2` and `Fraction(2, 1)` are equal numbers and print differently, so they are
+/// not this).
+fn strictly_same(left: &Val, right: &Val) -> bool {
+    if left.same(right) {
+        return true;
+    }
+    if left.0.hash != right.0.hash {
+        return false;
+    }
+    match (&left.0.kind, &right.0.kind) {
+        (Kind::None, Kind::None) => true,
+        (Kind::Bool(first), Kind::Bool(second)) => first == second,
+        (Kind::Int(first), Kind::Int(second)) => first == second,
+        (Kind::Str(first), Kind::Str(second)) => first == second,
+        (Kind::Frac(first), Kind::Frac(second)) => first == second,
+        (Kind::Tuple(Items::Terms(first, _)), Kind::Tuple(Items::Terms(second, _))) => {
+            first.len() == second.len() && first.iter().zip(second.iter()).all(|(a, b)| a.radicand == b.radicand && a.coef.value() == b.coef.value() && a.coef.is_py_int() == b.coef.is_py_int())
+        }
+        (Kind::Tuple(first), Kind::Tuple(second)) | (Kind::List(first), Kind::List(second)) => first.len() == second.len() && first.iter().zip(second).all(|(a, b)| strictly_same(a, b)),
+        (Kind::Data(first_name, first), Kind::Data(second_name, second)) => {
+            first_name == second_name && first.len() == second.len() && first.iter().zip(second).all(|((name_a, a), (name_b, b))| name_a == name_b && strictly_same(a, b))
+        }
+        (Kind::Member(first_class, first_member, first), Kind::Member(second_class, second_member, second)) => first_class == second_class && first_member == second_member && strictly_same(first, second),
+        (Kind::Set(first, first_frozen), Kind::Set(second, second_frozen)) => first_frozen == second_frozen && first.len() == second.len() && first.iter().zip(second).all(|(a, b)| strictly_same(a, b)),
+        (Kind::Dict(first), Kind::Dict(second)) => first.len() == second.len() && first.iter().zip(second).all(|((key_a, a), (key_b, b))| strictly_same(key_a, key_b) && strictly_same(a, b)),
+        _ => false,
     }
 }
 
-fn write_items(out: &mut String, open: char, close: char, items: &[Val], one_tuple: bool) {
-    out.push(open);
-    for (index, item) in items.iter().enumerate() {
-        if index > 0 {
-            out.push_str(", ");
+/// Where a text is written: a whole `String`, or a [`Bounded`] one that stops taking bytes at its limit.
+trait Sink {
+    fn text(&mut self, text: &str);
+    fn ch(&mut self, character: char);
+    /// A piece the writer of a number or a string makes into a `String`.
+    fn piece(&mut self, write: impl FnOnce(&mut String));
+    /// The text of a part.
+    fn child(&mut self, item: &Val);
+    /// No more bytes are taken.
+    fn done(&self) -> bool;
+}
+
+impl Sink for String {
+    fn text(&mut self, text: &str) {
+        self.push_str(text);
+    }
+
+    fn ch(&mut self, character: char) {
+        self.push(character);
+    }
+
+    fn piece(&mut self, write: impl FnOnce(&mut String)) {
+        write(self);
+    }
+
+    /// The part's own text when it has one, else written through into `self` (no allocation, no copy of a copy). A part that is reached a second time without a text makes
+    /// its own, so a value that many texts hold is formatted twice at most.
+    fn child(&mut self, item: &Val) {
+        if let Some(text) = item.0.text.get() {
+            self.push_str(text);
+        } else if item.0.visits.get() == 0 {
+            item.0.visits.set(1);
+            write_repr(&item.0.kind, self);
+        } else {
+            self.push_str(&item.repr());
         }
-        write_child(out, item);
+    }
+
+    fn done(&self) -> bool {
+        false
+    }
+}
+
+/// The beginning of a text: bytes are taken up to `limit` (the piece that crosses it is taken whole, a cached text is cut), and then no more, so what was taken is exactly the
+/// beginning of the whole text.
+struct Bounded {
+    out: String,
+    limit: usize,
+    stopped: bool,
+}
+
+impl Bounded {
+    fn check(&mut self) {
+        if self.out.len() >= self.limit {
+            self.stopped = true;
+        }
+    }
+
+    /// The first bytes of a text that is already made, as many as the room takes.
+    fn take_beginning(&mut self, text: &str) {
+        let room = self.limit - self.out.len();
+        if text.len() >= room {
+            self.out.push_str(&text[..room]);
+            self.stopped = true;
+        } else {
+            self.out.push_str(text);
+        }
+    }
+}
+
+impl Sink for Bounded {
+    fn text(&mut self, text: &str) {
+        if !self.stopped {
+            self.out.push_str(text);
+            self.check();
+        }
+    }
+
+    fn ch(&mut self, character: char) {
+        if !self.stopped {
+            self.out.push(character);
+            self.check();
+        }
+    }
+
+    fn piece(&mut self, write: impl FnOnce(&mut String)) {
+        if !self.stopped {
+            write(&mut self.out);
+            self.check();
+        }
+    }
+
+    fn child(&mut self, item: &Val) {
+        if self.stopped {
+            return;
+        }
+        let room = self.limit - self.out.len();
+        if let Some(text) = item.0.text.get() {
+            self.take_beginning(text);
+        } else if let Some(head) = item.0.head.get().filter(|head| head.len() >= room) {
+            self.take_beginning(head);
+        } else {
+            write_repr(&item.0.kind, self);
+        }
+    }
+
+    fn done(&self) -> bool {
+        self.stopped
+    }
+}
+
+fn write_items<S: Sink>(out: &mut S, open: char, close: char, items: &[Val], one_tuple: bool) {
+    out.ch(open);
+    for (index, item) in items.iter().enumerate() {
+        if out.done() {
+            return;
+        }
+        if index > 0 {
+            out.text(", ");
+        }
+        out.child(item);
     }
     if one_tuple && items.len() == 1 {
-        out.push(',');
+        out.ch(',');
     }
-    out.push(close);
+    out.ch(close);
 }
 
-fn write_repr(kind: &Kind, out: &mut String) {
+/// The text of the tuple of pairs [`pair_of_term`] makes of the terms.
+fn write_terms<S: Sink>(out: &mut S, terms: &[Term]) {
+    out.ch('(');
+    for (index, term) in terms.iter().enumerate() {
+        if out.done() {
+            return;
+        }
+        if index > 0 {
+            out.text(", ");
+        }
+        out.piece(|buffer| {
+            buffer.push('(');
+            push_ubig(buffer, &term.radicand);
+            buffer.push_str(", ");
+            if term.coef.is_py_int() {
+                push_ibig(buffer, term.coef.value().numerator());
+            } else {
+                repr_frac(term.coef.value(), buffer);
+            }
+            buffer.push(')');
+        });
+    }
+    if terms.len() == 1 {
+        out.ch(',');
+    }
+    out.ch(')');
+}
+
+fn write_repr<S: Sink>(kind: &Kind, out: &mut S) {
     match kind {
-        Kind::None => out.push_str("None"),
-        Kind::Bool(flag) => out.push_str(if *flag { "True" } else { "False" }),
-        Kind::Int(number) => push_ibig(out, number),
+        Kind::None => out.text("None"),
+        Kind::Bool(flag) => out.text(if *flag { "True" } else { "False" }),
+        Kind::Int(number) => out.piece(|buffer| push_ibig(buffer, number)),
         Kind::Str(text) => {
             // ASCII by construction (`Val::str`); the call cannot refuse.
-            let _ = repr_str(text, out);
+            out.piece(|buffer| {
+                let _ = repr_str(text, buffer);
+            });
         }
-        Kind::Frac(number) => repr_frac(number, out),
+        Kind::Frac(number) => out.piece(|buffer| repr_frac(number, buffer)),
+        Kind::Tuple(Items::Terms(terms, _)) => write_terms(out, terms),
         Kind::Tuple(items) => write_items(out, '(', ')', items, true),
         Kind::List(items) => write_items(out, '[', ']', items, false),
         Kind::Data(name, fields) => {
-            out.push_str(name);
-            out.push('(');
+            out.text(name);
+            out.ch('(');
             for (index, (field, item)) in fields.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
+                if out.done() {
+                    return;
                 }
-                out.push_str(field);
-                out.push('=');
-                write_child(out, item);
+                if index > 0 {
+                    out.text(", ");
+                }
+                out.text(field);
+                out.ch('=');
+                out.child(item);
             }
-            out.push(')');
+            out.ch(')');
         }
         Kind::Member(class, member, value) => {
-            out.push('<');
-            out.push_str(class);
-            out.push('.');
-            out.push_str(member);
-            out.push_str(": ");
-            write_child(out, value);
-            out.push('>');
+            out.ch('<');
+            out.text(class);
+            out.ch('.');
+            out.text(member);
+            out.text(": ");
+            out.child(value);
+            out.ch('>');
         }
         Kind::Set(items, frozen) => match (items.is_empty(), frozen) {
-            (true, false) => out.push_str("set()"),
-            (true, true) => out.push_str("frozenset()"),
+            (true, false) => out.text("set()"),
+            (true, true) => out.text("frozenset()"),
             (false, _) => {
                 if *frozen {
-                    out.push_str("frozenset(");
+                    out.text("frozenset(");
                 }
                 write_items(out, '{', '}', items, false);
                 if *frozen {
-                    out.push(')');
+                    out.ch(')');
                 }
             }
         },
         Kind::Dict(pairs) => {
-            out.push('{');
+            out.ch('{');
             for (index, (key, item)) in pairs.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
+                if out.done() {
+                    return;
                 }
-                write_child(out, key);
-                out.push_str(": ");
-                write_child(out, item);
+                if index > 0 {
+                    out.text(", ");
+                }
+                out.child(key);
+                out.text(": ");
+                out.child(item);
             }
-            out.push('}');
+            out.ch('}');
         }
     }
 }
@@ -565,6 +889,7 @@ pub fn py_eq(left: &Val, right: &Val) -> bool {
     match (&left.0.kind, &right.0.kind) {
         (Kind::None, Kind::None) => true,
         (Kind::Str(first), Kind::Str(second)) => first == second,
+        (Kind::Tuple(Items::Terms(first, _)), Kind::Tuple(Items::Terms(second, _))) => first.len() == second.len() && first.iter().zip(second.iter()).all(|(a, b)| a.radicand == b.radicand && a.coef.value() == b.coef.value()),
         (Kind::Tuple(first), Kind::Tuple(second)) | (Kind::List(first), Kind::List(second)) => first.len() == second.len() && first.iter().zip(second).all(|(a, b)| py_eq(a, b)),
         (Kind::Data(first_name, first), Kind::Data(second_name, second)) => {
             first_name == second_name && first.len() == second.len() && first.iter().zip(second).all(|((name_a, a), (name_b, b))| name_a == name_b && py_eq(a, b))
@@ -645,17 +970,63 @@ pub fn identity_order_val(value: &Val) -> Val {
     Val::tuple_of([Val::int(0), value.clone()])
 }
 
-/// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is
-/// the oracle's `TypeError`.
-pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
-    if items.len() < 2 {
-        return Ok(items.to_vec());
+/// `py_eq(identity_order_val(a), identity_order_val(b))` without making either key: `None` is equal to `None` alone, two tuples are equal by their items in this sense, and
+/// anything else is equal by [`py_eq`].
+fn identity_eq(a: &Val, b: &Val) -> bool {
+    if a.same(b) {
+        return true;
     }
-    let keys: Vec<Val> = items.iter().map(&key).collect();
+    match (a.is_none(), b.is_none()) {
+        (true, true) => return true,
+        (true, false) | (false, true) => return false,
+        (false, false) => {}
+    }
+    match (&a.0.kind, &b.0.kind) {
+        (Kind::Tuple(first), Kind::Tuple(second)) => first.len() == second.len() && first.iter().zip(second).all(|(x, y)| identity_eq(x, y)),
+        (Kind::Tuple(_), _) | (_, Kind::Tuple(_)) => false,
+        _ => py_eq(a, b),
+    }
+}
+
+/// `py_compare(identity_order_val(a), identity_order_val(b))` without making either key (the sort of births makes a tree of a thousand values for each key to compare a few of
+/// them): a `None` is after any other value of its slot, two tuples go by the first item that is not equal in this sense, a tuple and anything else that is not `None` have no
+/// order (the pair the oracle's `TypeError` names is the tuple of the keys of the items and the value), and two other values go by [`py_less`].
+fn identity_compare(a: &Val, b: &Val) -> Result<Ordering, UnorderedPair> {
+    match (a.is_none(), b.is_none()) {
+        (true, true) => return Ok(Ordering::Equal),
+        (true, false) => return Ok(Ordering::Greater),
+        (false, true) => return Ok(Ordering::Less),
+        (false, false) => {}
+    }
+    match (&a.0.kind, &b.0.kind) {
+        (Kind::Tuple(first), Kind::Tuple(second)) => {
+            for (x, y) in first.iter().zip(second) {
+                if !identity_eq(x, y) {
+                    return Ok(if identity_compare(x, y)? == Ordering::Less { Ordering::Less } else { Ordering::Greater });
+                }
+            }
+            Ok(first.len().cmp(&second.len()))
+        }
+        (Kind::Tuple(_), other) => Err(UnorderedPair { left: "tuple", right: type_name(other) }),
+        (other, Kind::Tuple(_)) => Err(UnorderedPair { left: type_name(other), right: "tuple" }),
+        _ => {
+            if py_eq(a, b) {
+                Ok(Ordering::Equal)
+            } else if py_less(a, b)? {
+                Ok(Ordering::Less)
+            } else {
+                Ok(Ordering::Greater)
+            }
+        }
+    }
+}
+
+/// `sorted(items, key=key)` with CPython 3.11's sequence of comparisons over the keys, `less` the `<` of two of them.
+fn sorted_by_less<T: Clone>(items: &[T], keys: &[Val], less: impl Fn(&Val, &Val) -> Result<bool, UnorderedPair>) -> Result<Vec<T>, UnorderedPair> {
     let mut failure: Option<UnorderedPair> = None;
     let order = {
         let mut less = |left: &usize, right: &usize| -> cftuv_clip::error::ClipResult<bool> {
-            match py_less(&keys[*left], &keys[*right]) {
+            match less(&keys[*left], &keys[*right]) {
                 Ok(answer) => Ok(answer),
                 Err(error) => {
                     failure = Some(error);
@@ -671,15 +1042,50 @@ pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<V
     }
 }
 
+/// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is
+/// the oracle's `TypeError`.
+pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
+    if items.len() < 2 {
+        return Ok(items.to_vec());
+    }
+    let keys: Vec<Val> = items.iter().map(&key).collect();
+    sorted_by_less(items, &keys, py_less)
+}
+
 /// [`sorted_by_val`] with the refusal of the port in place of the pair.
 pub fn sorted_by_val_or_refuse<T: Clone>(items: &[T], key: impl Fn(&T) -> Val, site: &str) -> SkelResult<Vec<T>> {
     sorted_by_val(items, key).map_err(|pair| pair.refusal(site))
 }
 
+/// `sorted(items, key=exact_identity.identity_order_key)`: [`sorted_by_val`] over the keys that [`identity_order_val`] makes of the given ones, the same comparisons with the same
+/// answers (and the same unordered pair where the oracle raises) and none of those keys built.
+pub fn sorted_by_identity_order<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
+    if items.len() < 2 {
+        return Ok(items.to_vec());
+    }
+    let keys: Vec<Val> = items.iter().map(&key).collect();
+    sorted_by_less(items, &keys, |left, right| Ok(identity_compare(left, right)? == Ordering::Less))
+}
+
+/// [`sorted_by_identity_order`] with the refusal of the port in place of the pair.
+pub fn sorted_by_identity_order_or_refuse<T: Clone>(items: &[T], key: impl Fn(&T) -> Val, site: &str) -> SkelResult<Vec<T>> {
+    sorted_by_identity_order(items, key).map_err(|pair| pair.refusal(site))
+}
+
+/// `items.sort(key=repr)` in place, the key of each made once: [`sorted_by_repr`] on the vector itself.
+pub fn sort_by_repr_key<T>(items: &mut Vec<T>, key: impl Fn(&T) -> Val) {
+    if items.len() < 2 {
+        return;
+    }
+    let mut keyed: Vec<(Val, T)> = items.drain(..).map(|item| (key(&item), item)).collect();
+    keyed.sort_by(|left, right| repr_cmp(&left.0, &right.0));
+    items.extend(keyed.into_iter().map(|(_, item)| item));
+}
+
 /// `sorted(items, key=repr)` where the key is the `repr` of a value: a total order, so the standard stable sort is the oracle's.
 pub fn sorted_by_repr<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Vec<T> {
-    let mut keyed: Vec<(Rc<str>, T)> = items.iter().map(|item| (key(item).repr(), item.clone())).collect();
-    keyed.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let mut keyed: Vec<(Val, T)> = items.iter().map(|item| (key(item), item.clone())).collect();
+    keyed.sort_by(|left, right| repr_cmp(&left.0, &right.0));
     keyed.into_iter().map(|(_, item)| item).collect()
 }
 
@@ -760,6 +1166,185 @@ mod tests {
         let (low, high) = (pair(Val::int(1), Val::int(2)), pair(Val::int(1), Val::int(3)));
         assert_eq!(py_less(&low, &high).unwrap(), py_less(&identity_order_val(&low), &identity_order_val(&high)).unwrap());
         assert_eq!(py_less(&high, &low).unwrap(), py_less(&identity_order_val(&high), &identity_order_val(&low)).unwrap());
+    }
+
+    /// A value of every shape the planning layer keys by, made from a seed: the long ones are what the head of a text cuts.
+    fn next(seed: &mut u64, bound: u64) -> u64 {
+        *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (*seed >> 33) % bound
+    }
+
+    fn sample(seed: &mut u64, depth: u32) -> Val {
+        let shape = next(seed, if depth == 0 { 6 } else { 10 });
+        match shape {
+            0 => Val::none(),
+            1 => Val::int(next(seed, 2000) as i64 - 1000),
+            2 => Val::frac(Rat::new(IBig::from(next(seed, 100000) as i64 - 50000), IBig::from(next(seed, 900) as i64 + 1)).unwrap()),
+            3 => Val::str(["EXISTING", "BIRTH", "SPLIT", "a'b"][next(seed, 4) as usize]),
+            4 => Val::boolean(next(seed, 2) == 0),
+            5 => Val::ints(&[next(seed, 500) as i64, -(next(seed, 500) as i64), 7, next(seed, 3) as i64]),
+            6 | 7 => {
+                let count = next(seed, 6);
+                Val::tuple((0..count).map(|_| sample(seed, depth - 1)).collect())
+            }
+            8 => Val::data("Thing", vec![("a", sample(seed, depth - 1)), ("b", sample(seed, depth - 1)), ("c", sample(seed, depth - 1))]),
+            _ => {
+                let count = next(seed, 5);
+                let frozen = next(seed, 2) == 0;
+                Val::set((0..count).map(|_| sample(seed, depth - 1)).collect(), frozen)
+            }
+        }
+    }
+
+    /// The same list of values every call: random ones, and the ones that make a head tie or end early.
+    fn head_cases() -> Vec<Val> {
+        let mut seed = 0x5eed_u64;
+        let mut values: Vec<Val> = (0..300).map(|_| sample(&mut seed, 5)).collect();
+        // texts longer than the head, equal on the head and different after it, and equal values made twice
+        let long = |tail: i64| Val::tuple(vec![Val::tuple((0..HEAD_BYTES as i64).map(Val::int).collect()), Val::int(tail)]);
+        values.extend([long(1), long(2), long(1), long(10), long(9)]);
+        values.push(Val::tuple((0..HEAD_BYTES as i64).map(Val::int).collect()));
+        values.push(Val::int(2));
+        values.push(Val::frac(Rat::from_int(IBig::from(2))));
+        values.push(Val::tuple(vec![Val::tuple(vec![Val::int(2)])]));
+        values.push(Val::tuple(vec![Val::tuple(vec![Val::frac(Rat::from_int(IBig::from(2)))])]));
+        // a text of one length is a beginning of a longer one made of the same items
+        let items: Vec<Val> = (0..60).map(Val::int).collect();
+        for count in [40, 50, 60] {
+            values.push(Val::list(items[..count].to_vec()));
+        }
+        values
+    }
+
+    #[test]
+    fn the_order_by_the_head_of_the_text_is_the_order_of_the_texts() {
+        // `values` is only ever compared with `repr_cmp` (a text is made only when the heads tie); `reference` is the same list whose whole texts are the expected order
+        let (values, reference) = (head_cases(), head_cases());
+        let mut pairs = 0;
+        for (index, left) in values.iter().enumerate() {
+            for (other, right) in values.iter().enumerate().skip(index.saturating_sub(40)) {
+                let expected = reference[index].repr().as_bytes().cmp(reference[other].repr().as_bytes());
+                assert_eq!(repr_cmp(left, right), expected, "{:?} against {:?}", left, right);
+                assert_eq!(repr_cmp(right, left), expected.reverse());
+                pairs += 1;
+            }
+        }
+        assert!(pairs > 10_000);
+        // sorted by the head, sorted by the text
+        let mut order: Vec<usize> = (0..values.len()).collect();
+        order.sort_by(|a, b| repr_cmp(&values[*a], &values[*b]));
+        let mut by_text: Vec<usize> = (0..values.len()).collect();
+        by_text.sort_by(|a, b| reference[*a].repr().as_bytes().cmp(reference[*b].repr().as_bytes()));
+        assert_eq!(order, by_text);
+    }
+
+    /// A key of the shape of an identity key: nested tuples of ints, strings, fractions, `None`, lists and now and then a set.
+    fn identity_sample(seed: &mut u64, depth: u32) -> Val {
+        match next(seed, if depth == 0 { 5 } else { 8 }) {
+            0 => Val::none(),
+            1 => Val::int(next(seed, 4) as i64),
+            2 => Val::frac(Rat::new(IBig::from(next(seed, 7) as i64), IBig::from(next(seed, 3) as i64 + 1)).unwrap()),
+            3 => Val::str(["a", "b"][next(seed, 2) as usize]),
+            4 => Val::boolean(next(seed, 2) == 0),
+            5 | 6 => {
+                let count = next(seed, 4);
+                Val::tuple((0..count).map(|_| identity_sample(seed, depth - 1)).collect())
+            }
+            _ => {
+                if next(seed, 3) == 0 {
+                    Val::set(vec![Val::int(next(seed, 3) as i64)], true)
+                } else {
+                    let count = next(seed, 3);
+                    Val::list((0..count).map(|_| identity_sample(seed, depth - 1)).collect())
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_identity_order_compares_as_the_keys_it_would_make_do() {
+        let mut seed = 0x1de7_u64;
+        let (mut sorted_ok, mut refused) = (0, 0);
+        for round in 0..400 {
+            let count = 2 + (round % 7);
+            let items: Vec<Val> = (0..count).map(|_| identity_sample(&mut seed, 3)).collect();
+            let by_keys = sorted_by_val(&items, identity_order_val);
+            let direct = sorted_by_identity_order(&items, Val::clone);
+            match (&by_keys, &direct) {
+                (Ok(first), Ok(second)) => {
+                    sorted_ok += 1;
+                    assert_eq!(first.len(), second.len());
+                    assert!(first.iter().zip(second).all(|(a, b)| a.same(b)), "the same order for {items:?}");
+                }
+                (Err(first), Err(second)) => {
+                    refused += 1;
+                    assert_eq!(first, second, "the same pair for {items:?}");
+                }
+                _ => panic!("one refuses and the other does not: {items:?}"),
+            }
+            // and the answer of one comparison, both ways
+            for pair in items.windows(2) {
+                let (keys, direct) = (py_less(&identity_order_val(&pair[0]), &identity_order_val(&pair[1])), identity_compare(&pair[0], &pair[1]).map(|order| order == Ordering::Less));
+                assert_eq!(keys, direct, "{:?} < {:?}", pair[0], pair[1]);
+            }
+        }
+        assert!(sorted_ok > 20 && refused > 20, "{sorted_ok} sorted, {refused} refused");
+    }
+
+    /// The tuple of pairs the oracle's key holds for the terms, made value by value (what `terms_of` made before it kept the terms).
+    fn terms_by_values(sum: &SqrtSum) -> Val {
+        Val::tuple(sum.terms().iter().map(pair_of_term).collect())
+    }
+
+    #[test]
+    fn the_terms_of_a_sum_are_the_tuple_of_pairs_they_stand_for() {
+        use cftuv_core::rat::Coef;
+        let fraction = |n: i64, d: i64| Coef::fraction(Rat::new(IBig::from(n), IBig::from(d)).unwrap());
+        let term = |radicand: u64, coef: Coef| Term { radicand: UBig::from(radicand), coef };
+        let sums = [
+            SqrtSum::from_terms(vec![]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, fraction(3, 7))]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, Coef::int(IBig::from(4)))]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, fraction(-1, 2)), term(2, Coef::int(IBig::from(300))), term(54355477354110137, fraction(38365947, 2836155804872))]).unwrap(),
+            SqrtSum::from_terms(vec![term(1, fraction(4, 1)), term(3, fraction(1, 3))]).unwrap(),
+        ];
+        for sum in &sums {
+            let (kept, made) = (Val::terms_of(sum), terms_by_values(sum));
+            assert_eq!(kept.hash_value(), made.hash_value(), "{:?}", made);
+            assert_eq!(&*kept.repr(), &*made.repr());
+            assert_eq!(kept, made);
+            assert_eq!(made, kept);
+            assert_eq!(kept.items().map(<[Val]>::len), made.items().map(<[Val]>::len));
+            assert!(kept.is_tuple());
+            // the head of the text is the beginning of it, the same for both
+            let (fresh, other) = (Val::terms_of(sum), terms_by_values(sum));
+            assert_eq!(repr_cmp(&fresh, &other), Ordering::Equal);
+        }
+        // equal numbers are equal pairs whether the coefficient is an int or a fraction, and the two print differently
+        let (as_int, as_fraction) = (Val::terms_of(&sums[2]), Val::terms_of(&SqrtSum::from_terms(vec![term(1, fraction(4, 1))]).unwrap()));
+        assert_eq!(as_int, as_fraction);
+        assert_ne!(&*as_int.repr(), &*as_fraction.repr());
+        assert!(!strictly_same(&as_int, &as_fraction));
+        assert!(strictly_same(&as_int, &Val::terms_of(&sums[2])));
+        // different sums are different keys, and they order as their pairs do
+        assert_ne!(Val::terms_of(&sums[1]), Val::terms_of(&sums[3]));
+        assert_eq!(py_less(&Val::terms_of(&sums[1]), &Val::terms_of(&sums[3])), py_less(&terms_by_values(&sums[1]), &terms_by_values(&sums[3])));
+        // a key read as a sequence is the pairs
+        let key = Val::tuple_of([Val::terms_of(&sums[3]), Val::terms_of(&sums[1])]);
+        assert_eq!(key.get(0).and_then(|terms| terms.get(1)).and_then(|pair| pair.get(0)).and_then(Val::as_i64), Some(2));
+    }
+
+    #[test]
+    fn a_text_cut_at_the_head_is_the_beginning_of_the_whole_text() {
+        let long = Val::tuple(vec![Val::tuple((0..400).map(Val::int).collect()), Val::str("end")]);
+        let head = long.head();
+        assert!(!head.complete && head.text.len() >= HEAD_BYTES);
+        assert!(long.repr().starts_with(head.text));
+        // once the whole text is there it is the head
+        assert!(long.head().complete);
+        let short = Val::tuple(vec![Val::int(1)]);
+        assert!(short.head().complete);
+        assert_eq!(short.head().text, "(1,)");
     }
 
     #[test]

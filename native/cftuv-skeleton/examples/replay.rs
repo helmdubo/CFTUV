@@ -20,7 +20,7 @@ use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
 use cftuv_skeleton::builder::BuilderOptions;
 use cftuv_skeleton::polygon::{FanSupport, Loop, Polygon, VertexFan};
-use cftuv_skeleton::profile::{reset, reset_stats, take, take_stats, PHASES, STATS};
+use cftuv_skeleton::profile::{reset, reset_stats, take, take_sites, take_stats, PHASES, STATS};
 use cftuv_skeleton::skeleton::Skeleton;
 use cftuv_skeleton::time::EventTime;
 use cftuv_skeleton::transaction::build_skeleton;
@@ -322,9 +322,69 @@ mod sampler {
                 println!("  {:6.2} %  {}", 100.0 * *count as f64 / total as f64, name.chars().take(150).collect::<String>());
             }
         };
+        // SELF by module: the first two path segments (`cftuv_skeleton::pyval`, `dashu_int::mul_ops`, ...), the C allocator and the rest by the first word
+        let mut modules: HashMap<String, u64> = HashMap::new();
+        for (name, count) in &own {
+            let key = if name.starts_with("mi_") || name.starts_with("_mi_") || name.starts_with("Nt") || name.starts_with("_NLG") {
+                "allocator/os".to_string()
+            } else {
+                name.splitn(3, "::").take(2).collect::<Vec<_>>().join("::")
+            };
+            *modules.entry(key).or_default() += count;
+        }
+        print("SELF by module", &modules);
+        // the allocator's samples charged to the first caller that is not the allocator, and to the one above it
+        let is_allocator = |name: &str| name.starts_with("mi_") || name.starts_with("_mi_") || name.starts_with("Nt") || name.starts_with("_NLG") || name.starts_with("alloc::raw_vec") || name.starts_with("__rust_") || name == "memmove" || name == "memcpy";
+        let (mut by_caller, mut by_caller2): (HashMap<String, u64>, HashMap<String, u64>) = Default::default();
+        for stack in samples.iter().filter(|stack| !stack.is_empty()) {
+            let names: Vec<String> = stack.iter().enumerate().map(|(depth, address)| resolve(if depth == 0 { *address } else { *address - 1 }, &mut cache).function.clone()).collect();
+            if !is_allocator(&names[0]) {
+                continue;
+            }
+            if let Some(position) = names.iter().position(|name| !is_allocator(name)) {
+                *by_caller.entry(names[position].chars().take(110).collect()).or_default() += 1;
+                let above = names.get(position + 1).map_or("", |name| name.as_str());
+                *by_caller2.entry(format!("{}  <-  {}", names[position].chars().take(70).collect::<String>(), above.chars().take(70).collect::<String>())).or_default() += 1;
+            }
+        }
+        print("ALLOCATOR (self) by first caller", &by_caller);
+        print("ALLOCATOR (self) by first two callers", &by_caller2);
         print("SELF by function", &own);
         print("INCLUSIVE by function", &inclusive);
         print("SELF by line", &lines);
+        // SAMPLER_TREE=<min percent>: the top-down tree of the samples (inclusive), every node at or above the threshold, children by weight
+        if let Some(threshold) = std::env::var("SAMPLER_TREE").ok().and_then(|text| text.parse::<f64>().ok()) {
+            #[derive(Default)]
+            struct Node {
+                count: u64,
+                children: HashMap<String, Node>,
+            }
+            let mut root = Node::default();
+            for stack in samples.iter().filter(|stack| !stack.is_empty()) {
+                let names: Vec<String> = stack.iter().enumerate().map(|(depth, address)| resolve(if depth == 0 { *address } else { *address - 1 }, &mut cache).function.chars().take(90).collect::<String>()).collect();
+                let mut node = &mut root;
+                node.count += 1;
+                for name in names.into_iter().rev() {
+                    node = node.children.entry(name).or_default();
+                    node.count += 1;
+                }
+            }
+            fn show(node: &Node, name: &str, depth: usize, total: u64, threshold: f64) {
+                let share = 100.0 * node.count as f64 / total as f64;
+                if share < threshold {
+                    return;
+                }
+                let own = node.count - node.children.values().map(|child| child.count).sum::<u64>();
+                println!("{}{:6.2} % (self {:5.2} %) {}", " ".repeat(depth.min(40)), share, 100.0 * own as f64 / total as f64, name);
+                let mut kids: Vec<(&String, &Node)> = node.children.iter().collect();
+                kids.sort_by_key(|kid| std::cmp::Reverse(kid.1.count));
+                for (child_name, child) in kids {
+                    show(child, child_name, depth + 1, total, threshold);
+                }
+            }
+            println!("TREE (min {threshold} %)");
+            show(&root, "(root)", 0, total, threshold);
+        }
         // SAMPLER_FOCUS=a,b: for each fragment, what the samples whose stack holds it spend their time in, which callees it calls and who calls it
         for focus in std::env::var("SAMPLER_FOCUS").unwrap_or_default().split(',').filter(|text| !text.is_empty()) {
             let (mut inside, mut callees, mut callers): (HashMap<String, u64>, HashMap<String, u64>, HashMap<String, u64>) = Default::default();
@@ -414,6 +474,7 @@ fn main() {
     let mut cycles_total = 0u64;
     let mut profile_total: Vec<u64> = vec![0; PHASES.len()];
     let mut stats_total: Vec<u64> = vec![0; STATS.len()];
+    let mut sites_total: std::collections::HashMap<String, u64> = Default::default();
     #[cfg(windows)]
     let sampling = sample.then(|| sampler::Sampler::start(1000));
     for call in &calls {
@@ -428,6 +489,7 @@ fn main() {
         let mut nodes = 0usize;
         let mut profile: Vec<u64> = Vec::new();
         let mut stats: Vec<u64> = Vec::new();
+        let mut sites: Vec<(String, u64)> = Vec::new();
         for _ in 0..repeat {
             let mut session = Session::new();
             let mut run = CostRun::begin_parts(&mut session, None, Some(call.cap), Some([0; 6])).expect("a cold run");
@@ -457,7 +519,11 @@ fn main() {
                 best = seconds;
                 profile = take();
                 stats = take_stats();
+                sites = take_sites();
             }
+        }
+        for (site, count) in sites {
+            *sites_total.entry(site).or_default() += count;
         }
         for (slot, value) in stats_total.iter_mut().zip(&stats) {
             *slot += value;
@@ -490,6 +556,14 @@ fn main() {
         println!("counters (summed over the calls):");
         for ((label, _), value) in STATS.iter().zip(&stats_total) {
             println!("    {label:48} {value:12}");
+        }
+    }
+    if !sites_total.is_empty() {
+        let mut rows: Vec<(&String, &u64)> = sites_total.iter().collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(*row.1));
+        println!("values made, by the line that asked for them:");
+        for (site, count) in rows.into_iter().take(30) {
+            println!("    {site:48} {count:10}");
         }
     }
     let phases: u64 = profile_total.iter().sum();

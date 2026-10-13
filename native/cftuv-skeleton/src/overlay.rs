@@ -13,7 +13,8 @@
 //! iteration over `spans` that decides something sorts by `repr` or asks `any`. The port builds them in the order the occurrences are met.
 
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -29,7 +30,7 @@ use crate::line::SupportLine;
 use crate::component::point_from_key;
 use crate::omap::OrderedMap;
 use crate::plans::{point_val, time_val, ComponentPlan};
-use crate::pyval::Val;
+use crate::pyval::{repr_cmp, Val};
 use crate::snapshot::{exact_point_key, port_identity, sparse_occurrences, VertexSnapshot};
 use crate::time::{times_are_equal, EventPoint, EventTime, PointRef, TimeRef};
 use crate::profile::{timed, Phase};
@@ -251,7 +252,7 @@ impl Overlay {
     /// `sorted(overlay.changed, key=repr)`.
     pub fn changed_by_repr(&self) -> Vec<Leaf> {
         let mut leaves: Vec<Leaf> = self.changed.iter().cloned().collect();
-        leaves.sort_by(|left, right| left.val().repr().as_bytes().cmp(right.val().repr().as_bytes()));
+        leaves.sort_by(|left, right| repr_cmp(left.val(), right.val()));
         leaves
     }
 }
@@ -285,7 +286,7 @@ pub fn refreshed_span_bindings(overlay: &Overlay) -> (Option<OrderedMap<Leaf, Bi
 // --------------------------------------------------------------------------
 
 fn line_occurrence(builder: &Builder, edge: i64) -> SkelResult<Val> {
-    Ok(Val::tuple_of([Val::ints(builder.edge_at(edge)?.span.as_slice()), Val::none(), Val::none()]))
+    Ok(Val::tuple_of([builder.edge_at(edge)?.key_val().clone(), Val::none(), Val::none()]))
 }
 
 /// `with_line_ports(builder, snapshot, time)`: the vertices of the frozen front with a line-only occurrence where a live vertex has none (an end stays `None`; its exact place
@@ -361,7 +362,7 @@ fn hydrate_f0(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexS
 }
 
 fn hydrate_f0_body(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexSnapshot], plans: &[ComponentPlan], time: &EventTime) -> SkelResult<Option<Vec<VertexSnapshot>>> {
-    let mut required: HashSet<Vec<i64>> = HashSet::new();
+    let mut required: HashSet<Vec<i64>> = HashSet::default();
     for vertex in vertices {
         for occurrence in [&vertex.prev_occurrence, &vertex.next_occurrence].into_iter().flatten() {
             required.extend(occurrence.get(0).and_then(edge_key_of));
@@ -400,7 +401,7 @@ fn hydrate_f0_body(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[Ve
 
 /// `_occurrences(snapshot, plans)`: every occurrence the packet names, each once (the oracle's is a set; the order of the port is the order they are met in).
 fn occurrences_of(vertices: &[VertexSnapshot], plans: &[ComponentPlan]) -> Vec<Val> {
-    let mut seen: HashSet<Val> = HashSet::new();
+    let mut seen: HashSet<Val> = HashSet::default();
     let mut found: Vec<Val> = Vec::new();
     let mut add = |occurrence: &Val| {
         if seen.insert(occurrence.clone()) {
@@ -888,6 +889,11 @@ impl CandidateView for OverlayView<'_> {
         Ok(VertexState { prev_span: leaf_slot(&found.prev_leaf), next_span: leaf_slot(&found.next_leaf), birth: &found.birth, sliding })
     }
 
+    fn span_line(&self, span: SpanRef) -> SkelResult<&SupportLine> {
+        let (_, binding) = self.overlay.spans.at(span as usize).ok_or_else(|| key_error("a leaf that is not in the overlay"))?;
+        Ok(&self.builder.edge_at(binding.physical_edge_id)?.line)
+    }
+
     fn span_state(&self, span: SpanRef) -> SkelResult<SpanState<'_>> {
         let (_, binding) = self.overlay.spans.at(span as usize).ok_or_else(|| key_error("a leaf that is not in the overlay"))?;
         let edge = self.builder.edge_at(binding.physical_edge_id)?;
@@ -1008,7 +1014,7 @@ pub fn overlay_val(overlay: &Overlay) -> Val {
             )
         })
         .collect();
-    spans.sort_by(|left, right| left.0.repr().as_bytes().cmp(right.0.repr().as_bytes()));
+    spans.sort_by(|left, right| repr_cmp(&left.0, &right.0));
     Val::data(
         "SymbolicOverlayV1",
         vec![

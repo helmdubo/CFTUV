@@ -11,7 +11,8 @@
 //! as Python does.
 
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+use crate::fxcoll::{HashMap, HashSet};
 use std::rc::Rc;
 
 use cftuv_core::exact::ExactCtx;
@@ -217,9 +218,9 @@ pub fn live_level(ctx: &mut ExactCtx<'_>, builder: &mut Builder, level: &[Candid
 /// `_required_physical_edge_keys(builder, events)`: the keys of the edge occurrences the packet must carry: every live one, or none when no event is live.
 pub fn required_physical_edge_keys(builder: &Builder, events: &[CandidateEvent]) -> SkelResult<HashSet<Vec<i64>>> {
     if events.is_empty() {
-        return Ok(HashSet::new());
+        return Ok(HashSet::default());
     }
-    let mut keys = HashSet::new();
+    let mut keys = HashSet::default();
     for vertex in builder.vertices.iter().filter(|vertex| vertex.alive) {
         keys.insert(builder.edge_at(vertex.next_edge)?.span.to_vec());
     }
@@ -241,7 +242,7 @@ pub struct SparseOccurrences {
 pub fn sparse_occurrences(ctx: &mut ExactCtx<'_>, builder: &mut Builder, time: &EventTime, required: &HashSet<Vec<i64>>) -> SkelResult<SparseOccurrences> {
     let mut span_starts: Vec<(i64, i64)> = Vec::new();
     let mut point_vertex_ids: BTreeSet<i64> = BTreeSet::new();
-    let mut live_owner_counts: HashMap<i64, i64> = HashMap::new();
+    let mut live_owner_counts: HashMap<i64, i64> = HashMap::default();
     for vertex in &builder.vertices {
         if !vertex.alive {
             continue;
@@ -262,10 +263,10 @@ pub fn sparse_occurrences(ctx: &mut ExactCtx<'_>, builder: &mut Builder, time: &
         let point = builder.position(ctx, ident, time)?;
         point_keys[ident as usize] = point.map(|point| crate::profile::timed(crate::profile::Phase::ClosureKeys, || exact_point_key(&point)));
     }
-    let mut occurrences = HashMap::new();
+    let mut occurrences = HashMap::default();
     for (start, end) in span_starts {
         let next_edge = builder.vertex_at(start)?.next_edge;
-        let key = Val::ints(builder.edge_at(next_edge)?.span.as_slice());
+        let key = builder.edge_at(next_edge)?.key_val().clone();
         let part = |ident: i64| point_keys[ident as usize].clone().unwrap_or_else(Val::none);
         occurrences.insert(next_edge, Val::tuple_of([key, part(start), part(end)]));
     }

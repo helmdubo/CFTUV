@@ -64,6 +64,10 @@ pub trait CandidateView {
     fn prime_universe(&self) -> &[UBig];
     fn vertex_state(&self, vertex: VertexRef) -> SkelResult<VertexState<'_>>;
     fn span_state(&self, span: SpanRef) -> SkelResult<SpanState<'_>>;
+    /// `view.span_state(span).line` and nothing else (the line is asked for far more often than the rest of the state, whose end vertices a view may have to look up).
+    fn span_line(&self, span: SpanRef) -> SkelResult<&SupportLine> {
+        Ok(self.span_state(span)?.line)
+    }
     /// `view.trace_bounds(vertex, time)`: `None` when the vertex has no trace, else `trace.bounds_time(time)` (the event is not later than the crash;
     /// `false` also for a trace that never crashes, which bounds nothing).
     fn trace_bounds(&self, ctx: &mut ExactCtx<'_>, vertex: VertexRef, time: &EventTime) -> SkelResult<Option<bool>>;
@@ -167,8 +171,8 @@ fn hydrate_position<V: CandidateView>(
 /// `position(view, vertex, time)`: the exact place of the vertex at `time`; asked first, paid once (a hit costs nothing).
 pub fn position<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo: &mut PositionMemo, vertex_ref: VertexRef, time: &EventTime) -> SkelResult<Option<PointRef>> {
     let vertex = view.vertex_state(vertex_ref)?;
-    let first = view.span_state(vertex.prev_span)?.line;
-    let second = view.span_state(vertex.next_span)?.line;
+    let first = view.span_line(vertex.prev_span)?;
+    let second = view.span_line(vertex.next_span)?;
     if !memo.active {
         return hydrate_position(ctx, view, first, second, vertex.sliding, time);
     }
@@ -339,18 +343,18 @@ pub fn edge_event_time<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo:
         return Ok((None, TimeOutcome::NeverConcurrent));
     }
     if let Some(sliding) = vertex.sliding {
-        let line = view.span_state(vertex.prev_span)?.line;
-        let other = view.span_state(peer.next_span)?.line;
+        let line = view.span_line(vertex.prev_span)?;
+        let other = view.span_line(peer.next_span)?;
         return Ok(entry_of(sliding_time(ctx, line, sliding.value, other)?));
     }
     if let Some(sliding) = peer.sliding {
-        let line = view.span_state(peer.prev_span)?.line;
-        let other = view.span_state(vertex.prev_span)?.line;
+        let line = view.span_line(peer.prev_span)?;
+        let other = view.span_line(vertex.prev_span)?;
         return Ok(entry_of(sliding_time(ctx, line, sliding.value, other)?));
     }
-    let first = view.span_state(vertex.prev_span)?.line;
-    let second = view.span_state(vertex.next_span)?.line;
-    let third = view.span_state(peer.next_span)?.line;
+    let first = view.span_line(vertex.prev_span)?;
+    let second = view.span_line(vertex.next_span)?;
+    let third = view.span_line(peer.next_span)?;
     Ok(entry_of(concurrency_time(ctx, first, second, third)?))
 }
 

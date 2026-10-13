@@ -65,8 +65,8 @@ fn classified(disposition: PoststateDisposition, birth_length: Option<SqrtSum>, 
 /// nor slides.
 pub fn vertex_velocity<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, vertex_ref: VertexRef) -> SkelResult<Option<(SqrtSum, SqrtSum)>> {
     let vertex = view.vertex_state(vertex_ref)?;
-    let first = view.span_state(vertex.prev_span)?.line;
-    let second = view.span_state(vertex.next_span)?.line;
+    let first = view.span_line(vertex.prev_span)?;
+    let second = view.span_line(vertex.next_span)?;
     let determinant = first.determinant(second);
     let coefficient = |value: i64| Rat::from_i64(value);
     if determinant != 0 {
@@ -131,7 +131,7 @@ pub fn classify_poststate_span<V: CandidateView>(
     let (Some(birth_length), Some(low_velocity), Some(high_velocity)) = (birth_length.clone(), low_velocity, high_velocity) else {
         return Ok(classified(PoststateDisposition::NonpointJunctionOutsideLaw, birth_length, None, None));
     };
-    let line = view.span_state(shared)?.line;
+    let line = view.span_line(shared)?;
     let (a, b) = (Rat::from_i64(line.a), Rat::from_i64(line.b));
     let slope = high_velocity.0.scaled(&b).sub(&high_velocity.1.scaled(&a)).sub(&low_velocity.0.scaled(&b)).add(&low_velocity.1.scaled(&a));
     let orientation_sign = span_orientation(ctx, view, shared)?;

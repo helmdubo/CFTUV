@@ -183,8 +183,8 @@ pub fn evaluate_edge_candidate<V: CandidateView>(
         return edge_refused(CandidateRefusal::FilterSpanIsBornZero, false);
     }
     let Some(point) = position(ctx, view, memo, vertex_ref, &time)? else {
-        let first = view.span_state(vertex.prev_span)?.line;
-        let second = view.span_state(vertex.next_span)?.line;
+        let first = view.span_line(vertex.prev_span)?;
+        let second = view.span_line(vertex.next_span)?;
         return edge_refused(joint_refusal(first, second), true);
     };
     Ok(EdgeDecision { candidate: Some(EdgeCandidate { time, point, span_unproven: span.is_none() }), effects: Vec::new() })
@@ -224,9 +224,9 @@ pub fn evaluate_split_candidate_gated<V: CandidateView>(
     gate: NowGate,
 ) -> SkelResult<SplitDecision> {
     let vertex = view.vertex_state(vertex_ref)?;
-    let first = view.span_state(vertex.prev_span)?.line;
-    let second = view.span_state(vertex.next_span)?.line;
-    let target = view.span_state(target_ref)?.line;
+    let first = view.span_line(vertex.prev_span)?;
+    let second = view.span_line(vertex.next_span)?;
+    let target = view.span_line(target_ref)?;
     let (time, outcome) = match vertex.sliding {
         None => concurrency_time_in(ctx, memo, first, second, target)?,
         Some(sliding) => sliding_time_in(ctx, memo, first, sliding, target)?,

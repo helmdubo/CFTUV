@@ -15,7 +15,7 @@ use cftuv_core::exact::{self, ExactCtx, ExactError};
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::Rat;
-use cftuv_core::sqrt_sum::{filter_decision, scaled_difference_parts, Closure, SqrtSum, SIGN_FILTER_BITS};
+use cftuv_core::sqrt_sum::{filter_decision, scaled_difference_parts, Closure, IntForm, SqrtSum, SIGN_FILTER_BITS};
 
 use crate::error::{SkelError, SkelResult};
 use crate::line::SupportLine;
@@ -312,23 +312,51 @@ pub fn event_point(ctx: &mut ExactCtx<'_>, first: &SupportLine, second: &Support
     spend_hydration(ctx, first)?;
     let first_radical = timed(Phase::EventPointRadical, || exact::radical(ctx, &time.dividend, &first.q))?;
     let second_radical = timed(Phase::EventPointRadical, || exact::radical(ctx, &time.dividend, &second.q))?;
-    let (x_numerator, y_numerator) = timed(Phase::EventPointArithmetic, || {
-        let right_first = time.divisor.scaled(&rat_of(first.c)).add(&first_radical);
-        let right_second = time.divisor.scaled(&rat_of(second.c)).add(&second_radical);
-        let x_numerator = combined(&right_first, &rat_of(i128::from(second.b)), &right_second, &rat_of(i128::from(first.b)));
-        let y_numerator = combined(&right_second, &rat_of(i128::from(first.a)), &right_first, &rat_of(i128::from(second.a)));
-        (x_numerator, y_numerator)
-    });
     let (x, y) = timed(Phase::EventPointDivide, || -> SkelResult<(SqrtSum, SqrtSum)> {
         Ok(match universe {
             None => {
+                let (x_numerator, y_numerator) = timed(Phase::EventPointArithmetic, || event_point_numerators(time, first, second, &first_radical, &second_radical));
                 let scale = time.divisor.scaled(&rat_of(determinant));
                 (exact::divided_by(ctx, &x_numerator, &scale)?, exact::divided_by(ctx, &y_numerator, &scale)?)
             }
-            Some(universe) => divide_pair_by_time(ctx, time, determinant, &x_numerator, &y_numerator, universe)?,
+            Some(universe) => divide_pair_by_time(ctx, time, first, second, determinant, (&first_radical, &second_radical), universe)?,
         })
     })?;
     Ok(EventPoint::new(x, y))
+}
+
+/// `offset / determinant + product * inverse` as one sum over one denominator, nothing taken to lowest terms (the value is the sum's, whatever scale its integers have): the rational
+/// term of the quotient is put over the denominator of the scaled product, so no fraction is made of it and no second sum is made to add it.
+fn rational_plus_scaled(offset: &IBig, determinant: i128, product: &SqrtSum, inverse: &Rat) -> SqrtSum {
+    let form = product.int_form();
+    let bar = UBig::from(determinant.unsigned_abs());
+    let weight = inverse.numerator() * IBig::from(bar.clone());
+    let product_scale = &form.common * inverse.denominator();
+    let rational = if determinant < 0 { -(offset * IBig::from(product_scale.clone())) } else { offset * IBig::from(product_scale.clone()) };
+    let mut rational = rational;
+    let mut items: Vec<(UBig, IBig)> = Vec::with_capacity(form.items.len() + 1);
+    for (radicand, numerator) in &form.items {
+        let scaled = numerator * &weight;
+        if radicand.is_one() {
+            rational += scaled;
+        } else {
+            items.push((radicand.clone(), scaled));
+        }
+    }
+    if !rational.is_zero() {
+        items.insert(0, (UBig::ONE, rational));
+    }
+    IntForm { common: product_scale * bar, items }.into_sqrt_sum()
+}
+
+/// The numerators of the two coordinates of the crossing: `x = (right_first * b2 - right_second * b1) / (divisor * det)` and `y = (right_second * a1 - right_first * a2) / (divisor * det)`,
+/// `right_i = divisor * c_i + radical_i` (Cramer's rule for `a x + b y = c + t sqrt(q)` at `t = dividend / divisor`).
+fn event_point_numerators(time: &EventTime, first: &SupportLine, second: &SupportLine, first_radical: &SqrtSum, second_radical: &SqrtSum) -> (SqrtSum, SqrtSum) {
+    let right_first = time.divisor.scaled(&rat_of(first.c)).add(first_radical);
+    let right_second = time.divisor.scaled(&rat_of(second.c)).add(second_radical);
+    let x_numerator = combined(&right_first, &rat_of(i128::from(second.b)), &right_second, &rat_of(i128::from(first.b)));
+    let y_numerator = combined(&right_second, &rat_of(i128::from(first.a)), &right_first, &rat_of(i128::from(second.a)));
+    (x_numerator, y_numerator)
 }
 
 /// `(x_numerator / scale, y_numerator / scale)` for `scale = time.divisor * determinant`, as the oracle computes them (one `_divide_with_prime_universe` after the other), with the
@@ -338,16 +366,42 @@ pub fn event_point(ctx: &mut ExactCtx<'_>, first: &SupportLine, second: &Support
 /// `(1, prime)` (then that division is `divided_by` on its original operands, as in the oracle). A plan the universe cannot make leaves both divisions to the oracle's loop
 /// itself, which knows how far it got before it left. `scale` is built only for those two fallbacks; the conjugate is the divisor's and the rational it ends with is the
 /// divisor's times the determinant. The quotient is the same value, whichever way its integers were reached.
-fn divide_pair_by_time(ctx: &mut ExactCtx<'_>, time: &EventTime, determinant: i128, x_numerator: &SqrtSum, y_numerator: &SqrtSum, universe: &[UBig]) -> SkelResult<(SqrtSum, SqrtSum)> {
+///
+/// The numerators are not made unless a fallback needs them. A numerator is `divisor * k + g` (`k = c1*b2 - c2*b1`, `g` the radicals `radical1*b2 - radical2*b1`, and the same with
+/// the roles of `a` and `b` for `y`), the conjugate times the divisor is the rational the plan ends with, so `numerator * conjugate / (rational * determinant)` is
+/// `k / determinant + g * conjugate / (rational * determinant)`: the product is of the one or two terms of `g` by the conjugate, not of the five or six of the numerator.
+fn divide_pair_by_time(
+    ctx: &mut ExactCtx<'_>,
+    time: &EventTime,
+    first: &SupportLine,
+    second: &SupportLine,
+    determinant: i128,
+    radicals: (&SqrtSum, &SqrtSum),
+    universe: &[UBig],
+) -> SkelResult<(SqrtSum, SqrtSum)> {
+    let (first_radical, second_radical) = radicals;
     let scale = || time.divisor.scaled(&rat_of(determinant));
+    let numerators = OnceCell::new();
+    let plain = || numerators.get_or_init(|| timed(Phase::EventPointArithmetic, || event_point_numerators(time, first, second, first_radical, second_radical)));
     let base = time.divisor_plan(universe, ctx.products);
     let Some(plan) = base.plan.as_ref() else {
+        let (x_numerator, y_numerator) = plain();
         let scale = scale();
         return Ok((exact::divide_with_prime_universe(ctx, x_numerator, &scale, universe)?, exact::divide_with_prime_universe(ctx, y_numerator, &scale, universe)?));
     };
     let inverse = Rat::one().div(&plan.rational.mul(&rat_of(determinant))).map_err(|_| ExactError::Internal("a zero rational denominator"))?;
+    let (radical_x, radical_y) = timed(Phase::EventPointArithmetic, || {
+        (
+            combined(first_radical, &rat_of(i128::from(second.b)), second_radical, &rat_of(i128::from(first.b))),
+            combined(second_radical, &rat_of(i128::from(first.a)), first_radical, &rat_of(i128::from(second.a))),
+        )
+    });
+    let offsets = [
+        IBig::from(first.c) * IBig::from(second.b) - IBig::from(second.c) * IBig::from(first.b),
+        IBig::from(second.c) * IBig::from(first.a) - IBig::from(first.c) * IBig::from(second.a),
+    ];
     let mut quotients = Vec::with_capacity(2);
-    for numerator in [x_numerator, y_numerator] {
+    for (index, (radical, offset)) in [(radical_x, &offsets[0]), (radical_y, &offsets[1])].into_iter().enumerate() {
         let mut agrees = true;
         for prime in &plan.primes {
             let (outside, inside) = ctx.memory.squarefree_split_unsigned(prime, ctx.budget).map_err(ExactError::from)?;
@@ -356,7 +410,13 @@ fn divide_pair_by_time(ctx: &mut ExactCtx<'_>, time: &EventTime, determinant: i1
                 break;
             }
         }
-        quotients.push(if agrees { numerator.mul(&plan.conjugate, ctx.products).scaled(&inverse) } else { exact::divided_by(ctx, numerator, &scale())? });
+        quotients.push(if agrees {
+            let product = radical.mul(&plan.conjugate, ctx.products);
+            rational_plus_scaled(offset, determinant, &product, &inverse)
+        } else {
+            let (x_numerator, y_numerator) = plain();
+            exact::divided_by(ctx, if index == 0 { x_numerator } else { y_numerator }, &scale())?
+        });
     }
     let y = quotients.pop().ok_or(ExactError::Internal("two quotients"))?;
     let x = quotients.pop().ok_or(ExactError::Internal("two quotients"))?;

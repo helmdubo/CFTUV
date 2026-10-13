@@ -326,7 +326,7 @@ pub(crate) fn builder_of(value: &Value, options: BuilderOptions) -> Wire<Builder
     let mut builder = Builder::empty(polygon, options, universe);
     for entry in list(edges, "edges")? {
         let [ident, line, span] = fixed::<3>(entry, "an edge")?;
-        builder.edges.push(Edge { ident: i64_of(ident, "an edge identity")?, line: Rc::new(line_of(line)?), span: Rc::new(ints_of(span, "an edge span")?) });
+        builder.edges.push(Edge::new(i64_of(ident, "an edge identity")?, Rc::new(line_of(line)?), Rc::new(ints_of(span, "an edge span")?)));
     }
     for entry in list(vertices, "vertices")? {
         let [ident, prev_edge, next_edge, prev, next, birth, point, reflex, alive, sliding] = fixed::<10>(entry, "a vertex")?;
