@@ -2515,3 +2515,31 @@ def test_the_scene_has_exactly_one_backend_setting_the_master_switch():
     )
     properties = [node.target.id for node in group.body if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)]
     assert [name for name in properties if "backend" in name] == ["kernel_backend"], properties
+
+
+def test_the_button_starts_the_byte_check_after_its_tail_and_nobody_else_defers_it():
+    """SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1: фоновая проверка первого нажатия занимает первичные ядра и замедляла хвост кнопки на +0.14..0.17 с.
+
+    Прогон с `defer_byte_check=True` оставляет запуск в сессии, и тот, кто так просил, обязан запустить его (`launch_pending_byte_check`) в `finally` своего хвоста, иначе запуск пропал бы молча
+    (сессия назовёт его оборванным только при сбросе или новом запуске). Поэтому отложить запуск вправе один вызывающий - оператор, и запускает он его в `finally` после хвоста, до таймера, который читает задачу.
+    """
+
+    deferring = {}
+    for path in _python_files(HOST_PACKAGE):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Call) and _called_names_of(node) == "run_production":
+                for keyword in node.keywords:
+                    if keyword.arg == "defer_byte_check":
+                        deferring.setdefault(path.name, []).append(isinstance(keyword.value, ast.Constant) and keyword.value.value is True)
+    assert deferring == {"envelope_production_operator.py": [True]}, deferring
+    execute = _functions_of("envelope_production_operator.py")["execute"]
+    launched = [
+        node
+        for node in ast.walk(execute)
+        if isinstance(node, ast.Try) and any(_called_names_of(call) == "launch_pending_byte_check" for statement in node.finalbody for call in ast.walk(statement) if isinstance(call, ast.Call))
+    ]
+    assert launched, "оператор не запускает отложенную фоновую проверку в finally"
+    body_calls = {_called_names_of(call) for statement in launched[0].body for call in ast.walk(statement) if isinstance(call, ast.Call)}
+    assert "_build_and_write" in body_calls, "запуск стоит не после хвоста кнопки"
+    watch_lines = [call.lineno for call in ast.walk(execute) if isinstance(call, ast.Call) and _called_names_of(call) == "_watch_byte_check"]
+    assert watch_lines and min(watch_lines) > launched[0].lineno, "таймер статуса читает задачу, которой ещё нет"

@@ -149,9 +149,7 @@ def build_host_export_input(
     """Лёгкий вход одного патча из выгрузки топологии родителя."""
 
     patch_id = int(patch_id)
-    view = build_analysis_bundle_id_view(
-        topology_export.analysis_bundle, frozenset({patch_id})
-    )
+    view = topology_export.patch_view(patch_id)
     graph = view.patch_graph
     chains = topology_export.patch_chains(patch_id)
     bundle = _LightBundleV1(
@@ -204,9 +202,7 @@ def patch_metric_from_worker(
         topology_export.source_revision_value,
         patch_id,
         topology_export.patch_domain_id_by_patch[patch_id],
-        build_analysis_bundle_id_view(
-            topology_export.analysis_bundle, frozenset({patch_id})
-        ),
+        topology_export.patch_view(patch_id),
         result.snapshot,
         topology_export.developable_stretch_budget,
         grid_scale_law=getattr(topology_export, "grid_scale_law", None),

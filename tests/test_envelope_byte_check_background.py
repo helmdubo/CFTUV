@@ -677,3 +677,81 @@ def test_a_line_another_action_rewrote_or_a_replaced_job_is_left_alone(monkeypat
     watch2(controller, "Scene")
     controller.byte_check_job = _job(background.STATE_RUNNING)  # другая задача заняла место
     assert timers2[0]() is None and settings2.timing == "Decal cold 1.00 s"
+
+
+# --------------------------------------------------------------------------
+# 5. Запуск после хвоста кнопки (SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1)
+# --------------------------------------------------------------------------
+
+
+def _deferred_press(monkeypatch, *, controller=None, bundle=None):
+    monkeypatch.setenv(ENVIRONMENT, MODE_SAMPLE)
+    controller = EnvelopeDebugSessionController() if controller is None else controller
+    run = run_production(
+        controller,
+        quad_row_bundle(ROW) if bundle is None else bundle,
+        frozenset(range(ROW)),
+        ALPHA,
+        source_object_key="object",
+        source_data_key="mesh",
+        density=None,
+        workers=2,
+        defer_byte_check=True,
+    )
+    return run, controller
+
+
+def test_a_deferred_launch_starts_nothing_until_the_button_asks_and_then_gives_the_same_verdict(monkeypatch, _room):
+    run, controller = _deferred_press(monkeypatch)
+
+    assert _counts(run) == {BYTE_CHECK_DEFERRED: ROW} and all(item.is_materialized for item in run.results)
+    assert controller.byte_check_job is None and _room.steps == 0  # хвост кнопки идёт без фона: ни задачи, ни потока, ни шага
+    assert byte_check.resolve_plan(run.kernel_backend, environ={}, defer=True).first_press is False  # идентичность "в работе": второе нажатие не считается первым
+
+    job = controller.launch_pending_byte_check()
+
+    assert job is not None and job is controller.byte_check_job and job.expected == ROW and job.wait(30.0)
+    assert (job.state, job.checked, job.violations) == (background.STATE_CLEAN, ROW, [])
+    assert controller.launch_pending_byte_check() is None  # второй вызов ничего не запускает
+    assert controller.byte_check_job is job
+    # Вердикт и ответ те же, что у прогона, где фон стартовал внутри него.
+    byte_check.forget_checked_identities()
+    with byte_check._DEFERRED_LOCK:
+        byte_check._DEFERRED.clear()
+    inline, inline_controller = _press(monkeypatch, MODE_SAMPLE)
+    assert inline_controller.byte_check_job.wait(30.0)
+    assert _answer(run) == _answer(inline) and _counts(run) == _counts(inline)
+    assert (job.state, job.checked, job.expected) == (inline_controller.byte_check_job.state, inline_controller.byte_check_job.checked, inline_controller.byte_check_job.expected)
+
+
+def test_a_deferred_launch_that_cannot_start_is_named_not_lost(monkeypatch, _room, capsys):
+    run, controller = _deferred_press(monkeypatch)
+    capsys.readouterr()
+
+    controller.clear()  # сессия сброшена до запуска (новая ревизия делает то же через `_drop_byte_check`)
+
+    out = capsys.readouterr().out
+    assert f"{background.BYTE_CHECK_BACKGROUND_OUTCOME}: INCOMPLETE, the session was reset before the launch; {ROW} snapshots stay unverified" in out
+    assert controller.launch_pending_byte_check() is None and controller.byte_check_job is None
+    assert byte_check.resolve_plan(run.kernel_backend, environ={}, defer=True).first_press  # идентичность осталась непроверенной: следующее нажатие снова первое
+
+
+def test_a_second_held_launch_names_the_first_as_replaced(monkeypatch, _room, capsys):
+    first, controller = _deferred_press(monkeypatch)
+    capsys.readouterr()
+
+    second, _ = _deferred_press(monkeypatch, controller=controller)
+
+    assert "INCOMPLETE, a newer press replaced the launch before it started" in capsys.readouterr().out
+    assert controller.launch_pending_byte_check() is None  # второе нажатие - выборка (идентичность была "в работе"): откладывать ему нечего
+    assert controller.byte_check_job is None
+    assert byte_check.resolve_plan(second.kernel_backend, environ={}, defer=True).first_press  # оборванный запуск оставил идентичность непроверенной
+    assert all(item.is_materialized for item in (*first.results, *second.results))
+
+
+def test_a_press_without_the_deferral_starts_the_job_inside_the_run_as_before(monkeypatch, _room):
+    run, controller = _press(monkeypatch, MODE_SAMPLE)
+
+    assert controller.byte_check_job is not None  # прежний путь: тесты, живая ширина и инструменты не зовут `launch_pending_byte_check`
+    assert controller.launch_pending_byte_check() is None
+    assert controller.byte_check_job.wait(30.0) and all(item.is_materialized for item in run.results)

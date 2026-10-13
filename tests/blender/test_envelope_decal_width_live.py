@@ -232,7 +232,9 @@ def _run_five_changes(*, workers):
     controller = _controller()
     settings = _settings()
     record = controller.width_build
-    assert record is not None and record.preview_inputs.runs, "the button must remember the build"
+    from cftuv.envelope_width_live import has_preview_runs, resolved_preview_inputs
+
+    assert record is not None and has_preview_runs(record.preview_inputs), "the button must remember the build"
     assert controller.width_preview is None
     assert controller.width_displayed is not None and controller.width_model is None  # модель строит первое событие, не кнопка
     before = _digest()
@@ -257,7 +259,7 @@ def _run_five_changes(*, workers):
     assert abs(frame.alpha - width) < 1e-12 and frame.held == 0 and len(frame.moving) == frame.live == 2, frame
     assert state.preview.lines == 0 and state.preview.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1) == 2, state.preview.outcomes
     # Без модели тот же шов на той же ширине — линия с каждой стороны: пропуск не теряет путей, которые надо рисовать.
-    full = compute_width_preview(record.preview_inputs, width, lift=float(_decal_settings().offset))
+    full = compute_width_preview(resolved_preview_inputs(controller, record), width, lift=float(_decal_settings().offset))
     assert full.lines >= 2 and full.points >= 4 and full.outcome(PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1) == 0
     # Меш показывает кадр модели, а точный путь его не трогал: датаблоки, указатели и свойство ширины те же.
     assert _digest() != before

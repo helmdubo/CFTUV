@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from fractions import Fraction
+from functools import cache
 
 SNAPSHOT_CHECK_ADOPTED = "PRODUCTION_SNAPSHOT_CHECK_ADOPTED"
 #: Причины, по которым запись воркера не принята (каждая - счётчик профиля): записи нет, исполнение другое, слепок снапшота не
@@ -70,8 +71,15 @@ def budget_key(stretch_budget) -> Fraction | None:
     return None if stretch_budget is None else Fraction(stretch_budget.numerator, stretch_budget.denominator)
 
 
+@cache
+def _field_names(record_type) -> tuple:
+    """Имена полей типа записи (один раз на тип): `dataclasses.fields` на каждый снапшот стоил ~20 мкс на домен приёма."""
+
+    return tuple(item.name for item in fields(record_type))
+
+
 def _sizes(record) -> tuple:
-    return tuple(len(value) for item in fields(record) if isinstance(value := getattr(record, item.name), frozenset))
+    return tuple(len(value) for name in _field_names(type(record)) if isinstance(value := getattr(record, name), frozenset))
 
 
 def snapshot_witness(snapshot) -> tuple:

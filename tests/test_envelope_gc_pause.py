@@ -349,7 +349,8 @@ def test_only_the_button_the_pool_worker_and_the_width_tick_pause_the_collector(
     assert users == {
         "envelope_domain_pool.py": ["gc_paused"],
         "envelope_production_operator.py": ["gc_paused_call"],
-        "envelope_width_live.py": ["gc_paused_function"],
+        # + простой после кнопки (WIDTH_PREVIEW_INPUTS_DEFERRED_V1): пути линий превью строятся ОДИН раз под паузой с заморозкой, как у кнопки, и сборщик не обходит их на первом кадре; сам таймер не помечен.
+        "envelope_width_live.py": ["gc_paused", "gc_paused_function"],
         # Вход инструмента (WIDTH_REFRESH_INCREMENTAL_V1): первая постройка модели образца на экране (`ensure_model`) на `cover.008` стоила 260-380 мс, потому что в неё попадал проход сборщика, установившаяся - 22 мс;
         # это работа на главном потоке, а не простой, поэтому пауза стоит на самой постройке (`_build_displayed_model`), а не на `ensure_model`, который каждый кадр возвращается с готовой моделью.
         "envelope_width_mesh_preview.py": ["gc_paused_function"],

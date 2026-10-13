@@ -148,6 +148,8 @@ class PreviewLogV1:
     #: Из инкрементальных тактов: сколько сложены в numpy (`envelope_width_composite`) и сколько собраны из сдвинутых результатов всех доменов под названной причиной.
     incremental_composite: int = 0
     incremental_fallback: dict = field(default_factory=dict)
+    #: WIDTH_PREVIEW_INPUTS_DEFERRED_V1: кто построил входы линий превью записи кнопки (`idle` - простой после нажатия, `event` - первое событие либо действие раньше него): имя -> сколько раз.
+    inputs_built: dict = field(default_factory=dict)
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1

@@ -129,6 +129,37 @@ def launch(run, pool, entries):
     return job
 
 
+class PendingByteCheckV1:
+    """Запуск фоновой проверки, отложенный до конца кнопки (SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1).
+
+    Поток-демон и шаги по воркерам занимают первичные ядра родителя: запущенные до хвоста кнопки (массивы меша, запись объекта, запись для живой ширины), они замедляли хвост первого нажатия на +0.14..0.17 с (`cover.008`).
+    Прогон с `defer_byte_check=True` не запускает задачу, а отдаёт этот запуск сессии (`hold_byte_check_launch`); оператор запускает его (`launch_pending_byte_check`) после хвоста, в `finally`. Задача, поток, итог и вердикт те же.
+    Запуск, которому не суждено состояться (сессия сброшена, ревизия сменилась, новое нажатие), не пропадает молча: `abandon` называет исход (`INCOMPLETE`) и оставляет идентичность кода непроверенной.
+    """
+
+    __slots__ = ("run", "pool", "entries")
+
+    def __init__(self, run, pool, entries) -> None:
+        self.run = run
+        self.pool = pool
+        self.entries = entries
+
+    def start(self):
+        """Задача и поток, как у `launch`, либо `None` (отложенного нет, пула нет или он не умеет шаги)."""
+
+        return launch(self.run, self.pool, self.entries)
+
+    def abandon(self, reason: str) -> None:
+        """Запуск не состоится: если после него осталась бы проверка, исход назван, идентичность кода непроверена (как у пула без шагов в `launch`)."""
+
+        plan = self.run.topology_export.snapshot_byte_check
+        count = len(self.run.byte_check_ledger)
+        if plan is None or not plan.defer or not count:
+            return
+        settle_identity(plan.identity, plan.token, verified=False)
+        print(f"[CFTUV][SnapshotByteCheck] {BYTE_CHECK_BACKGROUND_OUTCOME}: INCOMPLETE, {reason}; {count} snapshots stay unverified", flush=True)
+
+
 def _run(job: ByteCheckJobV1, controller, pool) -> None:
     def on_reply(_index, reply) -> bool:
         if not isinstance(reply, ByteCheckReplyV1) or reply.token != job.token:
@@ -150,6 +181,7 @@ __all__ = (
     "BYTE_CHECK_BACKGROUND_OUTCOME",
     "ByteCheckJobV1",
     "FINAL_STATES",
+    "PendingByteCheckV1",
     "STATE_CLEAN",
     "STATE_INCOMPLETE",
     "STATE_RUNNING",

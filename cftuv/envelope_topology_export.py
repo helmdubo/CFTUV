@@ -115,6 +115,17 @@ class EnvelopeTopologyExportV1:
             groups = self._derived["chains"] = {key: tuple(value) for key, value in built.items()}
         return groups.get(int(patch_id), ())
 
+    def patch_view(self, patch_id: int):
+        """`AnalysisBundleIdView` ОДНОГО патча, один раз на объект экспорта (VIEW_PER_PATCH_ONCE_V1): вид - чистая неизменяемая функция пакета и номера патча, а строили его дважды на домен холодного нажатия
+        (лёгкий вход выгрузки при сканировании и метрика из ответа воркера при приёме): 2109 построений по 52 мкс на `cover.008`. Копия экспорта (`replace`) получает свою пустую запись."""
+
+        views = self._derived.setdefault("views", {})
+        key = int(patch_id)
+        view = views.get(key)
+        if view is None:
+            view = views[key] = build_analysis_bundle_id_view(self.analysis_bundle, frozenset({key}))
+        return view
+
     def patch_edge_ids(self, patch_id: int) -> frozenset[int]:
         """Физические рёбра цепочек ОДНОГО патча: то, что `band_key_of` пересекает с выделением."""
 

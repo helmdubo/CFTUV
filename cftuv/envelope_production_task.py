@@ -283,6 +283,7 @@ def _solve_cold_production_task(task, ledger):
                 PLACEMENT_WORKER,
             ),
             snapshot=inputs.snapshot if inputs.exported else None,
+            request=inputs.request if inputs.exported else None,
         )
     prepare_seconds = time.perf_counter() - started
     inputs.profile.add_timing("QUEUE_PREPARE", prepare_seconds, task.domain_id)
@@ -308,6 +309,7 @@ def _solve_cold_production_task(task, ledger):
             PLACEMENT_WORKER,
         ),
         snapshot=inputs.snapshot if inputs.exported else None,
+        request=inputs.request if inputs.exported else None,
     )
 
 
