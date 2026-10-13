@@ -18,6 +18,7 @@ cftuv-mesh = { path = "../cftuv-mesh" }
 cftuv-canon = { path = "../cftuv-canon" }
 cftuv-radical = { path = "../cftuv-radical" }
 cftuv-skeleton = { path = "../cftuv-skeleton" }
+cftuv-snapshot = { path = "../cftuv-snapshot" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 mimalloc = { version = "0.1", default-features = false }
 # the digest of the Rust sources (`digest.rs`, shared with `build.rs`): `native_build_id()`

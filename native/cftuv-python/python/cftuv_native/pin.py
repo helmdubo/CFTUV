@@ -130,6 +130,12 @@ MATERIALIZE_W1_FILES = (
     *FOUNDATION,
 )
 
+#: `validation_snapshot.validate_analysis_snapshot` (the structural pass of the snapshot validator, pinned whole), the zero-length edge check (`validation_source_edges.py`), the cheap sign path of the
+#: angle certificate (`reference/angle_certificate_sign.py`) and `numeric.canonical_primitive_normal` (the plane normal the wire accepts; `numeric.py` is shared with the clip pin). The functions of the files that
+#: change for other reasons (`validation_metric.py`, `reference/validation.py`, `reference/metric.py`, `robust/grid.py`, ...) are checked by the digest of their source when the classes bind
+#: (`snapshot_check_op.SHAPE_FUNCTIONS`), not pinned whole.
+SNAPSHOT_CHECK_FILES = ("validation_snapshot.py", "validation_source_edges.py", "reference/angle_certificate_sign.py", "numeric.py")
+
 #: `reference/radical_v2.py`: the ORACLE of `RadicalSumV2` (slice S2), which `native/cftuv-radical` mirrors bit for bit (prices, refusals, texts, wires). A CAPABILITY of the extension (`radical_v2_eval`, the
 #: differential and bench entry), not a product stage: no host consumer reads it yet (R3 ports the density core onto it), so it is NOT in `RUST_ONLY_OPERATIONS` and the oracle may still move; a move
 #: makes the mirror `stale(reference/radical_v2.py)` until the port catches up and the pin is reissued.
@@ -142,6 +148,7 @@ OPERATION_FILES = {
     "snap_embedding": SNAP_EMBEDDING_FILES,
     "effective_alpha": EFFECTIVE_ALPHA_FILES,
     "materialize_w1": MATERIALIZE_W1_FILES,
+    "snapshot_check": SNAPSHOT_CHECK_FILES,
     "radical_v2": RADICAL_V2_FILES,
 }
 
@@ -158,18 +165,21 @@ PINS: dict = {
     "materialize/clip_cells.py": "26e94d1cea663dd21ee1468618fec57b43bb341b5e57bd8ad6e3d866320cd6bf",
     "materialize/clip_snap.py": "1f8997b3dfd6df0585475b6bb6cfcbf110888e6099da8b3120d18b6dcebe1374",
     "materialize/coalesce.py": "6a3f21b7ff98750686ad4fb6c6c14aa550068c8c8d44dd216efc4cfb21669c25",
-    "materialize/frames.py": "99aff370cd9090bb700915d624da0ad2f17ac9bd36348d30b4c5f92c49bfd1f7",
     "materialize/convex_partition.py": "ce5bb255d58c9d61e53590b44759755f81faed0d131302e04f91816a55d34e19",
+    "materialize/frames.py": "99aff370cd9090bb700915d624da0ad2f17ac9bd36348d30b4c5f92c49bfd1f7",
     "materialize/lift.py": "ed91b42e5d6149d30469501922f8d7abfa65168d98043eccb3bdd2a87a78412b",
     "materialize/lift_surface.py": "5100062401a28741a5d501779fe6832e3c65a4f4401b393c7f4068e4b9b47da5",
     "materialize/mesh.py": "34ebb2ac5b631d2da2151b1dcf4b7c8aa28d12b3d873115861d789e55695ea4b",
     "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
+    "reference/angle_certificate_sign.py": "3114f1d3784f7ebfbda707455fe499fa9496d8b9a340ce692b584764824191be",
     "reference/boundary_native.py": "f9d16e0fea57a9c8c1d274c798fa903bb3ebfe2c35943bdcff5f54ed5db2f9b7",
     "reference/native_exact.py": "f9c3b7b7132e5fb4463f94d577d18237c474e61d16d2357062d97ef776e6026d",
     "reference/radical_v2.py": "e77eb1091b763567599d6c6e018972f89750f632c5c8ca88a81405d7f1cdc490",
     "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
+    "validation_snapshot.py": "1817684854415e39aae91cbce4fed2eb7bda79bf1b1496b2e0eb67d8d57df856",
+    "validation_source_edges.py": "f4958c7f19b2716957531d952ed43c3917299819efb18298cb656fe9ab617f0c",
     "wavefront/candidate_law.py": "d8a84854151b170cc3543ad53d4b0db2eeafb7587cc68e45500e6e4df36fd4c0",
     "wavefront/candidate_refusal.py": "b1ca2217abbfe87286ef49ca1bb17c5121e1889b94700bcbeed9cf4e2aada787",
     "wavefront/cell_grid.py": "e2ef50ff61222345e338ca9836f4281350007039daf40292f383ecba8f60030a",
