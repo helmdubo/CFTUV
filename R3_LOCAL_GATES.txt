@@ -58,3 +58,27 @@ b) 20 ERROR в tests/test_native_density_boundary.py и tests/test_native_densit
 не трогали. Если нужно воспроизведение — нужен сам тот harness.
 
 Не делалось: kernel-suite на Windows, повтор после будущих правок продукта (сделаю по запросу).
+
+5. Дополнение после 10af15c (CI зелёный; продукт cftuv/ kernel/src native/ не менялся, diff пуст)
+-----------------------------------------------------------------------------------------------
+Пункты 1, 2 и 4 выше сделаны на 61492d49 и остаются в силе.
+
+Новая cover.008 (merge by distance, SHA 87f26e2c): дефект СЕТКИ, не продукта. 4 ребра на 3 гранях и
+5 рёбер на 4 гранях (все - швы), 16 неманифолдных вершин (у старой v2: 0 / 0 / 1). Кнопка main:
+"physical seam requires two exact whole-chain patch-side uses" (выделены все швы) и
+"selected physical edges belong to no PhysicalChain" (сохранённое выделение: 5033 из 5084 рёбер, не только швы).
+Совпадает с X5 missing_seam / X8 vert_span_mismatch у владельца (вершины 1291/1292/1293/2502).
+
+Строгий уровень native_field на Windows (10af15c, Python 3.13.1, колесо ab93d182..., CFTUV_NATIVE_STRICT=1,
+CFTUV_NATIVE_SLOTS=auto, CFTUV_NATIVE_CORPUS=E:\cftuv_native_corpus\886bc7c4), tests/test_native_*.py
+(кроме ci_gate) + surface_adjacency_field_corpus + surfer2_oracle:
+  1215 passed, 8 failed, 74 errors - ВСЕ 82 это "skip = провал": полевой и синтетический корпуса
+  записаны под ядро 8284824ca9eca566, а R3 сменил идентичность ядра на 9e5482ac9cecfbd2.
+  Расхождений с оракулом нет ни одного, но и сверки на полевых записях под R3-ядром нет.
+  Прочие пропуски: surfer2 STUB_BINARY_NEEDS_POSIX_SHEBANG (Windows), surface_adjacency "полный меш
+  не приложен", density batch (не задан CFTUV_NATIVE_DENSITY_BATCH_FIELD с records.jsonl).
+  Чтобы закрыть уровень, нужно перезаписать корпуса под ядро 9e5482ac (native_corpus_export,
+  native_skeleton_export, native_clip_synthetic build, effective_alpha export, snapshot_check/W1 через
+  tree_ab с RECORD_DIR) - отдельная работа, ждёт решения владельца.
+Полный набор tests/ в строгом режиме вне CI бессмыслен: ci_gate требует переменных ноги матрицы
+  (CFTUV_NATIVE_EXPECT_PYTHON, CFTUV_SYNTHETIC_CLIP_OUT и т. п.) - там те же пропуски плюс 4 ci_gate.
