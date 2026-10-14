@@ -110,3 +110,41 @@ Blender-питон 3.11.11 и 3.13.1 - одинаково: 1425 passed, 3 failed
  b) 1 error - test_native_density_batch.py::test_native_density_batch_field_matches_live_oracle: нужен
     CFTUV_NATIVE_DENSITY_BATCH_FIELD с принятым records.jsonl; инструмента записи под этот тест локально не
     нашли (density_r3 и r3-density-dev - только чтение, файла там нет). Назовите команду записи - запишу.
+
+7. Повторная проверка на 4dc1964 (ветка ccr-f875b8ac-hr6jyw; продукт с 61492d49 не менялся, колесо ab93d182)
+---------------------------------------------------------------------------------------------------------
+1) Строгий native_field: CFTUV_NATIVE_CORPUS=E:\cftuv_native_corpus\10af15ca, CFTUV_NATIVE_STRICT=1,
+   SLOTS=auto, все tests/test_native_*.py кроме ci_gate (раннер 10af15ca\logs\scripts\tests_run.py).
+   Python 3.11.11 (Blender): 1429 passed, 1 skipped, 1 error (3196 с).
+   Python 3.13.1:            1429 passed, 1 skipped, 1 error (2479 с).
+   Три cap-sweep теста (clip_dropin x2, clip_geometry x1) теперь ПРОХОДЯТ на обоих: порог >= 20
+   исчерпаний выполнен (точное число тесты при успехе не печатают). Расхождений нет.
+   skipped: только интерпретаторный ("only CPython 3.11 asks list.sort questions..." на 3.13;
+   на 3.11 - монитор sys.monitoring, нужен 3.12+).
+   error: только test_native_density_batch.py::test_native_density_batch_field_matches_live_oracle
+   (нет CFTUV_NATIVE_DENSITY_BATCH_FIELD, см. п. 2).
+
+2) Density batch field: records.jsonl НЕ найден нигде (рекурсивно E:\cftuv_native_corpus,
+   E:\GITHUB\CFTUV-r3-density, C:\Users\helmd\.cftuv-native, E:\cftuv_rec_scratch_r3; каталогов *full2432*
+   на E: до глубины 3 нет). Исторического корпуса с a1-compile-combined.json / event-validation.json /
+   audit_compile_field*.py тоже нет. Ничего не выдумывал. Каталог корпуса:
+   E:\cftuv_native_corpus: 10af15ca 1ee47968 2a9c176e 2cabf259 64e8e1f 886bc7c4 aeb68d31 c68b1df2
+     compatibility d0d567d7 density_r3 ef7f7525 effective_alpha embedding embedding-pilot fe842de6
+     materialize_w1 notes plan_compile_probe r3-density-dev radical_v2 radical_v2_s2 skeleton_polygons snapshot_check
+   density_r3 (129 файлов; подкаталог только field_ab/ = pids.log runs trees), основы имён:
+     admission-contract(-v2) angle-profile angle_diff(_v2) architecture-density-v3/v4 atan-anchors atan-newton
+     atan-seed audit audit-fixed basecase-field baseline-architecture contract cover-controller(-2)
+     decimal-field(-v2) decimal-kernel(-v2) decimal-projection exports-controller exports-v2-controller
+     expression-inventory(-v2) field-trig-inputs(-v2) field-trig-profile host interval-* kernel
+     kernel-bind1..4-trig-inputs kernel-turn-trig-inputs legacy-sqrt-review mpf-* pi-* primitive_diff
+     rounded-controller sign-* staging_receipt synthetic-trig-inputs turn-field-controller(-v2)
+     + скрипты export_cover.ps1 export_fields(_v2).ps1 export_rounded.ps1 turn_field.ps1 cargo_workspace.ps1
+   r3-density-dev: kernel_suite.recs.xz synthetic.probes.xz synthetic.recs.xz
+   Нужна команда записи records.jsonl с нуля (сцена/кейсы/инструмент) - тогда запишу.
+
+3) Причина 353 против 117 ПОДТВЕРЖДЕНА (records/<mesh>/*clip_geometry*.rec, без derived/synthetic):
+   886bc7c4: 117 записей на 117 доменов, по 1 на домен.
+   10af15ca: 353 записи на ТЕ ЖЕ 117 доменов: 115 доменов по 3, 1 домен 1, 1 домен 7.
+   Совпадает с объяснением: основная резка + две боковые от сертификата ширины (9e7e290).
+
+Попутно: на E: место кончалось (раннер стоп при < 1.5 ГБ); удалён только tmp\pytest-of-helmd наших прогонов (487 МБ).
