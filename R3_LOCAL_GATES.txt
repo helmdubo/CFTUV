@@ -82,3 +82,31 @@ CFTUV_NATIVE_SLOTS=auto, CFTUV_NATIVE_CORPUS=E:\cftuv_native_corpus\886bc7c4), t
   tree_ab с RECORD_DIR) - отдельная работа, ждёт решения владельца.
 Полный набор tests/ в строгом режиме вне CI бессмыслен: ci_gate требует переменных ноги матрицы
   (CFTUV_NATIVE_EXPECT_PYTHON, CFTUV_SYNTHETIC_CLIP_OUT и т. п.) - там те же пропуски плюс 4 ci_gate.
+
+6. Корпуса перезаписаны под R3-ядро 9e5482ac9cecfbd2, строгий native_field на Windows
+------------------------------------------------------------------------------------
+Источник 10af15ca (detached, чисто), колесо ab93d182..., сцена testscene 750baefc до/после.
+Указатель: CFTUV_NATIVE_CORPUS=E:\cftuv_native_corpus\10af15ca (367 МБ, RECEIPT.json + MANIFEST внутри;
+886bc7c4 не тронут). Для 3.13 также CFTUV_SYNTHETIC_CLIP_OUT=E:\cftuv_rec_scratch_r3\synthetic-clip-py313.
+Записи (было в 886bc7c4): common field base 549 (313; clip_geometry 353 против 117, coverage_at 196 = 196),
+derived 52 (52); field skeleton 163 / 935 (163 / 936); synthetic skeleton 2323 / 5666 / generated 754 (те же);
+synthetic clip 438 записей, 191100 вызовов швов, исходы те же; embedding field 163, synthetic 2500,
+kernel_suite 91, oracle_digest 57e849ee... тот же.
+Корпуса effective_alpha / snapshot_check / materialize_w1 - СТАРЫЕ записи, скопированы под указатель;
+строгие тесты приняли их (138 passed без skip). Свежей перезаписи под R3 у них нет.
+
+Строгий прогон (все tests/test_native_*.py кроме ci_gate, CFTUV_NATIVE_STRICT=1, SLOTS=auto),
+Blender-питон 3.11.11 и 3.13.1 - одинаково: 1425 passed, 3 failed, 1 error, 1 skipped (интерпретаторный).
+РАСХОЖДЕНИЙ оракул/нативный НЕТ (assert not problems проходит везде).
+Осталось - для облачной сессии:
+ a) 3 failed - порог числа исчерпаний в cap-sweep (>= 20), равенство при этом проходит:
+    test_native_clip_dropin.py::test_a_cap_sweep_through_the_dropin_exhausts_at_the_same_place_with_the_same_partial_state  11 >= 20
+    test_native_clip_dropin.py::test_a_cap_sweep_that_exhausts_inside_a_replayed_computation_leaves_the_oracles_partial_state  14 >= 20
+    test_native_clip_geometry.py::test_a_cap_sweep_on_heavy_records_exhausts_at_the_same_place_with_the_same_partial_state  11 >= 20
+    heavy_paths выбирает записи по записанным СЕКУНДАМ; в новом корпусе (clip_geometry 117 -> 353) самые
+    долгие вызовы тратят бюджета 0/55/0/0 (rounded_wall_noise_top, sagging_wall), поэтому исчерпаний мало.
+    Вероятная правка - выбирать тяжёлые записи по израсходованному бюджету, а не по времени; решать вам.
+    Почему clip_geometry выросло втрое под R3-ядром - не разбиралось.
+ b) 1 error - test_native_density_batch.py::test_native_density_batch_field_matches_live_oracle: нужен
+    CFTUV_NATIVE_DENSITY_BATCH_FIELD с принятым records.jsonl; инструмента записи под этот тест локально не
+    нашли (density_r3 и r3-density-dev - только чтение, файла там нет). Назовите команду записи - запишу.
