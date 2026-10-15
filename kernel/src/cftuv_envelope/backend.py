@@ -126,6 +126,8 @@ SNAPSHOT_CHECK_EXPORT = 1
 #: Восьмая целая операция: допуск плоской рамки домена (`planar_metric.build_rational_affine_planar_metric`, первая ступень на источнике, привязанном к решётке), принять или отказать.
 FRAME = "frame"
 DENSITY = "density"
+#: ANGULAR до приёмки включается только явным keyword-заказом.
+ANGULAR = "angular"
 #: Статус операции нативного ядра, когда `cftuv_native` не импортируется.
 UNAVAILABLE = "unavailable"
 #: Сколько символов текста исключения несёт запись об откате.
@@ -258,6 +260,7 @@ class NativeStatusV1:
     snapshot_check: str = UNAVAILABLE
     frame: str = UNAVAILABLE
     density: str = field(default=UNAVAILABLE, kw_only=True)
+    angular: str = field(default=UNAVAILABLE, kw_only=True)
 
     @property
     def available(self) -> bool:
@@ -291,8 +294,13 @@ class NativeStatusV1:
     def density_available(self) -> bool:
         return self.density == "available"
 
+    @property
+    def angular_available(self) -> bool:
+        return self.angular == "available"
+
     def as_record(self) -> dict:
         return {
+            "angular": self.angular,
             "density": self.density,
             "snap_embedding": self.embedding,
             "effective_alpha": self.effective_alpha,
@@ -320,7 +328,7 @@ def native_status() -> NativeStatusV1:
         build_id = str(module.native_build_id())
     except Exception as exc:  # noqa: BLE001 - статус, который не удалось снять, назван, а не брошен
         return NativeStatusV1(UNAVAILABLE, UNAVAILABLE, "", f"native_status failed: {type(exc).__name__}: {exc}"[:DETAIL_LIMIT])
-    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)), str(raw.get(SNAPSHOT_CHECK, UNAVAILABLE)), str(raw.get(FRAME, UNAVAILABLE)), density=str(raw.get(DENSITY, UNAVAILABLE)))
+    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)), str(raw.get(SNAPSHOT_CHECK, UNAVAILABLE)), str(raw.get(FRAME, UNAVAILABLE)), density=str(raw.get(DENSITY, UNAVAILABLE)), angular=str(raw.get(ANGULAR, UNAVAILABLE)))
 
 
 def stage_identity(backend) -> str:
@@ -349,16 +357,16 @@ def backend_identity(
     effective_alpha_backend=KernelBackendV1.PYTHON,
     materialize_backend=KernelBackendV1.PYTHON,
     snapshot_check_backend=KernelBackendV1.PYTHON,
-    *, frame_backend=KernelBackendV1.PYTHON, density_backend=KernelBackendV1.PYTHON,
+    *, frame_backend=KernelBackendV1.PYTHON, density_backend=KernelBackendV1.PYTHON, angular_backend=KernelBackendV1.PYTHON,
 ) -> str:
     """Идентичность исполнения для ключей кэшей: стадия покрытия и резки (`stage_identity(backend)`) и, если скелет считает нативное ядро, его стадия.
 
     Скелет на `PYTHON` (умолчание) не меняет строку: ключи прогона без нативного скелета те же, что и были. Нативный скелет добавляет `|skeleton=NATIVE:<id>`,
-    и результат (подготовка, ответ домена), посчитанный одним составом бэкендов, не читается как результат другого. Так же стадии `effective_alpha`, `materialize_w1`, `snapshot_check`, `frame` и `density`: `|effective_alpha=NATIVE:<id>`.
+    и результат (подготовка, ответ домена), посчитанный одним составом бэкендов, не читается как результат другого. Так же стадии `effective_alpha`, `materialize_w1`, `snapshot_check`, `frame`, `density` и `angular`: `|effective_alpha=NATIVE:<id>`.
     """
 
     base = stage_identity(backend)
-    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend), (EFFECTIVE_ALPHA, effective_alpha_backend), (MATERIALIZE_W1, materialize_backend), (SNAPSHOT_CHECK, snapshot_check_backend), (FRAME, frame_backend), (DENSITY, density_backend)):
+    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend), (EFFECTIVE_ALPHA, effective_alpha_backend), (MATERIALIZE_W1, materialize_backend), (SNAPSHOT_CHECK, snapshot_check_backend), (FRAME, frame_backend), (DENSITY, density_backend), (ANGULAR, angular_backend)):
         if normalize_backend(choice) is KernelBackendV1.NATIVE:
             base += f"|{stage}={stage_identity(choice)}"
     return base
@@ -414,6 +422,10 @@ class BackendRecordV1:
     density_native_calls: int = field(default=0, kw_only=True)
     density_python_calls: int = field(default=0, kw_only=True)
     density_fallbacks: tuple = field(default=(), kw_only=True)
+    angular_requested: str = field(default=KernelBackendV1.PYTHON.value, kw_only=True)
+    angular_native_calls: int = field(default=0, kw_only=True)
+    angular_python_calls: int = field(default=0, kw_only=True)
+    angular_fallbacks: tuple = field(default=(), kw_only=True)
 
     @property
     def ran(self) -> str:
@@ -529,6 +541,18 @@ class BackendRecordV1:
     def density_outcomes(self) -> tuple:
         return tuple(sorted({item[0] for item in self.density_fallbacks}))
 
+    @property
+    def angular_ran(self) -> str:
+        if not (self.angular_native_calls or self.angular_python_calls):
+            return ""
+        if not self.angular_native_calls:
+            return "python"
+        return "native" if not self.angular_python_calls else "mixed"
+
+    @property
+    def angular_outcomes(self) -> tuple:
+        return tuple(sorted({item[0] for item in self.angular_fallbacks}))
+
     def merged(self, other: "BackendRecordV1 | None") -> "BackendRecordV1":
         """Запись домена из двух блоков (`other` — второй по времени, обычно материализация): счёты складываются, откаты сливаются по `(исход, операция)`.
 
@@ -571,6 +595,10 @@ class BackendRecordV1:
             density_native_calls=self.density_native_calls + other.density_native_calls,
             density_python_calls=self.density_python_calls + other.density_python_calls,
             density_fallbacks=_merged_fallbacks(self.density_fallbacks, other.density_fallbacks),
+            angular_requested=self.angular_requested,
+            angular_native_calls=self.angular_native_calls + other.angular_native_calls,
+            angular_python_calls=self.angular_python_calls + other.angular_python_calls,
+            angular_fallbacks=_merged_fallbacks(self.angular_fallbacks, other.angular_fallbacks),
         )
 
     def as_record(self) -> dict:
@@ -600,6 +628,12 @@ class BackendRecordV1:
             "density_python_calls": self.density_python_calls,
             "density_outcomes": list(self.density_outcomes),
             "density_fallbacks": [list(item) for item in self.density_fallbacks],
+            "angular_requested": self.angular_requested,
+            "angular_ran": self.angular_ran,
+            "angular_native_calls": self.angular_native_calls,
+            "angular_python_calls": self.angular_python_calls,
+            "angular_outcomes": list(self.angular_outcomes),
+            "angular_fallbacks": [list(item) for item in self.angular_fallbacks],
             "effective_alpha_requested": self.effective_alpha_requested,
             "effective_alpha_ran": self.effective_alpha_ran,
             "effective_alpha_native_calls": self.effective_alpha_native_calls,
@@ -643,7 +677,7 @@ class BackendLedgerV1:
     `requested` заказывает покрытие и резку, `skeleton_requested` — скелет; точка диспетчеризации стадии, чей заказ `PYTHON`, зовёт эталон напрямую и журнала не пишет.
     """
 
-    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "effective_alpha_requested", "materialize_requested", "snapshot_check_requested", "frame_requested", "density_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
+    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "effective_alpha_requested", "materialize_requested", "snapshot_check_requested", "frame_requested", "density_requested", "angular_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
 
     def __init__(
         self,
@@ -654,7 +688,7 @@ class BackendLedgerV1:
         materialize_requested: str = KernelBackendV1.PYTHON.value,
         snapshot_check_requested: str = KernelBackendV1.PYTHON.value,
         frame_requested: str = KernelBackendV1.PYTHON.value,
-        *, density_requested: str = KernelBackendV1.PYTHON.value,
+        *, density_requested: str = KernelBackendV1.PYTHON.value, angular_requested: str = KernelBackendV1.PYTHON.value,
     ) -> None:
         self.requested = requested
         self.skeleton_requested = skeleton_requested
@@ -664,6 +698,7 @@ class BackendLedgerV1:
         self.snapshot_check_requested = snapshot_check_requested
         self.frame_requested = frame_requested
         self.density_requested = density_requested
+        self.angular_requested = angular_requested
         self.embedding_cache_hits = 0
         self.native: dict = {}
         self.python: dict = {}
@@ -702,6 +737,10 @@ class BackendLedgerV1:
     @property
     def density_native(self) -> bool:
         return self.density_requested == KernelBackendV1.NATIVE.value
+
+    @property
+    def angular_native(self) -> bool:
+        return self.angular_requested == KernelBackendV1.NATIVE.value
 
     def note_native(self, operation: str) -> None:
         self.native[operation] = self.native.get(operation, 0) + 1
@@ -761,6 +800,10 @@ class BackendLedgerV1:
             density_native_calls=self.native.get(DENSITY, 0),
             density_python_calls=self.python.get(DENSITY, 0),
             density_fallbacks=fallbacks((DENSITY,)),
+            angular_requested=self.angular_requested,
+            angular_native_calls=self.native.get(ANGULAR, 0),
+            angular_python_calls=self.python.get(ANGULAR, 0),
+            angular_fallbacks=fallbacks((ANGULAR,)),
         )
 
 
@@ -779,13 +822,14 @@ def use_backend(
     *,
     frame_backend=KernelBackendV1.PYTHON,
     density_backend=KernelBackendV1.PYTHON,
+    angular_backend=KernelBackendV1.PYTHON,
     borrowed_ledger=None,
 ):
-    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет, B1 (`embedding_backend`) лист резолвера эффективной alpha (`effective_alpha_backend`) и W1 материализации (`materialize_backend`), проверка снапшота (`snapshot_check_backend`) допуск плоской рамки (`frame_backend`) и Density (`density_backend`).
+    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет, B1 (`embedding_backend`) лист резолвера эффективной alpha (`effective_alpha_backend`) и W1 материализации (`materialize_backend`), проверка снапшота (`snapshot_check_backend`) допуск плоской рамки (`frame_backend`), Density (`density_backend`) и ANGULAR (`angular_backend`, opt-in до приёмки).
 
     `borrowed_ledger` допустим только внутри scope владельца с тем же выбором: вложенная подготовка не заводит второй журнал.
 
-    Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если обе `PYTHON` (тогда точки диспетчеризации зовут эталон напрямую).
+    Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если все стадии `PYTHON` (тогда точки диспетчеризации зовут эталон напрямую).
     Стадия с заказом `PYTHON` в журнал не пишет и в блоке с нативной другой стадией: она считает эталон тем же путём, что вне блока.
     """
 
@@ -796,8 +840,9 @@ def use_backend(
     snapshot_check = normalize_backend(snapshot_check_backend)
     frame = normalize_backend(frame_backend)
     density = normalize_backend(density_backend)
+    angular = normalize_backend(angular_backend)
     if borrowed_ledger is not None:
-        requested = (choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value, snapshot_check.value, frame.value, density.value)
+        requested = (choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value, snapshot_check.value, frame.value, density.value, angular.value)
         actual = (
             borrowed_ledger.requested,
             borrowed_ledger.skeleton_requested,
@@ -807,6 +852,7 @@ def use_backend(
             borrowed_ledger.snapshot_check_requested,
             borrowed_ledger.frame_requested,
             borrowed_ledger.density_requested,
+            borrowed_ledger.angular_requested,
         )
         if _SCOPE.get() is not borrowed_ledger or actual != requested:
             raise ValueError("BACKEND_BORROW_SCOPE_MISMATCH: preparation must borrow its active owner ledger")
@@ -814,8 +860,8 @@ def use_backend(
         return
     native = KernelBackendV1.NATIVE
     ledger = (
-        BackendLedgerV1(choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value, snapshot_check.value, frame.value, density_requested=density.value)
-        if native in (choice, skeleton, embedding, effective_alpha, materialize, snapshot_check, frame, density)
+        BackendLedgerV1(choice.value, skeleton.value, embedding.value, effective_alpha.value, materialize.value, snapshot_check.value, frame.value, density_requested=density.value, angular_requested=angular.value)
+        if native in (choice, skeleton, embedding, effective_alpha, materialize, snapshot_check, frame, density, angular)
         else None
     )
     token = _SCOPE.set(ledger)
@@ -867,6 +913,11 @@ def active_frame_backend() -> KernelBackendV1:
 def active_density_backend() -> KernelBackendV1:
     ledger = _SCOPE.get()
     return KernelBackendV1.NATIVE if ledger is not None and ledger.density_native else KernelBackendV1.PYTHON
+
+
+def active_angular_backend() -> KernelBackendV1:
+    ledger = _SCOPE.get()
+    return KernelBackendV1.NATIVE if ledger is not None and ledger.angular_native else KernelBackendV1.PYTHON
 
 
 def note_embedding_cache_hit() -> None:
@@ -977,7 +1028,7 @@ def _declined(ledger: BackendLedgerV1, operation: str, outcome: BackendOutcomeV1
     return False, None
 
 
-def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None, *, internal_fallback=True) -> tuple:
+def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None, *, internal_fallback=True, effects_started=None) -> tuple:
     """`(True, ответ)`, когда посчитало нативное ядро; `(False, None)` — откат назван и записан, считает эталон.
 
     Три рода исключений нативного вызова:
@@ -988,6 +1039,7 @@ def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None, *, int
     * всё остальное — исход эталона (его частичные эффекты оставлены нативным вызовом так, как оставило бы исключение эталона) и чужие исключения: как есть.
 
     `effects()` — снимок побочных эффектов операции (`_effects_snapshot`), страховочный пояс отката: если после отказа он сдвинулся, откат запрещён.
+    `effects_started()` запрещает любые откаты после входа в assembly: исходное исключение уходит как есть.
     `internal_fallback=False` оставляет откат только известным отказам порта; дефекты чистой density операции уходят вызывающему.
     """
 
@@ -999,10 +1051,16 @@ def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None, *, int
     try:
         answer = call(module)
     except _TracesUnsupported as exc:
+        if effects_started is not None and effects_started():
+            raise
         return _declined(ledger, operation, BackendOutcomeV1.NATIVE_TRACES_UNSUPPORTED, str(exc), effects, before, exc)
     except _OperationAbsent as exc:
+        if effects_started is not None and effects_started():
+            raise
         return _declined(ledger, operation, BackendOutcomeV1.NATIVE_UNAVAILABLE, str(exc), effects, before, exc)
     except module.NATIVE_REFUSALS as exc:
+        if effects_started is not None and effects_started():
+            raise
         text = f"{type(exc).__name__}: {exc}"
         outcome = _port_outcome(module, exc)
         if not internal_fallback and outcome is BackendOutcomeV1.NATIVE_INTERNAL_ERROR:
@@ -1012,6 +1070,8 @@ def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None, *, int
             raise NativeDomainRefused(outcome, f"{operation}: the native division did not finish, and the oracle would not either ({text})") from exc
         return _declined(ledger, operation, outcome, text, effects, before, exc)
     except Exception as exc:
+        if effects_started is not None and effects_started():
+            raise
         if not internal_fallback or not _is_native_defect(exc):
             raise
         return _declined(ledger, operation, BackendOutcomeV1.NATIVE_INTERNAL_ERROR, f"{type(exc).__name__}: {exc}", effects, before, exc)
@@ -1273,6 +1333,34 @@ def frame_compute(**arguments):
     return answer if done else None
 
 
+def angular_compute(**arguments):
+    """(done, answer): только True разрешает использовать ответ, включая три пустых frozenset.
+
+    False означает именованный pre-effect откат: независимый oracle вызывает хост.
+    Заказ PYTHON/вне scope ничего не исполняет и не пишет в журнал. После входа
+    в assembly любые исключения сохраняют класс, объект и достигнутые эффекты;
+    диспетчер не повторяет oracle. Хост передаёт plain binding_inputs/dependencies/raw/symbolic_mode;
+    approved bindings/cache строит shim facade, а не хост. Аргументы opaque для ядра.
+    """
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.angular_native:
+        return False, None
+    if "before_assemble" in arguments:
+        raise TypeError("before_assemble is reserved for the backend phase boundary")
+    started = [False]
+
+    def before_assemble():
+        started[0] = True
+
+    def call(module):
+        if not hasattr(module, "angular_compute"):
+            raise _OperationAbsent("this cftuv_native wheel has no `angular_compute`")
+        return module.angular_compute(**arguments, before_assemble=before_assemble)
+
+    return _attempt(ledger, ANGULAR, call, internal_fallback=False,
+                    effects_started=lambda: started[0])
+
+
 def density_compute(batch, *, memo_snapshot=None):
     """Чистый raw batch: именованные отказы порта допускают эталон; дефекты уходят как есть."""
 
@@ -1302,6 +1390,9 @@ def density_compute(batch, *, memo_snapshot=None):
 
 
 __all__ = (
+    "ANGULAR",
+    "active_angular_backend",
+    "angular_compute",
     "DENSITY",
     "active_density_backend",
     "density_compute",
