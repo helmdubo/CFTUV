@@ -10,6 +10,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+cftuv-angular = { path = "../cftuv-angular" }
 cftuv-alpha = { path = "../cftuv-alpha" }
 cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }

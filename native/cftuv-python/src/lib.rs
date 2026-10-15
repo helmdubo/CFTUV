@@ -4,6 +4,7 @@
 //! entry point, so it never unwinds across the boundary. A request the core refuses (a buffer it cannot
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
+mod angular;
 mod clip;
 mod clip_seams;
 mod coverage;
@@ -543,6 +544,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<frame::FrameOp>()?;
     module.add_function(wrap_pyfunction!(effective_alpha::alpha_frame, module)?)?;
     module.add_function(wrap_pyfunction!(radical_v2::radical_v2_eval, module)?)?;
+    module.add_function(wrap_pyfunction!(angular::angular_patch, module)?)?;
     module.add_function(wrap_pyfunction!(density::density_compute, module)?)?;
     module.add_function(wrap_pyfunction!(density::density_compute_with_memo, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
