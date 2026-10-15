@@ -41,6 +41,46 @@ def build_angular_relations(
     triangle_ids: dict[int, object],
     profile: EnvelopeDebugProfileBuilderV1 | None = None,
 ):
+    from cftuv_envelope import backend
+
+    raw = dict(analysis_bundle=analysis_bundle, revision=revision, patch_ids=patch_ids,
+               patch_domains=patch_domains, frames=frames, use_id_by_ref=use_id_by_ref,
+               sector_id_by_ref=sector_id_by_ref, launch_id_by_ref=launch_id_by_ref,
+               record_by_ref=record_by_ref, vertex_ids=vertex_ids, triangle_ids=triangle_ids,
+               profile=profile)
+    if backend.active_angular_backend() is backend.KernelBackendV1.PYTHON:
+        return _build_angular_relations_reference(kernel, sympy, **raw)
+
+    from .envelope_angular_binding import build_binding_inputs, build_dependencies
+    from cftuv_envelope.reference.symbolic_backend import backend_mode
+
+    done, answer = backend.angular_compute(
+        binding_inputs=build_binding_inputs(kernel),
+        dependencies=build_dependencies(kernel, sympy), raw=raw,
+        symbolic_mode=backend_mode().value,
+    )
+    if done:
+        return answer
+    return _build_angular_relations_reference(kernel, sympy, **raw)
+
+
+def _build_angular_relations_reference(
+    kernel,
+    sympy,
+    *,
+    analysis_bundle,
+    revision: str,
+    patch_ids: dict[int, object],
+    patch_domains: dict[int, object],
+    frames: dict[int, object],
+    use_id_by_ref: dict[tuple[int, int, int], object],
+    sector_id_by_ref: dict[tuple[int, int, int], object],
+    launch_id_by_ref: dict[tuple[int, int, int], object],
+    record_by_ref: dict[tuple[int, int, int], _HostChainRecord],
+    vertex_ids: dict[int, object],
+    triangle_ids: dict[int, object],
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+):
     from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
 
     scalar = lambda value: sympy.Rational(str(float(value)))

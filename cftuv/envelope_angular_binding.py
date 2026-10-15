@@ -3,6 +3,7 @@ Observed metadata is diagnostic, not approved pins. Future host wrapper injects
 its approved reference attribute after rename; current default binds live oracle.
 """
 import sys
+from cftuv_envelope.reference import planar_types as _metric_types
 
 def build_binding_inputs(kernel):
     from cftuv import envelope_angular_relations as angular, envelope_angular_sites as sites
@@ -30,7 +31,7 @@ def build_binding_inputs(kernel):
     if model is not None:
         for name,kind in [('graph','PatchGraph'),('patch','PatchNode'),('loop','BoundaryLoop'),('corner','BoundaryCorner'),('chain','BoundaryChain')]:
             classes[name]=(*classes[name],getattr(model,kind))
-    callables={'oracle':angular.build_angular_relations,'sites':sites.angular_sites,
+    callables={'oracle':angular._build_angular_relations_reference,'sites':sites.angular_sites,
       'site_endpoint':sites._is_endpoint,'chart_points':chart.chart_points,
       'chart_edge_ends':chart.chart_edge_ends,'chart_face_points':chart.chart_face_points,
       'cut_path_vertices':chart.cut_path_vertices,'cut_of':chart._cut_of,
@@ -50,7 +51,29 @@ def build_binding_inputs(kernel):
     callables['surface_index.matches']=surface_index.SurfaceIndexV1.matches
     for name in ('patch_graph','patch_surface'):
         callables['bundle_view.'+name]=getattr(topology.AnalysisBundleIdView,name).fget
-    anchors=((angular,'build_angular_relations',callables['oracle']),
+    anchors=((angular,'_build_angular_relations_reference',callables['oracle']),
              (sites,'angular_sites',callables['sites']),
              (sites,'_is_endpoint',callables['site_endpoint']))
     return dict(kernel=kernel,classes=classes,callables=callables,anchors=anchors)
+
+
+def replay_event(event):
+    """Воспроизвести только символическую цену пропущенной rational-геометрии."""
+    if type(event) is not str or event not in ('canonical', 'normalize'):
+        raise ValueError('UNKNOWN_ANGULAR_GEOMETRY_EVENT')
+    _metric_types.SYMBOLIC_FALLBACK_COUNTS[event] += 1
+
+
+def build_dependencies(kernel, sympy):
+    """Фактические объекты хоста; утверждение source/runtime pins выполняет shim."""
+    from types import SimpleNamespace
+    from cftuv_envelope.reference import angle_measure
+    from .envelope_angular_relations import certified_reflex_measure
+    from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
+    from .envelope_host_outcomes import EnvelopeDebugHostOutcome
+    from .envelope_debug_profile import ANGULAR_STAGE_COUNTERS
+
+    return SimpleNamespace(kernel=kernel, sympy=sympy, angle_measure=angle_measure,
+                           measure=certified_reflex_measure, replay_event=replay_event,
+                           host_error=EnvelopeHostAdapterError, outcomes=EnvelopeDebugHostOutcome,
+                           typed_value=_typed_value, stage_names=ANGULAR_STAGE_COUNTERS)
