@@ -5,6 +5,12 @@ its approved reference attribute after rename; current default binds live oracle
 import sys
 from cftuv_envelope.reference import planar_types as _metric_types
 
+def binding_profile():
+    """Ключ фактического runtime и набора host-классов; wheel не нужен."""
+    implementation='CPython' if sys.implementation.name=='cpython' else sys.implementation.name
+    return implementation+'-'+str(sys.version_info.major)+'.'+str(sys.version_info.minor)+(':'+('full' if sys.modules.get('cftuv.model') is not None else 'light'))
+
+
 def build_binding_inputs(kernel):
     from cftuv import envelope_angular_relations as angular, envelope_angular_sites as sites
     from cftuv import envelope_chart_band as chart, envelope_request_export as export
@@ -57,7 +63,7 @@ def build_binding_inputs(kernel):
              (sites,'_is_endpoint',callables['site_endpoint']),
              *((angular,name,callables[name]) for name in ('chart_points','chart_edge_ends','chart_face_points','cut_path_vertices')),
              (kernel,'ExactPlanarMetric',kernel.ExactPlanarMetric))
-    return dict(kernel=kernel,classes=classes,callables=callables,anchors=anchors)
+    return dict(profile=binding_profile(),kernel=kernel,classes=classes,callables=callables,anchors=anchors)
 
 
 def replay_event(event):

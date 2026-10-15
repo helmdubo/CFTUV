@@ -136,6 +136,7 @@ def test_actual_oracle_imported_alias_mutation_is_stale_after_warm(facade,monkey
     import cftuv_envelope as kernel
     f=facade
     f.inputs.update(host.build_binding_inputs(kernel))
+    f.inputs['profile']='TEST_ONLY'
     f.op.warm(f.core,binding_inputs=f.inputs,dependencies=f.deps)
     monkeypatch.setattr(angular,'chart_points',lambda *args:pytest.fail('stale geometry ran'))
     with pytest.raises(f.pin.NativePortStale,match='owner changed'):
