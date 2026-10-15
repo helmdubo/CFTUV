@@ -142,3 +142,44 @@ def test_actual_oracle_imported_alias_mutation_is_stale_after_warm(facade,monkey
     with pytest.raises(f.pin.NativePortStale,match='owner changed'):
         f.op.angular_compute(f.core,**f.options)
     assert f.log==['bind','freeze','validate','validate']
+
+
+def test_rebuilt_actual_host_inputs_keep_warm_binding(facade):
+    from cftuv import envelope_angular_binding as host
+    import cftuv_envelope as kernel
+    import sympy
+    f=facade
+    first=host.build_binding_inputs(kernel)
+    second=host.build_binding_inputs(kernel)
+    # Два обращения к classmethod создают разные объекты, но ту же привязку.
+    for key in ('scalar_from','metric.from_descriptor'):
+        assert first['callables'][key] is not second['callables'][key]
+        assert first['callables'][key].__func__ is second['callables'][key].__func__
+        assert first['callables'][key].__self__ is second['callables'][key].__self__
+    first['profile']=second['profile']='TEST_ONLY'
+    deps1=host.build_dependencies(kernel,sympy)
+    deps2=host.build_dependencies(kernel,sympy)
+    assert f.op.warm(f.core,binding_inputs=first,dependencies=deps1)
+    assert f.op.warm(f.core,binding_inputs=second,dependencies=deps2)
+    assert f.log==['bind','freeze','validate','validate']
+
+
+@pytest.mark.parametrize('change',['receiver','function'])
+def test_bound_method_identity_rejects_changed_receiver_or_function(facade,change):
+    from types import MethodType
+    f=facade
+    class Owner:
+        @classmethod
+        def method(cls):return None
+    class Other(Owner):pass
+    first=Owner.method
+    assert f.op._same(first,Owner.method)
+    def replacement(cls):return None
+    changed=Other.method if change=='receiver'else MethodType(replacement,Owner)
+    assert not f.op._same(first,changed)
+    f.inputs['callables']['bound']=first
+    f.op.warm(f.core,binding_inputs=f.inputs,dependencies=f.deps)
+    f.inputs['callables']['bound']=changed
+    with pytest.raises(f.pin.NativePortStale,match='INPUTS_CHANGED'):
+        f.op.warm(f.core,binding_inputs=f.inputs,dependencies=f.deps)
+    assert f.log==['bind','freeze','validate']

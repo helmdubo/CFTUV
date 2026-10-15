@@ -1,5 +1,5 @@
 """Whole ANGULAR facade; empty offline-approved tables keep the port unavailable."""
-from types import MappingProxyType, SimpleNamespace
+from types import MappingProxyType, SimpleNamespace, MethodType
 from . import angular_wire as wire, angular_bindings as bindings, angular_operation as operation
 
 # Только отдельно утверждённые константы, никогда live observe().
@@ -20,6 +20,8 @@ def _identity_inputs(inputs, dependencies):
 
 
 def _same(left, right):
+    if type(left)is MethodType and type(right)is MethodType:
+        return left.__func__ is right.__func__ and left.__self__ is right.__self__
     if type(left)is tuple and type(right)is tuple:
         return len(left)==len(right) and all(_same(a,b) for a,b in zip(left,right))
     if type(left)is str and type(right)is str:
