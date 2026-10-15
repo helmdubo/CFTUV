@@ -451,17 +451,32 @@ class _Installed:
     def __init__(self, recorder: SeamRecorder) -> None:
         self.recorder = recorder
         self.applied: list = []
+        self.aliases: dict = {}
 
     def __enter__(self):
         recorder = self.recorder
         plan = recorder._targets()
         plan.extend((events.EventQueueV1, name, method) for name, method in recorder.queue_methods().items())
         for owner, name, value in plan:
-            self.applied.append((owner, name, owner.__dict__[name] if isinstance(owner, type) else getattr(owner, name)))
+            original = owner.__dict__[name] if isinstance(owner, type) else getattr(owner, name)
+            self.applied.append((owner, name, original))
+            # Поздний import сохраняет саму функцию, не дескриптор staticmethod.
+            installed = value.__func__ if isinstance(value, staticmethod) else value
+            previous = original.__func__ if isinstance(original, staticmethod) else original
+            self.aliases.setdefault(id(installed), (installed, previous))
             setattr(owner, name, value)
         return recorder
 
     def __exit__(self, *_exception) -> None:
+        # Модуль, импортированный внутри блока, мог сохранить нашу обёртку.
+        # Вложенный блок возвращает прежнюю функцию (в том числе outer-wrapper),
+        # а не снимает внешнего рекордера. Чужие/заменённые функции не трогаем.
+        for module in list(sys.modules.values()):
+            if getattr(module, "__name__", "").startswith("cftuv_envelope"):
+                for name, value in list(vars(module).items()):
+                    replacement = self.aliases.get(id(value))
+                    if replacement is not None and value is replacement[0]:
+                        setattr(module, name, replacement[1])
         for owner, name, original in reversed(self.applied):
             setattr(owner, name, original)
 
