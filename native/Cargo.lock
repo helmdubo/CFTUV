@@ -42,6 +42,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cftuv-angular"
+version = "0.1.0"
+dependencies = [
+ "cftuv-core",
+]
+
+[[package]]
 name = "cftuv-canon"
 version = "0.1.0"
 dependencies = [
@@ -109,6 +116,7 @@ name = "cftuv-python"
 version = "0.1.0"
 dependencies = [
  "cftuv-alpha",
+ "cftuv-angular",
  "cftuv-canon",
  "cftuv-clip",
  "cftuv-core",
