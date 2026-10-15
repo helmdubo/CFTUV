@@ -1,4 +1,4 @@
-"""Density — седьмая публичная стадия: общий выбор, идентичности, журнал и именованный Python-откат."""
+"""Density — публичная стадия: общий выбор, идентичности, журнал и именованный Python-откат."""
 import pytest
 from cftuv import envelope_kernel_backend as host
 from cftuv import envelope_production_export as production
@@ -13,7 +13,12 @@ def clean_density_environment(monkeypatch):
 
 def test_density_follows_the_master_environment_and_explicit_public_order(monkeypatch):
     assert host.resolve_density_backend('NATIVE')=='NATIVE'
-    assert host.STAGES[-1]==('density','density') and len(host.STAGES)==7
+    assert host.STAGES == (
+        ('coverage_clip', 'coverage/clip'), ('skeleton', 'skeleton'),
+        ('snap_embedding', 'embedding'), ('effective_alpha', 'effective alpha'),
+        ('materialize_w1', 'materialize W1'), ('snapshot_check', 'snapshot check'),
+        ('frame', 'frame'), ('density', 'density'),
+    )
     assert host._STATUS_FLAGS['density']=='density_available'
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','NATIVE')
     assert host.resolve_density_backend('NATIVE')=='NATIVE'
