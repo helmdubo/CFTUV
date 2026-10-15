@@ -51,7 +51,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, density_op, effective_alpha_op, embedding_op, frame_op, materialize_w1_op, pin, snapshot_check_op
+from . import _core, angular_op, buildid, codec, cost, density_op, effective_alpha_op, embedding_op, frame_op, materialize_w1_op, pin, snapshot_check_op
 
 __all__ = (
     "CostMirror",
@@ -75,6 +75,8 @@ __all__ = (
     "divided_by",
     "effective_alpha_contacts",
     "exact_mesh",
+    "angular_compute",
+    "warm_angular",
     "frame_metric",
     "frame_raw_layouts",
     "canonical_triangles",
@@ -214,6 +216,7 @@ def native_status() -> dict:
     """
 
     found = pin.native_status()
+    found["angular"] = angular_op.status()
     if "density" not in found:
         found["density"] = "pending_validation" if hasattr(_core, "density_compute") else "unavailable"
     return found
@@ -541,3 +544,14 @@ def skeleton_seam_table() -> tuple[tuple[int, str], ...]:
     """Test-only: `(opcode, name)` of every skeleton seam the extension knows."""
 
     return tuple(_core.skeleton_seam_table())
+
+
+def angular_compute(*, binding_inputs, dependencies, raw, symbolic_mode, before_assemble):
+    """Whole ANGULAR operation; unavailable until approved profile pins exist."""
+    return angular_op.angular_compute(_core,binding_inputs=binding_inputs,dependencies=dependencies,
+                                      raw=raw,symbolic_mode=symbolic_mode,before_assemble=before_assemble)
+
+
+def warm_angular(*, binding_inputs, dependencies):
+    """Warm checked bindings using caller-supplied actual host dependencies."""
+    return angular_op.warm(_core,binding_inputs=binding_inputs,dependencies=dependencies)

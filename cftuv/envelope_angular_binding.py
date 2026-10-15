@@ -31,16 +31,17 @@ def build_binding_inputs(kernel):
     if model is not None:
         for name,kind in [('graph','PatchGraph'),('patch','PatchNode'),('loop','BoundaryLoop'),('corner','BoundaryCorner'),('chain','BoundaryChain')]:
             classes[name]=(*classes[name],getattr(model,kind))
-    callables={'oracle':angular._build_angular_relations_reference,'sites':sites.angular_sites,
-      'site_endpoint':sites._is_endpoint,'chart_points':chart.chart_points,
-      'chart_edge_ends':chart.chart_edge_ends,'chart_face_points':chart.chart_face_points,
-      'cut_path_vertices':chart.cut_path_vertices,'cut_of':chart._cut_of,
+    callables={'oracle':angular._build_angular_relations_reference,'sites':angular.angular_sites,
+      'site_endpoint':sites._is_endpoint,'chart_points':angular.chart_points,
+      'chart_edge_ends':angular.chart_edge_ends,'chart_face_points':angular.chart_face_points,
+      'cut_path_vertices':angular.cut_path_vertices,'cut_of':chart._cut_of,
       'measure':angular.certified_reflex_measure,'typed_value':export._typed_value,
       'normalize':planar_types.exact_normalize,'canonical':planar_types._canonical_expr,
       'scalar_from':planar_types.ExactScalar.from_value,'scalar_expr':planar_types.ExactScalar.as_expr,
       'vector_scale':planar_types.vector_scale,'exact_sign':planar_types.exact_sign,
       'expr':planar_types._expr,'parse_expr':planar_types._parse_expr_uncached,
-      'metric.from_descriptor':exact_metric.ExactPlanarMetric.from_descriptor}
+      'metric.from_descriptor':exact_metric.ExactPlanarMetric.from_descriptor,
+      'kernel.ExactPlanarMetric':kernel.ExactPlanarMetric}
     for name in ('dot_g','length_g','unit_g','oriented_cross','owner_normal_g','angle_g'):
         callables['metric.'+name]=getattr(exact_metric.ExactPlanarMetric,name)
     for kind in classes['surface']:
@@ -52,8 +53,10 @@ def build_binding_inputs(kernel):
     for name in ('patch_graph','patch_surface'):
         callables['bundle_view.'+name]=getattr(topology.AnalysisBundleIdView,name).fget
     anchors=((angular,'_build_angular_relations_reference',callables['oracle']),
-             (sites,'angular_sites',callables['sites']),
-             (sites,'_is_endpoint',callables['site_endpoint']))
+             (angular,'angular_sites',callables['sites']),
+             (sites,'_is_endpoint',callables['site_endpoint']),
+             *((angular,name,callables[name]) for name in ('chart_points','chart_edge_ends','chart_face_points','cut_path_vertices')),
+             (kernel,'ExactPlanarMetric',kernel.ExactPlanarMetric))
     return dict(kernel=kernel,classes=classes,callables=callables,anchors=anchors)
 
 

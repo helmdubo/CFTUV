@@ -136,6 +136,20 @@ def freeze(dependencies, *, checked_hashes, checked_runtime, wire_binding, check
         runtime_pins.verify({name:_get(owner,key) for name,owner,key in slots},checked_runtime)
     except ValueError as error: raise NativePortStale(str(error)) from error
     anchors=[]; captured={}
+    # Прямые aliases oracle и фактический владелец цены replay, не снимок значений.
+    for ordinal,(owner,key,value) in enumerate(wire_binding.anchors):
+        anchors.append(('wire.owner.'+str(ordinal),owner,key,value,
+                        _class_members(value) if isinstance(value,type) else None,_function_state(value)))
+    try:
+        replay_globals=dependencies.replay_event.__globals__
+        metric_types=replay_globals['_metric_types']
+        counter_owner=metric_types.SYMBOLIC_FALLBACK_COUNTS
+    except (AttributeError,KeyError) as error:
+        raise NativePortStale('REPLAY_COUNTER_OWNER_REQUIRED') from error
+    if type(counter_owner)is not dict:
+        raise NativePortStale('REPLAY_COUNTER_DICT_REQUIRED')
+    anchors += [('replay._metric_types',replay_globals,'_metric_types',metric_types,None,_function_state(metric_types)),
+                ('replay.SYMBOLIC_FALLBACK_COUNTS',metric_types,'SYMBOLIC_FALLBACK_COUNTS',counter_owner,None,_function_state(counter_owner))]
     anchors.append(('wire.callables',wire_binding,'callables',wire_binding.callables,None,_function_state(wire_binding.callables)))
     for name in ('kernel','sympy','angle_measure','outcomes'):
         anchors.append(('dependency.'+name,dependencies,name,getattr(dependencies,name),None,_function_state(getattr(dependencies,name))))
