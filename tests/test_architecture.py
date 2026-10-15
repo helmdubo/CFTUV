@@ -334,6 +334,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "kernel_backend",
         "skeleton_backend",
         "embedding_backend",
+        "density_backend",
         "pool",
         "cancel",
         "exc",
@@ -382,6 +383,12 @@ def test_the_width_live_worker_thread_function_touches_no_blender_data():
     used = {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}
     used -= {arg.arg for arg in compute.args.args}
     foreign = used - _WIDTH_COMPUTE_NAMES
+    captured = [node for node in begin.body if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == "density_backend" for target in node.targets)]
+    assert len(captured) == 1
+    assert isinstance(captured[0].value, ast.Attribute) and captured[0].value.attr == "density_backend"
+    assert isinstance(captured[0].value.value, ast.Name) and captured[0].value.value.id == "record"
+    assert captured[0].lineno < compute.lineno
     assert not foreign, (
         f"функция потока точной ширины использует {sorted(foreign)}: потоку нельзя ничего, "
         "что читает или пишет данные Blender."
@@ -1872,7 +1879,7 @@ def _load_native_pin():
 def test_the_native_pins_hold_one_digest_per_mirrored_file():
     pin = _load_native_pin()
     listed = {name for files in pin.OPERATION_FILES.values() for name in files}
-    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "frame", "radical_v2"}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "frame", "radical_v2", "density"}
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
@@ -2182,7 +2189,21 @@ def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
 #: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
 #: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
-RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check")
+RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "density")
+
+
+def test_density_is_rust_only_and_its_narrow_closure_stays_at_the_pin():
+    """Density закреплён целиком и по общей узкой зависимости; radical_v2 остаётся самостоятельным кандидатом."""
+
+    import importlib.util
+
+    assert "density" in RUST_ONLY_OPERATIONS and "radical_v2" not in RUST_ONLY_OPERATIONS
+    path = REPO_ROOT / "native/cftuv-python/python/cftuv_native/density_pin.py"
+    spec = importlib.util.spec_from_file_location("_density_promotion_pin", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.stale_sources(KERNEL_SOURCE / "cftuv_envelope") == ()
+    assert module.expected_closure_digest() == _load_native_pin().DENSITY_CLOSURE_DIGEST
 
 
 def test_python_sources_of_rust_only_stages_stay_at_their_pin():
@@ -2441,9 +2462,9 @@ def test_effective_alpha_hook_is_one_call_and_the_function_without_it_is_the_ora
 # --------------------------------------------------------------------------
 
 #: Имена параметров, полей и свойств сцены, которыми хост заказывает бэкенд ядра.
-_BACKEND_NAMES = frozenset({"backend", "kernel_backend", "backend_id", "skeleton_backend", "embedding_backend"})
+_BACKEND_NAMES = frozenset({"backend", "kernel_backend", "backend_id", "skeleton_backend", "embedding_backend", "density_backend"})
 #: Постадийные порядки: у стадии собственного умолчания нет, `None` значит «как главный переключатель» (`stage_orders`).
-_BACKEND_STAGE_NAMES = frozenset({"skeleton_backend", "embedding_backend"})
+_BACKEND_STAGE_NAMES = frozenset({"skeleton_backend", "embedding_backend", "density_backend"})
 _BACKEND_MASTER_DEFAULTS = frozenset({"DEFAULT_KERNEL_BACKEND", "None"})
 
 
@@ -2463,6 +2484,8 @@ def _backend_defaults(tree: ast.Module, file: str) -> list:
             if value is None and isinstance(node.annotation, ast.Call):
                 value = next((item.value for item in node.annotation.keywords if item.arg == "default"), None)
             if value is not None:
+                if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "field":
+                    value = next((item.value for item in value.keywords if item.arg == "default"), value)
                 found.append((file, node.target.id, ast.unparse(value)))
     return found
 
@@ -2560,6 +2583,11 @@ def test_the_backend_default_rule_flags_a_spoiled_source_and_passes_an_honest_on
     )
     assert len(_backend_violations(ast.parse(spoiled), "spoiled.py")) == 6
     assert _backend_violations(ast.parse(honest), "honest.py") == []
+    keyword_record = "class Record:\n    density_backend: str | None = field(default=None, kw_only=True)\n"
+    assert _backend_violations(ast.parse(keyword_record), "honest.py") == []
+    assert _backend_violations(ast.parse(keyword_record.replace("default=None", "default='NATIVE'")), "spoiled.py") == [
+        ("spoiled.py", "density_backend", "'NATIVE'")
+    ]
 
 
 def test_the_scene_has_exactly_one_backend_setting_the_master_switch():

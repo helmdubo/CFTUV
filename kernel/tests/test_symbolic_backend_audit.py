@@ -193,6 +193,51 @@ SYMPY_AUDIT = {
             "sp.expand",
         ),
     ),
+    "reference/density_binding_values.py": (
+        "B_KEEP",
+        'R3a: прежняя интервальная decimal-оболочка direction_binding, включая граничные рациональные окна',
+        ("mp.iv", "mp.iv.prec", "mp.libmp", "mp.libmp.to_rational"),
+    ),
+    "reference/density_construct_v1.py": (
+        "B_KEEP",
+        "R3 canon: только read-only raw view с evaluate=False для прежнего допуска; owned арифметика и раскрытие выполняются отдельно без SymPy",
+        ("sp.Add", "sp.Mul", "sp.Pow", "sp.Rational", "sp.atan2", "sp.cos", "sp.pi", "sp.sin"),
+    ),
+    "reference/density_owned_laws_v1.py": (
+        "B_KEEP",
+        "R3 Python oracle: literal iv160 admission is preserved separately from owned arithmetic and A2 enclosures; Rust mirrors this gate",
+        ("mp.iv", "mp.iv.prec"),
+    ),
+    "reference/density_raw_v1.py": (
+        "BRIDGE",
+        "R3 raw adapter reads existing Rational carrier atoms into integer pairs; no symbolic expressions or geometry are constructed",
+        ("sp.Rational",),
+    ),
+    "reference/density_shell_v2.py": (
+        "BRIDGE",
+        "R3 A1: чтение готового SymPy AST в RadicalSumV2; оболочка и десятичная проекция вычисляются целыми без SymPy-арифметики",
+        ("sp.Add", "sp.Basic", "sp.Integer", "sp.Mul", "sp.Pow", "sp.Rational"),
+    ),
+    "reference/density_projective.py": (
+        "B_KEEP",
+        'R3a: прежняя projective-арифметика adaptive_density_fan; q=5 содержит вложенный корень',
+        ("sp.Expr", "sp.Integer", "sp.Rational", "sp.sqrt", "sp.sympify"),
+    ),
+    "reference/density_sign.py": (
+        "B_KEEP",
+        'R3a: прежний interval-first знак angular и exact quadratic fallback, множество отказов сохранено',
+        ("mp.iv", "mp.iv.prec", "sp.Expr", "sp.Rational", "sp.expand", "sp.sympify"),
+    ),
+    "reference/density_turn.py": (
+        "B_KEEP",
+        'R3a: прежние principal-ветвь и равноугольные лучи angular; Rust A2 ещё не подключён',
+        ("sp.Rational", "sp.atan2", "sp.cos", "sp.expand", "sp.pi", "sp.sin", "sp.sqrt"),
+    ),
+    "reference/density_vectors.py": (
+        "B_KEEP",
+        'R3a: прежние density-векторы angular; принимают также интервальную алгебру вне V2',
+        ("sp.Expr", "sp.Rational", "sp.expand", "sp.sqrt", "sp.srepr", "sp.sympify"),
+    ),
     "reference/density_residual.py": (
         "B_KEEP",
         'знак остатка подшага: интервальный фильтр (iv) до выражения, sqrt(5) при q=5 — точный путь как был',

@@ -30,7 +30,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from .envelope_chart_band import tightened_cap_of_facts
 from .envelope_content_key import result_slot  # noqa: F401 - переэкспорт: имя прежнее
@@ -43,6 +43,7 @@ from .envelope_kernel_backend import (
     backend_timing_suffix,
     entered_backend,
     ledger_record,
+    resolve_density_backend,
     settle_stage_orders,
     with_preparation_record,
 )
@@ -152,6 +153,7 @@ from .envelope_production_scan import (  # noqa: F401 - переэкспорт: 
     released,
 )
 from .envelope_production_task import (  # noqa: F401 - переэкспорт: имена прежние
+    cold_task,
     _domain_of_preparation,
     _solve_cold_production_task,
     prepare_for_production,
@@ -193,11 +195,12 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
     _check_cancel(run)
     snapshot, request = inputs
     started = time.perf_counter()
-    with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger:
+    with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend) as ledger:
         def build():
             return prepare_for_production_recorded(
                 snapshot, request, backend=run.backend, skeleton_backend=run.skeleton_backend,
                 embedding_backend=run.embedding_backend, borrowed_ledger=ledger,
+                density_backend=run.density_backend,
             )[0]
 
         try:
@@ -222,6 +225,7 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
         backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
+        density_backend=run.density_backend,
     )
     return _placed(with_preparation_record(produced, ledger_record(ledger)), placement)
 
@@ -267,7 +271,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     inputs = entry.inputs
     parent_log = None
     if inputs is None:
-        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger, record_host_tokens() as parent_log:
+        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend) as ledger, record_host_tokens() as parent_log:
             try:
                 carried = None if reply is None or not REQUEST_CARRIED or not reply.ok else reply.request
                 entry_key = (entry.patch_id, entry.domain_id, entry.selected)
@@ -419,6 +423,7 @@ def _produced_by_parent(run: _RunInputsV1, item: _DomainEntryV1) -> ProductionDo
         backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
+        density_backend=run.density_backend,
     )
 
 
@@ -475,6 +480,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
             backend=run.backend,
             skeleton_backend=run.skeleton_backend,
             embedding_backend=run.embedding_backend,
+            density_backend=run.density_backend,
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
@@ -484,31 +490,8 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
     return tasks
 
 
-def cold_laws(run: _RunInputsV1) -> ColdProductionInputV1:
+def cold_laws(run) -> ColdProductionInputV1:
     return ColdProductionInputV1(run.uv_policy_id, run.topology_law, run.topology_export.snapshot_byte_check)
-
-
-def cold_task(run: _RunInputsV1, entry: _DomainEntryV1, task_id: int, laws: ColdProductionInputV1):
-    """Задача пула холодного домена: вход выгрузки (или готовые снапшот и запрос) и законы прогона; общая для полного списка и для потокового обхода (SCAN_BEHIND_THE_POOL_V1)."""
-
-    from .envelope_domain_pool import DomainTaskV1
-
-    snapshot, request = entry.inputs or (None, None)
-    return DomainTaskV1(
-        task_id,
-        entry.patch_id,
-        entry.domain_id,
-        snapshot,
-        request,
-        run.alpha_text,
-        entry.selected,
-        export=entry.export,
-        cold=laws,
-        affinity=entry.domain_id,
-        backend=run.backend,
-        skeleton_backend=run.skeleton_backend,
-        embedding_backend=run.embedding_backend,
-    )
 
 
 def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
@@ -651,11 +634,13 @@ class ProductionRunV1:
     kernel_backend: str = DEFAULT_KERNEL_BACKEND  # главный переключатель ядра, заказанный прогоном
     skeleton_backend: str | None = None  # порядки стадий прогона: `None` — как `kernel_backend`, `__post_init__` приводит их к именам
     embedding_backend: str | None = None
+    density_backend: str | None = field(default=None, kw_only=True)
     #: Класс обновления (`REFRESH_COMMIT` | `REFRESH_LEAN` = WIDTH_REFRESH_LEAN_V1): lean-прогон заказывает путь без работы, нужной только фиксации.
     refresh: str = REFRESH_COMMIT
 
     def __post_init__(self) -> None:
         settle_stage_orders(self, "kernel_backend")
+        object.__setattr__(self, "density_backend", resolve_density_backend(self.kernel_backend, self.density_backend))
 
     @property
     def materialized(self) -> tuple[ProductionDomainResultV1, ...]:
@@ -826,6 +811,7 @@ def run_production(
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
+    density_backend: str | None = None,
     lean: bool = False,
     served: dict | None = None,
     skipped=None,
@@ -874,6 +860,7 @@ def run_production(
         PRODUCTION_BUILD_KIND,
     )
     builds_before, lazy_before = controller.build_counts, controller.lazy_unpickled
+    density_backend = resolve_density_backend(kernel_backend, density_backend)
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
     pool = (
         get_domain_pool(workers, read_worker_python())
@@ -885,7 +872,7 @@ def run_production(
     ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
         silhouette_uv_slide
     ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha)).with_snapshot_byte_check(
-        resolve_plan(kernel_backend, skeleton_backend, embedding_backend, defer=hasattr(pool, "run_idle"))
+        resolve_plan(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend, defer=hasattr(pool, "run_idle"))
     )
     stage_memo = controller.stage_inputs_memo
     revision, patch_ids, request_id, selected_by_domain = stage_production_inputs(
@@ -912,6 +899,7 @@ def run_production(
         backend=kernel_backend,
         skeleton_backend=skeleton_backend,
         embedding_backend=embedding_backend,
+        density_backend=density_backend,
         lean=lean,
         served={patch: result for patch, result in dict(served or {}).items() if patch not in refused_by_byte_check},
         skipped=frozenset(int(item) for item in (skipped or ())) - refused_by_byte_check,
@@ -966,6 +954,7 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
         kernel_backend=run.backend,
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
+        density_backend=run.density_backend,
         refresh=REFRESH_INCREMENTAL if rebased or omitted else (REFRESH_LEAN if run.lean else REFRESH_COMMIT),
     )
 
@@ -1002,7 +991,7 @@ def production_timing_text(run: ProductionRunV1) -> str:
         f"{_content_timing_suffix(run, content)}"
         f"{_clip_memo_timing_suffix(run)}"
         f"{_lean_timing_suffix(run)}"
-        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend)}"
+        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend)}"
         f"{_pool_timing_suffix(run.profile)}"
     )
 

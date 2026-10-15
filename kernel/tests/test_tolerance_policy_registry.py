@@ -368,6 +368,11 @@ def test_effects_that_change_the_answer_carry_a_recorded_outcome():
 # Рост списка запрещён числом ниже: добавление исключения — осознанное
 # действие с правкой этого файла, а не побочный эффект.
 NON_TOLERANCE_CONSTANTS = {
+    "cftuv_envelope.reference.density_angle_v1.limit": (
+        "проверяемая граница ширины целочисленной оболочки A2: 2**-COMPONENT_BITS. "
+        "Это постусловие доказанного числа шагов изоляции корня, а не допуск геометрии; "
+        "нарушение даёт WIDTH_PROOF_VIOLATED и никогда не принимает иной знак или веер"
+    ),
     "cftuv_envelope.surface_cone_angle._STEP": (
         "шаг последнего ЗАПИСЫВАЕМОГО десятичного знака оболочки конуса "
         "(1/10**CONE_ANGLE_DECIMALS). Ширина оболочки заранее НЕ обещается: "
@@ -379,7 +384,7 @@ NON_TOLERANCE_CONSTANTS = {
 
 # Число замороженных исключений. Растёт только вместе со словарём выше и
 # только осознанно: тест сравнивает на равенство, а не на «не больше».
-FROZEN_NON_TOLERANCE_CONSTANT_COUNT = 1
+FROZEN_NON_TOLERANCE_CONSTANT_COUNT = 2
 
 
 def _declared_constants() -> dict[str, str]:
@@ -495,6 +500,26 @@ def test_the_frozen_excuse_list_does_not_grow_by_itself():
 # обещание привязки. ТОЧНЫЕ величины закона, а не допуски: сдвинуть их нельзя, не
 # меняя смысл сравнения.
 NAKED_COMPARISON_LITERALS = {
+    "cftuv_envelope/reference/density_owned_laws_v1.py:Fraction(1, 2)": (
+        "точная граница pi/2 в законе допустимого подшага: знак косинуса разделяет "
+        "острый и тупой угол; это математическая граница, а не численный допуск"
+    ),
+    "cftuv_envelope/reference/density_trig_v1.py:Fraction(1, 8)": (
+        "точный ключ конечной таблицы углов pi/8: выбирает формулу вложенного корня, "
+        "не допускает близкие углы и не задаёт численный допуск"
+    ),
+    "cftuv_envelope/reference/density_trig_v1.py:Fraction(2, 5)": (
+        "точный ключ конечной таблицы углов 2*pi/5: выбирает алгебраическую формулу, "
+        "не допускает близкие углы и не задаёт численный допуск"
+    ),
+    "cftuv_envelope/reference/density_trig_v1.py:Fraction(1, 10)": (
+        "точный ключ конечной таблицы углов pi/10: выбирает алгебраическую формулу, "
+        "не допускает близкие углы и не задаёт численный допуск"
+    ),
+    "cftuv_envelope/reference/density_trig_v1.py:Fraction(1, 2)": (
+        "аргумент измерен в долях pi: точная граница квадранта pi/2 при отражении "
+        "конечных тригонометрических констант. Это математическая симметрия, не допуск"
+    ),
     "cftuv_envelope/reference/angular.py:Fraction(1, 2)": (
         "половина оборота — это в точности развёрнутый угол π; сравнение "
         "делит вогнутые и выпуклые, а не терпит отклонение"
@@ -510,7 +535,7 @@ NAKED_COMPARISON_LITERALS = {
     ),
 }
 
-FROZEN_NAKED_COMPARISON_LITERAL_COUNT = 3
+FROZEN_NAKED_COMPARISON_LITERAL_COUNT = 8
 
 
 def _naked_comparison_literals() -> dict[str, list[str]]:

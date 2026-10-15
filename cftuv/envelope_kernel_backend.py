@@ -37,7 +37,7 @@
 
 ПОДГОТОВКА ПОД БЛОКОМ БЭКЕНДА. Скелет считается в подготовке (`prepare_conveyor` -> `_prepare_region`), которая идёт ДО `produce_domain` — в родителе и в воркерах пула. Поэтому блок `use_backend`
 стоит и вокруг подготовки (`prepared_under_backend`, `prepare_for_production`, `run_queue_domain`), а запись домена — слияние записи подготовки и записи материализации
-(`BackendRecordV1.merged`). Подготовка зависит только от бэкенда скелета, поэтому ключ её кэша в сессии несёт `skeleton_identity_of` (`PYTHON` | `NATIVE:<native_build_id()>`):
+(`BackendRecordV1.merged`). Ключ подготовки сессии несёт `skeleton_identity_of`: скелет и явно выбранный Density (`PYTHON` | `NATIVE:<native_build_id()>`):
 подготовка, построенная Python, не читается как построенная Rust и наоборот. Ключи результата и хранилища по содержимому несут идентичность всех стадий (`backend_identity_of`).
 Домен, чей скелет нативное ядро отказало по имени (`NATIVE_DIVISION_DIVERGED`), отказан этим именем (`PreparationRefused`), а не посчитан эталоном.
 
@@ -87,6 +87,7 @@ STAGES = (
     ("materialize_w1", "materialize W1"),
     ("snapshot_check", "snapshot check"),
     ("frame", "frame"),
+    ("density", "density"),
 )
 #: Какой признак `NativeStatusV1` говорит, что стадия готова нативно.
 _STATUS_FLAGS = {
@@ -97,13 +98,13 @@ _STATUS_FLAGS = {
     "materialize_w1": "materialize_w1_available",
     "snapshot_check": "snapshot_check_available",
     "frame": "frame_available",
+    "density": "density_available",
 }
 #: Переменная среды, которой A/B и тесты заказывают порядок ОДНОЙ стадии мимо главного переключателя (`PYTHON` | `NATIVE`; крюк инструментов, не настройка продукта): читается только без явного порядка
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
-STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND", "frame": "CFTUV_FRAME_BACKEND"}
+STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND", "frame": "CFTUV_FRAME_BACKEND", "density": "CFTUV_DENSITY_BACKEND"}
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
-
 _LAST_BACKEND = [DEFAULT_KERNEL_BACKEND]
 
 
@@ -127,11 +128,17 @@ class StageOrdersV1:
     materialize_w1: str
     snapshot_check: str
     frame: str
+    density: str
 
     def as_arguments(self) -> tuple:
-        """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend, frame_backend)` для `cftuv_envelope.backend.use_backend`."""
+        """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend)` для `cftuv_envelope.backend.use_backend`."""
 
-        return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha, self.materialize_w1, self.snapshot_check, self.frame)
+        return (self.coverage_clip, self.skeleton, self.snap_embedding, self.effective_alpha, self.materialize_w1, self.snapshot_check)
+
+    def as_keywords(self) -> dict:
+        """Frame и Density передаются только именем: шесть прежних позиционных аргументов ядра сохраняются."""
+
+        return {"frame_backend": self.frame, "density_backend": self.density}
 
 
 def environment_order(stage: str, master: str) -> str:
@@ -150,7 +157,9 @@ def stage_orders(
     effective_alpha_backend=None,
     materialize_backend=None,
     snapshot_check_backend=None,
+    *,
     frame_backend=None,
+    density_backend=None,
 ) -> StageOrdersV1:
     """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
@@ -167,7 +176,14 @@ def stage_orders(
         environment_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
         environment_order("snapshot_check", master) if snapshot_check_backend is None else normalize_kernel_backend(snapshot_check_backend),
         environment_order("frame", master) if frame_backend is None else normalize_kernel_backend(frame_backend),
+        environment_order("density", master) if density_backend is None else normalize_kernel_backend(density_backend),
     )
+
+
+def resolve_density_backend(master, explicit=None) -> str:
+    """Зафиксировать порядок Density до передачи задачи и ключей кэша."""
+
+    return stage_orders(master, density_backend=explicit).density
 
 
 def settle_stage_orders(record, master_field: str = "backend") -> None:
@@ -176,7 +192,8 @@ def settle_stage_orders(record, master_field: str = "backend") -> None:
     Для замороженных записей прогона, задачи пула и живой ширины: зовётся из их `__post_init__`, поле главного переключателя называется `master_field`.
     """
 
-    orders = stage_orders(getattr(record, master_field), record.skeleton_backend, record.embedding_backend)
+    orders = stage_orders(getattr(record, master_field), record.skeleton_backend, record.embedding_backend,
+                          density_backend=getattr(record, "density_backend", None))
     object.__setattr__(record, master_field, orders.coverage_clip)
     object.__setattr__(record, "skeleton_backend", orders.skeleton)
     object.__setattr__(record, "embedding_backend", orders.snap_embedding)
@@ -234,14 +251,14 @@ def fold_legacy_skeleton_setting(mesh_settings):
 
 
 def backend_identity_of(
-    kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None, snapshot_check_backend=None, frame_backend=None
+    kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None, snapshot_check_backend=None, *, frame_backend=None, density_backend=None
 ) -> str:
-    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...`, `|effective_alpha=...`, `|materialize_w1=...`, `|snapshot_check=...` и `|frame=...` при нативных стадиях.
+    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...`, `|effective_alpha=...`, `|materialize_w1=...`, `|snapshot_check=...`, `|frame=...` и `|density=...` при нативных стадиях.
 
     Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend, frame_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend, frame_backend=frame_backend, density_backend=density_backend)
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
@@ -250,33 +267,45 @@ def backend_identity_of(
         base = base if orders.effective_alpha == KERNEL_BACKEND_PYTHON else f"{base}|effective_alpha={orders.effective_alpha}"
         base = base if orders.materialize_w1 == KERNEL_BACKEND_PYTHON else f"{base}|materialize_w1={orders.materialize_w1}"
         base = base if orders.snapshot_check == KERNEL_BACKEND_PYTHON else f"{base}|snapshot_check={orders.snapshot_check}"
-        return base if orders.frame == KERNEL_BACKEND_PYTHON else f"{base}|frame={orders.frame}"
-    return backend_identity(*orders.as_arguments())
+        base = base if orders.frame == KERNEL_BACKEND_PYTHON else f"{base}|frame={orders.frame}"
+        return base if orders.density == KERNEL_BACKEND_PYTHON else f"{base}|density={orders.density}"
+    return backend_identity(*orders.as_arguments(), **orders.as_keywords())
 
 
-def skeleton_identity_of(skeleton_backend=None) -> str:
-    """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ кэша подготовки сессии несёт её, и только её (подготовка от покрытия и резки не зависит).
+def skeleton_identity_of(skeleton_backend=None, *, density_backend=None) -> str:
+    """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ подготовки сессии несёт скелет и явно выбранный Density; от покрытия и резки подготовка не зависит.
 
     `None` — порядок скелета по умолчанию (как главный переключатель по умолчанию).
     """
 
-    skeleton = stage_orders(DEFAULT_KERNEL_BACKEND, skeleton_backend).skeleton
+    orders = stage_orders(DEFAULT_KERNEL_BACKEND, skeleton_backend, density_backend=density_backend)
+    skeleton, density_backend = orders.skeleton, orders.density
     try:
         from cftuv_envelope.backend import stage_identity
     except ImportError:
-        return skeleton
-    return stage_identity(skeleton)
+        return skeleton if density_backend == KERNEL_BACKEND_PYTHON else f"{skeleton}|density={density_backend}"
+    identity = stage_identity(skeleton)
+    return identity if density_backend == KERNEL_BACKEND_PYTHON else f"{identity}|density={stage_identity(density_backend)}"
+
+
+def settle_run_backend_identities(record) -> None:
+    """Идентичности результата и подготовки выводятся из уже фиксированных порядков."""
+
+    if record.backend_id is None:
+        object.__setattr__(record, "backend_id", backend_identity_of(record.backend, record.skeleton_backend, record.embedding_backend, density_backend=record.density_backend))
+    if record.skeleton_id is None:
+        object.__setattr__(record, "skeleton_id", skeleton_identity_of(record.skeleton_backend, density_backend=record.density_backend))
 
 
 @contextmanager
-def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=None):
+def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None):
     """`use_backend` ядра; смена бэкенда покрытия и резки в ЭТОМ процессе сбрасывает память стадии резки.
 
     Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если все `PYTHON`. Память резки сбрасывается потому, что её ключ бэкенд не несёт;
     скелет в этой памяти не участвует (ответ скелета побитово один), поэтому его смена память резки не трогает.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     from cftuv_envelope.backend import use_backend
 
     if _LAST_BACKEND[0] != orders.coverage_clip:
@@ -284,7 +313,7 @@ def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=Non
 
         MEMO.clear()
         _LAST_BACKEND[0] = orders.coverage_clip
-    with use_backend(*orders.as_arguments()) as ledger:
+    with use_backend(*orders.as_arguments(), **orders.as_keywords()) as ledger:
         yield ledger
 
 
@@ -301,7 +330,7 @@ class PreparationRefused(RuntimeError):
         self.record = record
 
 
-def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, borrowed_ledger=None):
+def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, density_backend=None, borrowed_ledger=None):
     """`(подготовка, запись | None)`: `build()` под блоком бэкенда, скелет считается в нём.
 
     Заимствованный журнал принадлежит вызывающему: при нём возвращаемая запись — None, чтобы счёт не удвоился.
@@ -312,8 +341,8 @@ def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleto
 
     from cftuv_envelope.backend import NativeDomainRefused, use_backend
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
-    with use_backend(*orders.as_arguments(), borrowed_ledger=borrowed_ledger) as ledger:
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
+    with use_backend(*orders.as_arguments(), **orders.as_keywords(), borrowed_ledger=borrowed_ledger) as ledger:
         try:
             prepared = build()
         except NativeDomainRefused as exc:
@@ -355,8 +384,8 @@ def with_kernel_backend(produce):
     """
 
     @functools.wraps(produce)
-    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, **kwargs):
-        with entered_backend(backend, skeleton_backend, embedding_backend) as ledger:
+    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, density_backend=None, **kwargs):
+        with entered_backend(backend, skeleton_backend, embedding_backend, density_backend=density_backend) as ledger:
             result = produce(*args, **kwargs)
         if ledger is None:
             return result
@@ -417,7 +446,7 @@ def _outcome_list(patches: dict) -> tuple:
     return tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(patches.items()))
 
 
-def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> BackendSummaryV1:
+def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> BackendSummaryV1:
     """Сводка по результатам прогона; результат без записи (отказ входа, пропавший домен) в счёт не идёт.
 
     Порядки стадий называют записи доменов (`BackendRecordV1.requested`, `skeleton_requested`, `embedding_requested`: что заказал прогон на самом деле); пока записей нет,
@@ -427,7 +456,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
 
     from .envelope_production_export import PLACEMENT_CACHED
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     recorded = next((item.backend_record for item in results if getattr(item, "backend_record", None) is not None), None)
     if recorded is not None:
         orders = StageOrdersV1(
@@ -438,6 +467,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             recorded.materialize_requested,
             recorded.snapshot_check_requested,
             recorded.frame_requested,
+            recorded.density_requested,
         )
     counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
     patches = {name: {} for name, _label in STAGES}
@@ -457,6 +487,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             "materialize_w1": (record.materialize_ran, record.materialize_outcomes),
             "snapshot_check": (record.snapshot_check_ran, record.snapshot_check_outcomes),
             "frame": (record.frame_ran, record.frame_outcomes),
+            "density": (getattr(record, "density_ran", ""), getattr(record, "density_outcomes", ())) if fresh else ("", ()),
         }
         for name, _label in STAGES:
             ran, outcomes = views[name]
@@ -516,19 +547,19 @@ def backend_text(summary: BackendSummaryV1) -> str:
     return " | ".join(segments)
 
 
-def backend_console_lines(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> list:
+def backend_console_lines(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> list:
     """Одна строка журнала прогона; пусто, пока все стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE`, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
 
-    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend)
+    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     if not summary.native_stages:
         return []
     return [f"[CFTUV][Production] BACKEND {backend_text(summary)}"]
 
 
-def backend_timing_suffix(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> str:
+def backend_timing_suffix(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> str:
     """` | native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2, skeleton 4` в строку панели (без причин); пусто, пока все стадии `PYTHON`."""
 
-    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend)
+    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     if not summary.native_stages:
         return ""
     return "".join(f" | {segment}" for segment in _tally_segments(summary, reasons=False) if not segment.startswith("ordered"))
@@ -598,6 +629,8 @@ __all__ = (
     "native_status_line",
     "normalize_kernel_backend",
     "prepared_under_backend",
+    "resolve_density_backend",
+    "settle_run_backend_identities",
     "settle_stage_orders",
     "skeleton_identity_of",
     "stage_orders",

@@ -335,15 +335,15 @@ def code_identity() -> tuple[str, str]:
     )
 
 
-def execution_identity(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> tuple[str, str, str]:
+def execution_identity(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> tuple[str, str, str]:
     """`(отпечаток ядра, отпечаток хоста, идентичность бэкенда)`: отпечаток кода процесса и бэкенды всех стадий, которыми считают (`None` у стадии - как главный переключатель `backend`)."""
 
     from .envelope_kernel_backend import backend_identity_of
 
-    return (*code_identity(), backend_identity_of(backend, skeleton_backend, embedding_backend))
+    return (*code_identity(), backend_identity_of(backend, skeleton_backend, embedding_backend, density_backend=density_backend))
 
 
-def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> tuple:
+def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> tuple:
     """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра, отпечаток кода и бэкенд ядра."""
 
     from . import envelope_request_export as export
@@ -359,7 +359,7 @@ def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, emb
         export.HOST_NEAR_PLANAR_FRAME_POLICY.value,
         export.HOST_NEAR_PLANAR_LIFT_POLICY.value,
         export.HOST_CURVATURE_LADDER_POLICY.value,
-        execution_identity(backend, skeleton_backend, embedding_backend),
+        execution_identity(backend, skeleton_backend, embedding_backend, density_backend=density_backend),
         kernel.ANALYSIS_SNAPSHOT_SCHEMA_V1,
         GEOMETRY_BATCH_SCHEMA_V1,
     )
@@ -397,7 +397,7 @@ def _normalized_budget(budget):
     return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
-def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, memo=None) -> str:
+def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, memo=None, *, density_backend=None) -> str:
     """Ключ содержимого домена: sha256 от входа воркера без ревизии, выделения домена и политик.
 
     `export` — `HostExportInputV1` ЭТОГО домена, `selected_edge_ids` — выделенные рёбра домена, `band_key` —
@@ -413,7 +413,7 @@ def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT
     from .envelope_request_policy import normalize_envelope_fan_density
 
     encoder = _Encoder(export.source_revision_value, _patch_ranks(export), memo)
-    parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants(backend, skeleton_backend, embedding_backend))]
+    parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants(backend, skeleton_backend, embedding_backend, density_backend=density_backend))]
     for name in _fields(type(export)):
         if name in EXCLUDED_FIELDS:
             continue

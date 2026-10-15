@@ -58,6 +58,7 @@ from exact_work_budget_ban import (
     _grouped,
     scan_tree,
     unbudgeted_sites_in_source,
+    density_reference_sign_receivers,
 )
 from test_wavefront_motorcycle_graph import CORPUS
 
@@ -77,6 +78,10 @@ def _kernel_sites():
 # его переезд. Число заморожено: вырасти оно не может (тест ниже), уменьшиться
 # может — это и есть закрытие дыры.
 FROZEN_UNBUDGETED_SITES: dict[tuple[str, str], tuple[int, str]] = {
+    ("cftuv_envelope/reference/adaptive_density_fan.py", "sign"): (9, "DENSITY_REFERENCE_SIGN_PARITY"),
+    ("cftuv_envelope/reference/density_owned_laws_v1.py", "sign"): (33, "DENSITY_REFERENCE_SIGN_PARITY"),
+    ("cftuv_envelope/reference/density_raw_frontend_v1.py", "sign"): (1, "DENSITY_REFERENCE_SIGN_PARITY"),
+    ("cftuv_envelope/reference/density_raw_noise_v1.py", "sign"): (2, "DENSITY_REFERENCE_SIGN_PARITY"),
     ("cftuv_envelope/exact_sqrt_sum.py", "divided_by"): (
         1,
         "OPERATOR_HAS_NO_THIRD_ARGUMENT",
@@ -97,7 +102,7 @@ FROZEN_UNBUDGETED_SITES: dict[tuple[str, str], tuple[int, str]] = {
         4,
         "RECEIVER_IS_NOT_A_SQRT_SUM",
     ),
-    ("cftuv_envelope/reference/angular.py", "sign"): (
+    ("cftuv_envelope/reference/density_sign.py", "sign"): (
         1,
         "REFERENCE_ARRANGEMENT_NOT_THREADED_YET",
     ),
@@ -110,6 +115,21 @@ FROZEN_UNBUDGETED_SITES: dict[tuple[str, str], tuple[int, str]] = {
         "REFERENCE_ARRANGEMENT_NOT_THREADED_YET",
     ),
 }
+
+
+def test_density_reference_exemptions_preserve_one_exact_sqrt_sum_fallback_and_known_facades():
+    paths = ("adaptive_density_fan.py", "density_owned_laws_v1.py", "density_raw_frontend_v1.py", "density_raw_noise_v1.py")
+    for name in paths:
+        errors, fallbacks = density_reference_sign_receivers((PACKAGE_ROOT / "reference" / name).read_text(encoding="utf-8"),
+                                                            owned=name == "density_owned_laws_v1.py")
+        assert errors == (), name
+        assert len(fallbacks) == (1 if name == "density_owned_laws_v1.py" else 0), name
+
+
+def test_density_reference_exemption_never_admits_a_new_unknown_value_sign():
+    assert density_reference_sign_receivers("laws.sign(x)\nvalue.sign()\n")[0] == (2,)
+    source = "class OwnedDensityLawsV1:\n    def sign(self, x):\n        return value.sign()\n"
+    assert density_reference_sign_receivers(source, owned=True)[0] == (3,)
 
 
 # --------------------------------------------------------------------------

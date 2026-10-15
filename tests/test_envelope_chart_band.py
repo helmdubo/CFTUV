@@ -591,6 +591,7 @@ def _content_run(controller, alpha):
         skeleton_backend="PYTHON",
         skeleton_id="PYTHON",
         embedding_backend="PYTHON",
+        density_backend="PYTHON",
         registered=[],
         scan_records={},
     )
@@ -602,7 +603,10 @@ def test_a_stored_preparation_on_a_map_tightened_for_another_alpha_is_dropped_no
 
     tightened, _plain = _tightened_certificate(Fraction(3, 10))
     monkeypatch.setattr(chart_band, "band_certificate_type", lambda: tightened)
-    monkeypatch.setattr(content_key, "domain_content_key", lambda export, selected, band, *backends: "content-key")
+    def fixed_key(export, selected, band, *backends, density_backend=None):
+        assert density_backend == "PYTHON"
+        return "content-key"
+    monkeypatch.setattr(content_key, "domain_content_key", fixed_key)
     controller = session.EnvelopeDebugSessionController()
     prepared = SimpleNamespace(context=SimpleNamespace(snapshot=_snapshot_of(tightened)))
 

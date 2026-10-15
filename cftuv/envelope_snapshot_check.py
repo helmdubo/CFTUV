@@ -107,6 +107,7 @@ def active_execution() -> tuple | None:
             backend.active_backend().value,
             backend.active_skeleton_backend().value,
             backend.active_embedding_backend().value,
+            density_backend=backend.active_density_backend().value,
         )
     except ContentKeyUnsupported:
         return None

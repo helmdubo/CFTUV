@@ -616,8 +616,9 @@ def test_a_run_passes_one_memo_to_the_keys_of_all_its_domains_and_a_new_memo_to_
     seen = []
     real = key_module.domain_content_key
 
-    def spy(export, selected, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, memo=None):
-        key = real(export, selected, band_key, backend, skeleton_backend, embedding_backend, memo)
+    def spy(export, selected, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, memo=None, *, density_backend=None):
+        assert density_backend == "NATIVE"
+        key = real(export, selected, band_key, backend, skeleton_backend, embedding_backend, memo, density_backend=density_backend)
         seen.append((export, selected, band_key, backend, skeleton_backend, embedding_backend, memo, key))
         return key
 

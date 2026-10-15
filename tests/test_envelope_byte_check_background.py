@@ -118,7 +118,7 @@ def test_only_the_worker_copy_of_a_deferring_plan_defers_and_only_for_a_single_d
 
 
 def test_all_never_defers_and_the_first_press_defers_only_when_the_pool_can_run_steps(monkeypatch):
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: IDENTITY)
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, density_backend=None: IDENTITY)
     every = byte_check.resolve_plan("NATIVE", environ={ENVIRONMENT: "all"}, defer=True)
     assert (every.mode, every.defer, every.token) == (MODE_ALL, False, "")
     inline = byte_check.resolve_plan("NATIVE", environ={}, defer=False)
@@ -126,13 +126,13 @@ def test_all_never_defers_and_the_first_press_defers_only_when_the_pool_can_run_
     deferring = byte_check.resolve_plan("NATIVE", environ={}, defer=True)
     assert deferring.first_press and deferring.defer and deferring.token
     assert deferring.token != byte_check.resolve_plan("NATIVE", environ={}, defer=True).token
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: None)
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, density_backend=None: None)
     unknown = byte_check.resolve_plan("NATIVE", environ={}, defer=True)
     assert unknown.first_press and not unknown.defer  # без идентичности отложенное некому засчитать
 
 
 def test_a_deferred_identity_is_pending_then_checked_only_when_every_snapshot_was_verified(monkeypatch):
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: IDENTITY)
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, density_backend=None: IDENTITY)
     plan = byte_check.resolve_plan("NATIVE", environ={}, defer=True)
     profile = EnvelopeDebugProfileBuilderV1("t", "t")
     profile.add_counter(BYTE_CHECK_DEFERRED, 1, "patch-domain:t:1")
@@ -154,7 +154,7 @@ def test_a_deferred_identity_is_pending_then_checked_only_when_every_snapshot_wa
 
 
 def test_a_press_that_checked_inline_marks_the_identity_as_before(monkeypatch):
-    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args: IDENTITY)
+    monkeypatch.setattr(byte_check, "execution_identity_of", lambda *args, density_backend=None: IDENTITY)
     plan = byte_check.resolve_plan("NATIVE", environ={}, defer=False)
     profile = EnvelopeDebugProfileBuilderV1("t", "t")
     profile.add_counter(BYTE_CHECK_FIRST_PRESS, 1, "patch-domain:t:1")

@@ -53,7 +53,8 @@ def test_embedding_follows_the_master_switch_unless_the_api_orders_it_apart_and_
     assert host.backend_identity_of("PYTHON", "PYTHON", "PYTHON") == "PYTHON"
     assert host.backend_identity_of("PYTHON", "PYTHON") == host.backend_identity_of("PYTHON") == "PYTHON"  # стадия без слова - как главный переключатель
     assert host.backend_identity_of("PYTHON", "PYTHON", "NATIVE").startswith("PYTHON|snap_embedding=NATIVE:")
-    assert host.skeleton_identity_of("PYTHON") == "PYTHON"
+    assert host.skeleton_identity_of("PYTHON", density_backend="PYTHON") == "PYTHON"
+    assert host.skeleton_identity_of("PYTHON") == "PYTHON|density=NATIVE:unavailable"
 
 
 def test_worker_cold_export_preparation_and_materialization_are_recorded_once(monkeypatch):
@@ -95,7 +96,7 @@ def test_worker_export_refusal_or_error_keeps_the_b1_record(monkeypatch, error):
 
 
 def _run_stub(**parts):
-    return SimpleNamespace(backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="NATIVE", cancel=None,
+    return SimpleNamespace(backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="NATIVE", density_backend="PYTHON", cancel=None,
         revision="r", alpha=.25, alpha_text=".25", request_id="q", density=None, topology_law=production.PRODUCTION_TOPOLOGY_LAW,
         uv_policy_id=production.PRODUCTION_UV_POLICY, profile=EnvelopeDebugProfileBuilderV1("parent", "QUEUE"), scan_records={}, served={}, skipped=frozenset(), byte_check_ledger=[], **parts)
 

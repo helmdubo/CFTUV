@@ -157,6 +157,21 @@ def test_every_synthetic_record_equals_the_oracle(runner):
 # --------------------------------------------------------------------------
 
 
+def test_heavy_ranking_orders_by_spent_budget_then_seconds_then_path_one_per_patch():
+    a, b, c, d, e = (Path(name) for name in "abcde")
+    items = [
+        (0, 9.0, ("m", 1), a),  # slowest but spent nothing: last
+        (55, 1.0, ("m", 2), b),
+        (55, 2.0, ("m", 3), c),  # same spend as b, more seconds: before b
+        (20, 0.1, ("m", 2), d),  # same patch as b: only the heavier one stays
+        (55, 2.0, ("m", 4), e),  # full tie with c: the path decides
+    ]
+    assert geometry.rank_heavy(items, 10) == [c, e, b, a]
+    assert geometry.rank_heavy(list(reversed(items)), 10) == [c, e, b, a]
+    assert geometry.rank_heavy(items, 2) == [c, e]
+    assert geometry.rank_heavy([(0, 1.0, ("m", 1), a), (0, 2.0, ("m", 2), b)], 2) == [b, a]
+
+
 @needs_real_call
 def test_a_cap_sweep_on_heavy_records_exhausts_at_the_same_place_with_the_same_partial_state(runner):
     refused = Counter()
@@ -167,7 +182,7 @@ def test_a_cap_sweep_on_heavy_records_exhausts_at_the_same_place_with_the_same_p
         spent = sum(before.budget["articles"])
         delta = sum(record.expected().after.budget["articles"]) - spent
         for level in geometry.cap_levels(delta):
-            state = dataclasses.replace(before, budget={**before.budget, "cap": spent + level})
+            state = nc.bounded_before(before, spent + level)  # потолок накладывает тест: состояние BOUNDED, даже если запись эталонная
             run = runner.compare(record, before=state)
             CHECKED["cap sweep"] += 1
             refused[run.outcome_label] += 1

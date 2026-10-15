@@ -569,3 +569,20 @@ def test_the_synthetic_clip_index_has_its_own_schema_and_its_records_are_readabl
     assert loaded["schema"] == "cftuv.native-corpus.synthetic-clip.v1"
     assert loaded["schema"] not in nc.READABLE_SCHEMAS
     assert nc.read_record(recorder.root / loaded["records"][0]["path"]).meta["schema"] == nc.RECORD_SCHEMA
+
+
+def test_a_cap_imposed_on_a_reference_record_gives_a_bounded_state_that_builds():
+    """Потолок, наложенный тестом на эталонную запись (UNLIMITED_REFERENCE), даёт состояние BOUNDED; прежняя сборка (только `cap`) отвергается валидатором ядра."""
+
+    rest = {"stage": "CLIP", "domain_id": "d", "superlevel": "", "articles": (0,) * 6}
+    reference = {"mode": exact.ExactWorkBudgetModeV1.UNLIMITED_REFERENCE.value, "cap": None, **rest}
+    state = nc.StateV1([], [], [], [], reference, {}, (), None, False)
+    old = dataclasses.replace(state, budget={**state.budget, "cap": 7})
+    with pytest.raises(ValueError, match="эталонный бюджет с потолком не эталон"):
+        nc.build_budget(old.budget)
+    fixed = nc.bounded_before(state, 7)
+    assert (fixed.budget["mode"], fixed.budget["cap"]) == (exact.ExactWorkBudgetModeV1.BOUNDED.value, 7)
+    assert {k: v for k, v in fixed.budget.items() if k not in ("mode", "cap")} == rest
+    built = nc.build_budget(fixed.budget)
+    assert (built.mode, built.cap) == (exact.ExactWorkBudgetModeV1.BOUNDED, 7)
+    assert state.budget["cap"] is None, "исходное состояние записи не тронуто"

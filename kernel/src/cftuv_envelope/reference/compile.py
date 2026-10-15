@@ -140,6 +140,7 @@ from .contracts import (
     ReferenceOutcome,
 )
 from .density_fan_binding import band_refusal_diagnostics, bind_density_fan
+from .density_shell_events import begin_density_shell_compilation, density_shell_compile_result, with_density_shell_diagnostics
 from .direction_binding import (
     BINDING_SUBTURN_LE_DELTA_MAX,
     DirectionBindingCertificateUnproven,
@@ -168,7 +169,7 @@ from .evaluation_geometry import (
     build_evaluation_geometry_binding,
     verify_evaluation_geometry_binding,
 )
-from .provenance import make_reference_provenance
+from .provenance import initial_front_support_features, make_reference_provenance
 from .validation import (
     validate_reference_geometry_certificates,
     validate_reference_geometry_payload,
@@ -722,9 +723,21 @@ def _evaluation_density_spec(
 
 
 def _attach_direction_bindings(
+    compilation, *, density_exact_memo=None, shell_event_collector=None,
+):
+    if _is_explicit_density(compilation) and compilation.analysis_snapshot.surface_ir.payload_mode is SurfacePayloadMode.FULL_HOST_SURFACE:
+        from .density_compile_v1 import attach_product_density_compilation_v1
+        return attach_product_density_compilation_v1(compilation, density_exact_memo=density_exact_memo,
+                                                    shell_event_collector=shell_event_collector)
+    return _attach_direction_bindings_legacy_v1(compilation, density_exact_memo=density_exact_memo,
+                                              shell_event_collector=shell_event_collector)
+
+
+def _attach_direction_bindings_legacy_v1(
     compilation: ReferenceEnvelopeCompilationV1,
     *,
     density_exact_memo: _DensityExactMemo | None = None,
+    shell_event_collector=None,
 ) -> tuple[
     ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1,
     object | None,
@@ -907,6 +920,7 @@ def _attach_direction_bindings(
                     law=FAN_WINDOW_LAW,
                     spec_id=spec.envelope_spec_id.value,
                     refusals=band_refusals,
+                    shell_event_collector=shell_event_collector,
                 )
             elif spec.resolved_hidden_edge_count == 1:
                 certificates = _certify_k1_recipe_direction_bindings(
@@ -1219,39 +1233,37 @@ def _finalize_compilation(
     compilation: ReferenceEnvelopeCompilationV1,
     *,
     density_exact_memo: _DensityExactMemo | None = None,
+    shell_event_collector=None,
+    direction_binding_attachment=None,
 ) -> ReferenceCompileResultV1:
+    collector = begin_density_shell_compilation(None) if shell_event_collector is None else shell_event_collector
     compiled_with_geometry = _attach_evaluation_geometry(
         compilation,
         density_exact_memo=density_exact_memo,
     )
     if isinstance(compiled_with_geometry, ReferenceCompileResultV1):
-        return compiled_with_geometry
+        return with_density_shell_diagnostics(compiled_with_geometry, collector)
     (
         compiled_with_bindings,
         transaction_context,
-    ) = _attach_direction_bindings(
+    ) = (_attach_direction_bindings if direction_binding_attachment is None else direction_binding_attachment)(
         compiled_with_geometry,
         density_exact_memo=density_exact_memo,
+        shell_event_collector=collector,
     )
     if isinstance(compiled_with_bindings, ReferenceCompileResultV1):
-        return compiled_with_bindings
+        return with_density_shell_diagnostics(compiled_with_bindings, collector)
     sealed_geometry = _seal_evaluation_geometry_authority(
         compiled_with_bindings,
         density_exact_memo=density_exact_memo,
     )
     if isinstance(sealed_geometry, ReferenceCompileResultV1):
-        return sealed_geometry
+        return with_density_shell_diagnostics(sealed_geometry, collector)
     compiled_with_readings = _attach_front_reading_declarations(
         sealed_geometry,
         transaction_context=transaction_context,
     )
-    if isinstance(compiled_with_readings, ReferenceCompileResultV1):
-        return compiled_with_readings
-    return ReferenceCompileResultV1(
-        ReferenceOutcome.EXACT,
-        compiled_with_readings,
-        (),
-    )
+    return density_shell_compile_result(compiled_with_readings, collector)
 
 
 def _attach_evaluation_geometry(
@@ -1465,10 +1477,13 @@ def compile_reference_envelopes(
     patch_domain_id: PatchDomainId | None = None,
     *, _density_exact_memo: _DensityExactMemo | None = None,
     snapshot_issues: tuple[ValidationIssue, ...] | None = None,
+    _density_shell_event_collector=None,
+    _direction_binding_attachment=None,
 ) -> ReferenceCompileResultV1:
     """Compile immutable seeds/specs for exactly one request/domain plan; `snapshot_issues` — как у `validate_snapshot_request_references` (готовая проверка ЭТОГО снапшота под допуском ЭТОГО запроса), `None` — считается здесь."""
 
     density_exact_memo = _compile_density_memo(request, _density_exact_memo)
+    _density_shell_event_collector = begin_density_shell_compilation(_density_shell_event_collector)
 
     input_issues = validate_snapshot_request_references(snapshot, request, snapshot_issues)
     if input_issues:
@@ -1935,34 +1950,7 @@ def compile_reference_envelopes(
         )
 
     all_specs = frozenset((*strip_specs, *angular_specs, *junction_specs, *cap_specs))
-    support_features = set()
-    for spec in all_specs:
-        if isinstance(spec, StripEnvelopeSpec):
-            support_features.add(
-                InitialFrontFeatureRefV1(
-                    InitialFrontFeatureKind.STRIP_SUPPORT, spec.envelope_spec_id
-                )
-            )
-        elif isinstance(spec, AngularEnvelopeSpec):
-            support_features.update(
-                InitialFrontFeatureRefV1(
-                    InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT,
-                    item.hidden_support_id,
-                )
-                for item in spec.hidden_supports
-            )
-        elif isinstance(spec, JunctionEnvelopeSpec):
-            support_features.add(
-                InitialFrontFeatureRefV1(
-                    InitialFrontFeatureKind.JUNCTION_SUPPORT, spec.envelope_spec_id
-                )
-            )
-        elif isinstance(spec, CapEnvelopeSpec):
-            support_features.add(
-                InitialFrontFeatureRefV1(
-                    InitialFrontFeatureKind.CAP_CLOSURE, spec.envelope_spec_id
-                )
-            )
+    support_features = initial_front_support_features(all_specs)
 
     from .common import station_plans_of
 
@@ -1993,4 +1981,7 @@ def compile_reference_envelopes(
             )
         ),
     )
-    return _finalize_compilation(compilation, density_exact_memo=density_exact_memo)
+    return _finalize_compilation(
+        compilation, density_exact_memo=density_exact_memo, shell_event_collector=_density_shell_event_collector,
+        direction_binding_attachment=_direction_binding_attachment,
+    )

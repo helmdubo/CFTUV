@@ -194,20 +194,41 @@ def real_paths() -> list:
     return field_paths() or [path for path in synthetic_paths() if nc.read_meta(path)["exception"] is None]
 
 
-def heavy_paths(count: int, paths: list | None = None) -> list:
-    """Самые долгие вызовы (по секундам записи; `paths` — из каких, по умолчанию полевые): по одному на сетку-патч, тяжёлые первыми."""
+def spent_budget(path) -> int:
+    """Точная работа бюджета, которую вызов записи реально потратил: статьи после минус статьи до (как считают свипы потолка). Результат не распаковывается."""
 
-    timed = sorted(((nc.read_meta(path)["seconds"], path) for path in (field_paths() if paths is None else paths)), key=lambda item: -item[0])
+    payload = nc.read_record(path).payload
+    return sum(payload["expected"]["after"]["budget"]["articles"]) - sum(payload["before"]["budget"]["articles"])
+
+
+def rank_heavy(items: list, count: int) -> list:
+    """`items` — `(spent, seconds, label, path)`; первые `count` путей, по одному на `label`: больше потрачено, затем дольше секунды, затем путь.
+
+    Вызов, потративший 0, не может исчерпать потолок: он идёт после всех тративших (годен лишь как заполнитель).
+    """
+
+    ordered = sorted(items, key=lambda item: (-max(item[0], 0), -item[1], str(item[3])))
     chosen, seen = [], set()
-    for _seconds, path in timed:
-        meta = nc.read_meta(path)
-        label = (meta["mesh"], meta["patch_id"])
+    for _spent, _seconds, label, path in ordered:
         if label not in seen:
             seen.add(label)
             chosen.append(path)
         if len(chosen) == count:
             break
     return chosen
+
+
+def heavy_paths(count: int, paths: list | None = None) -> list:
+    """Самые тяжёлые по ПОТРАЧЕННОМУ точному бюджету вызовы (`paths` — из каких, по умолчанию полевые): по одному на сетку-патч, тяжёлые первыми.
+
+    Секунды записи не годятся: самые долгие вызовы бывают почти бесплатны по бюджету, и потолку нечего в них исчерпать.
+    """
+
+    items = []
+    for path in field_paths() if paths is None else paths:
+        meta = nc.read_meta(path)
+        items.append((spent_budget(path), meta["seconds"], (meta["mesh"], meta["patch_id"]), path))
+    return rank_heavy(items, count)
 
 
 def cap_levels(delta: int) -> list:

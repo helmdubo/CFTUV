@@ -819,12 +819,15 @@ def test_the_declared_bound_decides_exactly_where_the_law_applies(compiled, monk
 
     loaded = _load(FIXTURE, "building_patch114", 2)
     monkeypatch.setattr(noise, "NOISE_DIRECTION_SINE_BOUND", above)
-    applied = compile_reference_envelopes(*loaded)
+    from cftuv_envelope.reference import compile as compiler
+    applied = compile_reference_envelopes(*loaded,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
     assert len(applied.compilation.evaluation_binding_noise_records) == 1
     assert applied.compilation.diagnostics == ()
 
     monkeypatch.setattr(noise, "NOISE_DIRECTION_SINE_BOUND", below)
-    refused = compile_reference_envelopes(*loaded)
+    refused = compile_reference_envelopes(*loaded,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
     assert refused.outcome is ReferenceOutcome.EXACT, refused.diagnostics
     compilation_refused = refused.compilation
     # Закон не применён: прежний закон на вычислительной геометрии, знак шума решает.
@@ -851,7 +854,9 @@ def test_a_refusal_of_the_law_is_named_in_the_diagnostics_and_counted(compiled, 
     monkeypatch.setattr(
         noise, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, math.ceil(1 / ceiling) + 1)
     )
-    refused = compile_reference_envelopes(snapshot_loaded, request)
+    from cftuv_envelope.reference import compile as compiler
+    refused = compile_reference_envelopes(snapshot_loaded, request,
+        _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1)
     # Шум вне границ молчит ДВАЖДЫ и по двум решениям: счёт на тугом пороге
     # (закон шума) и лучи привязанного веера (закон лучей, та же причина). Закон лучей
     # называет только угол, у которого ЕСТЬ строка таблицы (поднятый d2 `H = 2`); у тугого
@@ -880,7 +885,12 @@ def test_a_refusal_of_the_law_is_named_in_the_diagnostics_and_counted(compiled, 
             EvaluationBindingNoiseRefusalV1.TURN_NOISE_EXCEEDS_DECLARED_BOUND.value
         )
         assert item.envelope_spec_id is not None
-    prepared = prepare_conveyor(snapshot_loaded, request)
+    from cftuv_envelope.wavefront import conveyor
+    from functools import partial
+    with monkeypatch.context() as scoped:
+        scoped.setattr(conveyor, "compile_reference_envelopes", partial(compiler.compile_reference_envelopes,
+            _direction_binding_attachment=compiler._attach_direction_bindings_legacy_v1))
+        prepared = prepare_conveyor(snapshot_loaded, request)
     assert dict(prepared.counters)["CONVEYOR_BINDING_NOISE_LAW_REFUSED"] == 2
 
 

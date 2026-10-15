@@ -13,12 +13,12 @@ from .envelope_chart_band import tightening_is_current_facts
 from .envelope_content_key import result_slot
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
-    backend_identity_of,
     entered_backend,
     ledger_record,
     merge_backend_records,
+    resolve_density_backend,
+    settle_run_backend_identities,
     settle_stage_orders,
-    skeleton_identity_of,
 )
 from .envelope_production_result import (
     OUTCOME_PRODUCTION_CANCELLED,
@@ -115,12 +115,13 @@ class _RunInputsV1:
     cancel: object = None
     #: Главный переключатель ядра и его идентичность в ключах кэшей: результат одного бэкенда не подменяет результат другого.
     backend: str = DEFAULT_KERNEL_BACKEND
-    #: Идентичности (`None` — их выводит `__post_init__` из порядков): `backend_id` несёт идентичность всех стадий (результат), `skeleton_id` — только скелета (ключ кэша подготовки сессии).
+    #: Идентичности (`None` — их выводит `__post_init__`): `backend_id` несёт все стадии, `skeleton_id` — скелет и явно выбранный Density (ключ подготовки сессии).
     backend_id: str | None = None
     #: Постадийные порядки (`None` — как `backend`; `__post_init__` приводит поля к именам).
     skeleton_backend: str | None = None
     skeleton_id: str | None = None
     embedding_backend: str | None = None
+    density_backend: str | None = field(default=None, kw_only=True)
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
@@ -137,10 +138,8 @@ class _RunInputsV1:
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
-        if self.backend_id is None:
-            object.__setattr__(self, "backend_id", backend_identity_of(self.backend, self.skeleton_backend, self.embedding_backend))
-        if self.skeleton_id is None:
-            object.__setattr__(self, "skeleton_id", skeleton_identity_of(self.skeleton_backend))
+        object.__setattr__(self, "density_backend", resolve_density_backend(self.backend, self.density_backend))
+        settle_run_backend_identities(self)
 
     @property
     def grid_scale_law(self):
@@ -341,7 +340,7 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
 
     cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
     try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend, run.scan_records.setdefault("key_memo", {}))
+        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend, run.scan_records.setdefault("key_memo", {}), density_backend=run.density_backend)
     except ContentKeyUnsupported:
         return cold
     controller = run.controller
@@ -462,7 +461,7 @@ class _Scan:
         export = run.hooks.export_provider(patch_id, run.alpha, run.request_id, run.density)
         if export is not None:
             return _content_entry(run, patch_id, domain_id, selected, export)
-        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger:
+        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend) as ledger:
             try:
                 snapshot = controller.get_domain_geometry(controller.get_patch_metric(run.topology_export, patch_id)).snapshot
                 if record is not None and record.snapshot is snapshot:

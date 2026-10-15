@@ -40,6 +40,12 @@ NATIVE_PATHS = (
     "tests/data/native_radical_v2_ops.recs.xz",
     "tests/data/native_snapshot_check_seed.xz",
     "tests/data/native_frame_seed.xz",
+    "tests/data/native_density_batch_inputs.json.xz",
+    "tests/data/native_density_batch_inputs.manifest.json",
+    "tools/density_raw_wire.py",
+    "tools/density_raw_compile_audit.py",
+    "tools/density_raw_compile_diff.py",
+    "tools/density_shell_compile_diff.py",
     # the shards of the differential matrix: which test files each leg runs (`.github/workflows/native.yml`)
     "tests/data/native_ci_shard_weights.json",
     "kernel/tools/shard_tests.py",

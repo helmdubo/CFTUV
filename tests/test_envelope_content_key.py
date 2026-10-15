@@ -581,4 +581,6 @@ def test_embedding_execution_identity_separates_results_and_content_without_chan
     assert domain_content_key(export, selected, embedding_backend="NATIVE") != domain_content_key(export, selected, embedding_backend="PYTHON")
     assert execution_identity(embedding_backend="NATIVE") != execution_identity(embedding_backend="PYTHON")
     assert result_slot(".25", "uv", "topology", "lift", python) != result_slot(".25", "uv", "topology", "lift", native)
-    assert skeleton_identity_of("PYTHON") == "PYTHON"  # выбор B1 не участвует в API ключа подготовки
+    assert skeleton_identity_of("PYTHON", density_backend="PYTHON") == "PYTHON"  # выбор B1 не участвует в API ключа подготовки; Density назван отдельно
+    from cftuv_envelope.backend import stage_identity
+    assert skeleton_identity_of("PYTHON") == "PYTHON|density=" + stage_identity("NATIVE")

@@ -11,6 +11,13 @@
   "test_native_clip_parts.py": 98.9,
   "test_native_cost.py": 3.3,
   "test_native_coverage.py": 5.6,
+  "test_native_density_batch.py": 120.0,
+  "test_native_density_boundary.py": 5.0,
+  "test_native_density_corpus.py": 15.0,
+  "test_native_density_memo.py": 10.0,
+  "test_native_density_pin.py": 3.0,
+  "test_native_density_turn_corpus.py": 15.0,
+  "test_native_density_work_replay.py": 3.0,
   "test_native_effective_alpha.py": 75.0,
   "test_native_frame.py": 45.0,
   "test_native_materialize_w1.py": 10.0,
@@ -27,5 +34,35 @@
   "test_native_slots.py": 3.4,
   "test_native_snapshot_check.py": 25.0,
   "test_native_snap_embedding.py": 26.5
+ },
+ "estimate_provenance": {
+  "test_native_density_batch.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "portable raw input seed x both window laws, live Python/native whole result comparison; timing pending installed-wheel CI"
+  },
+  "test_native_density_boundary.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "live typed boundary q5/H0/internal cases; estimated installed-wheel CI runtime"
+  },
+  "test_native_density_corpus.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "wire/recorder regressions including subprocess generator; estimate pending CI"
+  },
+  "test_native_density_memo.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "live bidirectional transaction memo, failure prefixes and malformed input guards; installed-wheel CI estimate"
+  },
+  "test_native_density_pin.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "local 13 pure mutation and closure identity tests passed in 1.65s; CI measurement pending"
+  },
+  "test_native_density_turn_corpus.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "turn input recorder/replay and subprocess checks; estimate pending CI"
+  },
+  "test_native_density_work_replay.py": {
+   "status": "PENDING_CI_MEASUREMENT",
+   "basis": "local pure shim 14 tests 1.34s; CI interpreter/slot matrix measurement pending"
+  }
  }
 }

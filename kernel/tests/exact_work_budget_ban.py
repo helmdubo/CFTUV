@@ -97,6 +97,15 @@ CHARGED_EXACT_SURFACE: dict[str, tuple[int | None, tuple[str, ...]]] = {
 # Причины, по которым место ЗАКОННО остаётся без названного бюджета. Список
 # append-only: имя причины заводится один раз и не переписывается.
 EXEMPTION_REASONS: dict[str, str] = {
+    "DENSITY_REFERENCE_SIGN_PARITY": (
+        "Density sign сохраняет прежний наблюдаемый контракт: фильтр и знак "
+        "референса не создают новую статью DensityExactWorkBudget. В facade "
+        "OwnedDensityLawsV1 сохранён один прежний SqrtSumV1 fallback после "
+        "фиксированного фильтра; это наследуемая работа референса, а не "
+        "отсутствие SqrtSum. V2 Work учитывается отдельно. Числа мест заморожены, "
+        "а отдельная AST-проверка допускает только laws/self facade и этот "
+        "единственный fallback; чужой value.sign не получает исключения."
+    ),
     "OPERATOR_HAS_NO_THIRD_ARGUMENT": (
         "Питоновский оператор третьего аргумента не принимает, поэтому "
         "`SqrtSumV1.__truediv__` физически не может назвать бюджет и зовёт "
@@ -132,6 +141,42 @@ EXEMPTION_REASONS: dict[str, str] = {
         "она уже не может, а закрывает её отдельная карточка."
     ),
 }
+
+
+def density_reference_sign_receivers(source: str, *, owned=False):
+    """Проверить конкретные overload sites; имя модуля не освобождает весь его код."""
+    errors, fallbacks = [], []
+    class SignReceivers(ast.NodeVisitor):
+        class_name = None
+        function_name = None
+
+        def visit_ClassDef(self, node):
+            previous = self.class_name
+            self.class_name = node.name
+            self.generic_visit(node)
+            self.class_name = previous
+
+        def visit_FunctionDef(self, node):
+            previous = self.function_name
+            self.function_name = node.name
+            self.generic_visit(node)
+            self.function_name = previous
+
+        def visit_Call(self, node):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "sign":
+                receiver = node.func.value
+                facade = isinstance(receiver, ast.Name) and (receiver.id == "laws" or (
+                    owned and receiver.id == "self" and self.class_name == "OwnedDensityLawsV1"))
+                fallback = (owned and self.class_name == "OwnedDensityLawsV1" and self.function_name == "sign"
+                    and isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name)
+                    and receiver.func.id == "exact_quadratic_value")
+                if fallback:
+                    fallbacks.append(node.lineno)
+                elif not facade:
+                    errors.append(node.lineno)
+            self.generic_visit(node)
+    SignReceivers().visit(ast.parse(source))
+    return tuple(errors), tuple(fallbacks)
 
 
 # --------------------------------------------------------------------------

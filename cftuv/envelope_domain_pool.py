@@ -81,10 +81,10 @@ import threading
 import time
 import traceback
 from collections import deque
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from .envelope_gc_pause import gc_paused
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_pool_affinity import AFFINITY_NOT_EVALUATED, apply_worker_affinity
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
@@ -227,9 +227,11 @@ class DomainTaskV1:
     #: вложения привязки источника считается в экспорте, подготовке и материализации.
     skeleton_backend: str | None = None
     embedding_backend: str | None = None
+    density_backend: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
+        object.__setattr__(self, "density_backend", resolve_density_backend(self.backend, self.density_backend))
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,6 +552,7 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
             profile=None,
             backend=task.backend,
             skeleton_backend=task.skeleton_backend,
+            density_backend=task.density_backend,
         )
         return DomainTaskResultV1(
             task.task_id, prepared, replace(domain, preparation=None)

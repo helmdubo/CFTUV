@@ -24,6 +24,7 @@ from .envelope_kernel_backend import (
     with_preparation_record,
 )
 from .envelope_production_result import (
+    ColdProductionInputV1,
     MATERIALIZED,
     PLACEMENT_WORKER,
     PRODUCTION_TOPOLOGY_LAW,
@@ -189,6 +190,7 @@ def prepare_for_production_recorded(
     backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
+    density_backend: str | None = None,
     borrowed_ledger=None,
     checker=None,
 ):
@@ -212,7 +214,7 @@ def prepare_for_production_recorded(
 
     reset_factorization_memory()
     reset_unbudgeted_work()
-    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request, snapshot_issues=checker and checker.clean_issues_for(snapshot, request.developable_stretch_budget)), backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger)
+    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request, snapshot_issues=checker and checker.clean_issues_for(snapshot, request.developable_stretch_budget)), backend, skeleton_backend, embedding_backend, density_backend=density_backend, borrowed_ledger=borrowed_ledger)
 
 
 def prepare_for_production(
@@ -222,10 +224,11 @@ def prepare_for_production(
     backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
+    density_backend: str | None = None,
 ):
     """Подготовка очереди с холодной памятью разложений (то, что делала кнопка отладки) без записи бэкенда: `prepare_for_production_recorded(...)[0]`."""
 
-    return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend, embedding_backend=embedding_backend)[0]
+    return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend, embedding_backend=embedding_backend, density_backend=density_backend)[0]
 
 
 def solve_cold_production_task(task):
@@ -233,7 +236,7 @@ def solve_cold_production_task(task):
 
     from .envelope_domain_pool import DomainTaskResultV1
 
-    with entered_backend(task.backend, task.skeleton_backend, task.embedding_backend) as ledger:
+    with entered_backend(task.backend, task.skeleton_backend, task.embedding_backend, density_backend=task.density_backend) as ledger:
         try:
             reply = _solve_cold_production_task(task, ledger)
         except Exception:  # тот же ответ ошибки пула, но запись экспорта не теряется
@@ -267,6 +270,7 @@ def _solve_cold_production_task(task, ledger):
             backend=task.backend,
             skeleton_backend=task.skeleton_backend,
             embedding_backend=task.embedding_backend,
+            density_backend=task.density_backend,
             borrowed_ledger=ledger,
             checker=inputs.checker,
         )
@@ -298,6 +302,7 @@ def _solve_cold_production_task(task, ledger):
         backend=task.backend,
         skeleton_backend=task.skeleton_backend,
         embedding_backend=task.embedding_backend,
+        density_backend=task.density_backend,
     )
     return inputs.result(
         prepared=prepared,
@@ -340,6 +345,7 @@ def solve_production_task(task):
             backend=task.backend,
             skeleton_backend=task.skeleton_backend,
             embedding_backend=task.embedding_backend,
+            density_backend=task.density_backend,
         )
     )
     if production.relabel is not None:
@@ -365,3 +371,27 @@ def _domain_of_preparation(domain_id: str, relabel) -> str:
     if relabel is None or relabel.base is None:
         return domain_id
     return relabel.base.domain_id()
+
+
+def cold_task(run, entry, task_id: int, laws: ColdProductionInputV1):
+    """Задача пула холодного домена: вход выгрузки (или готовые снапшот и запрос) и законы прогона; общая для полного списка и для потокового обхода (SCAN_BEHIND_THE_POOL_V1)."""
+
+    from .envelope_domain_pool import DomainTaskV1
+
+    snapshot, request = entry.inputs or (None, None)
+    return DomainTaskV1(
+        task_id,
+        entry.patch_id,
+        entry.domain_id,
+        snapshot,
+        request,
+        run.alpha_text,
+        entry.selected,
+        export=entry.export,
+        cold=laws,
+        affinity=entry.domain_id,
+        backend=run.backend,
+        skeleton_backend=run.skeleton_backend,
+        embedding_backend=run.embedding_backend,
+        density_backend=run.density_backend,
+    )

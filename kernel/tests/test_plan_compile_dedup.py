@@ -499,8 +499,8 @@ def test_search_pays_for_an_empty_height_exactly_as_before(cap, stop, monkeypatc
         outcome = _outcome(lambda: search(budget))
         return outcome, budget.counters()
 
-    monkeypatch.setattr(fan, "_farey_shell_candidates", lambda metric, ideal, ordinal, q, record, sealed, height, budget: _stub_shell(ordinal, record, sealed, height, budget))
-    monkeypatch.setattr(fan, "_best_fan", lambda metric, ideal, orientation, q, candidates, budget: _stub_best_fan(candidates, budget))
+    monkeypatch.setattr(fan, "_farey_shell_candidates", lambda metric, ideal, ordinal, q, record, sealed, height, budget, *, laws=None: _stub_shell(ordinal, record, sealed, height, budget))
+    monkeypatch.setattr(fan, "_best_fan", lambda metric, ideal, orientation, q, candidates, budget, *, laws=None: _stub_best_fan(candidates, budget))
     expected = run(lambda budget: _legacy_search(records, INTERVALS, stop, budget, _stub_shell, _stub_best_fan))
     actual = run(lambda budget: fan._search(None, None, CCW, 4, records, INTERVALS, stop, budget))
     assert actual == expected

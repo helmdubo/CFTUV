@@ -170,3 +170,19 @@ def _the_replay_check_of_the_closure_is_given_back():
         os.environ.pop(name, None)
     else:
         os.environ[name] = held
+
+
+@pytest.fixture(autouse=True)
+def _the_embedding_memo_does_not_outlive_a_test():
+    """Память сертификата вложения (`cftuv_envelope._embedding._memo`) - состояние ПРОЦЕССА, ключ - значения входа, и новая сессия хоста её не сбрасывает
+    (сбрасывает только полный `clear()`): попадание после чужого теста корректно по продукту, но тест, чей сценарий объявляет «домен считается», видел
+    `embedding memo K` вместо `embedding K (...)`. Каждый тест начинает и оставляет память пустой; тесты, которым нужна тёплая память, греют её сами внутри теста."""
+
+    def forget():
+        embedding = sys.modules.get("cftuv_envelope._embedding")
+        if embedding is not None:
+            embedding.clear_embedding_memo()
+
+    forget()
+    yield
+    forget()
