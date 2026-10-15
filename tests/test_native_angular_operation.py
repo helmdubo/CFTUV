@@ -2,6 +2,7 @@
 import ast
 import builtins
 import importlib
+import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -14,31 +15,36 @@ SHIM = ROOT / 'native/cftuv-python/python/cftuv_native'
 @pytest.fixture
 def seam(monkeypatch):
     # Загружаем только чистые модули; __init__ колеса требует расширение.
-    package = ModuleType('cftuv_native')
+    package_name = '_cftuv_angular_test_shim'
+    package = ModuleType(package_name)
     package.__path__ = [str(SHIM)]
-    monkeypatch.setitem(__import__('sys').modules, 'cftuv_native', package)
-    for name in ('operation', 'wire', 'bindings', 'assemble', 'runtime_pins'):
-        monkeypatch.delitem(__import__('sys').modules, 'cftuv_native.angular_' + name, raising=False)
-    op = importlib.import_module('cftuv_native.angular_operation')
-    wire, bindings, assembly = op.wire, op.bindings, op.assembly
-    log = []
-    bound = object.__new__(bindings.BoundAssembly)
-    raw = dict(revision='r', **{name: {} for name in bindings.IDS if name not in ('domain', 'metric')})
-    encoded = wire.AngularWire(({'patch_id': 7},), (), {})
-    monkeypatch.setattr(bindings.BoundAssembly, 'validate', lambda *args: log.append('validate'))
-    monkeypatch.setattr(wire, 'encode', lambda *args, **kwargs: (log.append('encode'), encoded)[1])
-    monkeypatch.setattr(bindings, 'prepare_checked', lambda *args, **kwargs: (log.append('prepare'), 'prepared')[1])
-    def assemble(*args, **kwargs):
-        log.append('assemble')
-        return (frozenset(),) * 3
-    monkeypatch.setattr(assembly, 'assemble', assemble)
-    def native(patch):
-        log.append('native')
-        return (0, ())
-    options = dict(wire_binding=SimpleNamespace(metadata={}), assembly_binding=bound,
-                   native_patch=native, raw=raw, symbolic_mode='NATIVE_EXACT',
-                   before_assemble=lambda: log.append('boundary'))
-    return SimpleNamespace(op=op, wire=wire, bindings=bindings, assembly=assembly, log=log, options=options)
+    assert not any(key == package_name or key.startswith(package_name + '.') for key in sys.modules)
+    sys.modules[package_name] = package
+    try:
+        op = importlib.import_module(package_name + '.angular_operation')
+        wire, bindings, assembly = op.wire, op.bindings, op.assembly
+        log = []
+        bound = object.__new__(bindings.BoundAssembly)
+        raw = dict(revision='r', **{name: {} for name in bindings.IDS if name not in ('domain', 'metric')})
+        encoded = wire.AngularWire(({'patch_id': 7},), (), {})
+        monkeypatch.setattr(bindings.BoundAssembly, 'validate', lambda *args: log.append('validate'))
+        monkeypatch.setattr(wire, 'encode', lambda *args, **kwargs: (log.append('encode'), encoded)[1])
+        monkeypatch.setattr(bindings, 'prepare_checked', lambda *args, **kwargs: (log.append('prepare'), 'prepared')[1])
+        def assemble(*args, **kwargs):
+            log.append('assemble')
+            return (frozenset(),) * 3
+        monkeypatch.setattr(assembly, 'assemble', assemble)
+        def native(patch):
+            log.append('native')
+            return (0, ())
+        options = dict(wire_binding=SimpleNamespace(metadata={}), assembly_binding=bound,
+                       native_patch=native, raw=raw, symbolic_mode='NATIVE_EXACT',
+                       before_assemble=lambda: log.append('boundary'))
+        yield SimpleNamespace(op=op, wire=wire, bindings=bindings, assembly=assembly, log=log, options=options)
+    finally:
+        for key in tuple(sys.modules):
+            if key == package_name or key.startswith(package_name + '.'):
+                del sys.modules[key]
 
 
 def test_boundary_once_immediately_before_successful_assembly(seam):
