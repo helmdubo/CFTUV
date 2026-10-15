@@ -2462,9 +2462,9 @@ def test_effective_alpha_hook_is_one_call_and_the_function_without_it_is_the_ora
 # --------------------------------------------------------------------------
 
 #: Имена параметров, полей и свойств сцены, которыми хост заказывает бэкенд ядра.
-_BACKEND_NAMES = frozenset({"backend", "kernel_backend", "backend_id", "skeleton_backend", "embedding_backend", "density_backend"})
-#: Постадийные порядки: у стадии собственного умолчания нет, `None` значит «как главный переключатель» (`stage_orders`).
-_BACKEND_STAGE_NAMES = frozenset({"skeleton_backend", "embedding_backend", "density_backend"})
+_BACKEND_NAMES = frozenset({"backend", "kernel_backend", "backend_id", "skeleton_backend", "embedding_backend", "density_backend", "angular_backend"})
+#: Постадийные параметры имеют None: stage_orders выводит их из master; кандидат ANGULAR пока PYTHON без явного opt-in.
+_BACKEND_STAGE_NAMES = frozenset({"skeleton_backend", "embedding_backend", "density_backend", "angular_backend"})
 _BACKEND_MASTER_DEFAULTS = frozenset({"DEFAULT_KERNEL_BACKEND", "None"})
 
 
@@ -2528,6 +2528,7 @@ _BACKEND_WIRING_SITES = (
     ("envelope_width_live.py", "embedding_backend"),
     ("envelope_content_key.py", "skeleton_backend"),
     ("envelope_kernel_backend.py", "embedding_backend"),
+    ("envelope_kernel_backend.py", "angular_backend"),
     ("envelope_production_export.py", "embedding_backend"),
     ("envelope_domain_pool.py", "embedding_backend"),
     ("envelope_content_key.py", "embedding_backend"),

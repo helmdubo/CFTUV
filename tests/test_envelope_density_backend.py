@@ -17,7 +17,7 @@ def test_density_follows_the_master_environment_and_explicit_public_order(monkey
         ('coverage_clip', 'coverage/clip'), ('skeleton', 'skeleton'),
         ('snap_embedding', 'embedding'), ('effective_alpha', 'effective alpha'),
         ('materialize_w1', 'materialize W1'), ('snapshot_check', 'snapshot check'),
-        ('frame', 'frame'), ('density', 'density'),
+        ('frame', 'frame'), ('density', 'density'), ('angular', 'angular'),
     )
     assert host._STATUS_FLAGS['density']=='density_available'
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','NATIVE')

@@ -47,6 +47,7 @@ def _backend_state(monkeypatch):
     monkeypatch.setitem(sys.modules, "cftuv_native", None)
     monkeypatch.setattr(host_backend, "_LAST_BACKEND", [host_backend.DEFAULT_KERNEL_BACKEND])
     kernel_backend.refresh_native()
+    monkeypatch.delenv("CFTUV_ANGULAR_BACKEND", raising=False)
     yield
     kernel_backend.refresh_native()
 
@@ -211,7 +212,7 @@ def test_a_native_press_without_the_wheel_gives_the_python_answer_and_names_ever
     lines = host_backend.backend_console_lines(native.results, "NATIVE")
     assert len(lines) == 1 and lines[0].startswith("[CFTUV][Production] BACKEND native: coverage/clip 0 | python: coverage/clip " + str(ROW))
     assert "NATIVE_UNAVAILABLE: patch" in lines[0] or "NATIVE_NOT_REACHED: patch" in lines[0]
-    assert lines[0].endswith(" | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density")  # `_run` изолирует покрытие и резку: остальные стадии заказаны на PYTHON порядками API
+    assert lines[0].endswith(" | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular")  # `_run` изолирует покрытие и резку: остальные стадии заказаны на PYTHON порядками API
     assert f" | native: coverage/clip 0 | python: coverage/clip {ROW}" in production.production_timing_text(native)
 
 
@@ -246,7 +247,7 @@ def test_a_native_press_after_a_python_press_recomputes_and_never_reads_the_pyth
     assert all(item.placement == PLACEMENT_CACHED for item in again.results)
     # Домен из кэша не считался в этом прогоне: в счёт исполнителей он не идёт, а назван отдельно.
     line = host_backend.backend_console_lines(again.results, "NATIVE", "PYTHON", "PYTHON")[0]
-    assert line == f"[CFTUV][Production] BACKEND native: coverage/clip 0 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density | cached {ROW}"
+    assert line == f"[CFTUV][Production] BACKEND native: coverage/clip 0 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular | cached {ROW}"
 
     back = _python(row, controller=controller)
     assert (back.counter(production.PRODUCTION_RESULT_CACHE_HIT), back.counter(production.PRODUCTION_RESULT_CACHE_MISS)) == (ROW, 0)
@@ -400,9 +401,9 @@ def test_the_journal_line_names_native_python_mixed_cached_and_the_patches_of_ev
 
     tally = summary.stage("coverage_clip")
     assert (tally.native, tally.python, summary.cached) == (118, 2, 0)
-    assert host_backend.backend_text(summary) == "native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density"
+    assert host_backend.backend_text(summary) == "native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular"
     assert host_backend.backend_console_lines(results, "NATIVE", "PYTHON") == [
-        "[CFTUV][Production] BACKEND native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density"
+        "[CFTUV][Production] BACKEND native: coverage/clip 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular"
     ]
     # строка панели: те же части без причин; стадия на PYTHON по порядку API в ней не называется
     assert host_backend.backend_timing_suffix(results, "NATIVE", "PYTHON") == " | native: coverage/clip 118 | python: coverage/clip 2"
@@ -424,7 +425,7 @@ def test_a_domain_that_called_no_native_operation_is_named_not_reached_in_the_li
 
     result = SimpleNamespace(patch_id=4, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 0, 0))
     assert host_backend.backend_text(host_backend.backend_summary([result], "NATIVE", "PYTHON")) == (
-        "native: coverage/clip 0 | python: coverage/clip 1 (NATIVE_NOT_REACHED: patch 4) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density"
+        "native: coverage/clip 0 | python: coverage/clip 1 (NATIVE_NOT_REACHED: patch 4) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular"
     )
 
 
@@ -658,7 +659,7 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
         expected = ["NATIVE"] * 6
         expected[position] = "PYTHON"
         assert host_backend.stage_orders("NATIVE", **{field: "PYTHON"}).as_arguments() == tuple(expected)
-    assert host_backend.stage_orders("NATIVE", frame_backend="PYTHON").as_keywords() == {"frame_backend": "PYTHON", "density_backend": "NATIVE"}
+    assert host_backend.stage_orders("NATIVE", frame_backend="PYTHON").as_keywords() == {"frame_backend": "PYTHON", "density_backend": "NATIVE", "angular_backend": "PYTHON"}
     with pytest.raises(ValueError, match="unknown kernel backend"):
         host_backend.stage_orders("NATIVE", skeleton_backend="RUST")
     # КАЖДАЯ стадия ядра принадлежит главному переключателю: новый аргумент `use_backend` без поля порядка, подписи и признака статуса красит этот тест
@@ -669,12 +670,12 @@ def test_the_stage_orders_come_from_the_master_switch_in_one_place_and_cover_eve
     density = signature.parameters["density_backend"]
     assert density.kind is inspect.Parameter.KEYWORD_ONLY
     assert density.default is kernel_backend.KernelBackendV1.PYTHON
-    assert kernel_backend.DENSITY == stages[-1]
-    stage_arguments = [name for name in signature.parameters if name not in ("borrowed_ledger", "density_backend", "frame_backend")]
+    assert (kernel_backend.DENSITY, kernel_backend.ANGULAR) == tuple(stages[-2:])
+    stage_arguments = [name for name in signature.parameters if name not in ("borrowed_ledger", "density_backend", "frame_backend", "angular_backend")]
     monkeypatch.delenv("CFTUV_DENSITY_BACKEND", raising=False)
     assert host_backend.resolve_density_backend("NATIVE") == "NATIVE"
-    assert len(stage_arguments) == len(stages) - 2, (stage_arguments, stages)
-    assert host_backend.stage_orders().as_keywords() == {"frame_backend": "NATIVE", "density_backend": "NATIVE"}
+    assert len(stage_arguments) == len(stages) - 3, (stage_arguments, stages)
+    assert host_backend.stage_orders().as_keywords() == {"frame_backend": "NATIVE", "density_backend": "NATIVE", "angular_backend": "PYTHON"}
     assert {kernel_backend.SKELETON, kernel_backend.EMBEDDING} <= set(stages)
     assert set(host_backend._STATUS_FLAGS) == set(stages)
     assert all(hasattr(kernel_backend.NativeStatusV1, flag) for flag in host_backend._STATUS_FLAGS.values())
@@ -716,7 +717,7 @@ def test_the_master_switch_alone_orders_every_stage_in_the_parent_the_pool_worke
             assert (record.requested, record.skeleton_requested, record.embedding_requested) == ("NATIVE",) * 3
         for run in (pooled, inline):
             line = host_backend.backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend)[0]
-            assert "native: coverage/clip " in line and ", skeleton " in line and ", embedding " in line and "ordered python" not in line
+            assert "native: coverage/clip " in line and ", skeleton " in line and ", embedding " in line and [part for part in line.split(" | ") if part.startswith("ordered python:")] == ["ordered python: angular"]
     assert _projection(pooled) == _projection(inline) == _projection(_python(row))
 
 
@@ -873,7 +874,7 @@ FRAME_ENVIRONMENT = host_backend.STAGE_ENVIRONMENT["frame"]
 
 def test_the_effective_alpha_stage_follows_the_master_switch_and_only_the_environment_isolates_it(monkeypatch):
     monkeypatch.delenv(ALPHA_ENVIRONMENT, raising=False)
-    assert ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND" and host_backend.STAGE_ENVIRONMENT == {"effective_alpha": ALPHA_ENVIRONMENT, "materialize_w1": W1_ENVIRONMENT, "snapshot_check": SNAPSHOT_ENVIRONMENT, "frame": FRAME_ENVIRONMENT, "density": "CFTUV_DENSITY_BACKEND"}
+    assert ALPHA_ENVIRONMENT == "CFTUV_EFFECTIVE_ALPHA_BACKEND" and host_backend.STAGE_ENVIRONMENT == {"effective_alpha": ALPHA_ENVIRONMENT, "materialize_w1": W1_ENVIRONMENT, "snapshot_check": SNAPSHOT_ENVIRONMENT, "frame": FRAME_ENVIRONMENT, "density": "CFTUV_DENSITY_BACKEND", "angular": "CFTUV_ANGULAR_BACKEND"}
     assert not hasattr(host_backend, "STAGE_HOLDS") and not hasattr(host_backend, "held_order"), "no stage is held back from the master switch: the mechanism is gone"
     assert [host_backend.stage_orders(master).effective_alpha for master in ("PYTHON", "NATIVE")] == ["PYTHON", "NATIVE"]
     assert host_backend.stage_orders().effective_alpha == host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
@@ -920,7 +921,7 @@ def test_the_journal_names_the_effective_alpha_stage_as_ordered_python_when_it_i
         return SimpleNamespace(patch_id=patch, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 3, 0, **fields))
 
     isolated = [result(1), result(2)]
-    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density"
+    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular"
     ordered = [
         result(1, effective_alpha_requested="NATIVE", effective_alpha_native_calls=40),
         result(2, effective_alpha_requested="NATIVE", effective_alpha_native_calls=38, effective_alpha_python_calls=2, effective_alpha_fallbacks=(("NATIVE_PORT_UNSUPPORTED", "effective_alpha", 2, "d"),)),
@@ -928,7 +929,7 @@ def test_the_journal_names_the_effective_alpha_stage_as_ordered_python_when_it_i
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("effective_alpha").native == 1 and summary.stage("effective_alpha").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, effective alpha 1 | python: effective alpha 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, materialize W1, snapshot check, frame, density"
+        "native: coverage/clip 2, effective alpha 1 | python: effective alpha 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, materialize W1, snapshot check, frame, density, angular"
     )
     assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, effective alpha 1 | python: effective alpha 1"
     # the panel line is the owner's switch: the stage is part of what it promises, like the other four
@@ -991,7 +992,7 @@ def test_the_journal_and_the_panel_count_the_w1_stage_like_the_others():
 
     # isolated (ordered to the reference): named in `ordered python` without a count, like the stages the API orders to Python
     isolated = [result(1, materialize_requested="PYTHON"), result(2, materialize_requested="PYTHON")]
-    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density"
+    assert host_backend.backend_text(host_backend.backend_summary(isolated, "NATIVE", "PYTHON")) == "native: coverage/clip 2 | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular"
     ordered = [
         result(1, materialize_requested="NATIVE", materialize_native_calls=40),
         result(2, materialize_requested="NATIVE", materialize_native_calls=38, materialize_python_calls=2, materialize_fallbacks=(("NATIVE_PORT_UNSUPPORTED", "materialize_w1", 2, "d"),)),
@@ -999,7 +1000,7 @@ def test_the_journal_and_the_panel_count_the_w1_stage_like_the_others():
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("materialize_w1").native == 1 and summary.stage("materialize_w1").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, materialize W1 1 | python: materialize W1 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, snapshot check, frame, density"
+        "native: coverage/clip 2, materialize W1 1 | python: materialize W1 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, snapshot check, frame, density, angular"
     )
     assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, materialize W1 1 | python: materialize W1 1"
     # the panel line is the owner's switch: the stage is part of what it promises, like the others
@@ -1067,7 +1068,7 @@ def test_the_journal_and_the_panel_count_the_snapshot_check_stage_like_the_other
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("snapshot_check").native == 1 and summary.stage("snapshot_check").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, snapshot check 1 | python: snapshot check 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, materialize W1, frame, density"
+        "native: coverage/clip 2, snapshot check 1 | python: snapshot check 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, materialize W1, frame, density, angular"
     )
     assert host_backend.backend_timing_suffix(ordered, "NATIVE", "PYTHON") == " | native: coverage/clip 2, snapshot check 1 | python: snapshot check 1"
     record = BackendRecordV1("NATIVE", 3, 0, snapshot_check_requested="NATIVE", snapshot_check_native_calls=2).as_record()
@@ -1117,9 +1118,119 @@ def test_the_journal_and_the_panel_count_the_frame_stage_like_the_others():
     summary = host_backend.backend_summary(ordered, "NATIVE", "PYTHON")
     assert summary.stage("frame").native == 1 and summary.stage("frame").python == 1
     assert host_backend.backend_text(summary) == (
-        "native: coverage/clip 2, frame 1 | python: frame 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density"
+        "native: coverage/clip 2, frame 1 | python: frame 1 (NATIVE_PORT_UNSUPPORTED: patch 2) | ordered python: skeleton, embedding, effective alpha, materialize W1, snapshot check, density, angular"
     )
     merged = BackendRecordV1("NATIVE", 3, 0, frame_requested="NATIVE", frame_native_calls=1).merged(BackendRecordV1("NATIVE", 0, 0, frame_requested="NATIVE", frame_python_calls=1))
     assert (merged.frame_native_calls, merged.frame_python_calls, merged.frame_ran) == (1, 1, "mixed")
     missing = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "available", "unavailable", density="available")
     assert host_backend.native_status_line("NATIVE", missing) == ("Native: coverage/clip, skeleton, embedding, effective alpha, materialize W1, snapshot check, density; Python: frame", "ERROR")
+
+
+# ANGULAR remains a candidate: explicit keyword/environment only until acceptance.
+def test_angular_initial_python_default_environment_and_explicit_keyword(monkeypatch):
+    monkeypatch.delenv("CFTUV_ANGULAR_BACKEND", raising=False)
+    assert [host_backend.stage_orders(master).angular for master in ("PYTHON", "NATIVE")] == ["PYTHON", "PYTHON"]
+    assert len(host_backend.stage_orders("NATIVE").as_arguments()) == 6
+    with host_backend.entered_backend("NATIVE") as ledger:
+        assert ledger.angular_requested == "PYTHON"
+    monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", "NATIVE")
+    assert host_backend.stage_orders("NATIVE").angular == "NATIVE"
+    assert host_backend.stage_orders("PYTHON").angular == "PYTHON"
+    assert host_backend.stage_orders("NATIVE", angular_backend="PYTHON").angular == "PYTHON"
+    assert host_backend.stage_orders("PYTHON", angular_backend="NATIVE").angular == "NATIVE"
+    with host_backend.entered_backend("NATIVE") as ledger:
+        assert ledger.angular_requested == "NATIVE" and kernel_backend.active_angular_backend() is kernel_backend.KernelBackendV1.NATIVE
+    monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", "RUST")
+    with pytest.raises(ValueError, match="unknown kernel backend"):
+        host_backend.stage_orders("NATIVE")
+
+
+def test_angular_identity_and_environment_scope_do_not_need_task_field(monkeypatch):
+    _fake_native()
+    base = host_backend.backend_identity_of("NATIVE")
+    assert "|angular=" not in base
+    explicit = host_backend.backend_identity_of("NATIVE", angular_backend="NATIVE")
+    assert explicit == base + "|angular=NATIVE:" + BUILD_ID
+    monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", "NATIVE")
+    assert host_backend.backend_identity_of("NATIVE") == explicit
+    assert host_backend.backend_identity_of("PYTHON") == "PYTHON"
+    with host_backend.entered_backend("NATIVE") as owner:
+        value, record = host_backend.prepared_under_backend(
+            lambda: kernel_backend.active_angular_backend(), "NATIVE", borrowed_ledger=owner)
+        assert value is kernel_backend.KernelBackendV1.NATIVE and record is None
+        monkeypatch.delenv("CFTUV_ANGULAR_BACKEND")
+        with pytest.raises(ValueError, match="BACKEND_BORROW_SCOPE_MISMATCH"):
+            host_backend.prepared_under_backend(lambda: None, "NATIVE", borrowed_ledger=owner)
+    import dataclasses
+    assert "angular_backend" not in {f.name for f in dataclasses.fields(pool_module.DomainTaskV1)}
+
+
+def test_angular_summary_uses_recorded_stage_and_preserves_named_fallback():
+    def result(patch, **fields):
+        return SimpleNamespace(patch_id=patch, placement=PLACEMENT_PARENT,
+                               backend_record=kernel_backend.BackendRecordV1("NATIVE", 1, 0, angular_requested="NATIVE", **fields))
+    summary = host_backend.backend_summary([
+        result(1, angular_native_calls=1),
+        result(2, angular_python_calls=1, angular_fallbacks=(("NATIVE_PORT_UNSUPPORTED", "angular", 1, "shape"),)),
+    ], "NATIVE")
+    assert summary.stage("angular").requested == "NATIVE"
+    assert (summary.stage("angular").native, summary.stage("angular").python) == (1, 1)
+    assert "angular 1 (NATIVE_PORT_UNSUPPORTED: patch 2)" in host_backend.backend_text(summary)
+    assert "angular" not in host_backend.backend_text(summary).split("ordered python:")[-1]
+
+
+def test_angular_panel_only_demands_native_availability_when_explicitly_ordered(monkeypatch):
+    ready = kernel_backend.NativeStatusV1("available", "available", "1", "", "id", "available", "available", "available", "available", "available", "available", density="available")
+    text, icon = host_backend.native_status_line("NATIVE", ready)
+    assert icon == "CHECKMARK" and "angular" not in text
+    monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", "NATIVE")
+    text, icon = host_backend.native_status_line("NATIVE", ready)
+    assert icon == "ERROR" and text.endswith("Python: angular")
+    from dataclasses import replace
+    assert host_backend.native_status_line("NATIVE", replace(ready, angular="available"))[0].endswith(", angular")
+    assert host_backend.native_status_line("NATIVE", replace(ready, angular="available"))[1] == "CHECKMARK"
+    monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", "RUST")
+    with pytest.raises(ValueError, match="unknown kernel backend"):
+        host_backend.native_status_line("NATIVE", ready)
+
+
+@pytest.mark.parametrize("order", [None, "PYTHON", "NATIVE"])
+def test_product_angular_environment_matches_content_identity_and_rejects_keyword(monkeypatch, order):
+    from cftuv.envelope_content_key import execution_identity
+    _fake_native()
+    if order is None:
+        monkeypatch.delenv("CFTUV_ANGULAR_BACKEND", raising=False)
+    else:
+        monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", order)
+    seen = []
+    class ProductResult:
+        def with_changes(self, **changes):
+            self.record = changes['backend_record']
+            return self
+    @host_backend.with_kernel_backend
+    def product():
+        seen.append(kernel_backend.active_angular_backend().value)
+        return ProductResult()
+    result = product(backend="NATIVE")
+    identity = execution_identity("NATIVE")[-1]
+    expected = "NATIVE" if order == "NATIVE" else "PYTHON"
+    assert seen == [expected] and result.record.angular_requested == expected
+    assert ("|angular=NATIVE:" + BUILD_ID in identity) == (expected == "NATIVE")
+    seen.clear()
+    # Reject even if a decorated target could otherwise accept arbitrary kwargs:
+    # the production route has no matching task/content-key field for an override.
+    with pytest.raises(TypeError, match="execution identity"):
+        product(backend="NATIVE", angular_backend="NATIVE")
+    assert not seen
+
+
+def test_angular_explicit_keyword_is_low_level_only_and_not_an_uncarried_product_override():
+    import inspect
+    for function in (host_backend.stage_orders, host_backend.backend_identity_of):
+        assert inspect.signature(function).parameters['angular_backend'].kind is inspect.Parameter.KEYWORD_ONLY
+    for function in (host_backend.entered_backend, host_backend.prepared_under_backend,
+                     host_backend.backend_summary, host_backend.backend_console_lines,
+                     host_backend.backend_timing_suffix):
+        assert 'angular_backend' not in inspect.signature(function).parameters
+    with pytest.raises(TypeError, match='angular_backend'):
+        host_backend.entered_backend('NATIVE', angular_backend='NATIVE').__enter__()

@@ -133,7 +133,7 @@ def test_a_native_skeleton_press_gives_the_python_answer_computes_the_skeleton_i
     assert all((record.skeleton_native_calls, record.skeleton_python_calls, record.skeleton_outcomes) == (1, 0, ()) for record in records)
     assert all(record.requested == "PYTHON" and (record.native_calls, record.python_calls) == (0, 0) for record in records)
     line = host_backend.backend_console_lines(native.results, "PYTHON", "NATIVE")
-    assert line == [f"[CFTUV][Production] BACKEND native: skeleton {ROW} | ordered python: coverage/clip, embedding, effective alpha, materialize W1, snapshot check, frame, density"]
+    assert line == [f"[CFTUV][Production] BACKEND native: skeleton {ROW} | ordered python: coverage/clip, embedding, effective alpha, materialize W1, snapshot check, frame, density, angular"]
     assert production.production_timing_text(native).endswith(f" | native: skeleton {ROW}")
     assert native.skeleton_backend == "NATIVE" and native.kernel_backend == "PYTHON"
     assert keys_of(controller) == [f"NATIVE:{BUILD_ID}"] * ROW
@@ -164,7 +164,7 @@ def test_both_stages_native_are_named_apart_in_one_line(row):
     native_skeleton(module)
     run, _ = press(row, skeleton="NATIVE", backend="NATIVE")
     line = host_backend.backend_console_lines(run.results, "NATIVE", "NATIVE")[0]
-    assert "BACKEND native: coverage/clip " in line and f", skeleton {ROW}" in line and line.endswith("ordered python: embedding, effective alpha, materialize W1, snapshot check, frame, density")  # `press` изолирует скелет: вложение заказано на PYTHON
+    assert "BACKEND native: coverage/clip " in line and f", skeleton {ROW}" in line and line.endswith("ordered python: embedding, effective alpha, materialize W1, snapshot check, frame, density, angular")  # `press` изолирует скелет: вложение заказано на PYTHON
 
 
 def test_a_cold_press_in_the_worker_pool_ships_the_stage_computes_the_skeleton_in_the_worker_block_and_brings_the_record_back(row, pool):
