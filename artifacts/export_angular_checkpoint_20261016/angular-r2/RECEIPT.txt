@@ -1,0 +1,21 @@
+ANGULAR r2 — 16.10.2026. TEST-ONLY evidence; NOT production approval; ANGULAR stays non-default and 'unavailable' in product.
+
+1. Rounded refusals 'WIRE:EXACT_CLASS_REQUIRED certificate' (3/5 rounded calls, chunk02): frames carried
+   DevelopableUnfoldCertificateV1 (rounded) / NearPlanarProjectionCertificateV1 (elsewhere). Census over the
+   whole paired corpus (census.json): 1218 calls; 1180 exact-plane only, 25 near-planar, 13 whole unfold, 0 band
+   charts, 0 ring cuts => 38/1218 = 3.12% were being declined. The frozen oracle reads the certificate only via
+   band accessors (band type, support_triangle_ids, cut, strip_boundary behind cut); these two classes have none,
+   so the oracle path equals the exact-plane path. Fix 4ef3c403: admit both; band support/cut = named pre-effect
+   decline BAND_OR_RING_CUT_UNSUPPORTED. Tests: tests/test_native_angular_certificates.py.
+2. Launcher: launch-bounded-replay-v2 continued after exit 0 with accepted=false (and its disk floor was 1.5 BYTES).
+   launch_replay_v4.continuation(exit, state) continues only on exit==0 AND status COMPLETE_REPLAY_SCOPE AND
+   accepted is True; test_launch_replay_v4.py (14 cases, incl. the exact v2 defect).
+3. Wheel b5b6ba07... (own site, not installed into owner Blender). Light candidate regenerated at 4ef3c403; diff vs
+   61450be5 candidate = only 2 added class shapes/sources, 2 source files, replay_event fingerprint (line shift).
+   TEST-ONLY isolated profile sha 6249c5c0... (approval_scope 'isolated parity evaluation only').
+   Replay (replay_chunks_v2 670115859f..., replay_pair_v2 1121f18b..., exact recorded counter seed, no zero-strip):
+     rounded c1: 5/5 FRESH_OPERATION_PAIR_EQUAL, unsupported 0 (was 3 declines)
+     building c1: 16/16 equal
+     WHOLE corpus: 80 chunks, 1221 tasks, 1218 calls, accepted=true, unsupported 0, decline share 0/1218.
+   Equality = output codec bytes, profile counters, exception, Decimal/iv context, and recorded historical
+   fallback/backend before/after/delta for both reference and native.

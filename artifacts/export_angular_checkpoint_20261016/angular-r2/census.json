@@ -1,0 +1,63 @@
+﻿{
+ "calls": {
+  "EXACT_ONLY": 1180,
+  "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 13,
+  "NON_EXACT:NearPlanarProjectionCertificateV1/-/-": 25
+ },
+ "patches": {
+  "RationalAffinePlanarMetricV2|ExactSourcePlaneCertificateV1|-|-": 1180,
+  "RationalAffinePlanarMetricV2|DevelopableUnfoldCertificateV1|-|-": 13,
+  "RationalAffinePlanarMetricV2|NearPlanarProjectionCertificateV1|-|-": 25
+ },
+ "per_case": {
+  "building": {
+   "EXACT_ONLY": 117,
+   "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 1,
+   "NON_EXACT:NearPlanarProjectionCertificateV1/-/-": 4
+  },
+  "cover008": {
+   "EXACT_ONLY": 1028,
+   "NON_EXACT:NearPlanarProjectionCertificateV1/-/-": 19,
+   "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 6
+  },
+  "half_sphere": {
+   "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 1,
+   "EXACT_ONLY": 1
+  },
+  "rounded": {
+   "EXACT_ONLY": 2,
+   "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 3
+  },
+  "sagging02239": {
+   "NON_EXACT:NearPlanarProjectionCertificateV1/-/-": 1,
+   "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 1
+  },
+  "sagging0987": {
+   "NON_EXACT:NearPlanarProjectionCertificateV1/-/-": 1,
+   "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": 1
+  },
+  "two": {
+   "EXACT_ONLY": 32
+  }
+ },
+ "examples": {
+  "EXACT_ONLY": [
+   "building-000000-recorded",
+   0,
+   0,
+   false
+  ],
+  "NON_EXACT:DevelopableUnfoldCertificateV1/-/-": [
+   "building-000016-recorded",
+   21,
+   0,
+   false
+  ],
+  "NON_EXACT:NearPlanarProjectionCertificateV1/-/-": [
+   "building-000016-recorded",
+   25,
+   0,
+   false
+  ]
+ }
+}
