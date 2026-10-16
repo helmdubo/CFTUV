@@ -6,10 +6,14 @@ band-chart accessors of `envelope_chart_band` (band type check, `support_triangl
 path as `ExactSourcePlaneCertificateV1`; the band chart does not and stays a named wire decline.
 """
 import dataclasses
+import sys
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+for _path in (ROOT / 'kernel' / 'src', ROOT):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 BAND_FIELDS = {'support_triangle_ids', 'cut', 'strip_boundary'}
 
 

@@ -2,6 +2,11 @@
 from types import SimpleNamespace
 import inspect
 import pytest
+import sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[1]
+if str(_ROOT / 'kernel' / 'src') not in sys.path:
+    sys.path.insert(0, str(_ROOT / 'kernel' / 'src'))
 from cftuv_envelope import backend as b
 
 class NativePortStale(Exception):pass
