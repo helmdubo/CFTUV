@@ -363,6 +363,8 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
             out.notes.append(f"[{label}] {side}: snapshot checks (EXPORT validators, two per domain) proved natively {press['snapshot_check_calls'][0]}, run by the Python validators after a named decline {press['snapshot_check_calls'][1]}")
         if press.get("frame_calls") and any(press["frame_calls"]):
             out.notes.append(f"[{label}] {side}: frame admissions (EXPORT, one per exported patch) built natively {press['frame_calls'][0]}, by the Python builder after a named decline {press['frame_calls'][1]}")
+        if press.get("angular_calls") and any(press["angular_calls"]):
+            out.notes.append(f"[{label}] {side}: angular relations (EXPORT, one per domain snapshot) computed natively {press['angular_calls'][0]}, by the Python oracle {press['angular_calls'][1]} (named fallbacks {press['angular_calls'][2]})")
     for side, press in (("base", a), ("branch", b)):
         if press.get("density_calls") and any(press["density_calls"]):
             out.notes.append(f"[{label}] {side}: Density calls native {press['density_calls'][0]}, Python {press['density_calls'][1]}, named fallbacks {press['density_calls'][2]}")
@@ -1076,6 +1078,9 @@ def verify_native(native_path: str, expect_prefix: str) -> dict:
         assert host.get("snapshot_check") == "available", f"native stage snapshot_check is {host.get('snapshot_check')}"
     if "frame" in host and os.environ.get("CFTUV_FRAME_BACKEND", "").strip().upper() != "PYTHON" and SNAPSHOT_RECORD_ENVIRONMENT not in os.environ:
         assert host.get("frame") == "available", f"native stage frame is {host.get('frame')}"  # FRAME_NATIVE_DEFAULT_V1: the tree that has the stage orders it natively by default
+    if os.environ.get("CFTUV_ANGULAR_BACKEND", "").strip().upper() == "NATIVE":
+        # ANGULAR runs natively only on request; a requested side without approved pins would silently compare Python with Python
+        assert host.get("angular") == "available", f"native stage angular is {host.get('angular')}"
     return {"module": str(module.__file__), "build_id": build, "host_native_status": {key: str(value) for key, value in host.items()}}
 
 
@@ -1145,6 +1150,8 @@ def domain_rows(run) -> list:
             "snapshot_check_calls": None if record is None else [getattr(record, "snapshot_check_native_calls", 0), getattr(record, "snapshot_check_python_calls", 0)],
             "frame_ran": None if record is None else (getattr(record, "frame_ran", None) or None),
             "frame_calls": None if record is None else [getattr(record, "frame_native_calls", 0), getattr(record, "frame_python_calls", 0)],
+            "angular_ran": None if record is None else (getattr(record, "angular_ran", None) or None),
+            "angular_calls": None if record is None else [getattr(record, "angular_native_calls", 0), getattr(record, "angular_python_calls", 0), len(getattr(record, "angular_fallbacks", ()))],
             "density_requested": None if record is None else getattr(record, "density_requested", None),
             "density_calls": None if record is None else [getattr(record, "density_native_calls", 0), getattr(record, "density_python_calls", 0), len(getattr(record, "density_fallbacks", ()))],
         })
@@ -1191,9 +1198,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     snapshot_check_calls = [sum(row["snapshot_check_calls"][index] for row in rows if row.get("snapshot_check_calls")) for index in (0, 1)]
     frame_calls = [sum(row["frame_calls"][index] for row in rows if row.get("frame_calls")) for index in (0, 1)]
     density_calls = [sum(row["density_calls"][index] for row in rows if row.get("density_calls")) for index in (0, 1, 2)]
+    angular_calls = [sum(row["angular_calls"][index] for row in rows if row.get("angular_calls")) for index in (0, 1, 2)]
     return {
         "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
-        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls, "frame_calls": frame_calls, "density_calls": density_calls,
+        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls, "frame_calls": frame_calls, "density_calls": density_calls, "angular_calls": angular_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_domain_counters_by_name": {
