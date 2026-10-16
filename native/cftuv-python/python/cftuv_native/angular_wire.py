@@ -126,8 +126,10 @@ def encode(binding, *, analysis_bundle, revision, patch_ids, patch_domains, fram
             domain=exact(patch_domains[patch_id],'domain_id');frame=exact(frames[patch_id],'frame')
             _need(type(domain.value) is str,'DOMAIN_ID_VALUE_REQUIRED')
             frame_domain=exact(frame.patch_domain_id,'domain_id');_need(type(frame_domain.value) is str,'FRAME_DOMAIN_ID_VALUE_REQUIRED')
-            exact(frame.planarity_certificate,'certificate')
-            # ExactSourcePlane has no cut, band, or chart remapping. Near-planar/legacy decline V1.
+            certificate=exact(frame.planarity_certificate,'certificate')
+            # Admitted certificates carry no band support or ring cut: the oracle path is the exact-plane path.
+            # Band charts (support_triangle_ids/cut) are not admitted: named decline before effects.
+            _need(getattr(certificate,'support_triangle_ids',None) is None and getattr(certificate,'cut',None) is None,'BAND_OR_RING_CUT_UNSUPPORTED')
             _need(frame.patch_domain_id==domain,'FRAME_DOMAIN_MISMATCH')
             orientation=frame.chart_orientation
             enum=binding.kernel.AffineChartOrientationV1

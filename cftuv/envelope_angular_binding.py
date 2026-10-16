@@ -29,7 +29,10 @@ def build_binding_inputs(kernel):
       'corner':(light._LightCornerV1,),
       'record':(export._HostChainRecord,), 'chain':(export._HostChainSlice,),
       'face':(surface_ir.SourceFace,), 'frame':(metric.RationalAffinePlanarMetricV2,),
-      'certificate':(metric.ExactSourcePlaneCertificateV1,),
+      # Оракул читает сертификат только через `support_triangle_ids`/`cut` (карта-полоса, разрез кольца).
+      # У этих трёх классов таких полей нет: путь оракула тот же, что у точной плоскости. Полоса - отказ по имени.
+      'certificate':(metric.ExactSourcePlaneCertificateV1,metric.NearPlanarProjectionCertificateV1,
+                     metric.DevelopableUnfoldCertificateV1),
       'rational':(metric.ExactRationalV1,), 'point':(metric.ExactPoint2V1,),
       'matrix':(metric.ExactMatrix2V1,), 'coordinate':(metric.ExactSourceVertexCoordinateV2,),
       'source_id':(kernel.SourceVertexId,), 'domain_id':(kernel.PatchDomainId,),
