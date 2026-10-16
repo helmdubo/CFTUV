@@ -11,7 +11,7 @@ APPROVED_REFERENCE_AST = 'a809d58b53987591ca2e51c1804f6fbc49f45ab606fd653f71f271
 
 
 def test_reference_body_and_signature_remain_frozen():
-    tree = ast.parse((ROOT / 'cftuv/envelope_angular_relations.py').read_text())
+    tree = ast.parse((ROOT / 'cftuv/envelope_angular_relations.py').read_text(encoding='utf-8'))
     functions = {n.name:n for n in tree.body if isinstance(n, ast.FunctionDef)}
     reference = functions['_build_angular_relations_reference']
     assert hashlib.sha256(ast.dump(reference, include_attributes=False).encode()).hexdigest() == APPROVED_REFERENCE_AST

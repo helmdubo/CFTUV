@@ -31,6 +31,6 @@ def test_generator_import_has_no_host_or_native_or_blender_execution():
 
 
 def test_production_profile_table_stays_empty():
-    tree=ast.parse((ROOT/'native/cftuv-python/python/cftuv_native/angular_op.py').read_text())
+    tree=ast.parse((ROOT/'native/cftuv-python/python/cftuv_native/angular_op.py').read_text(encoding='utf-8'))
     statement=next(n for n in tree.body if isinstance(n,ast.Assign)and any(isinstance(t,ast.Name)and t.id=='APPROVED_PINS'for t in n.targets))
     assert isinstance(statement.value,ast.Call)and isinstance(statement.value.args[0],ast.Dict)and not statement.value.args[0].keys

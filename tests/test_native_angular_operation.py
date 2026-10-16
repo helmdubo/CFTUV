@@ -91,10 +91,10 @@ def test_stale_before_encode_does_not_cross_boundary(seam, monkeypatch):
 
 def test_wire_and_host_builder_preserve_import_wall():
     for path in SHIM.glob('angular_*.py'):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding='utf-8'))
         assert not any(isinstance(n, ast.ImportFrom) and n.level == 0 and (n.module or '').split('.')[0] == 'cftuv' for n in ast.walk(tree))
         assert not any(isinstance(n, ast.Import) and any(a.name.split('.')[0] == 'cftuv' for a in n.names) for n in ast.walk(tree))
-    tree = ast.parse((ROOT / 'cftuv/envelope_angular_binding.py').read_text())
+    tree = ast.parse((ROOT / 'cftuv/envelope_angular_binding.py').read_text(encoding='utf-8'))
     assert not any(isinstance(n, ast.ImportFrom) and (n.module or '').startswith('cftuv_native') for n in ast.walk(tree))
     assert not any(isinstance(n, ast.Import) and any(a.name.startswith('cftuv_native') for a in n.names) for n in ast.walk(tree))
 
