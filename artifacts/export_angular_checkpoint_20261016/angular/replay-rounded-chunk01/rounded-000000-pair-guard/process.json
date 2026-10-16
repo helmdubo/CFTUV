@@ -1,0 +1,87 @@
+{
+  "status": "FAILED_CLOSED",
+  "started": 1792106547.0038679,
+  "controller": {
+    "pid": 516,
+    "creation_filetime": 134365801468692008,
+    "argv": [
+      "D:\\CFTUV-export-20261015-evidence\\corpus\\owned_job_guard_v2.py",
+      "run",
+      "--receipt",
+      "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\rounded-000000-pair-guard",
+      "--cwd",
+      "D:/CFTUV-export-angular-20261016",
+      "--floor-gib",
+      "1.5",
+      "--drives",
+      "C:/",
+      "D:/",
+      "E:/",
+      "--",
+      "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+      "-B",
+      "D:\\CFTUV-export-20261015-evidence\\angular\\replay_chunks.py",
+      "--worker",
+      "--pair",
+      "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\rounded-000000-pair.json",
+      "--source",
+      "D:/CFTUV-export-angular-20261016",
+      "--site",
+      "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\site",
+      "--approved-profile",
+      "D:\\CFTUV-export-20261015-evidence\\angular\\profile-311-light-4f3-isolated-parity-01.json",
+      "--approved-profile-sha256",
+      "ee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c",
+      "--out",
+      "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\rounded-000000-pair"
+    ],
+    "exit": 1
+  },
+  "processes": [
+    {
+      "pid": 43604,
+      "argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-B",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\replay_chunks.py",
+        "--worker",
+        "--pair",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\rounded-000000-pair.json",
+        "--source",
+        "D:/CFTUV-export-angular-20261016",
+        "--site",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\site",
+        "--approved-profile",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\profile-311-light-4f3-isolated-parity-01.json",
+        "--approved-profile-sha256",
+        "ee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c",
+        "--out",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\rounded-000000-pair"
+      ],
+      "creation_filetime": 134365801470053365,
+      "exit": 1,
+      "expected_creation_filetime": null
+    }
+  ],
+  "limitation": "Forced OS termination of controller not survived; no descendant tree ownership claimed",
+  "disk_before": {
+    "C:/": 6746234880,
+    "D:/": 109378482176,
+    "E:/": 1689485312
+  },
+  "disk_last": {
+    "C:/": 6747660288,
+    "D:/": 109378465792,
+    "E:/": 1689485312
+  },
+  "heartbeat": 1792106549.0339103,
+  "disk_after": {
+    "C:/": 6748131328,
+    "D:/": 109378277376,
+    "E:/": 1689485312
+  },
+  "failure": "Traceback (most recent call last):\n  File \"D:\\CFTUV-export-20261015-evidence\\corpus\\owned_job_guard_v2.py\", line 126, in run\n    raise RuntimeError('OWNED_JOB_FAILED')\nRuntimeError: OWNED_JOB_FAILED\n",
+  "exit": 1,
+  "owned_child_reaped": true,
+  "ended": 1792106549.5189679
+}

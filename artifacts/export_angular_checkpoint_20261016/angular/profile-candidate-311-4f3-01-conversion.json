@@ -1,0 +1,17 @@
+{
+  "candidate_sha256": "61450be5d218378dc0455bd3a3d1e6abf1e7e25664794203883c5b7399c0792f",
+  "approved": false,
+  "profile": "CPython-3.11:light",
+  "head": "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66",
+  "source_status": "",
+  "hashes_count": 78,
+  "fingerprints_count": 77,
+  "class_shapes_count": 21,
+  "source_files_current_sha_verified": true,
+  "conversion": "Copy pins. Keep hashes and runtime (tag + SHA strings) unchanged. For EACH wire_metadata.class_shapes value require exact list[str], then convert ONLY that value with tuple(value). Leave all other metadata unchanged. Emit reviewed Python literals; never broad recursive tuple conversion. Independently verify reconstructed metadata and binding gates before approval.",
+  "known_stale_prose": [
+    "runtime_fingerprint_encoding prose in authoring tool incorrectly describes tuple trees; actual fingerprint values are SHA strings",
+    "wire_metadata.actual_oracle label names public wrapper; actual_oracle_identity and source_sha256 oracle pin correctly name renamed frozen reference"
+  ],
+  "no_product_edits": true
+}

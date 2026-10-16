@@ -1,0 +1,77 @@
+W1 TOPOLOGY AUDIT -- SIX ACTUAL BLENDER CASES, 2026-10-15
+Source worktree7618154b627e63d475de1e5ce3e4e574b74c68d0 unchanged.
+Kernel9164149537a1e704; own nativebuild2a74a8b573f322821c0da35ca5ef8dde77ddd076edfc9b95a27cc712397cb8d4.
+One cold w0 operator per case, density2, SILHOUETTE_TOPOLOGY_V1.
+All six returned FINISHED. Actual final Blender face indices exactly equal
+captured arrays; positions and UV loops exactly equal their float32 conversion.
+Every guard COMPLETE exit0/owned_child_reaped. Foreign Blender inventory empty
+before each launch; no scene saved. Both frozen SHA pre/post matched:
+testscene750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4;
+cover008_v2 a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32.
+
+case          alpha                  total written held refused faces bowtie
+building      .2239                  122   122     0    0       907   0
+rounded       .2239                    5     5     0    0       325   0
+two           .2239                   32    32     0    0       248   0
+sagging0987   .987                     2     2     0    0       117   0
+half_sphere   .2239                    2     2     0    0        38   0
+cover008_v2   .04214220866560936     1051  1046     0    5      6653   6
+Stretch42 except cover20; offset actualfloat32 .019999999552965164 except
+cover .004999999888241291. Counts cover ONLY written materialized faces.
+The five cover refusals are SOURCE_T_VERTEX1, COVERAGE_IS_NOT_EXACT2,
+SOURCE_FACE_SELF_INTERSECTION1, NO_GRID_SCALE_RESTORES_RELATIONS1. Their missing
+geometry is not classified clean. Full named details persist in receipt.
+
+Vertex-link components, not ordinary boundary/non-manifold Blender edge flags,
+define bowtie count here. All cases have0 overfull edges/branching links.
+cover finalmesh9528vertices/6653faces/25693UVloops has6disconnected links:
+mesh vertex | exact source vertex | source link components | written patches
+3525        |2254                 |1                      |286,623
+3829        |1544                 |1                      |311,624
+6315        |1244                 |1                      |636,659
+6459        |1531                 |1                      |658,660
+6468        |2280                 |1                      |659,661
+6778        |2448                 |1                      |701,704
+Each output link has2 components. Classification across components:
+cross_domain6; within_domain_cross_region0; same_region0; category overlap0.
+All6 have actual host-source IDs with CONNECTED original links, not coordinate
+matching. None is a computed node or inherited source bowtie. Original cover mesh
+does contain1different bowtie vertex2281; that vertex is NOT one of these6IDs.
+Each individual materialized domain has0 disconnected links before adapter.
+Therefore these six joins arise across the adapter weld; fixing only W1 intern
+will not remove this separate final-mesh incidence pattern. Global src-weld is
+explicit current display policy (production_weld.py7-13): changing it requires
+a topology-aware shared-edge/fan rule and owner-approved contract, not distance
+merging or indiscriminate region separation.
+
+Evidence: field-summary.json includes every witness/component/face origin,
+exact source anchors, scope/denominator and immutable per-case process identity.
+Per-case folders contain full batch JSON, local->global keys/refs/index map,
+source topology/mesh, final array topology/full arrays and REAL Blender topology/
+mesh with face region/domain provenance. No source-ID guess from coordinates.
+Building used original7dde hook; byte-check status NOT_RECORDED. Other5 used
+d58a v2 and explicitly recorded NOT_STARTED_SYNCHRONOUS_W0. These are topology
+audits, not async-bytecheck CLEAN or whole native/Python parity claims.
+
+MINIMAL DEFECT ALSO REACHES REAL BLENDER, NOT ONLY ARRAYS
+Corrected synthetic-blender-02/receipt.json is COMPLETE_CURRENT_BOWTIE_REPRODUCED:
+simple pentagon source real Blender mesh5vertices/1face/0badlinks; complete
+materialization->actual adapter->_fill_mesh for BOTH planar/silhouette laws
+emits7vertices/2faces/one disconnected link each. Native W1 actually ran without
+fallback; all3 readbacks true. Guard root34316 creationFILETIME134365670508252051,
+exit0/reaped; corrected frozen scene before/after750 matched, runtime4.13s.
+The executable expected-red test and complete Python/native exact parity proof
+are separate immutable synthetic artifacts described in AUDIT.txt.
+
+SAFETY DEVIATION: first synthetic attempt used forbidden --factory-startup,
+failed before materialization, exit1/reaped. It is NOT accepted evidence.
+SAFETY_DEVIATION_01.json records exact argv/PID and correction. No save_mainfile,
+startup save or owner-TEMP cleanup was invoked. Corrected launch helper has
+executable pre-Popen no-factory/-b/exact-frozen-path checks. A helper import-path
+preflight error occurred before ANY corrected Blender Popen; fixing only the
+external dependency search path then allowed the approved exact argv to run.
+
+No product/kernel/native/pins/DECISIONS edits; ANGULAR draft untouched.
+Heavy slot explicitly released to frame_gate_scout after final root reaped and
+fresh inventory showed zero Blender. Remaining work is owner decision/fix scope,
+not a claim that topology was repaired. See AUDIT.txt for bounded fix proposal.

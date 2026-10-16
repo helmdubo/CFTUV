@@ -1,0 +1,151 @@
+{
+  "status": "ALL_8_PASS",
+  "guard_sha256": "90fd91af228d696bd181f1177b3dd1f5e1c6745e79b0707e4383fd4af378eb6b",
+  "tests": [
+    {
+      "name": "normal-0",
+      "pass_": true,
+      "elapsed": 0.32800000003771856,
+      "replace_attempts": 13,
+      "exception": null,
+      "child_pid": 42756,
+      "child_filetime": 134365755373232064,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 0,
+      "reaped": true
+    },
+    {
+      "name": "transient-5",
+      "pass_": true,
+      "elapsed": 0.32900000002700835,
+      "replace_attempts": 15,
+      "exception": null,
+      "child_pid": 33148,
+      "child_filetime": 134365755376662873,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 0,
+      "reaped": true
+    },
+    {
+      "name": "transient-32",
+      "pass_": true,
+      "elapsed": 0.3279999999795109,
+      "replace_attempts": 15,
+      "exception": null,
+      "child_pid": 25560,
+      "child_filetime": 134365755380124354,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 0,
+      "reaped": true
+    },
+    {
+      "name": "transient-33",
+      "pass_": true,
+      "elapsed": 0.3279999999795109,
+      "replace_attempts": 15,
+      "exception": null,
+      "child_pid": 33012,
+      "child_filetime": 134365755383558471,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 0,
+      "reaped": true
+    },
+    {
+      "name": "permanent-5",
+      "pass_": true,
+      "elapsed": 0.5160000000032596,
+      "replace_attempts": 50,
+      "exception": {
+        "type": "OSError",
+        "winerror": 5,
+        "message": "INJECTED_REPLACE_permanent-5"
+      },
+      "child_pid": 17012,
+      "child_filetime": 134365755386960011,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 91,
+      "reaped": true
+    },
+    {
+      "name": "permanent-32",
+      "pass_": true,
+      "elapsed": 0.5,
+      "replace_attempts": 50,
+      "exception": {
+        "type": "OSError",
+        "winerror": 32,
+        "message": "INJECTED_REPLACE_permanent-32"
+      },
+      "child_pid": 57872,
+      "child_filetime": 134365755392029670,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 91,
+      "reaped": true
+    },
+    {
+      "name": "permanent-33",
+      "pass_": true,
+      "elapsed": 0.5,
+      "replace_attempts": 50,
+      "exception": {
+        "type": "OSError",
+        "winerror": 33,
+        "message": "INJECTED_REPLACE_permanent-33"
+      },
+      "child_pid": 50508,
+      "child_filetime": 134365755397038408,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 91,
+      "reaped": true
+    },
+    {
+      "name": "unrelated-2",
+      "pass_": true,
+      "elapsed": 0.0,
+      "replace_attempts": 2,
+      "exception": {
+        "type": "OSError",
+        "winerror": 2,
+        "message": "INJECTED_REPLACE_unrelated-2"
+      },
+      "child_pid": 19044,
+      "child_filetime": 134365755402045639,
+      "child_argv": [
+        "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+        "-c",
+        "import time; time.sleep(.3)"
+      ],
+      "child_exit": 91,
+      "reaped": true
+    }
+  ],
+  "scope": "Harmless owned sleep children only; replace errors injected, permanent error cleanup verified"
+}

@@ -1,0 +1,134 @@
+W1 POINT-CONTACT — ИТОГОВЫЙ АУДИТ, 2026-10-15
+
+ДЕФЕКТ ПОДТВЕРЖДЁН, ИСПРАВЛЕНИЯ НЕТ. Product/main, kernel/native, pins,
+DECISIONS и ANGULAR draft не менялись. Проверена именно несвязность vertex
+link (>1 компоненты), а не обычные открытые boundary-рёбра. Python/Rust
+на малой фикстуре побитово совпадают: это существующее поведение обоих путей,
+не регрессия Rust. Оценка будущего исправления: 2–5 рабочих дней плюс отдельные
+полные corpus/parity/Blender gates; сейчас требуется решение владельца о fix.
+
+МИНИМАЛЬНЫЙ ПОЛНЫЙ REPRO
+Одна простая исходная грань: (0,0),(1,0),(2,1),(2,2),(0,2).
+Источники — целые рёбра(0,0)->(1,0) и(2,1)->(2,2), alpha=1/2.
+prepare_conveyor -> conveyor_coverage -> materialize_domain -> настоящий
+build_mesh_arrays -> настоящий Blender _fill_mesh. При PLANAR_POLYGONS и
+SILHOUETTE выход:7вершин,2четырёхугольника,8boundary-рёбер,0overfull.
+Общий node:0=(3/2,1/2,0) имеет ДВА несвязных link-пути, общего ребра нет.
+Исходная грань — диск, исходный link связен. Две UV-петли общей геометрической
+вершины остаются разными: (3,1) и(-1,1). Общая mesh-вершина НЕ означает общий UV.
+Противоположный контроль alpha=1: регионы имеют настоящее общее ребро, link
+связен; такое соединение нельзя разрывать исправлением.
+
+Blender-free test_expected_no_bowtie.py прогнал оба backend × оба закона,
+проверил успешную настоящую native W1 без fallback и точные batch bytes,
+а затем ПАДАЕТ только на assert связности link. Все4 выхода7v/2f/1bowtie
+сохранены expected-no-bowtie-result.json; guard06 exit1/reaped — ожидаемый RED.
+Реальный Blender отдельно подтвердил оба закона: synthetic-blender-02/receipt
+COMPLETE_CURRENT_BOWTIE_REPRODUCED,3readback проверки true,source0/output1bowtie.
+Root34316, FILETIME134365670508252051,exit0/reaped,4.13с,frozenSHA750… неизменён.
+
+ТОЧНАЯ БЕЗОПАСНАЯ КОМАНДА НОВОГО REPRO (PowerShell, новый каталог)
+$base='D:/CFTUV-export-20261015-evidence/w1-point-contact'
+$out=Join-Path $base ('repro-'+[guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $out | Out-Null
+Copy-Item ($base+'/test_expected_no_bowtie.py'),($base+'/topology.py') -Destination $out
+$env:PYTHONDONTWRITEBYTECODE='1'; $env:PYTHONPATH='C:/Users/helmd/.cftuv-native/venv-corpus/Lib/site-packages'; $env:TMP=$out; $env:TEMP=$out
+& 'C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe' -B ($base+'/../corpus/owned_job_guard.py') run --receipt ($out+'/guard') --cwd 'D:/CFTUV-export-frame-20261015' --timeout 30 --floor-gib 1.5 --drives C:/ D:/ E:/ -- 'C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe' -B ($out+'/test_expected_no_bowtie.py')
+Текущий ожидаемый результат exit1 на последнем topology assert; исходные
+receipts не перезаписываются. Это external test, не добавленный product-test.
+
+ПОЛЕ: РЕАЛЬНЫЙ FINAL BLENDER MESH, ПО ОДНОЙ ШИРИНЕ НА FROZEN FILE
+case          alpha                 domains written held refused faces bowties
+building      .2239                  122    122     0    0       907   0
+rounded       .2239                    5      5     0    0       325   0
+two           .2239                   32     32     0    0       248   0
+sagging0987   .987                     2      2     0    0       117   0
+half_sphere   .2239                    2      2     0    0        38   0
+cover008_v2   .04214220866560936     1051   1046     0    5      6653   6
+Cold w0, density2, SILHOUETTE_TOPOLOGY_V1; stretch42,cover20.
+Все FINISHED, все ordered face indices/float32positions/UVloops совпали с arrays.
+Frozen testscene750baefc… и cover008_v2 a044b5aa… до/после совпали.
+Cover5отказов: SOURCE_T_VERTEX1,COVERAGE_IS_NOT_EXACT2,
+SOURCE_FACE_SELF_INTERSECTION1,NO_GRID_SCALE_RESTORES_RELATIONS1.
+Нулевые counts относятся ТОЛЬКО к материализованным граням, не к отсутствующим.
+Это не обещание отсутствия дефекта на других ширинах/режимах/сценах.
+Bytecheck building NOT_RECORDED, остальных5 NOT_STARTED_SYNCHRONOUS_W0;
+не приписывается async CLEAN или полная полевая Python/native parity.
+
+COVER: ВСЕ6 НОВЫЕ CROSS-DOMAIN JOINS
+Категории по разным link-компонентам: cross_domain6,
+within_domain_cross_region0,same_region0,overlap0. Все1046локальных batch-link
+связны. После adapter weld появляются6общих mesh-индексов:
+mesh index / exact source vertex / patches
+3525 /2254 /286+623      3829 /1544 /311+624
+6315 /1244 /636+659      6459 /1531 /658+660
+6468 /2280 /659+661      6778 /2448 /701+704
+У всех6 source link=1, final link=2. Ни один не computed node и не унаследованная
+source bowtie. Единственная другая source bowtie — vertex2281. Идентичность
+связана по host SourceVertexId, НЕ по близости координат. Независимая проверка
+frame_merge подтвердила таблицу и то, что каждая отдельная fan — boundary PATH.
+Полные witnesses/face origins/локальные ключи/source anchors: field-summary.json
+и reviewer/W1_COVER008_CLASSIFICATION.json. Общий UV-loop count cover25693.
+
+ПРОВЕРЕННЫЕ МЕСТА КОДА (D:/CFTUV-export-frame-20261015)
+materialize/mesh.py:164,177 — одна point_key identity на все material regions.
+native/cftuv-mesh/src/intern.rs — тот же interner, точная parity подтверждена.
+materialize/domain.py:820 exact_mesh;856 silhouette;857 assemble_batch.
+materialize/silhouette.py:353 проверяет duplicate directed edges, не link;
+788 удаляет растворённые ключи;802 строит цепи, fan-copy не создаётся.
+materialize/assemble.py:473 один GeometryVertex на positions key;515 сохраняет
+ключи граней,516 пишет отдельные face UV. Эти пути под kernel/src/cftuv_envelope/.
+cftuv/envelope_production_view.py:100,120 один local index на key;127 loop UV.
+cftuv/envelope_production_weld.py:7-13 явная текущая политика src-weld;
+201,210,233 — группы одинаковых global src refs/bitwise positions, общая митра
+до проверки incidence;401,414,427 отображение local vertex один раз.
+Особый wall-node twin weld342-397 требует доказанного общего wall-партнёра,
+побитового совпадения и допустимой митры; не произвольный coordinate weld.
+cftuv/envelope_production_mesh.py:304 weld;309 face indices;310 UV loops;
+469 from_pydata;473-474 UV слой. Реальный readback подтвердил сохранение индексов.
+
+RAW COVERAGE ≠ MATERIAL PARTITION: CAUSAL REFINEMENT
+MATERIALIZE_DOMAIN_REGIONS=1 — prepared sparse subdivision; два material
+semantic_region_id — два owned-контура внутри неё. Actual conveyor contours
+УЖЕ касаются chartpoint(1/2,1/2), world(3/2,1/2), площадь5/4, до W1 interning.
+Direct reference RawCoverage: EXACT,area Integer(1),regions2,point_contacts0,
+boundary_occurrences8; chartpoint(1/2,1/2) в его loops/vertices отсутствует.
+frame anchors дают world(u+2v,v). W1interner создаёт ОБЩИЙ ИНДЕКС существующего
+контактного места actual conveyor input, не сам геометрический контакт.
+Различие direct-reference/conveyor маршрутов не объявляется вторым дефектом.
+Сохранены raw-coverage.json/conveyor-input.json. Геометрическое доказательство
+bowtie не зависит от интерпретации RawCoverage point_contacts.
+
+FIX PROPOSAL / РИСК / GATES — НЕ РЕАЛИЗОВАНО
+Разделять вершину по связным компонентам FINAL incident face link после
+clip/tessellation/silhouette, ДО окончательных chains/digests. Сохранять базовую
+source/point identity отдельно от устойчивой occurrence identity; одинаковые
+позиции и UV loops не менять. Не разделять по region ID: настоящие общие рёбра
+и cross-region connected fan должны остаться общими. Ремапить cycles/polygons/
+stations/provenance/chain refs согласованно и детерминированно.
+Для6полевых случаев дополнительно нужна topology-aware cross-domain weld
+admission ДО общей митры: одинаковый src ref сам по себе не доказывает общую
+материальную fan. Не допустить повторного склеивания kernel occurrence copies.
+Нельзя утверждать ошибку численного offset без отдельного counterfactual proof.
+Оценка2–5дней на контракт+Python/native+adapter+детерминированные fixtures,
+затем отдельные полные gates. Минимум: point-only witness,alpha1 real-edge
+control,same-region disconnected/cross-region connected fans,holes/cuts/clipped
+source keys,source-anchor/wall weld,station/chains/provenance,ordering,budget/
+counter/byte parity,обновлённые oracle/pins/corpus и реальные Blender UV/topology
+гейты. Нулевые полевые контроли обязаны остаться нулевыми. Product regression
+добавляется ТОЛЬКО после решения владельца о fix; текущий RED external-only.
+
+SAFETY DEVIATION — НЕ СКРЫВАЕТСЯ
+Первая synthetic попытка ошибочно использовала запрещённый --factory-startup:
+PID37060,FILETIME134365669346863217,exit1/reaped,ошибка sympy до materialization.
+Она НЕ accepted evidence. SAFETY_DEVIATION_01.json хранит exact argv/исход.
+Save/startup-save/owner TEMP cleanup не вызывались. Исправленный02запуск получил
+явный GO, использовал только -b exact frozen testscene и сохранил750SHA.
+Новый launch helper executable запрещает factory flag ДО Popen.
+
+INTEGRITY / HANDOFF
+key-evidence-sha256.json содержит SHA256 всех ключевых отчётов, per-case
+topology/full arrays/Blender readback/source/guards, кодов reproducer и reviews.
+domains.json каждого case дополнительно содержит хеш каждого сохранённого batch.
+Root34316 завершён/reaped, foreign inventory0; тяжёлый слот явно освобождён
+frame_gate_scout. Git worktree оставался чистым. NO FIX / NO MAIN CHANGE.

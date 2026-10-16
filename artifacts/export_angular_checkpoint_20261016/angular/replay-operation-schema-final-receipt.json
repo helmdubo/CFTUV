@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "checks": [
+    "equal",
+    "missing-telemetry",
+    "missing-profile_writes",
+    "missing-geometry_tail",
+    "different-prices",
+    "missing-reference-field",
+    "missing-approved-sha",
+    "context-gap-not-accepted",
+    "nested-bool-int-distinct"
+  ],
+  "runner_sha256": "44917c08a877cbbf3b054f8116ba80a347cf364c8c2abda245c1b4e1e0f7eeb2",
+  "scope": "synthetic schema only; no approved artifact/native execution",
+  "context_followup": "Fresh unpatched reference/native same-input pairs required for whole-operation Decimal/iv entry/exit proof"
+}

@@ -1,0 +1,20 @@
+CHECKPOINT EXPORT — 16.10.2026
+
+Снимок прогресса, НЕ production/release acceptance.
+FRAME: технические gates100% завершены с явно принятым inherited Density gap; all_green=false. Full strict3.11/3.13:1481passed каждый, по1interpreter skip и1Density FIELD setupERROR. A/B12/12 identical, cold decline26/1049=2.478551%, реальная кнопка не регрессировала. Подробности corpus/finalFRAMEreport.txt.
+ANGULAR: приблизительно45–50%; НЕ production. Product branch codex/export-angular-20261016, HEAD4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66, pushed по подтверждению parent; локальный checkout clean. Main остался1d17ba1af3b7a03e24ec0313e76b3f68e0191119. Этот пакет не меняет продукт, git, main или defaults.
+Завершено:20Rust ANGULARtests, PyO3alltargetscheck, отдельный WIP wheel; полный paired baseline/wrapped capture7архивов80пар/1221вход/0differences (НЕ native parity). Один rounded fresh reference/native operation совпал с output/profile/wholecounterdeltas и Decimal/iv; это только один вызов, не весь корпус и не productionprofile.
+Не принято: full-pin-311-01 FAILED_NOT_ACCEPTED (WRONG_CACHED_HOST cftuv). НОВЫЙ full-pin-311-v2 завершён FULL_PROFILE_CANDIDATE_COMPLETE_NOT_APPROVED exit0: candidate21818d76...,78hashes/77runtime fingerprints/26class shapes/29source files. Это наблюдаемый full candidate, НЕ productionapproval. Первый rounded batch replay в replay-rounded-chunk01 осталсяINCOMPLETE/chunks[] послеGUARDED_CHUNK_FAILED; failure receipt сохранён, успех не заявлен.
+Следующие внешние шаги: устранить диагностированный harness blocker bounded replay, завершить rounded/building и весь native batch; проверить full candidate/другие runtime profiles. Любой новый approval — явный, без автогенерации productionpins по live-наблюдениям.
+
+ИЗВЕСТНЫЕ ПРОБЕЛЫ
+1. R3_FIELD_ACCEPTANCE_V1: принят raw2432 Density batch архив утрачен. Строгий FIELD test запускался и осталсяerror; путь не выдумывался, тест не вырезался.
+2. W1 point-contact topology defect подтверждён у Python/Rust, исправления НЕТ. Это отдельная работа/решение владельца; snapshot не объявляет геометрию исправленной.
+
+ПРОФИЛЬ И ПЕРЕНОСИМОСТЬ
+angular/profile-311-light-4f3-isolated-parity-01.json SHAee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c — TEST ONLY, Windows CPython3.11.11 light, isolated parity evaluation only; production_approved=false. Candidate61450be5... не является productionapproval. Другие Python/Blender/OS/full профили этим не утверждены.
+Пакет НЕ является самодостаточным переносимым runnable-корпусом. Paired raw/task corpora, большие logs и wheel/site/bin остаются на owner D:/CFTUV-export-20261015-evidence и D:/cftuv_native_corpus; frozen blend остаётся в owner C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen; ссылки в receipts абсолютные. Эти данные не копировались. Скрипты сохраняют исходные пути/зависимости и не должны автоматически запускаться после checkout.
+Никаких executable/wheel/blend/pickle corpus или больших logs в пакете. Только выбранные скрипты, малые tests, receipts, один явно запрошенный rounded JSON result. Все копии byte-exact; MANIFEST.json содержит sourcepath/размер/SHA256 каждой копии. Исторические failed receipts сохранены.
+Пакет подготовлен заранее при weekly~9%; commit/checkpoint при пороге<=5% выполняет parent после review/latest completed results. Этот снимок сам ничего не коммитит и не заявляет ещё не завершённые runs.
+
+ДОПОЛНЕНИЕ К FAILED BATCH: LAUNCH_FAILURE_AUDIT.txt явно фиксирует утраченный coordinatorPID. Task1 numericaloutput совпал, но [] != exactzero delta после исторического certified20 prefix. Новая v2seed-реализация проверена 18малыми tests и bounded runs; old9031 сохранён как failed exact-history попытка. FullpinV2 завершён, его candidate/receipt добавлены. V2 bounded rounded5/building16 завершены: building16 native accepted, rounded5 содержит3 безопасных namedUnsupported и accepted=false; это НЕ полный native parity. Exact recorded before/after/delta все6 проверяются без zero-strip.

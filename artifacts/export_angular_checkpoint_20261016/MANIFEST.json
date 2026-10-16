@@ -1,0 +1,500 @@
+{
+  "schema": "cftuv.export.checkpoint.v1",
+  "created_utc": "2026-10-16T03:24:31.090843+04:00",
+  "scope": "External tools and compact receipts only; no product/native corpus/runtime artifacts",
+  "status": "SNAPSHOT_NOT_PRODUCTION_ACCEPTANCE",
+  "source_base": "D:\\CFTUV-export-20261015-evidence",
+  "files": [
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\capture_chunks.py",
+      "relative_path": "angular/capture_chunks.py",
+      "bytes": 10587,
+      "sha256": "d4fc5c670168779a1f908c2065f2a9b0e5f43186dd87a28be72e54d7efcd9517"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\capture_chunks_v2.py",
+      "relative_path": "angular/capture_chunks_v2.py",
+      "bytes": 8311,
+      "sha256": "e00a49e3f167c2d5ce0d41ea74e210ae8d1d1a2a45f953046ef2b3c0ccbb1e83"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\compare_baseline.py",
+      "relative_path": "angular/compare_baseline.py",
+      "bytes": 2784,
+      "sha256": "5509a3b75f8d83ef4902d782ac916ddf5630c933ac1df5a4edd9530426db7bd1"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\compare_chunks.py",
+      "relative_path": "angular/compare_chunks.py",
+      "bytes": 6684,
+      "sha256": "aa51ee8ff1054649bd1130b14da12374a743b61253ada3234f9e6e0e639c7b45"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\record_angular.py",
+      "relative_path": "angular/record_angular.py",
+      "bytes": 22740,
+      "sha256": "9c7d24767fb35e9e9917e7b207d2e5eb4720d232f691d08b4cdea39f18107c2d"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\angular_raw_pickle.py",
+      "relative_path": "angular/angular_raw_pickle.py",
+      "bytes": 2490,
+      "sha256": "4835679e199a61ef883ed067abe36142acf0409d22e3d40f10b7409f9c07f0d7"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay_operation.py",
+      "relative_path": "angular/replay_operation.py",
+      "bytes": 6882,
+      "sha256": "44917c08a877cbbf3b054f8116ba80a347cf364c8c2abda245c1b4e1e0f7eeb2"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay_pair.py",
+      "relative_path": "angular/replay_pair.py",
+      "bytes": 9399,
+      "sha256": "c3e5c5a8fd8ae80f9b8765cdf3cd7688b5220cd61dc9b4bf23768c3f5caa87b9"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay_chunks.py",
+      "relative_path": "angular/replay_chunks.py",
+      "bytes": 11409,
+      "sha256": "9031a316ac3f920d4a90c2812fc2e6bbc1c7d8ee631605a7ca43022a8933d4d2"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\rust_job.py",
+      "relative_path": "angular/rust_job.py",
+      "bytes": 3818,
+      "sha256": "3ae624a9246e95daf3a44b434f751a614996eb744e6dc943a56adbb66b0fada4"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\wheel_job.py",
+      "relative_path": "angular/wheel_job.py",
+      "bytes": 6588,
+      "sha256": "90598a0200d0ed0dbfbb41c14ba8530bd86504c757c574a18faae0d260f46d4a"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full_pin_blender.py",
+      "relative_path": "angular/full_pin_blender.py",
+      "bytes": 4322,
+      "sha256": "cb5feff0c8d34bb859143ddc7063ed3741b24e4c528f2391a918dabd302d015a"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\facade_binding_smoke.py",
+      "relative_path": "angular/facade_binding_smoke.py",
+      "bytes": 5474,
+      "sha256": "a19f4495d4c884ab1ece30b7edae62a142467e5a763861061b17ee88f40b6583"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\test_compare_chunks.py",
+      "relative_path": "angular/test_compare_chunks.py",
+      "bytes": 5575,
+      "sha256": "6f519713b4bf573b51b65b823d832fdc89c8361e4683fd7af048ca564f4614b1"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\test_replay_operation.py",
+      "relative_path": "angular/test_replay_operation.py",
+      "bytes": 2053,
+      "sha256": "072cbdcec5398e51676a6c93dd91954e1e86d3c58562508ccfd6db09ea4edc08"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\test_replay_pair.py",
+      "relative_path": "angular/test_replay_pair.py",
+      "bytes": 2672,
+      "sha256": "0aefb1ad8a18133619ca425fb74c5e8fb82a431c9c62573c4f8aeaffba749f39"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\test_replay_chunks.py",
+      "relative_path": "angular/test_replay_chunks.py",
+      "bytes": 2348,
+      "sha256": "3c6722e091e6bc8c92d3ad9146e9775bd7ab9ad04b682c4680b793651b3dc548"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\owned_job_guard.py",
+      "relative_path": "corpus/owned_job_guard.py",
+      "bytes": 7438,
+      "sha256": "9cd1384d53d27fe3523023a9341af1abdc9932503689d252de3376ac874fe05b"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\owned_job_guard_v2.py",
+      "relative_path": "corpus/owned_job_guard_v2.py",
+      "bytes": 7779,
+      "sha256": "90fd91af228d696bd181f1177b3dd1f5e1c6745e79b0707e4383fd4af378eb6b"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\strict_process_job.py",
+      "relative_path": "corpus/strict_process_job.py",
+      "bytes": 4382,
+      "sha256": "c765659f1173faf069aac747c2a8462c69c00722cc8b76140902fc426ab5f2f9"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\guard_v2_faultproof.py",
+      "relative_path": "corpus/guard_v2_faultproof.py",
+      "bytes": 2755,
+      "sha256": "46abe919f1e72a7867c36a898d1bc60f706c466964c938bb6a6ef116d4402e4b"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\guard-v2-faultproof-01\\receipt.json",
+      "relative_path": "corpus/guard-v2-faultproof-01/receipt.json",
+      "bytes": 4326,
+      "sha256": "8d9757b5162a03d4f5600c1c84193735cf2a5e705479565687a24642dfe36295"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\finalFRAMEreport.txt",
+      "relative_path": "corpus/finalFRAMEreport.txt",
+      "bytes": 6849,
+      "sha256": "287d9c75b445ef50e79ed937e30ab17d6b192dfce1d7c8008bf4bf4ee5b1a4f8"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\strict311-v3-classification.json",
+      "relative_path": "corpus/strict311-v3-classification.json",
+      "bytes": 1220,
+      "sha256": "1cc589b265099b8ee2d2c788b59eb1a665abd5857f541dcdc2c2160f2aaaef12"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\strict313-v4-classification.json",
+      "relative_path": "corpus/strict313-v4-classification.json",
+      "bytes": 1465,
+      "sha256": "e1881aa9fe3da4106f94b3034a0d595bf87e2fb7edfde7bb0c96af00ba6af9ee"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\STRICT311_FAILED_BOOTSTRAP_SPAWN.txt",
+      "relative_path": "corpus/STRICT311_FAILED_BOOTSTRAP_SPAWN.txt",
+      "bytes": 1707,
+      "sha256": "721db0d32997381f8c5242deeb81f69452eb0b141a41c3ebac01500cbb9d3572"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\corpus\\STRICT313_FAILED_RECEIPT_SHARING.txt",
+      "relative_path": "corpus/STRICT313_FAILED_RECEIPT_SHARING.txt",
+      "bytes": 1420,
+      "sha256": "89ca4b0449f25f45ab3a9ea28f923d98d1caabdba8a75626301b515e3000a3f5"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\w1-point-contact\\W1_POINT_CONTACT_AUDIT.txt",
+      "relative_path": "w1-point-contact/W1_POINT_CONTACT_AUDIT.txt",
+      "bytes": 12024,
+      "sha256": "f1c503f942f292aba00b79dd5d07928c086a5faf7686d4ece23a42fc3861ca82"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\w1-point-contact\\FIELD_RESULTS.txt",
+      "relative_path": "w1-point-contact/FIELD_RESULTS.txt",
+      "bytes": 5325,
+      "sha256": "361deb5801507cba8e51651a45961122ab5b8a2173d5aa8265bf3c8e81175982"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\w1-point-contact\\field-summary.json",
+      "relative_path": "w1-point-contact/field-summary.json",
+      "bytes": 58820,
+      "sha256": "7e3fe96e5ef237154976feaa8c1652d22e3284817abee373992532768b9468de"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\w1-point-contact\\expected-no-bowtie-result.json",
+      "relative_path": "w1-point-contact/expected-no-bowtie-result.json",
+      "bytes": 6183,
+      "sha256": "2025228b7ab05c691300f21baab412470593935a233caf2d18b333333db9765f"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\w1-point-contact\\SAFETY_DEVIATION_01.json",
+      "relative_path": "w1-point-contact/SAFETY_DEVIATION_01.json",
+      "bytes": 1385,
+      "sha256": "5c228f0789ee7eed9cf578a3193ac6c04930eb5e3d7e711f5bfed346f16f502f"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01-summary.json",
+      "relative_path": "angular/paired-capture-01-summary.json",
+      "bytes": 29576,
+      "sha256": "a49d2da7fb4b6ccc976946108a3b5697d30b984df085686fe781c62a91e29231"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01-controller.json",
+      "relative_path": "angular/paired-capture-01-controller.json",
+      "bytes": 1221,
+      "sha256": "d43dbcf81d7885afa73e1ca7e7a5525fa329df140967860a87900c23216b54c5"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\observer-proof-rounded-01.json",
+      "relative_path": "angular/observer-proof-rounded-01.json",
+      "bytes": 893,
+      "sha256": "36f225bb171d2881476f1e489ce9704b14458f7b0379fc9008508ba0e9c4c61e"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\RUST_GATES_01.json",
+      "relative_path": "angular/RUST_GATES_01.json",
+      "bytes": 3351,
+      "sha256": "c5af19c347d326ceb9ac2015543ac9ff6515a626b775e253b06fdeba5abb113e"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\WHEEL_BUILD_01.json",
+      "relative_path": "angular/WHEEL_BUILD_01.json",
+      "bytes": 3576,
+      "sha256": "a91e30408f1a093567885e07fb587f8235737c43c5d80c3ff413143733bd34da"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\rust-angular-01-guard\\process.json",
+      "relative_path": "angular/rust-angular-01-guard/process.json",
+      "bytes": 2012,
+      "sha256": "49229587466edd29678a742f9f53624dc0fac36233e0e408f38074518e5f3909"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\rust-pyo3-01-guard\\process.json",
+      "relative_path": "angular/rust-pyo3-01-guard/process.json",
+      "bytes": 1996,
+      "sha256": "632066cc9044bbcb760a393ea7eafa4b9ef14cb33f7295d1eee7afd509edd964"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-build-guard\\process.json",
+      "relative_path": "angular/wheel-build-01-build-guard/process.json",
+      "bytes": 1872,
+      "sha256": "e444d6a6e43720e1891d3a4c9e8c3627b41d7f30e6c8cf5b2368260c6bf08d76"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-install-guard\\process.json",
+      "relative_path": "angular/wheel-build-01-install-guard/process.json",
+      "bytes": 1877,
+      "sha256": "59d3cb033915a2a6cde08fba37e141244786edcaba744775471ec7d50349c288"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\profile-311-light-4f3-isolated-parity-01.json",
+      "relative_path": "angular/profile-311-light-4f3-isolated-parity-01.json",
+      "bytes": 33488,
+      "sha256": "ee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\profile-candidate-311-4f3-01.json",
+      "relative_path": "angular/profile-candidate-311-4f3-01.json",
+      "bytes": 32876,
+      "sha256": "61450be5d218378dc0455bd3a3d1e6abf1e7e25664794203883c5b7399c0792f"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\profile-candidate-311-4f3-01-conversion.json",
+      "relative_path": "angular/profile-candidate-311-4f3-01-conversion.json",
+      "bytes": 1099,
+      "sha256": "0e49a43e1da2ddcb6450750aca0dfeefccb86e2df6679618e3b2c43ebe2886da"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-01\\summary.json",
+      "relative_path": "angular/replay-rounded-01/summary.json",
+      "bytes": 2349,
+      "sha256": "28b5a8277bec99d7af33e957b1a34e09b8c278decd13576b25b0842198ad5f8d"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-01\\result.json",
+      "relative_path": "angular/replay-rounded-01/result.json",
+      "bytes": 157786,
+      "sha256": "240af8348c062a874c6e88ce36af7b857099d25efd41cd77420f8f3b63d669cc"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-01\\receipt.json",
+      "relative_path": "angular/full-pin-311-01/receipt.json",
+      "bytes": 1245,
+      "sha256": "b07e8136f4789b748708e99ece13d945ebaed5856db3dd20fa9f45d8480348e2"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-01-guard\\process.json",
+      "relative_path": "angular/full-pin-311-01-guard/process.json",
+      "bytes": 2173,
+      "sha256": "92359bc38723d01e39b1e352567d65243d2a96d24b20ad4ef42ab6f2fe5e575c"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-01\\job.json",
+      "relative_path": "angular/full-pin-311-01/job.json",
+      "bytes": 1240,
+      "sha256": "53ef168fb18a26af81fdf0d1c9c5671f999ddb61e70e402c7d4022c4be19e902"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\replay.json",
+      "relative_path": "angular/replay-rounded-chunk01/replay.json",
+      "bytes": 6673,
+      "sha256": "4359fb43b9c80fc0a06d99c9f1cef9469bd280f9d50836e0acdefe27988910cf"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\rounded-000000-pair-guard\\process.json",
+      "relative_path": "angular/replay-rounded-chunk01/rounded-000000-pair-guard/process.json",
+      "bytes": 3185,
+      "sha256": "7c4b37a190e636d5a833842643a630112f136dbd5a5cf31ca972ba70ab10f2cc"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\installed-binding-smoke-01\\receipt.json",
+      "relative_path": "angular/installed-binding-smoke-01/receipt.json",
+      "bytes": 2085,
+      "sha256": "b898fc7e1d4741a7de2cfd740f819ff6688dc9c8f500aeb8b3681ac25509c7de"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\installed-binding-smoke-01\\job.json",
+      "relative_path": "angular/installed-binding-smoke-01/job.json",
+      "bytes": 1519,
+      "sha256": "3abd04dbdf69e9e932b190acb0da93f62ce2a2455795b6637acb6d188c938591"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-operation-schema-final-receipt.json",
+      "relative_path": "angular/replay-operation-schema-final-receipt.json",
+      "bytes": 594,
+      "sha256": "fde4a282af16e71e263e3078fb1dcee2e5ae6fff1d9d322ca6600d3421bddfd1"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-pair-schema-phase-receipt.json",
+      "relative_path": "angular/replay-pair-schema-phase-receipt.json",
+      "bytes": 357,
+      "sha256": "3ad8f9d80845cbe1da6419b9d6dfb5a7905663bf7551f220ff2cf0c47b3d2c07"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-chunks-decline-receipt.json",
+      "relative_path": "angular/replay-chunks-decline-receipt.json",
+      "bytes": 403,
+      "sha256": "2da0d0723c2877d75fbd292106b9c53008c2c4a5cd69754aa0ad3189a3326dee"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-comparator-fix-receipt.json",
+      "relative_path": "angular/paired-comparator-fix-receipt.json",
+      "bytes": 1042,
+      "sha256": "a8182a2dec3f72daa571255b61900fbcb32848877dbd7e882064c07fff43a45a"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-real-projection-receipt.json",
+      "relative_path": "angular/paired-real-projection-receipt.json",
+      "bytes": 587,
+      "sha256": "29c3c31cb9a7a1fd97b540fc7a98ab873da0179d0aabc4d5252b4c2c49c70b91"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\raw-pickle-selftest.json",
+      "relative_path": "angular/raw-pickle-selftest.json",
+      "bytes": 230,
+      "sha256": "7993f5cc8ec2572f2cf238a2f6ab01a203a3bbf1c4737e16555444f18ff940b2"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\rounded-000000-pair\\chunk.json",
+      "relative_path": "angular/replay-rounded-chunk01/rounded-000000-pair/chunk.json",
+      "bytes": 7264,
+      "sha256": "a1d5da5c128c6a8cb5e5663352447e31e0ec7625194c0b39abe7abfb664758fe"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01\\rounded-000000-pair\\task-1-call-0.json",
+      "relative_path": "angular/replay-rounded-chunk01/rounded-000000-pair/task-1-call-0.json",
+      "bytes": 24267,
+      "sha256": "fe90518f5a44feb4124d678837bc990fdf43d81a00dd84f1673221cd2dd2912a"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk01-launch\\stderr.txt",
+      "relative_path": "angular/replay-rounded-chunk01-launch/stderr.txt",
+      "bytes": 775,
+      "sha256": "cc05e8fb24760edbba152be0f3856b297ffc21d7efca6f1838e0e4591559af8a"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay_pair_v2.py",
+      "relative_path": "angular/replay_pair_v2.py",
+      "bytes": 10537,
+      "sha256": "1121f18b7949a6052ddc78f1420405495fd624d5bd0b790c4fc1e5fccbeb2047"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay_chunks_v2.py",
+      "relative_path": "angular/replay_chunks_v2.py",
+      "bytes": 11578,
+      "sha256": "670115859fda70fb0220cc6d4b2c49808f932b6f094ee9313e871380d0470b5c"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\launch-bounded-replay-v2.py",
+      "relative_path": "angular/launch-bounded-replay-v2.py",
+      "bytes": 2300,
+      "sha256": "b04f8009ec761d0961ce14b50665377cbe19bf873c8d7cb48a720a78605035c3"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\test_replay_pair_v2.py",
+      "relative_path": "angular/test_replay_pair_v2.py",
+      "bytes": 4512,
+      "sha256": "a55fa28a96cd565fd7e4d6d6d5e701c17677235cef9dab641f4fd6f82881284c"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\test_replay_chunks_v2.py",
+      "relative_path": "angular/test_replay_chunks_v2.py",
+      "bytes": 2555,
+      "sha256": "6b810410fba4f1fff13470f4d327eafd32417edbf42926542e924347b687c5f1"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-pair-v2-tuple-receipt.json",
+      "relative_path": "angular/replay-pair-v2-tuple-receipt.json",
+      "bytes": 546,
+      "sha256": "60274d31946df4543de709111705dd5f1c63d5860971fbef8ad22d2f817dce52"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-chunks-v2-tuple-receipt.json",
+      "relative_path": "angular/replay-chunks-v2-tuple-receipt.json",
+      "bytes": 403,
+      "sha256": "de9ad6f2135a0b97eabb41562533c176c1c5a5f206683125e4c753e39c8a95fa"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full_pin_blender_v2.py",
+      "relative_path": "angular/full_pin_blender_v2.py",
+      "bytes": 5034,
+      "sha256": "9da45578ee494b230a50f76c0bbfdead0703f8d327f4761362ec48a1d6bd55b4"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\profile-candidate-311-full-4f3-v2.json",
+      "relative_path": "angular/profile-candidate-311-full-4f3-v2.json",
+      "bytes": 35094,
+      "sha256": "21818d76e9149fc5f36cf78838a317340d330c05befd5a1a07eb92f1b48915fc"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-v2\\receipt.json",
+      "relative_path": "angular/full-pin-311-v2/receipt.json",
+      "bytes": 1612,
+      "sha256": "e8e44e2d6e5dcc2c3f3e2d2c3ceb5332898c6b67366d7e7927499bb651dcb321"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-v2-guard\\process.json",
+      "relative_path": "angular/full-pin-311-v2-guard/process.json",
+      "bytes": 2171,
+      "sha256": "b66bb3049d65e0b6363110d13c6e5efa2c94e8853d8ab97ef83457e331113a3c"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-bounded-v2-summary.json",
+      "relative_path": "angular/replay-bounded-v2-summary.json",
+      "bytes": 6292,
+      "sha256": "dab494866133b8e20e41e05261f3b4b8e6f3c76f499555969bccaa8400a5dd62"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk02\\replay.json",
+      "relative_path": "angular/replay-rounded-chunk02/replay.json",
+      "bytes": 7653,
+      "sha256": "203c64d1b85eb7009f04adfd99f2e41a8333a4b72166fea0d6aa7931247c786a"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-rounded-chunk02\\rounded-000000-pair\\chunk.json",
+      "relative_path": "angular/replay-rounded-chunk02/rounded-000000-pair/chunk.json",
+      "bytes": 14172,
+      "sha256": "6c6d7bda240a141943ef0b72e6b78c6d40042b698626ea030d77ec3224dfdded"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-building-chunk02\\replay.json",
+      "relative_path": "angular/replay-building-chunk02/replay.json",
+      "bytes": 8752,
+      "sha256": "a205901573ab816da4b33706fd1bf39c33c420b793ac308c35fa833d282230bd"
+    },
+    {
+      "source_path": "D:\\CFTUV-export-20261015-evidence\\angular\\replay-building-chunk02\\building-000000-pair\\chunk.json",
+      "relative_path": "angular/replay-building-chunk02/building-000000-pair/chunk.json",
+      "bytes": 18169,
+      "sha256": "d92911b5d5b4be2629a83b868553aade6f68f5ef8fcb6685931fb86c540a7ae5"
+    }
+  ],
+  "generated_files": [
+    {
+      "relative_path": "CHECKPOINT.txt",
+      "bytes": 5319,
+      "sha256": "6fd92165c4db177e99b2ed014b4e3fa8feb0c091392c53bc724da7314a8d9221",
+      "source_path": null
+    },
+    {
+      "relative_path": "LAUNCH_FAILURE_AUDIT.txt",
+      "bytes": 1852,
+      "sha256": "82823c720d7335a2bbd2ece21ee995be486b73360f1eac50b838ab301d712d5e",
+      "source_path": null
+    },
+    {
+      "relative_path": ".gitattributes",
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "source_path": null
+    }
+  ],
+  "copied_files": 78,
+  "copied_bytes": 696205.0,
+  "not_self_contained_runnable_corpus": true
+}

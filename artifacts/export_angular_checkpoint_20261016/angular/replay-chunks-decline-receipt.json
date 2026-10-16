@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "checks": [
+    "historical-equal-lastwrite-profile",
+    "price-mismatch",
+    "named-unsupported-distinct",
+    "stale-not-decline",
+    "reference-drift-not-hidden-by-decline",
+    "counter-effects-unsafe",
+    "context-effects-unsafe"
+  ],
+  "runner_sha256": "9031a316ac3f920d4a90c2812fc2e6bbc1c7d8ee631605a7ca43022a8933d4d2",
+  "actual_native_executed": false
+}

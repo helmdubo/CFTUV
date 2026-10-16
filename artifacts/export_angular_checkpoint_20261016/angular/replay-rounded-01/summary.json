@@ -1,0 +1,72 @@
+{
+  "status": "FRESH_OPERATION_PAIR_EQUAL",
+  "native_accepted": true,
+  "differences": [],
+  "historical": {
+    "reference": [],
+    "native": []
+  },
+  "reference_seconds": 0.1816930000204593,
+  "native_seconds": 0.46383080002851784,
+  "fallback_delta": [
+    [
+      "canonical",
+      40
+    ],
+    [
+      "sign",
+      0
+    ],
+    [
+      "normalize",
+      30
+    ],
+    [
+      "exact_sign_symbolic",
+      0
+    ]
+  ],
+  "backend_delta": [],
+  "phase": [
+    "assembly"
+  ],
+  "source_sha_after_unchanged": true,
+  "root": {
+    "pid": 58216,
+    "argv": [
+      "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+      "-B",
+      "D:/CFTUV-export-20261015-evidence/angular/replay_pair.py",
+      "--pair",
+      "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01/rounded-000000-pair.json",
+      "--approved-profile",
+      "D:/CFTUV-export-20261015-evidence/angular/profile-311-light-4f3-isolated-parity-01.json",
+      "--approved-profile-sha256",
+      "ee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c",
+      "--source",
+      "D:/CFTUV-export-angular-20261016",
+      "--site",
+      "D:/CFTUV-export-20261015-evidence/angular/wheel-build-01/site",
+      "--task-index",
+      "0",
+      "--call-ordinal",
+      "0",
+      "--out",
+      "D:/CFTUV-export-20261015-evidence/angular/replay-rounded-01/result.json"
+    ],
+    "creation_filetime": 134365797029812109,
+    "exit": 0,
+    "expected_creation_filetime": null
+  },
+  "guard_status": "COMPLETE",
+  "reaped": true,
+  "helper_profile_sha_after": {
+    "replay_pair.py": "c3e5c5a8fd8ae80f9b8765cdf3cd7688b5220cd61dc9b4bf23768c3f5caa87b9",
+    "replay_operation.py": "44917c08a877cbbf3b054f8116ba80a347cf364c8c2abda245c1b4e1e0f7eeb2",
+    "compare_chunks.py": "aa51ee8ff1054649bd1130b14da12374a743b61253ada3234f9e6e0e639c7b45",
+    "angular_raw_pickle.py": "4835679e199a61ef883ed067abe36142acf0409d22e3d40f10b7409f9c07f0d7",
+    "profile-311-light-4f3-isolated-parity-01.json": "ee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c"
+  },
+  "result_sha256": "240af8348c062a874c6e88ce36af7b857099d25efd41cd77420f8f3b63d669cc",
+  "scope": "ONE rounded operation; sequential fresh reference/native, not cold-process timing or per-site AST gate"
+}

@@ -1,0 +1,30 @@
+{
+  "status": "COORDINATOR_EXIT",
+  "pid": 43632,
+  "creation_filetime": 134365782843467350,
+  "argv": [
+    "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+    "-B",
+    "D:/CFTUV-export-20261015-evidence/angular/capture_chunks_v2.py",
+    "--out",
+    "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01",
+    "--guard",
+    "D:/CFTUV-export-20261015-evidence/corpus/owned_job_guard_v2.py"
+  ],
+  "cwd": "D:/CFTUV-export-frame-20261015",
+  "coordinator_sha256": "e00a49e3f167c2d5ce0d41ea74e210ae8d1d1a2a45f953046ef2b3c0ccbb1e83",
+  "comparator_sha256": "aa51ee8ff1054649bd1130b14da12374a743b61253ada3234f9e6e0e639c7b45",
+  "guard_sha256": "90fd91af228d696bd181f1177b3dd1f5e1c6745e79b0707e4383fd4af378eb6b",
+  "exit": 0,
+  "stdout": "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01-coordinator.stdout.txt",
+  "stderr": "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01-coordinator.stderr.txt",
+  "exit_observer": {
+    "pid": 43108,
+    "creation_filetime": 134365783065995536,
+    "argv": [
+      "D:/CFTUV-export-20261015-evidence/angular/observe_paired_capture_exit.py"
+    ],
+    "exit": 0
+  },
+  "ended": 1792105219.6362314
+}

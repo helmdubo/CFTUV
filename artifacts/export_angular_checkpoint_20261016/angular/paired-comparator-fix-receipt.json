@@ -1,0 +1,21 @@
+{
+  "status": "STATIC_AND_17_TARGETED_GATES_PASS",
+  "profile": "D:\\CFTUV-export-20261015-evidence\\angular\\observer-baseline-rounded-01\\manifest.json",
+  "profile_sha256": "5939e57151054ace47d6423045235107bd82c4edcc76f589eff131d73512587b",
+  "profile_actual": {
+    "python": "3.11.11 (main, May 31 2025, 09:35:27) [MSC v.1929 64 bit (AMD64)]",
+    "sympy": "1.14.0",
+    "mpmath": "1.3.0",
+    "symbolic_mode": "NATIVE_EXACT"
+  },
+  "files": {
+    "compare_chunks.py": "aa51ee8ff1054649bd1130b14da12374a743b61253ada3234f9e6e0e639c7b45",
+    "capture_chunks_v2.py": "e00a49e3f167c2d5ce0d41ea74e210ae8d1d1a2a45f953046ef2b3c0ccbb1e83",
+    "test_compare_chunks.py": "6f519713b4bf573b51b65b823d832fdc89c8361e4683fd7af048ca564f4614b1"
+  },
+  "limits": [
+    "No capture/oracle/heavy launched",
+    "Guard receipts checked at launch but not rehashed on pair resume; pair artifact integrity independently rechecked",
+    "Existing test process was short unguarded helper; exec tool exit0 recorded, no persistent child"
+  ]
+}

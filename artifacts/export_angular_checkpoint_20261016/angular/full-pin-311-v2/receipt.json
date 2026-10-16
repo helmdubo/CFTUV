@@ -1,0 +1,40 @@
+{
+  "status": "FULL_PROFILE_CANDIDATE_COMPLETE_NOT_APPROVED",
+  "scope": "Offline full-profile observation only; no product pin approval",
+  "pid": 24136,
+  "creation_filetime": 134365802646174665,
+  "argv": [
+    "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+    "-b",
+    "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+    "--python-exit-code",
+    "1",
+    "--python",
+    "D:/CFTUV-export-20261015-evidence/angular/full_pin_blender_v2.py"
+  ],
+  "script_sha256": "9da45578ee494b230a50f76c0bbfdead0703f8d327f4761362ec48a1d6bd55b4",
+  "tool_sha256": "4d48ce3a27c6cd3b03b951e4b300d782d67fd42817fc80197a005ecf90e5bf46",
+  "started": 1792106665.206728,
+  "child_environment_isolation": {
+    "BLENDER_USER_CONFIG": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-v2-config",
+    "BLENDER_USER_SCRIPTS": "D:\\CFTUV-export-20261015-evidence\\angular\\full-pin-311-v2-scripts"
+  },
+  "isolation_files_after_startup": {
+    "BLENDER_USER_CONFIG": [],
+    "BLENDER_USER_SCRIPTS": []
+  },
+  "blender_inventory": [
+    24136
+  ],
+  "cached_host_modules": {},
+  "candidate": "D:\\CFTUV-export-20261015-evidence\\angular\\profile-candidate-311-full-4f3-v2.json",
+  "candidate_sha256": "21818d76e9149fc5f36cf78838a317340d330c05befd5a1a07eb92f1b48915fc",
+  "profile": "CPython-3.11:full",
+  "hashes": 78,
+  "runtime_fingerprints": 77,
+  "class_shapes": 26,
+  "source_files": 29,
+  "frozen_sha256_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+  "exit": 0,
+  "ended": 1792106672.4504738
+}

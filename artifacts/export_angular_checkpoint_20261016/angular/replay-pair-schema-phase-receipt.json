@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "checks": [
+    "same-state-pair",
+    "real-shaped-profile-snapshot",
+    "finally-state-restore",
+    "postphase-no-retry",
+    "error-restores-state",
+    "prephase-stale-preserved-no-retry"
+  ],
+  "runner_sha256": "6374c34d58cdfad151d011b459d94cde6ae5ab40ea45463083c840840bbe8b99",
+  "actual_native_executed": false
+}

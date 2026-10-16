@@ -1,0 +1,48 @@
+{
+  "status": "PYTEST_EXIT",
+  "pid": 53828,
+  "creation_filetime": 134365795855379442,
+  "helper_sha256": "c765659f1173faf069aac747c2a8462c69c00722cc8b76140902fc426ab5f2f9",
+  "children": [
+    {
+      "pid": 42480,
+      "creation_filetime": 134365795857487096,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'rev-parse', 'HEAD']",
+      "exit": 0
+    },
+    {
+      "pid": 568,
+      "creation_filetime": 134365795857852483,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'status', '--porcelain']",
+      "exit": 0
+    },
+    {
+      "pid": 26372,
+      "creation_filetime": 134365795858341251,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'ls-files', 'cftuv', 'kernel/src', 'native']",
+      "exit": 0
+    },
+    {
+      "pid": 13136,
+      "creation_filetime": 134365795882790478,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'rev-parse', 'HEAD']",
+      "exit": 0
+    },
+    {
+      "pid": 47896,
+      "creation_filetime": 134365795883234154,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'status', '--porcelain']",
+      "exit": 0
+    },
+    {
+      "pid": 5028,
+      "creation_filetime": 134365795883689800,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'ls-files', 'cftuv', 'kernel/src', 'native']",
+      "exit": 0
+    }
+  ],
+  "preexisting_job": true,
+  "kill_on_job_close": true,
+  "handle_noninheritable": true,
+  "exit": 0
+}

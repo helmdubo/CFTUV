@@ -1,0 +1,70 @@
+{
+  "status": "COMPLETE",
+  "started": 1792105296.0861692,
+  "controller": {
+    "pid": 14176,
+    "creation_filetime": 134365788959382251,
+    "argv": [
+      "D:/CFTUV-export-20261015-evidence/corpus/owned_job_guard_v2.py",
+      "run",
+      "--receipt",
+      "D:/CFTUV-export-20261015-evidence/angular/wheel-build-01-build-guard",
+      "--cwd",
+      "D:/CFTUV-export-angular-20261016/native/cftuv-python",
+      "--floor-gib",
+      "1.5",
+      "--drives",
+      "C:/",
+      "D:/",
+      "E:/",
+      "--poll",
+      "1",
+      "--",
+      "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+      "-B",
+      "D:/CFTUV-export-20261015-evidence/angular/wheel_job.py",
+      "--phase",
+      "build",
+      "--out",
+      "D:/CFTUV-export-20261015-evidence/angular/wheel-build-01"
+    ],
+    "exit": 0
+  },
+  "processes": [
+    {
+      "pid": 38848,
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+        "-B",
+        "D:/CFTUV-export-20261015-evidence/angular/wheel_job.py",
+        "--phase",
+        "build",
+        "--out",
+        "D:/CFTUV-export-20261015-evidence/angular/wheel-build-01"
+      ],
+      "creation_filetime": 134365788960877556,
+      "exit": 0,
+      "expected_creation_filetime": null
+    }
+  ],
+  "limitation": "Forced OS termination of controller not survived; no descendant tree ownership claimed",
+  "disk_before": {
+    "C:/": 6801895424,
+    "D:/": 109394526208,
+    "E:/": 1689485312
+  },
+  "disk_last": {
+    "C:/": 6692855808,
+    "D:/": 109390495744,
+    "E:/": 1689485312
+  },
+  "heartbeat": 1792105529.1789522,
+  "disk_after": {
+    "C:/": 6691868672,
+    "D:/": 109390495744,
+    "E:/": 1689485312
+  },
+  "exit": 0,
+  "owned_child_reaped": true,
+  "ended": 1792105529.7606108
+}

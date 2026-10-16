@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "checks": [
+    "zero-key-seed-preserved",
+    "same-state-pair",
+    "real-shaped-profile-snapshot",
+    "finally-state-restore",
+    "postphase-no-retry",
+    "error-restores-state",
+    "prephase-stale-preserved-no-retry",
+    "typed-unique-seed-validation",
+    "nonzero-price-drift",
+    "outer-state-distinct-from-recorded-restored",
+    "actual-saved-rounded-tuple-rows"
+  ],
+  "runner_sha256": "1121f18b7949a6052ddc78f1420405495fd624d5bd0b790c4fc1e5fccbeb2047",
+  "actual_native_executed": false
+}

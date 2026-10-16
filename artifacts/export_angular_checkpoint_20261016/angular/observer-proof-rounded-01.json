@@ -1,0 +1,14 @@
+{
+  "status": "BOUNDED_OBSERVER_EQUAL",
+  "differences": [],
+  "input_blob_sha256": "a461ec908421836b261ad5b9bc3fbca14907358e1f86289d7e792a04d4d7feaf",
+  "baseline_manifest_sha256": "5939e57151054ace47d6423045235107bd82c4edcc76f589eff131d73512587b",
+  "recorded_manifest_sha256": "ba23ce94360acb97351dcfbb6e443cb2b00d8b800b5e6925a7f245753157ab75",
+  "scope": "ONE_TASK_ONLY; no native parity or general observer purity claim",
+  "recorder_sha256": "9c7d24767fb35e9e9917e7b207d2e5eb4720d232f691d08b4cdea39f18107c2d",
+  "kernel_identity": "9164149537a1e704",
+  "head": "7618154b627e63d475de1e5ce3e4e574b74c68d0",
+  "helper_sha256": "4835679e199a61ef883ed067abe36142acf0409d22e3d40f10b7409f9c07f0d7",
+  "baseline": "D:\\CFTUV-export-20261015-evidence\\angular\\observer-baseline-rounded-01",
+  "recorded": "D:\\CFTUV-export-20261015-evidence\\angular\\observer-recorded-rounded-01"
+}

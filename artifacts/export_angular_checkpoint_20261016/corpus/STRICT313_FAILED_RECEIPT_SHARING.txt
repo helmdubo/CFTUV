@@ -1,0 +1,9 @@
+STRICT313 attempt strict-313-1792101676083993000 FAILED_HARNESS_RECEIPT_SHARING, NOT product acceptance.
+Guardreceipt SHA7d299b7edb275c21773d9bf119831e052abfc0d10b5f773c07f6b2313610cde9.
+Exactfailure: owned_job_guard.py109 save -> line26 os.replace process.json.tmp -> process.json PermissionError [WinError5] Access is denied.
+Paths D:/CFTUV-export-20261015-evidence/corpus/strict-313-1792101676083993000-guard-1792101698615159600/process.json(.tmp).
+Root3584 FILETIME134365752986192444 exit91, guardFAILED_CLOSED1/reaped; controller24992exit1, postsource/evidenceguards passed in finally; no finalJUnit. LastnodeCIworkflowmergebase7%. Diskfloor not crossed.
+Potential transient Windows reader-sharing collision; no claim exactreader identified. All failedoutputs retained.
+NEW guard_v2 SHA90fd91af228d696bd181f1177b3dd1f5e1c6745e79b0707e4383fd4af378eb6b only retries Windows replaceerrors5/32/33 for250ms; terminalfailure cleanup unchanged, othererrorsimmediate.
+ALL8PASS safechildfaultproof guard-v2-faultproof-01/receipt.json SHA8d9757b5162a03d4f5600c1c84193735cf2a5e705479565687a24642dfe36295. No liveprocess/jobJSON reads goingforward; stdouttail only.
+NEW controller_v2 b118e3bbecfd4f4c030cb7bba8ea9ea8224b55a2b660c5bb663f4707793379c9; strict_suite_v4 93b5a946e86f846dfc994f44eaa56bedc7b4641102176f67e9e1912ba5470e4b. Mechanicalguardpin/import changes, samebootstrap5355 and alltestset. Originalfiles immutable.

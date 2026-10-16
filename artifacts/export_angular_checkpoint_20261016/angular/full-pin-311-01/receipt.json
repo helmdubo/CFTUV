@@ -1,0 +1,25 @@
+{
+  "status": "FAILED_NOT_ACCEPTED",
+  "scope": "Offline full-profile observation only; no product pin approval",
+  "pid": 33104,
+  "creation_filetime": 134365799611126270,
+  "argv": [
+    "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+    "-b",
+    "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+    "--python-exit-code",
+    "1",
+    "--python",
+    "D:/CFTUV-export-20261015-evidence/angular/full_pin_blender.py"
+  ],
+  "script_sha256": "cb5feff0c8d34bb859143ddc7063ed3741b24e4c528f2391a918dabd302d015a",
+  "tool_sha256": "4d48ce3a27c6cd3b03b951e4b300d782d67fd42817fc80197a005ecf90e5bf46",
+  "started": 1792106365.6175148,
+  "blender_inventory": [
+    33104
+  ],
+  "failure": "Traceback (most recent call last):\n  File \"D:\\CFTUV-export-20261015-evidence\\angular\\full_pin_blender.py\", line 34, in main\n    assert Path(module.__file__).resolve().is_relative_to(ROOT/'cftuv'),'WRONG_CACHED_HOST '+name\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: WRONG_CACHED_HOST cftuv\n",
+  "frozen_sha256_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+  "exit": 1,
+  "ended": 1792106367.4434478
+}

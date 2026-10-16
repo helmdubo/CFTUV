@@ -1,0 +1,294 @@
+[
+  {
+    "mode": "PYTHON",
+    "law": "PLANAR_POLYGONS_V1",
+    "topology": {
+      "vertices": 7,
+      "faces": 2,
+      "edges": 8,
+      "boundary_edges": 8,
+      "overfull_edges": 0,
+      "disconnected_links": [
+        {
+          "vertex": 0,
+          "position": [
+            1.5,
+            0.5,
+            0.0
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                1,
+                4
+              ],
+              "faces": [
+                0
+              ],
+              "origins": [
+                {
+                  "region": "region:0",
+                  "domain": "domain"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                2,
+                5
+              ],
+              "faces": [
+                1
+              ],
+              "origins": [
+                {
+                  "region": "region:1",
+                  "domain": "domain"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 0,
+              "loop": 2,
+              "uv": [
+                3.0,
+                1.0
+              ]
+            },
+            {
+              "face": 1,
+              "loop": 7,
+              "uv": [
+                -1.0,
+                1.0
+              ]
+            }
+          ]
+        }
+      ],
+      "branching_links": [],
+      "loop_count": 8
+    }
+  },
+  {
+    "mode": "NATIVE",
+    "law": "PLANAR_POLYGONS_V1",
+    "topology": {
+      "vertices": 7,
+      "faces": 2,
+      "edges": 8,
+      "boundary_edges": 8,
+      "overfull_edges": 0,
+      "disconnected_links": [
+        {
+          "vertex": 0,
+          "position": [
+            1.5,
+            0.5,
+            0.0
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                1,
+                4
+              ],
+              "faces": [
+                0
+              ],
+              "origins": [
+                {
+                  "region": "region:0",
+                  "domain": "domain"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                2,
+                5
+              ],
+              "faces": [
+                1
+              ],
+              "origins": [
+                {
+                  "region": "region:1",
+                  "domain": "domain"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 0,
+              "loop": 2,
+              "uv": [
+                3.0,
+                1.0
+              ]
+            },
+            {
+              "face": 1,
+              "loop": 7,
+              "uv": [
+                -1.0,
+                1.0
+              ]
+            }
+          ]
+        }
+      ],
+      "branching_links": [],
+      "loop_count": 8
+    }
+  },
+  {
+    "mode": "PYTHON",
+    "law": "SILHOUETTE_TOPOLOGY_V1",
+    "topology": {
+      "vertices": 7,
+      "faces": 2,
+      "edges": 8,
+      "boundary_edges": 8,
+      "overfull_edges": 0,
+      "disconnected_links": [
+        {
+          "vertex": 0,
+          "position": [
+            1.5,
+            0.5,
+            0.0
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                1,
+                4
+              ],
+              "faces": [
+                0
+              ],
+              "origins": [
+                {
+                  "region": "region:0",
+                  "domain": "domain"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                2,
+                5
+              ],
+              "faces": [
+                1
+              ],
+              "origins": [
+                {
+                  "region": "region:1",
+                  "domain": "domain"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 0,
+              "loop": 2,
+              "uv": [
+                3.0,
+                1.0
+              ]
+            },
+            {
+              "face": 1,
+              "loop": 7,
+              "uv": [
+                -1.0,
+                1.0
+              ]
+            }
+          ]
+        }
+      ],
+      "branching_links": [],
+      "loop_count": 8
+    }
+  },
+  {
+    "mode": "NATIVE",
+    "law": "SILHOUETTE_TOPOLOGY_V1",
+    "topology": {
+      "vertices": 7,
+      "faces": 2,
+      "edges": 8,
+      "boundary_edges": 8,
+      "overfull_edges": 0,
+      "disconnected_links": [
+        {
+          "vertex": 0,
+          "position": [
+            1.5,
+            0.5,
+            0.0
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                1,
+                4
+              ],
+              "faces": [
+                0
+              ],
+              "origins": [
+                {
+                  "region": "region:0",
+                  "domain": "domain"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                2,
+                5
+              ],
+              "faces": [
+                1
+              ],
+              "origins": [
+                {
+                  "region": "region:1",
+                  "domain": "domain"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 0,
+              "loop": 2,
+              "uv": [
+                3.0,
+                1.0
+              ]
+            },
+            {
+              "face": 1,
+              "loop": 7,
+              "uv": [
+                -1.0,
+                1.0
+              ]
+            }
+          ]
+        }
+      ],
+      "branching_links": [],
+      "loop_count": 8
+    }
+  }
+]

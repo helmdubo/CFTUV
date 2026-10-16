@@ -1,0 +1,36 @@
+{
+  "status": "PYTEST_EXIT",
+  "pid": 33104,
+  "creation_filetime": 134365799611126270,
+  "helper_sha256": "c765659f1173faf069aac747c2a8462c69c00722cc8b76140902fc426ab5f2f9",
+  "children": [
+    {
+      "pid": 19336,
+      "creation_filetime": 134365799656196231,
+      "argv": "['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', '@(Get-CimInstance Win32_Process -Filter \"Name = \\'blender.exe\\'\" | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress']",
+      "exit": 0
+    },
+    {
+      "pid": 32324,
+      "creation_filetime": 134365799665891658,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'rev-parse', 'HEAD']",
+      "exit": 0
+    },
+    {
+      "pid": 19564,
+      "creation_filetime": 134365799666266327,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'status', '--porcelain']",
+      "exit": 0
+    },
+    {
+      "pid": 58168,
+      "creation_filetime": 134365799666795412,
+      "argv": "['git', '-C', 'D:\\\\CFTUV-export-angular-20261016', 'ls-files', 'cftuv', 'kernel/src', 'native']",
+      "exit": 0
+    }
+  ],
+  "preexisting_job": true,
+  "kill_on_job_close": true,
+  "handle_noninheritable": true,
+  "exit": 1
+}

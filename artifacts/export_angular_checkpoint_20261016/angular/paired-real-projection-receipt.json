@@ -1,0 +1,20 @@
+{
+  "status": "EXISTING_REAL_ROWS_PROJECTION_PASS",
+  "results": [
+    {
+      "directory": "observer-baseline-rounded-01",
+      "rows": 1
+    },
+    {
+      "directory": "observer-recorded-rounded-01",
+      "rows": 1
+    }
+  ],
+  "environment_all_fields_equal": true,
+  "native_source_build": {
+    "id": "2a74a8b573f322821c0da35ca5ef8dde77ddd076edfc9b95a27cc712397cb8d4",
+    "rust": "a55c3db41fbe52489a1f138c058715ebfbadde31c9f739b812cb8eb031c0ac35",
+    "shim": "9c1a1ba9a53b86a41ddf7034534336f41875d4425c8a9fb8bf0dae796c7869a7"
+  },
+  "no_oracle_replay": true
+}

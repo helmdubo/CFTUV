@@ -1,0 +1,27 @@
+{
+  "status": "FAILED_NOT_ACCEPTANCE",
+  "issue": "Forbidden --factory-startup was used in the first synthetic Blender invocation; owner constraint was misinterpreted. This attempt is excluded from accepted evidence.",
+  "guard_receipt": "synthetic-blender-01-guard/process.json",
+  "pid": 37060,
+  "creation_filetime": 134365669346863217,
+  "argv": [
+    "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+    "-b",
+    "--factory-startup",
+    "--python-exit-code",
+    "1",
+    "--python",
+    "D:/CFTUV-export-20261015-evidence/w1-point-contact/synthetic_blender.py",
+    "--",
+    "--out",
+    "D:/CFTUV-export-20261015-evidence/w1-point-contact/synthetic-blender-01"
+  ],
+  "exit": 1,
+  "owned_child_reaped": true,
+  "failure": "ModuleNotFoundError: sympy before materialization",
+  "owner_files": "No save_mainfile, save_homefile or cleanup operations were invoked. No owner file was intentionally written or removed.",
+  "correction": "launch_synthetic.py asserts forbidden flag absence and exact frozen scene argv before Popen; before/after frozen file SHA is mandatory. Corrected attempt02 was explicitly approved and succeeded.",
+  "corrected_receipt": "synthetic-blender-02/receipt.json",
+  "corrected_guard": "synthetic-blender-02-guard/process.json",
+  "corrected_frozen_sha_before_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4"
+}

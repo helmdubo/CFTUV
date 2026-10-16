@@ -1,0 +1,69 @@
+{
+  "scope": "Rust ANGULAR unit/integration tests and PyO3 type-check only; not extension link/wheel/runtime parity",
+  "source_head": "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66",
+  "target": "C:/Users/helmd/AppData/Local/Temp/cftuv-r3-density-target",
+  "steps": {
+    "rust-angular-01": {
+      "root": {
+        "pid": 51244,
+        "argv": [
+          "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+          "-B",
+          "D:/CFTUV-export-20261015-evidence/angular/rust_job.py",
+          "--step",
+          "angular",
+          "--out",
+          "D:/CFTUV-export-20261015-evidence/angular/rust-angular-01",
+          "--expected-head",
+          "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66"
+        ],
+        "creation_filetime": 134365781027713915,
+        "exit": 0,
+        "expected_creation_filetime": null
+      },
+      "disks": {
+        "C:/": 6973050880,
+        "D:/": 109456924672,
+        "E:/": 1689485312
+      },
+      "file_sha256": {
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-angular-01-guard\\process.json": "49229587466edd29678a742f9f53624dc0fac36233e0e408f38074518e5f3909",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-angular-01-guard\\stdout.txt": "bcee96bc89a5039b960969e0a3e0a753e964549735669b45ac494415f252f788",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-angular-01-guard\\stderr.txt": "111cf03807b0d04e6bd4cf648334d48b896a7e97e2d4b1bfb92fd536862be936",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-angular-01\\result.json": "5da9884d0b332558bf3c6e1a86ac2fa50b70636f23e1cd69da510446d9fa045f",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-angular-01\\job.json": "910a4ab56987dbb1f5fa7fc6cfc2c3d3400c9a2d8154015d53c42deaf558c56a"
+      }
+    },
+    "rust-pyo3-01": {
+      "root": {
+        "pid": 41464,
+        "argv": [
+          "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+          "-B",
+          "D:/CFTUV-export-20261015-evidence/angular/rust_job.py",
+          "--step",
+          "pyo3",
+          "--out",
+          "D:/CFTUV-export-20261015-evidence/angular/rust-pyo3-01",
+          "--expected-head",
+          "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66"
+        ],
+        "creation_filetime": 134365781606232801,
+        "exit": 0,
+        "expected_creation_filetime": null
+      },
+      "disks": {
+        "C:/": 6863335424,
+        "D:/": 109456900096,
+        "E:/": 1689485312
+      },
+      "file_sha256": {
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-pyo3-01-guard\\process.json": "632066cc9044bbcb760a393ea7eafa4b9ef14cb33f7295d1eee7afd509edd964",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-pyo3-01-guard\\stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-pyo3-01-guard\\stderr.txt": "f37eabdc0ed4ed0a93f594b03eae6f23917f675bf6f074122916636e86402742",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-pyo3-01\\result.json": "25b2d9433b7915a211ea6308be000786c6f132010bc4b9311b1417e8dbee74e5",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\rust-pyo3-01\\job.json": "8f11e2204b2e56021e4cc48de16774a5f2f6773c8100279553ac993a3d254a10"
+      }
+    }
+  }
+}

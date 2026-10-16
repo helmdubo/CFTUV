@@ -1,0 +1,10 @@
+FAILED_BOOTSTRAP_SPAWN — strict311 attempt strict-311-1792094229203494700 NOT acceptance.
+Live captured traceback: strict311-captured-spawn-exception.json SHA b71d3224369e469788b02be0b3ac2d24704680701f4725c934131199a7f473e7.
+spawn.py297 runpy(...__mp_main__) -> strict_bootstrap.py19 setup -> strict_process_job.py26 AssertionError JOB_RECEIPT_EXISTS. Existingreceipt assertion remains unchanged; original bootstrap/runner preserved.
+Read-only exact Job active-PID samples show root+2 rapidly respawning Pool workers; no productfailure inference.
+Safe stop via duplicated EXISTING guardcontroller20884 HANDLE624 for root25124 FT134365678519819552. No targetPID terminationopen. Exit92, guardFAILED_CLOSED1/reaped. Stopreceipt SHA9071e56e0dfc48c912e47aab29f2397b9c8464bd2fb762128908d5054c0a4cf2. Root/children absent.
+NEW strict_bootstrap_v2.py SHA5355d796a959dc0ee372d5d28e9ea04390102266d033813170d71b58212990b3 wraps ALL actions inside main+__main__ guard.
+NEW strict_suite_v3.py SHA000e571233c778f8c69dcbbd37f48137a80e2beb8ec824cb65957604b525c7b3 only bootstrapfilename + -v instead -q; testset unchanged.
+Independentreview GO angular_scout. Actual spawnPool2 probe PASSED: workers __mp_main__, exact ownJob root+2, zerorespawn, originalsinglerootreceiptunchanged. ProbeSHA32e6ed210144ec398c916ef5cff060674d40df354db8a3d8e9d2da97228b885b.
+Both formerlyblocking realpooltests PASSED2/2 in55.33s; strict-spawn-regression-01/junit.xml SHA1fde4c16e2183fcad3ce3e2517ee5b738ad72ecc7ea3974712424e8c67ec06b9. GuardCOMPLETE0/reaped. HEAD7618clean/scenefrozen750bae unchanged.
+ParentGO complete strict311 rerun then313 subject exact historicalDensitygap classification. Prior partial results NOT fullacceptance.

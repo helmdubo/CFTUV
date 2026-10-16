@@ -1,0 +1,57 @@
+FRAME S5 — финальный технический receipt, 2026-10-16
+STATUS: FRAME gates complete with explicitly accepted inherited Density gap.
+all_green=false. Новых продуктовых ошибок в полном strict нет. Итоговая приёмка остаётся у parent/владельца.
+
+IDENTITY
+Validation HEAD7618154b627e63d475de1e5ce3e4e574b74c68d0, D:/CFTUV-export-frame-20261015 clean после всех проверок.
+Kernel9164149537a1e704; native build2a74a8b573f322821c0da35ca5ef8dde77ddd076edfc9b95a27cc712397cb8d4.
+Main E:/GITHUB/CFTUV остался1d17ba1af3b7a03e24ec0313e76b3f68e0191119; main не изменялся.
+A/B и button timing измерены на8daa74f6d811588bf145d453749801348437c6a2. Diff8daa->7618: толькоDECISIONS.md, tests/test_native_skeleton_seams_lifecycle.py, tools/native_skeleton_seams.py; продукт unchanged.
+Frozen testscene.blend SHA750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4 после проверок тот же; .blend не сохранялись.
+
+CI — gh status/conclusion/headSha перепроверены read-only
+Host SUCCESS https://github.com/helmdubo/CFTUV/actions/runs/38756536911
+Kernel SUCCESS https://github.com/helmdubo/CFTUV/actions/runs/38756537016
+Native SUCCESS https://github.com/helmdubo/CFTUV/actions/runs/38756537589
+Все три completed/success на полном HEAD7618154b627e63d475de1e5ce3e4e574b74c68d0.
+
+FIELD A/B + REAL BUTTON
+6cases x workers0,12 =12pairs/24Blender roots: TREE_AB_IDENTICAL, zero diffs, EXACT_WORK/counters; cold,step,tickx5,confirm; no --timing.
+Cover cold w0 иw12: native1023 + namedPython26 /1049 admissions => decline2.478551% <=3% обе конфигурации.
+D:/CFTUV-export-20261015-evidence/treeab-summary-02.json SHAe30790453e6b7e3761b048624c50f92155d29023f9ca7d107fb6df29d7e82e0c.
+Реальный bpy.ops.hotspotuv.build_envelope_decal_mesh(EXEC_DEFAULT), w12, 3alternating repeats наbuilding/cover; штатный prewarm_pool вне button timer.
+Paired main->FRAME medians: building1.7094728->1.6644606s (-2.63%); cover8.7168117->8.5161361s (-2.30%). Digests equal; startup/prewarm/button метрики раздельные. Старые1.74/9.87 не использованы как paired samples.
+D:/CFTUV-export-20261015-evidence/operator-summary-01.json SHA3fbea682371492ffa7832ebddf3a22ee048f2865d529eb25ad594e9e7f692e1c.
+
+CORPUS / EXACT SEMANTICS
+7989=2323base+5666derived; все прежние inputs/before/labels/caps/whole outcomes/exceptions/prices сохранены.
+V2 accepted full: retained4225 verified +3764 actual oracle recordings;7989 typed transcript matches;47 narrow normalization positives,7942 negative identity scans; no unknown types/shapes tolerated.
+Только approved MEMO_ABORT_POINTER_ALPHA_V1:3opaque rawIDs финального aborted candidate memo lookup; exact positiveint shape, final budget error, global occurrence isolation, alias pattern preserved. V1 history/failed outputs неизменны. Остальные clocks/signs/prices/budgets/order/journal/counts сравнивались точно; только разрешённые wall seconds/queue alpha исключения.
+Acceptance D:/CFTUV-export-20261015-evidence/corpus/seams-v2-acceptance-full-01/acceptance.json
+SHA2bc5dcd16646b48589b4a72a03f9d52c8bc29bff72f2504d250628ca9ac0a977, COMPLETE_VERIFIED accepted=true.
+Validator actualreceipt +4tamper refusals ALL5PASS: v2-validator-probe-01/receipt.json SHA41782f9ae8fa9f5e0ac7c0cd38de07d1d4a8a0691ee927fa9d948e347c55e3c8.
+Publication15980 exact source/destination SHA mappings, exactfileset, allSHA unchanged:
+D:/CFTUV-export-20261015-evidence/corpus/synthetic-publication-v2-full-01.json
+SHA40e325a0756f81b279a20ddec961809e5a01f6dfb8699f7cd4534f27ef7dc37b.
+Canonical D:/cftuv_native_corpus/frame-9164149537a1e704/8daa74f6/synthetic_skeleton; historical8daa source header retained.
+Remaining corpus gates COMPLETE0: commonderive52; skeletonFIELDexport163; skeletonderive931; FIELDseams1094/21001048bytes/queueops18481.
+
+FULL STRICT — ALL TESTS EXECUTED,0DESELECTED, ACTUAL EXIT1 PRESERVED
+3.11.11 strict-311-1792098390398952100:1481passed,1interpreter skip,1error,0failures;3150.72s.
+JUnit D:/CFTUV-export-20261015-evidence/corpus/strict-311-1792098390398952100.xml SHA341cf4561f4b77b9469d11b6b571b0a8551c0d91d0f7ea59b10fd08095e566b0.
+3.13 strict-313-1792102095578835100:1481passed,1interpreter skip,1error,0failures;2327.42s.
+JUnit D:/CFTUV-export-20261015-evidence/corpus/strict-313-1792102095578835100.xml SHAfe3946b0b541029908ba21a5eed57d5fdaef1a0e2b10d4e350d55309ccf2ad80.
+ОБА soleERROR: tests/test_native_density_batch.py::test_native_density_batch_field_matches_live_oracle.
+Exact reason: owner whole raw Density field records: set CFTUV_NATIVE_DENSITY_BATCH_FIELD to accepted records.jsonl.
+Это inherited R3_FIELD_ACCEPTANCE_V1 gap: архив принятых2432rawbatch утрачен. Путь не выдумывался, тест не исключался, strict превратил missing-record skip в setupERROR. all_green=false.
+Interpreter skips:3.11 sys.monitoring requires>=3.12;3.13 CPython3.11-specific list.sort test. Complementary tests PASSED на другом интерпретаторе; closure live-line monitor PASSED3.13.
+FRAME full-module FIELD/mutations1455, effective_alpha, materializeW1, radical, builder, closure, motorcycle, whole, embedding/snapshot и оба formerlyblocking Pool regression прошли в обоих полных suites.
+Classifications: corpus/strict311-v3-classification.json; corpus/strict313-v4-classification.json.
+
+HARNESS HISTORY / CLEAN EXIT
+Не принятые ранние attempts сохранены: STRICT311_FAILED_BOOTSTRAP_SPAWN.txt (живой JOB_RECEIPT_EXISTS traceback, own retainedHANDLE stop92) и STRICT313_FAILED_RECEIPT_SHARING.txt (WinError5 heartbeatreplace, ownroot91/reaped).
+NEW spawn-safe bootstrap5355d796... independentreview +actualPool2 +bothrealpooltests PASS; old files immutable.
+NEW guard90fd91af... only Windows replace5/32/33 bounded250ms retry; ALL8 safechildfaultproof PASS incl permanentfail+heldHANDLE cleanup. PID/disk/Job/testgates не ослаблены.
+Final313 actual31296 FT134365757182900675 exit1 normally; launcher38600 exit1/reaped. Retainedactual watcher3084 ACTUAL_EXITED_NORMALLY_NO_STOP, terminated=false, exit0; receipt SHA973111ee2d47eb37e6d1788d8a8c002ef763298f80667783939d7703b0e65997.
+Finalguard0ffb6192b675032faf626785c8ad6e468c73ab73da83735e39d782a731981e6f: FAILED_CLOSED1 solely actualpytest1, ownedchildreaped=true. Postsource/V2evidence checks passed in finally, lockremoved, all ownroots/watcher exited.
+No foreign kills/source/main edits; heavy slot RELEASED. Следующие ANGULAR jobs здесь не запускались.

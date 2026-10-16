@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "D:\CFTUV-export-20261015-evidence\angular\replay_chunks.py", line 141, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "D:\CFTUV-export-20261015-evidence\angular\replay_chunks.py", line 140, in main
+    else:coordinate(args)
+         ^^^^^^^^^^^^^^^^
+  File "D:\CFTUV-export-20261015-evidence\angular\replay_chunks.py", line 127, in coordinate
+    report=json.loads((guard/'process.json').read_text());assert code==0 and report['status']=='COMPLETE'and report['owned_child_reaped'],'GUARDED_CHUNK_FAILED'
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: GUARDED_CHUNK_FAILED

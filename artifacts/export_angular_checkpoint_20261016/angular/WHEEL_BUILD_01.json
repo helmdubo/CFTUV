@@ -1,0 +1,71 @@
+{
+  "head": "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66",
+  "scope": "isolated WIP wheel build/install; ANGULAR remains unavailable; not native parity acceptance",
+  "phases": {
+    "build": {
+      "root": {
+        "pid": 38848,
+        "argv": [
+          "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+          "-B",
+          "D:/CFTUV-export-20261015-evidence/angular/wheel_job.py",
+          "--phase",
+          "build",
+          "--out",
+          "D:/CFTUV-export-20261015-evidence/angular/wheel-build-01"
+        ],
+        "creation_filetime": 134365788960877556,
+        "exit": 0,
+        "expected_creation_filetime": null
+      },
+      "disks": {
+        "C:/": 6691868672,
+        "D:/": 109390495744,
+        "E:/": 1689485312
+      },
+      "files": {
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-build-guard\\process.json": "e444d6a6e43720e1891d3a4c9e8c3627b41d7f30e6c8cf5b2368260c6bf08d76",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-build-guard\\stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-build-guard\\stderr.txt": "e9d59b2a8e45967685bfc327b8ed5f7a818ad7c5a2e7adb47e210c112e6ce90b",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\build\\result.json": "f41af096f6487182578fb4fb4aeb345d7218aeed1db8b58e7f644cfbf17dee79",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\build\\job.json": "e3c76721e5020691300348528c3997a111afb995a87521ac04078c6184c7ec94"
+      }
+    },
+    "install": {
+      "root": {
+        "pid": 47352,
+        "argv": [
+          "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+          "-B",
+          "D:/CFTUV-export-20261015-evidence/angular/wheel_job.py",
+          "--phase",
+          "install",
+          "--out",
+          "D:/CFTUV-export-20261015-evidence/angular/wheel-build-01"
+        ],
+        "creation_filetime": 134365791579175537,
+        "exit": 0,
+        "expected_creation_filetime": null
+      },
+      "disks": {
+        "C:/": 6694178816,
+        "D:/": 109378908160,
+        "E:/": 1689485312
+      },
+      "files": {
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-install-guard\\process.json": "59d3cb033915a2a6cde08fba37e141244786edcaba744775471ec7d50349c288",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-install-guard\\stdout.txt": "1b07ec558db968b9b204eb27330b0a5723d07090311701c0cb5ea521c716ebc4",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01-install-guard\\stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\install\\result.json": "db1be7e2573e0abe9273ec0a0dc0c0552ec13819168f01002996be77d404c613",
+        "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\install\\job.json": "6a91669e49d2d2cffce83ac3d29eb9b1989c2b68eeab1ad462cd530ab9ab9460"
+      }
+    }
+  },
+  "wheel_sha256": "4b32d01bc18609b1ac70bcd6e6ae37e5b17d0c85fbf7efb72c58d75fd2a14377",
+  "parts": {
+    "id": "e5480f28953cafd9e8bb67d53241d7ee0dd561408a8fa4b3b57bd34eb30dde56",
+    "rust": "329069f4074ed52cd3840cb383c6cb6e42cc98f682951c93d76c5bfebb75431d",
+    "shim": "b09719465f66a08053cce645b42bd4288976949f7c1da3f7b40ddb32b5b8974c"
+  },
+  "site": "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\site"
+}

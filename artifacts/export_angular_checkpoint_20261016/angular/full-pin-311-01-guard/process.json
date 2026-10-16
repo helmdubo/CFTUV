@@ -1,0 +1,73 @@
+{
+  "status": "FAILED_CLOSED",
+  "started": 1792106361.1105042,
+  "controller": {
+    "pid": 28792,
+    "creation_filetime": 134365799609533718,
+    "argv": [
+      "D:/CFTUV-export-20261015-evidence/corpus/owned_job_guard_v2.py",
+      "run",
+      "--receipt",
+      "D:/CFTUV-export-20261015-evidence/angular/full-pin-311-01-guard",
+      "--cwd",
+      "D:/CFTUV-export-angular-20261016",
+      "--timeout",
+      "60",
+      "--floor-gib",
+      "1.5",
+      "--drives",
+      "C:/",
+      "D:/",
+      "E:/",
+      "--poll",
+      "1",
+      "--",
+      "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+      "-b",
+      "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+      "--python-exit-code",
+      "1",
+      "--python",
+      "D:/CFTUV-export-20261015-evidence/angular/full_pin_blender.py"
+    ],
+    "exit": 1
+  },
+  "processes": [
+    {
+      "pid": 33104,
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:/CFTUV-export-20261015-evidence/angular/full_pin_blender.py"
+      ],
+      "creation_filetime": 134365799611126270,
+      "exit": 1,
+      "expected_creation_filetime": null
+    }
+  ],
+  "limitation": "Forced OS termination of controller not survived; no descendant tree ownership claimed",
+  "disk_before": {
+    "C:/": 6748258304,
+    "D:/": 109378658304,
+    "E:/": 1689485312
+  },
+  "disk_last": {
+    "C:/": 6754119680,
+    "D:/": 109378531328,
+    "E:/": 1689485312
+  },
+  "heartbeat": 1792106367.1864035,
+  "disk_after": {
+    "C:/": 6753533952,
+    "D:/": 109378523136,
+    "E:/": 1689485312
+  },
+  "failure": "Traceback (most recent call last):\n  File \"D:\\CFTUV-export-20261015-evidence\\corpus\\owned_job_guard_v2.py\", line 126, in run\n    raise RuntimeError('OWNED_JOB_FAILED')\nRuntimeError: OWNED_JOB_FAILED\n",
+  "exit": 1,
+  "owned_child_reaped": true,
+  "ended": 1792106367.6634717
+}

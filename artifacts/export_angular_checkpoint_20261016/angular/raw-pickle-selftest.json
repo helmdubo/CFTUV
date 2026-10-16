@@ -1,0 +1,9 @@
+{
+  "status": "RAW_PICKLE_SELFTEST_PASS",
+  "proxy_type": true,
+  "backing_identity": true,
+  "shared_values": true,
+  "nested_dataclass": true,
+  "global_copyreg_unchanged": true,
+  "helper_module": "angular_raw_pickle"
+}

@@ -1,0 +1,76 @@
+{
+  "status": "COMPLETE",
+  "started": 1792106664.6159358,
+  "controller": {
+    "pid": 55596,
+    "creation_filetime": 134365802644781304,
+    "argv": [
+      "D:/CFTUV-export-20261015-evidence/corpus/owned_job_guard_v2.py",
+      "run",
+      "--receipt",
+      "D:/CFTUV-export-20261015-evidence/angular/full-pin-311-v2-guard",
+      "--cwd",
+      "D:/CFTUV-export-angular-20261016",
+      "--env",
+      "BLENDER_USER_CONFIG=D:/CFTUV-export-20261015-evidence/angular/full-pin-311-v2-config",
+      "--env",
+      "BLENDER_USER_SCRIPTS=D:/CFTUV-export-20261015-evidence/angular/full-pin-311-v2-scripts",
+      "--timeout",
+      "60",
+      "--floor-gib",
+      "1.5",
+      "--drives",
+      "C:/",
+      "D:/",
+      "E:/",
+      "--poll",
+      "1",
+      "--",
+      "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+      "-b",
+      "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+      "--python-exit-code",
+      "1",
+      "--python",
+      "D:/CFTUV-export-20261015-evidence/angular/full_pin_blender_v2.py"
+    ],
+    "exit": 0
+  },
+  "processes": [
+    {
+      "pid": 24136,
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:/CFTUV-export-20261015-evidence/angular/full_pin_blender_v2.py"
+      ],
+      "creation_filetime": 134365802646174665,
+      "exit": 0,
+      "expected_creation_filetime": null
+    }
+  ],
+  "limitation": "Forced OS termination of controller not survived; no descendant tree ownership claimed",
+  "disk_before": {
+    "C:/": 6769029120,
+    "D:/": 109378240512,
+    "E:/": 1689485312
+  },
+  "disk_last": {
+    "C:/": 6747664384,
+    "D:/": 109373460480,
+    "E:/": 1689485312
+  },
+  "heartbeat": 1792106671.688233,
+  "disk_after": {
+    "C:/": 6748983296,
+    "D:/": 109373452288,
+    "E:/": 1689485312
+  },
+  "exit": 0,
+  "owned_child_reaped": true,
+  "ended": 1792106672.6842651
+}

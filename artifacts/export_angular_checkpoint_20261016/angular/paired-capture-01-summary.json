@@ -1,0 +1,760 @@
+{
+  "status": "PAIRED_ALL_OBSERVER_EQUAL_NOT_NATIVE_PARITY",
+  "native_parity_claim": false,
+  "head": "7618154b627e63d475de1e5ce3e4e574b74c68d0",
+  "kernel": "9164149537a1e704",
+  "build": "2a74a8b573f322821c0da35ca5ef8dde77ddd076edfc9b95a27cc712397cb8d4",
+  "pairs": 80,
+  "tasks": 1221,
+  "archives": [
+    {
+      "name": "building.tasks.xz",
+      "sha256": "70e56e664e31d8cb3dabfe86771d618b22c2c799b58e9331d764be2c4ec94f99"
+    },
+    {
+      "name": "cover008.tasks.xz",
+      "sha256": "396646e1566cebe1ffbd834d160ee4e7d0f7f2b5e911c6d648984aec7e7acebb"
+    },
+    {
+      "name": "half_sphere.tasks.xz",
+      "sha256": "097ca77927e8780509d25b0865c3b835b49fa0f5e2f14e9041ed616da8595b75"
+    },
+    {
+      "name": "rounded.tasks.xz",
+      "sha256": "3f7e653679a430a4b0d91fe3eff0cd70977530d3717c18604362e3a980feecb5"
+    },
+    {
+      "name": "sagging02239.tasks.xz",
+      "sha256": "fecbd56f719bf5486b7209f5efe3b1400f3ab7f66f9c0a597e3be7798139978b"
+    },
+    {
+      "name": "sagging0987.tasks.xz",
+      "sha256": "236eb693e139302ec28ed4669aa0db6f6a5b5bf3ef3ab5eaff117b24e522c46e"
+    },
+    {
+      "name": "two.tasks.xz",
+      "sha256": "cd9007e7b5b3fde5fa80acbbe20e4578b8ca890e4f0e801ca6441f1555d5284b"
+    }
+  ],
+  "archive_counts": [
+    {
+      "archive": "building.tasks.xz",
+      "chunks": 8,
+      "tasks": 122.0
+    },
+    {
+      "archive": "cover008.tasks.xz",
+      "chunks": 66,
+      "tasks": 1056.0
+    },
+    {
+      "archive": "half_sphere.tasks.xz",
+      "chunks": 1,
+      "tasks": 2.0
+    },
+    {
+      "archive": "rounded.tasks.xz",
+      "chunks": 1,
+      "tasks": 5.0
+    },
+    {
+      "archive": "sagging02239.tasks.xz",
+      "chunks": 1,
+      "tasks": 2.0
+    },
+    {
+      "archive": "sagging0987.tasks.xz",
+      "chunks": 1,
+      "tasks": 2.0
+    },
+    {
+      "archive": "two.tasks.xz",
+      "chunks": 2,
+      "tasks": 32.0
+    }
+  ],
+  "differences": 0,
+  "side_guards": 160,
+  "side_guards_complete_exit0_reaped": 160,
+  "coordinator": {
+    "status": "COORDINATOR_EXIT",
+    "pid": 43632,
+    "creation_filetime": 134365782843467350,
+    "argv": [
+      "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+      "-B",
+      "D:/CFTUV-export-20261015-evidence/angular/capture_chunks_v2.py",
+      "--out",
+      "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01",
+      "--guard",
+      "D:/CFTUV-export-20261015-evidence/corpus/owned_job_guard_v2.py"
+    ],
+    "cwd": "D:/CFTUV-export-frame-20261015",
+    "coordinator_sha256": "e00a49e3f167c2d5ce0d41ea74e210ae8d1d1a2a45f953046ef2b3c0ccbb1e83",
+    "comparator_sha256": "aa51ee8ff1054649bd1130b14da12374a743b61253ada3234f9e6e0e639c7b45",
+    "guard_sha256": "90fd91af228d696bd181f1177b3dd1f5e1c6745e79b0707e4383fd4af378eb6b",
+    "exit": 0,
+    "stdout": "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01-coordinator.stdout.txt",
+    "stderr": "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01-coordinator.stderr.txt",
+    "exit_observer": {
+      "pid": 43108,
+      "creation_filetime": 134365783065995536,
+      "argv": [
+        "D:/CFTUV-export-20261015-evidence/angular/observe_paired_capture_exit.py"
+      ],
+      "exit": 0
+    },
+    "ended": 1792105219.6362314
+  },
+  "elapsed_seconds": 535.289496421814,
+  "state": {
+    "path": "D:/CFTUV-export-20261015-evidence/angular/paired-capture-01/pairs.json",
+    "sha256": "242ac26b643e21b07a544c1a66b439b9c29cf2c40f86becb2a30d6bf25d07d41"
+  },
+  "pair_receipts": [
+    {
+      "chunk": "building-000000",
+      "archive": "building.tasks.xz",
+      "start": 0,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000000-pair.json",
+      "sha256": "5c1c788c02c4c395343e09bde9b45c3bed1c87d276a7e327bb13a3722c7b78a3"
+    },
+    {
+      "chunk": "building-000016",
+      "archive": "building.tasks.xz",
+      "start": 16,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000016-pair.json",
+      "sha256": "afd36e49bf44a203f8f3ddb7f2ecee47f13931de86e410afce16bf3187180331"
+    },
+    {
+      "chunk": "building-000032",
+      "archive": "building.tasks.xz",
+      "start": 32,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000032-pair.json",
+      "sha256": "8a2457d89e931224dd06c76c6bd99b5f913ad8093037a64458835b090b99790b"
+    },
+    {
+      "chunk": "building-000048",
+      "archive": "building.tasks.xz",
+      "start": 48,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000048-pair.json",
+      "sha256": "c8be662856ab02748f454b7f917b75bf41acb40012663848070688fd771fe364"
+    },
+    {
+      "chunk": "building-000064",
+      "archive": "building.tasks.xz",
+      "start": 64,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000064-pair.json",
+      "sha256": "ee7e7b7c2416dc7168c286fd2807c773d8fe8cdc40666df758c86c71f2dd468d"
+    },
+    {
+      "chunk": "building-000080",
+      "archive": "building.tasks.xz",
+      "start": 80,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000080-pair.json",
+      "sha256": "e52248a5dacf11046b7c03c2e3e594a211276063c492144fced1bcc71ad0bd85"
+    },
+    {
+      "chunk": "building-000096",
+      "archive": "building.tasks.xz",
+      "start": 96,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000096-pair.json",
+      "sha256": "6e5cafd5dc815e42183963090529cae6b3a55aa78b7969ee458696a6b246ec8b"
+    },
+    {
+      "chunk": "building-000112",
+      "archive": "building.tasks.xz",
+      "start": 112,
+      "count": 10,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\building-000112-pair.json",
+      "sha256": "a23adfae685b1dad2d75c2b24da0282ac1bd403817e85194db1423db85be87e2"
+    },
+    {
+      "chunk": "cover008-000000",
+      "archive": "cover008.tasks.xz",
+      "start": 0,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000000-pair.json",
+      "sha256": "31604285ba52712fdc7d2c736d73bf7ada4b4bf61a52f9fb2763894a67e96be3"
+    },
+    {
+      "chunk": "cover008-000016",
+      "archive": "cover008.tasks.xz",
+      "start": 16,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000016-pair.json",
+      "sha256": "1d754ecf06281210bcaf16433275b0e5fba29c74a1a6f1d9bfb291e0811cd43d"
+    },
+    {
+      "chunk": "cover008-000032",
+      "archive": "cover008.tasks.xz",
+      "start": 32,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000032-pair.json",
+      "sha256": "e51fb022c447662a32cad0c8ac6f281a07b76fe24d31798b812a8d2b7add59a1"
+    },
+    {
+      "chunk": "cover008-000048",
+      "archive": "cover008.tasks.xz",
+      "start": 48,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000048-pair.json",
+      "sha256": "f1413075a35252b40c6b92ace9ccb4d3b23a690b308e6258236d2deeb28a3a2f"
+    },
+    {
+      "chunk": "cover008-000064",
+      "archive": "cover008.tasks.xz",
+      "start": 64,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000064-pair.json",
+      "sha256": "4c23ee055c491a77b4b46d29962ce194d6f824cfa9529bd3aa9ce147be08e76b"
+    },
+    {
+      "chunk": "cover008-000080",
+      "archive": "cover008.tasks.xz",
+      "start": 80,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000080-pair.json",
+      "sha256": "2b1969a2641e85eb2e15388c01cf4478bb3cea72993a810420342327a854467a"
+    },
+    {
+      "chunk": "cover008-000096",
+      "archive": "cover008.tasks.xz",
+      "start": 96,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000096-pair.json",
+      "sha256": "5bbfd03e56506119160361bf72635faa66ebba77fbc5c7241ba49a89168979ff"
+    },
+    {
+      "chunk": "cover008-000112",
+      "archive": "cover008.tasks.xz",
+      "start": 112,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000112-pair.json",
+      "sha256": "844240029065bcd173b6509eda29cd73149099f49d363af875a95d6b9ee426ba"
+    },
+    {
+      "chunk": "cover008-000128",
+      "archive": "cover008.tasks.xz",
+      "start": 128,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000128-pair.json",
+      "sha256": "7a6de92aa8a928d381e41db6aeec9501765baebb8dabf9722c9f37cd143ba2d0"
+    },
+    {
+      "chunk": "cover008-000144",
+      "archive": "cover008.tasks.xz",
+      "start": 144,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000144-pair.json",
+      "sha256": "41f2d9f0b65788b2e71c560755dbf1ba69a9d81591521d8c17c20813691a9fbd"
+    },
+    {
+      "chunk": "cover008-000160",
+      "archive": "cover008.tasks.xz",
+      "start": 160,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000160-pair.json",
+      "sha256": "77b1205939a5507a194d43adeebc41e09b64f8145ce866d74dd978b4900473d1"
+    },
+    {
+      "chunk": "cover008-000176",
+      "archive": "cover008.tasks.xz",
+      "start": 176,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000176-pair.json",
+      "sha256": "fc76afe2094be6f6668a02443ab91271b9f74b39eea1569fb35b4b91d8af4b60"
+    },
+    {
+      "chunk": "cover008-000192",
+      "archive": "cover008.tasks.xz",
+      "start": 192,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000192-pair.json",
+      "sha256": "8fe686695e361ec7ed8aa1a2c0a72e66daf208355b9c65268c938172d48860cc"
+    },
+    {
+      "chunk": "cover008-000208",
+      "archive": "cover008.tasks.xz",
+      "start": 208,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000208-pair.json",
+      "sha256": "48e74689ca3facb118e8da78a40695fd78d457e11a7575074a52d042d10a495e"
+    },
+    {
+      "chunk": "cover008-000224",
+      "archive": "cover008.tasks.xz",
+      "start": 224,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000224-pair.json",
+      "sha256": "30882ec2bf08b25b90c27917c7dae336a2a1f97e82b6d66376b63c4304b18ed0"
+    },
+    {
+      "chunk": "cover008-000240",
+      "archive": "cover008.tasks.xz",
+      "start": 240,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000240-pair.json",
+      "sha256": "15f9234c1c1f11e414cb39c45e9c8f6ee9691c7a0ee9ee848efc44a5e2b1721c"
+    },
+    {
+      "chunk": "cover008-000256",
+      "archive": "cover008.tasks.xz",
+      "start": 256,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000256-pair.json",
+      "sha256": "e5abad455ddd63e7368cde22d90d822136cab54f22c2d852de714f50a24c727f"
+    },
+    {
+      "chunk": "cover008-000272",
+      "archive": "cover008.tasks.xz",
+      "start": 272,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000272-pair.json",
+      "sha256": "30a4ce0e8b56000b25f8ca7e2bd3186be3471080c53a8973be77a39ca067557c"
+    },
+    {
+      "chunk": "cover008-000288",
+      "archive": "cover008.tasks.xz",
+      "start": 288,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000288-pair.json",
+      "sha256": "e1f80c5da5ece6a9ecadcaa494bf929752181f07d8d70a7d0bcabc36f8f4dba0"
+    },
+    {
+      "chunk": "cover008-000304",
+      "archive": "cover008.tasks.xz",
+      "start": 304,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000304-pair.json",
+      "sha256": "f9311e0220d0a45909ceb7e1e8ea26d4b34be929064214b5e438378786c61272"
+    },
+    {
+      "chunk": "cover008-000320",
+      "archive": "cover008.tasks.xz",
+      "start": 320,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000320-pair.json",
+      "sha256": "60d2064f3d1ba03861e2975146e069084a3a3d5afea74f3c34e2381b2fcc4ca3"
+    },
+    {
+      "chunk": "cover008-000336",
+      "archive": "cover008.tasks.xz",
+      "start": 336,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000336-pair.json",
+      "sha256": "f1eae3fa4b78bdb218e93ad14b261ef782fe23fb02a236a40e10e3084f97f332"
+    },
+    {
+      "chunk": "cover008-000352",
+      "archive": "cover008.tasks.xz",
+      "start": 352,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000352-pair.json",
+      "sha256": "0c4e618058afc17fe12363e51b953813f8347edcec2f418df83c8944b516fc69"
+    },
+    {
+      "chunk": "cover008-000368",
+      "archive": "cover008.tasks.xz",
+      "start": 368,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000368-pair.json",
+      "sha256": "ff6146a94b3e9f01e9b3ebf09c41e31a6027234d1e9411dd197f63c2749dd3f7"
+    },
+    {
+      "chunk": "cover008-000384",
+      "archive": "cover008.tasks.xz",
+      "start": 384,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000384-pair.json",
+      "sha256": "809ff8c7bd32bbf1d9e735ec0b81171944230bc1f9b71c817ac3e17ea37544fd"
+    },
+    {
+      "chunk": "cover008-000400",
+      "archive": "cover008.tasks.xz",
+      "start": 400,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000400-pair.json",
+      "sha256": "43499c7774cd33a2fd369782db3d22addb9e3866316c6f9c3048ed5426942ee3"
+    },
+    {
+      "chunk": "cover008-000416",
+      "archive": "cover008.tasks.xz",
+      "start": 416,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000416-pair.json",
+      "sha256": "21ad7841c574c8391a0b5cf59107c7b157dce226885c4483396217f6f6278e6b"
+    },
+    {
+      "chunk": "cover008-000432",
+      "archive": "cover008.tasks.xz",
+      "start": 432,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000432-pair.json",
+      "sha256": "d6569ae339208524235370f72b0d10639faff1ecc13a5e8c1e99bbf110a9d348"
+    },
+    {
+      "chunk": "cover008-000448",
+      "archive": "cover008.tasks.xz",
+      "start": 448,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000448-pair.json",
+      "sha256": "96ad16ad6eb89993f7576aca0deb533008d6e12b67ebdce1f953588036d5136a"
+    },
+    {
+      "chunk": "cover008-000464",
+      "archive": "cover008.tasks.xz",
+      "start": 464,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000464-pair.json",
+      "sha256": "de6927ed79fb55ae628ee91c4f089699bb1aab7895e00e4b440cee3efdbbbd40"
+    },
+    {
+      "chunk": "cover008-000480",
+      "archive": "cover008.tasks.xz",
+      "start": 480,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000480-pair.json",
+      "sha256": "4b866b51c703b0e544274a2122663a913504baab908bb2ca7c4704f3e0420513"
+    },
+    {
+      "chunk": "cover008-000496",
+      "archive": "cover008.tasks.xz",
+      "start": 496,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000496-pair.json",
+      "sha256": "412db0639e6808eaae81749f6f16bc97f4686b539dd6605140121fb0d695868c"
+    },
+    {
+      "chunk": "cover008-000512",
+      "archive": "cover008.tasks.xz",
+      "start": 512,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000512-pair.json",
+      "sha256": "efe71dd129b8d7399fcefa484dc63c8e9c2b32b421405b2277ab4d6ee8c8aa38"
+    },
+    {
+      "chunk": "cover008-000528",
+      "archive": "cover008.tasks.xz",
+      "start": 528,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000528-pair.json",
+      "sha256": "d23ddb909d66be4829ecd410c7003cbd90254c0d6dbf01c1c1f2a5d89e089e92"
+    },
+    {
+      "chunk": "cover008-000544",
+      "archive": "cover008.tasks.xz",
+      "start": 544,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000544-pair.json",
+      "sha256": "8dd0ddb3746169331a7fe4c54f1af3af30aa91ba7d33dfbb33231e74c4cfb6c2"
+    },
+    {
+      "chunk": "cover008-000560",
+      "archive": "cover008.tasks.xz",
+      "start": 560,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000560-pair.json",
+      "sha256": "e97620f087d8430405b25c575d669aa454983ec555183ccebe3f82e8cd365832"
+    },
+    {
+      "chunk": "cover008-000576",
+      "archive": "cover008.tasks.xz",
+      "start": 576,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000576-pair.json",
+      "sha256": "6943939b54aa55e8786299af6503bfd17ad0507e3c4159aea74b78834bf5da90"
+    },
+    {
+      "chunk": "cover008-000592",
+      "archive": "cover008.tasks.xz",
+      "start": 592,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000592-pair.json",
+      "sha256": "e1493c07114ffe78d9c3442b8bc843e2fe35e2ffa1f9dba34169f1265a23ba32"
+    },
+    {
+      "chunk": "cover008-000608",
+      "archive": "cover008.tasks.xz",
+      "start": 608,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000608-pair.json",
+      "sha256": "053db47035a775f7e16eecffdc806f72534513f8f9a2e43516f26c462b9ba160"
+    },
+    {
+      "chunk": "cover008-000624",
+      "archive": "cover008.tasks.xz",
+      "start": 624,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000624-pair.json",
+      "sha256": "e0e42bc1ca8d8230d6942043cd94ae2bed3222391b09b37bcb34f833336fff61"
+    },
+    {
+      "chunk": "cover008-000640",
+      "archive": "cover008.tasks.xz",
+      "start": 640,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000640-pair.json",
+      "sha256": "58f4b69c1d1286980af6e045052e0153e0cecfe33ca4fcef375e2c97e7e4971f"
+    },
+    {
+      "chunk": "cover008-000656",
+      "archive": "cover008.tasks.xz",
+      "start": 656,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000656-pair.json",
+      "sha256": "758b987038df7c00c2c57a764ba7c835b6e515c27d82f5a95fef42ca5247d83a"
+    },
+    {
+      "chunk": "cover008-000672",
+      "archive": "cover008.tasks.xz",
+      "start": 672,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000672-pair.json",
+      "sha256": "b0a3199d6ecaced1b9b3675536703d8506bfce9c54f78060bf8b7c72bb191c2e"
+    },
+    {
+      "chunk": "cover008-000688",
+      "archive": "cover008.tasks.xz",
+      "start": 688,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000688-pair.json",
+      "sha256": "2f8a97b10ad4d2c583caf9179e733c6ee504dce8cba258428c53e47e16c79956"
+    },
+    {
+      "chunk": "cover008-000704",
+      "archive": "cover008.tasks.xz",
+      "start": 704,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000704-pair.json",
+      "sha256": "4b25d405dc132f03fcc439eb79968a52fb9bbea98d45a3035e16f26592877f08"
+    },
+    {
+      "chunk": "cover008-000720",
+      "archive": "cover008.tasks.xz",
+      "start": 720,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000720-pair.json",
+      "sha256": "f1ed74ce8d4491f647fcb79adb395634b4a456a0da81c44e4eb49a345b914a5b"
+    },
+    {
+      "chunk": "cover008-000736",
+      "archive": "cover008.tasks.xz",
+      "start": 736,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000736-pair.json",
+      "sha256": "48a15ad31d1e72f8e50c6af893b4fbb6f06cfb63039bb7ef73de9e5a4a132b0f"
+    },
+    {
+      "chunk": "cover008-000752",
+      "archive": "cover008.tasks.xz",
+      "start": 752,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000752-pair.json",
+      "sha256": "16fc4f054a1bf228b322c33291ccac5fe3f774ead2d6aa6a85148c02a31aca29"
+    },
+    {
+      "chunk": "cover008-000768",
+      "archive": "cover008.tasks.xz",
+      "start": 768,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000768-pair.json",
+      "sha256": "38ce96492f4ba5a22898fa8a3dd8dc3a0bbd184e4491d8c1d28c0efe08b6da70"
+    },
+    {
+      "chunk": "cover008-000784",
+      "archive": "cover008.tasks.xz",
+      "start": 784,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000784-pair.json",
+      "sha256": "057e64849167aa99de330c0ccd9bf429af6b0fe953e37deb88191e3a0b2e638e"
+    },
+    {
+      "chunk": "cover008-000800",
+      "archive": "cover008.tasks.xz",
+      "start": 800,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000800-pair.json",
+      "sha256": "b553eb81ed0202f4e107e21c7965716df20a0c6025cfeee5eeff74830d112fb8"
+    },
+    {
+      "chunk": "cover008-000816",
+      "archive": "cover008.tasks.xz",
+      "start": 816,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000816-pair.json",
+      "sha256": "022f14749f5aaedc427d43162eaa1e497a063b45bc09f63b43485b1b46f4fdbb"
+    },
+    {
+      "chunk": "cover008-000832",
+      "archive": "cover008.tasks.xz",
+      "start": 832,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000832-pair.json",
+      "sha256": "e60624f4978f1949282f9720f40d945d2406b584492b9154c1fb3024dd349b3b"
+    },
+    {
+      "chunk": "cover008-000848",
+      "archive": "cover008.tasks.xz",
+      "start": 848,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000848-pair.json",
+      "sha256": "4521816596178954f0b6945a6e8d98d73e691d9032941e5e3ed6e5ee1eeba0eb"
+    },
+    {
+      "chunk": "cover008-000864",
+      "archive": "cover008.tasks.xz",
+      "start": 864,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000864-pair.json",
+      "sha256": "45715009e29c41a2c50ccbddcee2565a7970be0f657752cac8dba7d1efe2bce6"
+    },
+    {
+      "chunk": "cover008-000880",
+      "archive": "cover008.tasks.xz",
+      "start": 880,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000880-pair.json",
+      "sha256": "713641b01b9631cb4c1f6b7a8d5736aa4785dba5ca58c62d2d3fb16e351cf7ff"
+    },
+    {
+      "chunk": "cover008-000896",
+      "archive": "cover008.tasks.xz",
+      "start": 896,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000896-pair.json",
+      "sha256": "23fde1e4071923f2e3f23fc30986a40e1b0ef65137d05da11c8fc4d7692f2e73"
+    },
+    {
+      "chunk": "cover008-000912",
+      "archive": "cover008.tasks.xz",
+      "start": 912,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000912-pair.json",
+      "sha256": "4a401cd44dd27cb5ed636d0d80f83e01c9c0d07a5382ee98f563d65b3fe62d8d"
+    },
+    {
+      "chunk": "cover008-000928",
+      "archive": "cover008.tasks.xz",
+      "start": 928,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000928-pair.json",
+      "sha256": "50915c5304f5402b0327e2b5ab7fdf9f3de0b02c08c4322a90860fe4366eaec6"
+    },
+    {
+      "chunk": "cover008-000944",
+      "archive": "cover008.tasks.xz",
+      "start": 944,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000944-pair.json",
+      "sha256": "eecdf0195f4a28bf57ca1eacb0e8b99372c0e3ff59ab8c25ed8b252f9a7adbde"
+    },
+    {
+      "chunk": "cover008-000960",
+      "archive": "cover008.tasks.xz",
+      "start": 960,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000960-pair.json",
+      "sha256": "9e3522825fdb76afa26d10f0e806071e92357c2a3b9e20af0ff6ec60abe2dbdf"
+    },
+    {
+      "chunk": "cover008-000976",
+      "archive": "cover008.tasks.xz",
+      "start": 976,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000976-pair.json",
+      "sha256": "2540a5b041a84b50d74db96b4f225e3564e38060d13f507211574274863bf679"
+    },
+    {
+      "chunk": "cover008-000992",
+      "archive": "cover008.tasks.xz",
+      "start": 992,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-000992-pair.json",
+      "sha256": "e83b6c1968e6281bcf6860effdf723e7795556125ada40f52adc7fdf9ce353e2"
+    },
+    {
+      "chunk": "cover008-001008",
+      "archive": "cover008.tasks.xz",
+      "start": 1008,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-001008-pair.json",
+      "sha256": "def7103c5f97312aff2b166e3ff7892db65c12ecf8d0dde8386d945327fb8cc6"
+    },
+    {
+      "chunk": "cover008-001024",
+      "archive": "cover008.tasks.xz",
+      "start": 1024,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-001024-pair.json",
+      "sha256": "bf02c0187c2f3e72665210e4574a661136547b8e37d8f785f19bf38c49b3bafe"
+    },
+    {
+      "chunk": "cover008-001040",
+      "archive": "cover008.tasks.xz",
+      "start": 1040,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\cover008-001040-pair.json",
+      "sha256": "2f3e3f0cec93103a0629b66194591432e57af2e14e921fe68ffb1e5099e2ba8c"
+    },
+    {
+      "chunk": "half_sphere-000000",
+      "archive": "half_sphere.tasks.xz",
+      "start": 0,
+      "count": 2,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\half_sphere-000000-pair.json",
+      "sha256": "9bb97dd2d3bd76c65fb863f5205ef40d6e8c0eb4da27c623e41b80c5733feee6"
+    },
+    {
+      "chunk": "rounded-000000",
+      "archive": "rounded.tasks.xz",
+      "start": 0,
+      "count": 5,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\rounded-000000-pair.json",
+      "sha256": "41833ed7ec89c30e34a8ff5c5233ae0fd46a237e11e1eefaab622ddf4a47d7e8"
+    },
+    {
+      "chunk": "sagging02239-000000",
+      "archive": "sagging02239.tasks.xz",
+      "start": 0,
+      "count": 2,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\sagging02239-000000-pair.json",
+      "sha256": "e2e8c8c9344fc9da92364dc4a649e815ff4a1ac45de6d7a52dcd5b67c68bbc01"
+    },
+    {
+      "chunk": "sagging0987-000000",
+      "archive": "sagging0987.tasks.xz",
+      "start": 0,
+      "count": 2,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\sagging0987-000000-pair.json",
+      "sha256": "75545f6fa9890885e088c43f2c469e48ab96fd840a6cd484f422ee0299d3f4a8"
+    },
+    {
+      "chunk": "two-000000",
+      "archive": "two.tasks.xz",
+      "start": 0,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\two-000000-pair.json",
+      "sha256": "04161cf69907dcc3f5f8c0c578f0ae413b7e5280e43c8e2c669b9ca426f7c16b"
+    },
+    {
+      "chunk": "two-000016",
+      "archive": "two.tasks.xz",
+      "start": 16,
+      "count": 16,
+      "path": "D:\\CFTUV-export-20261015-evidence\\angular\\paired-capture-01\\two-000016-pair.json",
+      "sha256": "93ac36a1de36d4cac75cc09f415c4840c1ef62be2ec3150c7388daf6e442117b"
+    }
+  ],
+  "source_archive_sha_after_unchanged": true,
+  "frame_tree_clean_after": true,
+  "heavy_slot_released": true,
+  "scope": "Complete seven-archive baseline-vs-wrapped observer proof only; no native parity or Rust acceptance claim"
+}

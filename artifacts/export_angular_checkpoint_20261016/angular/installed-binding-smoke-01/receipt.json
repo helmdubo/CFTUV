@@ -1,0 +1,62 @@
+{
+  "status": "ACTUAL_INSTALLED_BINDING_SMOKE_PASS",
+  "scope": "Actual installed binding only; no geometry/native evaluator/oracle",
+  "pid": 53828,
+  "creation_filetime": 134365795855379442,
+  "argv": [
+    "D:/CFTUV-export-20261015-evidence/angular/facade_binding_smoke.py"
+  ],
+  "profile_sha256": "ee7b8f013d8dcb7c8b98ccab2fb5d13044007583934d22bcc683c63df3f72b0c",
+  "script_sha256": "a19f4495d4c884ab1ece30b7edae62a142467e5a763861061b17ee88f40b6583",
+  "checks": [
+    {
+      "name": "actual_fresh_inputs_warm_twice",
+      "status": "PASS"
+    },
+    {
+      "name": "actual_oracle_chart_points_alias",
+      "status": "PASS",
+      "exception": {
+        "type": "cftuv_native.pin.NativePortStale",
+        "message": "ANGULAR_BINDING_INPUTS_CHANGED"
+      }
+    },
+    {
+      "name": "replay_counter_dictionary_identity",
+      "status": "PASS",
+      "exception": {
+        "type": "cftuv_native.pin.NativePortStale",
+        "message": "CALLABLE_OR_CLASS_CHANGED:replay.SYMBOLIC_FALLBACK_COUNTS"
+      }
+    },
+    {
+      "name": "counter_value_change_not_stale",
+      "status": "PASS"
+    }
+  ],
+  "started": 1792105985.746391,
+  "native_status": {
+    "coverage": "available",
+    "clip": "available",
+    "skeleton": "available",
+    "snap_embedding": "available",
+    "effective_alpha": "available",
+    "materialize_w1": "available",
+    "snapshot_check": "available",
+    "frame": "available",
+    "radical_v2": "available",
+    "density": "available",
+    "angular": "unavailable"
+  },
+  "head": "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66",
+  "native_parts": {
+    "id": "e5480f28953cafd9e8bb67d53241d7ee0dd561408a8fa4b3b57bd34eb30dde56",
+    "rust": "329069f4074ed52cd3840cb383c6cb6e42cc98f682951c93d76c5bfebb75431d",
+    "shim": "b09719465f66a08053cce645b42bd4288976949f7c1da3f7b40ddb32b5b8974c"
+  },
+  "site": "D:\\CFTUV-export-20261015-evidence\\angular\\wheel-build-01\\site",
+  "no_native_geometry": true,
+  "counters_restored": true,
+  "pins_restored_empty": true,
+  "ended": 1792105989.2240725
+}

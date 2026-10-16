@@ -1,0 +1,74 @@
+{
+  "status": "COMPLETE",
+  "started": 1792104560.6209915,
+  "controller": {
+    "pid": 8376,
+    "creation_filetime": 134365781604622675,
+    "argv": [
+      "D:/CFTUV-export-20261015-evidence/corpus/owned_job_guard_v2.py",
+      "run",
+      "--receipt",
+      "D:/CFTUV-export-20261015-evidence/angular/rust-pyo3-01-guard",
+      "--cwd",
+      "D:/CFTUV-export-angular-20261016/native",
+      "--floor-gib",
+      "1.5",
+      "--drives",
+      "C:/",
+      "D:/",
+      "E:/",
+      "--poll",
+      "1",
+      "--",
+      "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+      "-B",
+      "D:/CFTUV-export-20261015-evidence/angular/rust_job.py",
+      "--step",
+      "pyo3",
+      "--out",
+      "D:/CFTUV-export-20261015-evidence/angular/rust-pyo3-01",
+      "--expected-head",
+      "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66"
+    ],
+    "exit": 0
+  },
+  "processes": [
+    {
+      "pid": 41464,
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+        "-B",
+        "D:/CFTUV-export-20261015-evidence/angular/rust_job.py",
+        "--step",
+        "pyo3",
+        "--out",
+        "D:/CFTUV-export-20261015-evidence/angular/rust-pyo3-01",
+        "--expected-head",
+        "4f3a00f8ec6be68c9e547e0e4a7a9f4fc7c99d66"
+      ],
+      "creation_filetime": 134365781606232801,
+      "exit": 0,
+      "expected_creation_filetime": null
+    }
+  ],
+  "limitation": "Forced OS termination of controller not survived; no descendant tree ownership claimed",
+  "disk_before": {
+    "C:/": 6969933824,
+    "D:/": 109456924672,
+    "E:/": 1689485312
+  },
+  "disk_last": {
+    "C:/": 6870183936,
+    "D:/": 109456900096,
+    "E:/": 1689485312
+  },
+  "heartbeat": 1792104607.0451162,
+  "disk_after": {
+    "C:/": 6863335424,
+    "D:/": 109456900096,
+    "E:/": 1689485312
+  },
+  "exit": 0,
+  "owned_child_reaped": true,
+  "ended": 1792104607.96544
+}

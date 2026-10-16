@@ -1,0 +1,7 @@
+ROUNDED BATCH — launch failure audit, 16.10.2026
+Источник: завершённые replay-rounded-chunk01 receipts и прямое уточнение parent.
+Старый batch на replay_chunks.py9031 остановлен/не принят: replay.json INCOMPLETE, chunks[]; guard worker exit1/reaped, coordinatorstderr GUARDED_CHUNK_FAILED.
+Coordinator PID исходного запуска НЕ БЫЛ сохранён и утрачен. Не реконструируется и не подменяется PID дочернего guard/worker. Восстановить полный rootPID/FILETIME/argv/exits receipt по этому запуску нельзя; это явно сохранённый пробел аудита harness, не продуктовый успех.
+Диагноз parent: saved rounded task1 backend_before=backend_after содержали certified20; точный delta=[['angle_certificate_sign.certified',0]]. У новой пары обе стороны получили[]: не воспроизведён whole-task validation prefix. Численный/output результат совпал, но точная история counters не прошла; отсутствие zero entry НЕ нормализовали/не удаляли.
+В пакете исходные chunk.json, task-1-call-0.json, guardprocess и coordinatorstderr failure evidence (большие logs/corpus не копируются). Исторические oldrunners неизменны.
+Worker готовит НОВЫЙ v2 executor с exact recordedbefore seed и strict before/after/delta всех6полей. Эта подготовка/её будущие runs НЕ объявлены завершёнными в данном checkpoint. Новые completed proofs добавит parent до commit-порога.

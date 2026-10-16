@@ -1,0 +1,1327 @@
+{
+  "cases": [
+    {
+      "case": "building",
+      "status": "COMPLETE",
+      "parameters": {
+        "alpha": 0.2239,
+        "density": "2",
+        "stretch": 42,
+        "offset": 0.019999999552965164,
+        "workers": 0,
+        "topology_laws": [
+          "SILHOUETTE_TOPOLOGY_V1"
+        ]
+      },
+      "denominators": {
+        "total_domains": 122,
+        "materialized_results": 122,
+        "held_named_domains": 0,
+        "other_nonmaterialized_domains": 0,
+        "nonmaterialized_outcomes": {},
+        "adapter_skipped": [],
+        "written_domains": 122,
+        "generated_faces": 907,
+        "scope": "counts cover written faces only; missing/refused domains are not clean geometry"
+      },
+      "source": {
+        "vertices": 332,
+        "faces": 312,
+        "edges": 688,
+        "boundary_edges": 150,
+        "overfull_edges": 0,
+        "loop_count": 1226,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "mesh": {
+        "vertices": 1191,
+        "faces": 907,
+        "edges": 2229,
+        "boundary_edges": 899,
+        "overfull_edges": 0,
+        "loop_count": 3559,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "counts": {
+        "cross_domain": 0,
+        "within_domain_cross_region": 0,
+        "same_region": 0,
+        "disconnected_link_vertices": 0,
+        "classification_overlap_vertices": 0,
+        "computed_nodes_no_source_vertex": 0,
+        "source_anchor_connected_link": 0,
+        "source_anchor_already_disconnected": 0
+      },
+      "witnesses": [],
+      "within_domain_disconnected_links": 0,
+      "byte_check": {
+        "state": "NOT_RECORDED"
+      },
+      "frozen_sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "frozen_sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "processes": [
+        {
+          "pid": 17968,
+          "argv": [
+            "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+            "-b",
+            "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+            "--python-exit-code",
+            "1",
+            "--python",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field_diagnostic.py",
+            "--",
+            "--case",
+            "building",
+            "--out",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field-building-01"
+          ],
+          "creation_filetime": 134365665538365119,
+          "exit": 0,
+          "expected_creation_filetime": null
+        }
+      ]
+    },
+    {
+      "case": "rounded",
+      "status": "COMPLETE",
+      "parameters": {
+        "alpha": 0.2239,
+        "density": "2",
+        "stretch": 42,
+        "offset": 0.019999999552965164,
+        "workers": 0,
+        "topology_laws": [
+          "SILHOUETTE_TOPOLOGY_V1"
+        ]
+      },
+      "denominators": {
+        "total_domains": 5,
+        "materialized_results": 5,
+        "held_named_domains": 0,
+        "other_nonmaterialized_domains": 0,
+        "nonmaterialized_outcomes": {},
+        "adapter_skipped": [],
+        "written_domains": 5,
+        "generated_faces": 325,
+        "scope": "counts cover written faces only; missing/refused domains are not clean geometry"
+      },
+      "source": {
+        "vertices": 151,
+        "faces": 176,
+        "edges": 325,
+        "boundary_edges": 0,
+        "overfull_edges": 0,
+        "loop_count": 650,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "mesh": {
+        "vertices": 386,
+        "faces": 325,
+        "edges": 714,
+        "boundary_edges": 236,
+        "overfull_edges": 0,
+        "loop_count": 1192,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "counts": {
+        "cross_domain": 0,
+        "within_domain_cross_region": 0,
+        "same_region": 0,
+        "disconnected_link_vertices": 0,
+        "classification_overlap_vertices": 0,
+        "computed_nodes_no_source_vertex": 0,
+        "source_anchor_connected_link": 0,
+        "source_anchor_already_disconnected": 0
+      },
+      "witnesses": [],
+      "within_domain_disconnected_links": 0,
+      "byte_check": {
+        "present": false,
+        "state": "NOT_STARTED_SYNCHRONOUS_W0",
+        "violations": null
+      },
+      "frozen_sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "frozen_sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "processes": [
+        {
+          "pid": 30556,
+          "argv": [
+            "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+            "-b",
+            "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+            "--python-exit-code",
+            "1",
+            "--python",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field_diagnostic_v2.py",
+            "--",
+            "--case",
+            "rounded",
+            "--out",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field-rounded-01"
+          ],
+          "creation_filetime": 134365667635802182,
+          "exit": 0,
+          "expected_creation_filetime": null
+        }
+      ]
+    },
+    {
+      "case": "two",
+      "status": "COMPLETE",
+      "parameters": {
+        "alpha": 0.2239,
+        "density": "2",
+        "stretch": 42,
+        "offset": 0.019999999552965164,
+        "workers": 0,
+        "topology_laws": [
+          "SILHOUETTE_TOPOLOGY_V1"
+        ]
+      },
+      "denominators": {
+        "total_domains": 32,
+        "materialized_results": 32,
+        "held_named_domains": 0,
+        "other_nonmaterialized_domains": 0,
+        "nonmaterialized_outcomes": {},
+        "adapter_skipped": [],
+        "written_domains": 32,
+        "generated_faces": 248,
+        "scope": "counts cover written faces only; missing/refused domains are not clean geometry"
+      },
+      "source": {
+        "vertices": 97,
+        "faces": 81,
+        "edges": 188,
+        "boundary_edges": 48,
+        "overfull_edges": 0,
+        "loop_count": 328,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "mesh": {
+        "vertices": 316,
+        "faces": 248,
+        "edges": 594,
+        "boundary_edges": 191,
+        "overfull_edges": 0,
+        "loop_count": 997,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "counts": {
+        "cross_domain": 0,
+        "within_domain_cross_region": 0,
+        "same_region": 0,
+        "disconnected_link_vertices": 0,
+        "classification_overlap_vertices": 0,
+        "computed_nodes_no_source_vertex": 0,
+        "source_anchor_connected_link": 0,
+        "source_anchor_already_disconnected": 0
+      },
+      "witnesses": [],
+      "within_domain_disconnected_links": 0,
+      "byte_check": {
+        "present": false,
+        "state": "NOT_STARTED_SYNCHRONOUS_W0",
+        "violations": null
+      },
+      "frozen_sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "frozen_sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "processes": [
+        {
+          "pid": 772,
+          "argv": [
+            "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+            "-b",
+            "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+            "--python-exit-code",
+            "1",
+            "--python",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field_diagnostic_v2.py",
+            "--",
+            "--case",
+            "two",
+            "--out",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field-two-01"
+          ],
+          "creation_filetime": 134365667731094511,
+          "exit": 0,
+          "expected_creation_filetime": null
+        }
+      ]
+    },
+    {
+      "case": "sagging0987",
+      "status": "COMPLETE",
+      "parameters": {
+        "alpha": 0.987,
+        "density": "2",
+        "stretch": 42,
+        "offset": 0.019999999552965164,
+        "workers": 0,
+        "topology_laws": [
+          "SILHOUETTE_TOPOLOGY_V1"
+        ]
+      },
+      "denominators": {
+        "total_domains": 2,
+        "materialized_results": 2,
+        "held_named_domains": 0,
+        "other_nonmaterialized_domains": 0,
+        "nonmaterialized_outcomes": {},
+        "adapter_skipped": [],
+        "written_domains": 2,
+        "generated_faces": 117,
+        "scope": "counts cover written faces only; missing/refused domains are not clean geometry"
+      },
+      "source": {
+        "vertices": 37,
+        "faces": 29,
+        "edges": 65,
+        "boundary_edges": 24,
+        "overfull_edges": 0,
+        "loop_count": 106,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "mesh": {
+        "vertices": 128,
+        "faces": 117,
+        "edges": 245,
+        "boundary_edges": 49,
+        "overfull_edges": 0,
+        "loop_count": 441,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "counts": {
+        "cross_domain": 0,
+        "within_domain_cross_region": 0,
+        "same_region": 0,
+        "disconnected_link_vertices": 0,
+        "classification_overlap_vertices": 0,
+        "computed_nodes_no_source_vertex": 0,
+        "source_anchor_connected_link": 0,
+        "source_anchor_already_disconnected": 0
+      },
+      "witnesses": [],
+      "within_domain_disconnected_links": 0,
+      "byte_check": {
+        "present": false,
+        "state": "NOT_STARTED_SYNCHRONOUS_W0",
+        "violations": null
+      },
+      "frozen_sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "frozen_sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "processes": [
+        {
+          "pid": 44140,
+          "argv": [
+            "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+            "-b",
+            "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+            "--python-exit-code",
+            "1",
+            "--python",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field_diagnostic_v2.py",
+            "--",
+            "--case",
+            "sagging0987",
+            "--out",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field-sagging0987-01"
+          ],
+          "creation_filetime": 134365667800370031,
+          "exit": 0,
+          "expected_creation_filetime": null
+        }
+      ]
+    },
+    {
+      "case": "half_sphere",
+      "status": "COMPLETE",
+      "parameters": {
+        "alpha": 0.2239,
+        "density": "2",
+        "stretch": 42,
+        "offset": 0.019999999552965164,
+        "workers": 0,
+        "topology_laws": [
+          "SILHOUETTE_TOPOLOGY_V1"
+        ]
+      },
+      "denominators": {
+        "total_domains": 2,
+        "materialized_results": 2,
+        "held_named_domains": 0,
+        "other_nonmaterialized_domains": 0,
+        "nonmaterialized_outcomes": {},
+        "adapter_skipped": [],
+        "written_domains": 2,
+        "generated_faces": 38,
+        "scope": "counts cover written faces only; missing/refused domains are not clean geometry"
+      },
+      "source": {
+        "vertices": 18,
+        "faces": 12,
+        "edges": 29,
+        "boundary_edges": 10,
+        "overfull_edges": 0,
+        "loop_count": 48,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "mesh": {
+        "vertices": 54,
+        "faces": 38,
+        "edges": 93,
+        "boundary_edges": 50,
+        "overfull_edges": 0,
+        "loop_count": 136,
+        "disconnected_link_count": 0,
+        "branching_link_count": 0
+      },
+      "counts": {
+        "cross_domain": 0,
+        "within_domain_cross_region": 0,
+        "same_region": 0,
+        "disconnected_link_vertices": 0,
+        "classification_overlap_vertices": 0,
+        "computed_nodes_no_source_vertex": 0,
+        "source_anchor_connected_link": 0,
+        "source_anchor_already_disconnected": 0
+      },
+      "witnesses": [],
+      "within_domain_disconnected_links": 0,
+      "byte_check": {
+        "present": false,
+        "state": "NOT_STARTED_SYNCHRONOUS_W0",
+        "violations": null
+      },
+      "frozen_sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "frozen_sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "processes": [
+        {
+          "pid": 18400,
+          "argv": [
+            "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+            "-b",
+            "C:/Users/helmd/AppData/Local/Temp/cftuv_field_parity_20261008/frozen/testscene.blend",
+            "--python-exit-code",
+            "1",
+            "--python",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field_diagnostic_v2.py",
+            "--",
+            "--case",
+            "half_sphere",
+            "--out",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field-half_sphere-01"
+          ],
+          "creation_filetime": 134365667863440240,
+          "exit": 0,
+          "expected_creation_filetime": null
+        }
+      ]
+    },
+    {
+      "case": "cover008",
+      "status": "COMPLETE",
+      "parameters": {
+        "alpha": 0.04214220866560936,
+        "density": "2",
+        "stretch": 20,
+        "offset": 0.004999999888241291,
+        "workers": 0,
+        "topology_laws": [
+          "SILHOUETTE_TOPOLOGY_V1"
+        ]
+      },
+      "denominators": {
+        "total_domains": 1051,
+        "materialized_results": 1046,
+        "held_named_domains": 0,
+        "other_nonmaterialized_domains": 5,
+        "nonmaterialized_outcomes": {
+          "SOURCE_T_VERTEX": 1,
+          "COVERAGE_IS_NOT_EXACT": 2,
+          "SOURCE_FACE_SELF_INTERSECTION": 1,
+          "NO_GRID_SCALE_RESTORES_RELATIONS": 1
+        },
+        "adapter_skipped": [
+          [
+            18,
+            "host-v0:patch-domain:bf2af01b362adff9432e67fe",
+            "SOURCE_T_VERTEX",
+            "SOURCE_T_VERTEX: vertex 127 lies 5.7 \u00b5m from edge 100-359 \u2014 merge or dissolve it (patch 18: 3 such vertices: 127, 133, 359)\nrecord: patch 18, extent 11.1981 m, contact gap 7.84e-05 m; 3 T-vertices, 0 face self-intersections\n  vertex 127 lies 5.72e-06 m from edge 100-359, at 0.9466 of its length\n  vertex 359 lies 6.83e-06 m from edge 127-128, at 0.3237 of its length\n  vertex 133 lies 7.25e-06 m from edge 100-359, at 0.6951 of its length"
+          ],
+          [
+            40,
+            "host-v0:patch-domain:6ea5fd73a605ee765ac68d4c",
+            "COVERAGE_IS_NOT_EXACT",
+            "preparation:DOMAIN_GEOMETRY_REFUSED: REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE: direction binding certificate is not proven: \u043f\u0440\u0438\u0432\u044f\u0437\u043a\u0430: \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442 \u043d\u0435 \u0434\u043e\u043a\u0430\u0437\u0430\u043d (BINDING_INSIDE_OWN_ORDINAL_WINDOW)"
+          ],
+          [
+            285,
+            "host-v0:patch-domain:c7190f9e17cbf3e1dc4974a4",
+            "SOURCE_FACE_SELF_INTERSECTION",
+            "SOURCE_FACE_SELF_INTERSECTION: face 1497 crosses itself, its edges 2257-1438 and 1437-1520 pass 0.036 \u00b5m apart \u2014 rebuild the face\nrecord: patch 285, extent 12.15 m, contact gap 8.51e-05 m; 0 T-vertices, 1 face self-intersections\n  face 1497: edges 2257-1438 and 1437-1520 pass 3.58e-08 m apart"
+          ],
+          [
+            312,
+            "host-v0:patch-domain:33becfee71630b88e6ede9a7",
+            "COVERAGE_IS_NOT_EXACT",
+            "preparation:BRIDGE_DID_NOT_MAP: sparse-patch-domain-region:be18ebe3b53c1065d50cd86f: SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED"
+          ],
+          [
+            1007,
+            "host-v0:patch-domain:20c1ea00a921be9c8b5a2df4",
+            "NO_GRID_SCALE_RESTORES_RELATIONS",
+            "\u043d\u0438 \u043e\u0434\u0438\u043d \u043c\u0430\u0441\u0448\u0442\u0430\u0431 \u043e\u043a\u043d\u0430 \u043d\u0435 \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u043b \u0437\u0430\u0434\u0443\u043c\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u043d\u043e\u0448\u0435\u043d\u0438\u044f: \u0437\u0430\u0434\u0443\u043c\u0430\u043d\u043e \u043f\u0440\u044f\u043c\u044b\u0445=1, \u043f\u0440\u043e\u0431\u044b (\u043c\u0430\u0441\u0448\u0442\u0430\u0431\u2192\u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u043e): 4096\u21920, 2048\u21920, 1024\u21920, 512\u21920, 256\u21920, 128\u21920"
+          ]
+        ],
+        "written_domains": 1046,
+        "generated_faces": 6653,
+        "scope": "counts cover written faces only; missing/refused domains are not clean geometry"
+      },
+      "source": {
+        "vertices": 3303,
+        "faces": 2137,
+        "edges": 5560,
+        "boundary_edges": 2374,
+        "overfull_edges": 0,
+        "loop_count": 8746,
+        "disconnected_link_count": 1,
+        "branching_link_count": 0
+      },
+      "mesh": {
+        "vertices": 9528,
+        "faces": 6653,
+        "edges": 17206,
+        "boundary_edges": 8719,
+        "overfull_edges": 0,
+        "loop_count": 25693,
+        "disconnected_link_count": 6,
+        "branching_link_count": 0
+      },
+      "counts": {
+        "cross_domain": 6,
+        "within_domain_cross_region": 0,
+        "same_region": 0,
+        "disconnected_link_vertices": 6,
+        "classification_overlap_vertices": 0,
+        "computed_nodes_no_source_vertex": 0,
+        "source_anchor_connected_link": 6,
+        "source_anchor_already_disconnected": 0
+      },
+      "witnesses": [
+        {
+          "vertex": 3525,
+          "position": [
+            -7.327160720713437,
+            23.84226501453668,
+            4.215972900390625
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                3480,
+                3488,
+                3491,
+                3515
+              ],
+              "faces": [
+                2355,
+                2356,
+                2370
+              ],
+              "origins": [
+                {
+                  "patch": 286,
+                  "domain": "host-v0:patch-domain:9ffde43fce2f85578eaa98ac",
+                  "region": "region:2",
+                  "face_id": "face:9",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:884')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3902')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:1387c96d6b70475d1db0da38')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:d3ac0c25a99079d7ac0652f6'), LineageId(value='claim:envelope-instance:0196c57ee73b9b7f015fdeb4')}))"
+                },
+                {
+                  "patch": 286,
+                  "domain": "host-v0:patch-domain:9ffde43fce2f85578eaa98ac",
+                  "region": "region:0",
+                  "face_id": "face:10",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:897')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3896')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:4262c0dcd33520c08bf3f16e')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:07d4fc7d12316f712c9bc292'), LineageId(value='claim:chain:host-v0:physical-chain:360ea48227427f39ba3a10ae')}))"
+                },
+                {
+                  "patch": 286,
+                  "domain": "host-v0:patch-domain:9ffde43fce2f85578eaa98ac",
+                  "region": "region:18",
+                  "face_id": "face:24",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:897'), SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:884')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3902'), PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3896')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:1387c96d6b70475d1db0da38'), ChainUseId(value='host-v0:chain-use:4262c0dcd33520c08bf3f16e')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:d3ac0c25a99079d7ac0652f6'), LineageId(value='claim:spec:angular-spec:30cc91bdb4b1c8c812280558')}))"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                6215,
+                6219,
+                6221
+              ],
+              "faces": [
+                4301,
+                4302
+              ],
+              "origins": [
+                {
+                  "patch": 623,
+                  "domain": "host-v0:patch-domain:555de17575409aab1b1bc65b",
+                  "region": "region:3",
+                  "face_id": "face:0",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1431')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3898')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:263acb887a2681d878f2e547')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:fbdfc1fcf947e33e39fdf84d'), LineageId(value='host-v0:physical-lineage:316f92988730de919d0b6a6d')}))"
+                },
+                {
+                  "patch": 623,
+                  "domain": "host-v0:patch-domain:555de17575409aab1b1bc65b",
+                  "region": "region:1",
+                  "face_id": "face:1",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1431')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3897')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:2841c622db252faa04274972')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:ca66c635dfb84bf112063842'), LineageId(value='host-v0:physical-lineage:d5c404ba5aafd43e1079944f')}))"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 2355,
+              "loop": 8962,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 2356,
+              "loop": 8963,
+              "uv": [
+                3.301985429698201,
+                0.0
+              ]
+            },
+            {
+              "face": 2370,
+              "loop": 9015,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4301,
+              "loop": 16520,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4302,
+              "loop": 16521,
+              "uv": [
+                24.482302041562477,
+                0.0
+              ]
+            }
+          ],
+          "semantic_location_refs": [
+            "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2254"
+          ],
+          "source_anchors": [
+            {
+              "source_vertex_index": 2254,
+              "source_link_components": 1,
+              "source_position": [
+                -7.322160720825195,
+                23.837265014648438,
+                4.215972900390625
+              ],
+              "identity_basis": "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2254"
+            }
+          ],
+          "source_status": "EXACT_SOURCE_VERTEX_ID",
+          "classes": {
+            "cross_domain": true,
+            "within_domain_cross_region": false,
+            "same_region": false
+          },
+          "class_overlap": false
+        },
+        {
+          "vertex": 3829,
+          "position": [
+            -4.4771732138469815,
+            35.94757186900824,
+            4.215972900390625
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                3816,
+                3817,
+                3819,
+                3826,
+                3832
+              ],
+              "faces": [
+                2564,
+                2565,
+                2579,
+                2580
+              ],
+              "origins": [
+                {
+                  "patch": 311,
+                  "domain": "host-v0:patch-domain:863b5db2703847a018d0713b",
+                  "region": "region:13",
+                  "face_id": "face:2",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1510')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2482')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:c3671f92f4afbf8e4bc7a346')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:91379fede980b46429920c98'), LineageId(value='claim:flow:host-v0:chain-use:935ac115fca4f7fa7e62a30f'), LineageId(value='host-v0:physical-lineage:9dfdea949e116c39ec7e7c45')}))"
+                },
+                {
+                  "patch": 311,
+                  "domain": "host-v0:patch-domain:863b5db2703847a018d0713b",
+                  "region": "region:10",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1510')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3549')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:5b9f15ec20557ce64ac780cc')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:dc8f17417a0de525272afbb1'), LineageId(value='claim:envelope-instance:bdcfcc5554a3d4e2bd3bc5a3')}))"
+                },
+                {
+                  "patch": 311,
+                  "domain": "host-v0:patch-domain:863b5db2703847a018d0713b",
+                  "region": "region:16",
+                  "face_id": "face:17",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1510')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3549'), PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2482')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:c3671f92f4afbf8e4bc7a346'), ChainUseId(value='host-v0:chain-use:5b9f15ec20557ce64ac780cc')}), lineage_ids=frozenset({LineageId(value='claim:spec:angular-spec:3bba5aa66d20be68277f3518'), LineageId(value='host-v0:physical-lineage:9dfdea949e116c39ec7e7c45')}))"
+                },
+                {
+                  "patch": 311,
+                  "domain": "host-v0:patch-domain:863b5db2703847a018d0713b",
+                  "region": "region:16",
+                  "face_id": "face:18",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1510')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3549'), PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2482')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:c3671f92f4afbf8e4bc7a346'), ChainUseId(value='host-v0:chain-use:5b9f15ec20557ce64ac780cc')}), lineage_ids=frozenset({LineageId(value='claim:spec:angular-spec:3bba5aa66d20be68277f3518'), LineageId(value='host-v0:physical-lineage:9dfdea949e116c39ec7e7c45')}))"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                6222,
+                6226,
+                6228
+              ],
+              "faces": [
+                4305,
+                4306
+              ],
+              "origins": [
+                {
+                  "patch": 624,
+                  "domain": "host-v0:patch-domain:0256959d9cae45f525854f2f",
+                  "region": "region:2",
+                  "face_id": "face:0",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1432')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3454')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:f7fbb0bb1634e3a278e4b0f8')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:3480ade2d8d2743f7910764a'), LineageId(value='host-v0:physical-lineage:a807904cb58329226c2d2def')}))"
+                },
+                {
+                  "patch": 624,
+                  "domain": "host-v0:patch-domain:0256959d9cae45f525854f2f",
+                  "region": "region:3",
+                  "face_id": "face:1",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1432')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2325')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:684a94807e45c2f1245d017e')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:9ae8113f1223bbb2593be856'), LineageId(value='host-v0:physical-lineage:5a6c5d969df51ad205f11ee5')}))"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 2564,
+              "loop": 9754,
+              "uv": [
+                30.31036034856338,
+                0.0
+              ]
+            },
+            {
+              "face": 2565,
+              "loop": 9757,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 2579,
+              "loop": 9811,
+              "uv": [
+                30.31036034856338,
+                0.0
+              ]
+            },
+            {
+              "face": 2580,
+              "loop": 9814,
+              "uv": [
+                30.31036034856338,
+                0.0
+              ]
+            },
+            {
+              "face": 4305,
+              "loop": 16534,
+              "uv": [
+                355.93768041495474,
+                0.0
+              ]
+            },
+            {
+              "face": 4306,
+              "loop": 16537,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "semantic_location_refs": [
+            "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1544"
+          ],
+          "source_anchors": [
+            {
+              "source_vertex_index": 1544,
+              "source_link_components": 1,
+              "source_position": [
+                -4.47217321395874,
+                35.952571868896484,
+                4.215972900390625
+              ],
+              "identity_basis": "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1544"
+            }
+          ],
+          "source_status": "EXACT_SOURCE_VERTEX_ID",
+          "classes": {
+            "cross_domain": true,
+            "within_domain_cross_region": false,
+            "same_region": false
+          },
+          "class_overlap": false
+        },
+        {
+          "vertex": 6315,
+          "position": [
+            9.719931840031538,
+            30.029897523673444,
+            1.0907223271206021
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                6464,
+                6467,
+                6468
+              ],
+              "faces": [
+                4481,
+                4484
+              ],
+              "origins": [
+                {
+                  "patch": 659,
+                  "domain": "host-v0:patch-domain:55fc906dcb04f84fa6c5b952",
+                  "region": "region:2",
+                  "face_id": "face:0",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1517')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3418')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:69c007d02d4319f381109ceb')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:809bb02b1e653085d3757537'), LineageId(value='claim:envelope-instance:ac2408937ef562ff9ff896b9')}))"
+                },
+                {
+                  "patch": 659,
+                  "domain": "host-v0:patch-domain:55fc906dcb04f84fa6c5b952",
+                  "region": "region:0",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1517')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3430')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:d7c3b0701f3a1a8c324b8a91')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:e1b0681437b0efc449f1c20f'), LineageId(value='claim:envelope-instance:2a5015563b48c651621d4fbd')}))"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                6238,
+                6312,
+                6316
+              ],
+              "faces": [
+                4363,
+                4366
+              ],
+              "origins": [
+                {
+                  "patch": 636,
+                  "domain": "host-v0:patch-domain:df74a71931e0c4943b222bcf",
+                  "region": "region:1",
+                  "face_id": "face:0",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1456')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3418')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:4d7e394374a9520653e52d65')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:58b2012376f2f3b79ade04c3'), LineageId(value='host-v0:physical-lineage:809bb02b1e653085d3757537')}))"
+                },
+                {
+                  "patch": 636,
+                  "domain": "host-v0:patch-domain:df74a71931e0c4943b222bcf",
+                  "region": "region:2",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1456')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3246')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:b386b6edc37d0b3759402db5')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:61c01b87bf29bf9cf7109b98'), LineageId(value='host-v0:physical-lineage:9d960491e8e360eb06b6c170')}))"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 4363,
+              "loop": 16769,
+              "uv": [
+                5.474639669572735,
+                0.0
+              ]
+            },
+            {
+              "face": 4366,
+              "loop": 16784,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4481,
+              "loop": 17232,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4484,
+              "loop": 17245,
+              "uv": [
+                49.3634320199222,
+                0.0
+              ]
+            }
+          ],
+          "semantic_location_refs": [
+            "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1244"
+          ],
+          "source_anchors": [
+            {
+              "source_vertex_index": 1244,
+              "source_link_components": 1,
+              "source_position": [
+                9.71993637084961,
+                30.034896850585938,
+                1.0857223272323608
+              ],
+              "identity_basis": "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1244"
+            }
+          ],
+          "source_status": "EXACT_SOURCE_VERTEX_ID",
+          "classes": {
+            "cross_domain": true,
+            "within_domain_cross_region": false,
+            "same_region": false
+          },
+          "class_overlap": false
+        },
+        {
+          "vertex": 6459,
+          "position": [
+            9.955550079233944,
+            30.029852488172082,
+            0.6442581378985137
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                6242,
+                6472,
+                6474
+              ],
+              "faces": [
+                4486,
+                4487
+              ],
+              "origins": [
+                {
+                  "patch": 660,
+                  "domain": "host-v0:patch-domain:f7f3b2e193d34d1f4aee9570",
+                  "region": "region:1",
+                  "face_id": "face:1",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1520')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3081')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:c982aee4047149df1cd9b9ef')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:6c060bd213f32fb0bd6e7288'), LineageId(value='host-v0:physical-lineage:889123af7ef24812e4308f6a')}))"
+                },
+                {
+                  "patch": 660,
+                  "domain": "host-v0:patch-domain:f7f3b2e193d34d1f4aee9570",
+                  "region": "region:2",
+                  "face_id": "face:2",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1520')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3129')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:64c4654e31e6e45a7868793b')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:835181de3ece780ab8a47fd7'), LineageId(value='claim:envelope-instance:c1a88d8d64648fe911c7daf2')}))"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                6457,
+                6460,
+                6462
+              ],
+              "faces": [
+                4477,
+                4480
+              ],
+              "origins": [
+                {
+                  "patch": 658,
+                  "domain": "host-v0:patch-domain:c37793c275e66dca29dd7cec",
+                  "region": "region:2",
+                  "face_id": "face:0",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1516')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3146')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:20662619eb9413489cf871ee')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:6b000a200beaf5b541434af0'), LineageId(value='host-v0:physical-lineage:e41a29d74b57e1f1177bfc97')}))"
+                },
+                {
+                  "patch": 658,
+                  "domain": "host-v0:patch-domain:c37793c275e66dca29dd7cec",
+                  "region": "region:1",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1516')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3129')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:d057e1973f1063d0d81da73b')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:835181de3ece780ab8a47fd7'), LineageId(value='claim:envelope-instance:582ebea7fad524d18b97f6f8')}))"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 4477,
+              "loop": 17218,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4480,
+              "loop": 17229,
+              "uv": [
+                10.474189868494403,
+                0.0
+              ]
+            },
+            {
+              "face": 4486,
+              "loop": 17253,
+              "uv": [
+                284.7501443319638,
+                0.0
+              ]
+            },
+            {
+              "face": 4487,
+              "loop": 17256,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "semantic_location_refs": [
+            "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1531"
+          ],
+          "source_anchors": [
+            {
+              "source_vertex_index": 1531,
+              "source_link_components": 1,
+              "source_position": [
+                9.950550079345703,
+                30.034893035888672,
+                0.6442568898200989
+              ],
+              "identity_basis": "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1531"
+            }
+          ],
+          "source_status": "EXACT_SOURCE_VERTEX_ID",
+          "classes": {
+            "cross_domain": true,
+            "within_domain_cross_region": false,
+            "same_region": false
+          },
+          "class_overlap": false
+        },
+        {
+          "vertex": 6468,
+          "position": [
+            9.719900195729727,
+            30.029896210542844,
+            3.1610168061836212
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                6315,
+                6466,
+                6469
+              ],
+              "faces": [
+                4483,
+                4484
+              ],
+              "origins": [
+                {
+                  "patch": 659,
+                  "domain": "host-v0:patch-domain:55fc906dcb04f84fa6c5b952",
+                  "region": "region:3",
+                  "face_id": "face:2",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1517')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3964')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:ed1d1be4964198b693ea6cae')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:ed2eb8f6185c6d9b6a614ddc'), LineageId(value='host-v0:physical-lineage:184cc66ee362bb367d1189d8')}))"
+                },
+                {
+                  "patch": 659,
+                  "domain": "host-v0:patch-domain:55fc906dcb04f84fa6c5b952",
+                  "region": "region:0",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1517')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3430')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:d7c3b0701f3a1a8c324b8a91')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:e1b0681437b0efc449f1c20f'), LineageId(value='claim:envelope-instance:2a5015563b48c651621d4fbd')}))"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                6239,
+                6478,
+                6479
+              ],
+              "faces": [
+                4491,
+                4492
+              ],
+              "origins": [
+                {
+                  "patch": 661,
+                  "domain": "host-v0:patch-domain:035a28176e93d0e897e4dd21",
+                  "region": "region:2",
+                  "face_id": "face:2",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1521')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3561')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:936c737122f63379e3e3b96d')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:44a2af4dd10109714024a5b1'), LineageId(value='host-v0:physical-lineage:4746d80bd2f888c818a0eecb')}))"
+                },
+                {
+                  "patch": 661,
+                  "domain": "host-v0:patch-domain:035a28176e93d0e897e4dd21",
+                  "region": "region:3",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1521')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:3964')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:a3183394d44b715450c2c8aa')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:7fb147a78e0557a047ffed15'), LineageId(value='host-v0:physical-lineage:184cc66ee362bb367d1189d8')}))"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 4483,
+              "loop": 17241,
+              "uv": [
+                7.305284336369827,
+                0.0
+              ]
+            },
+            {
+              "face": 4484,
+              "loop": 17244,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4491,
+              "loop": 17273,
+              "uv": [
+                284.7501481036151,
+                0.0
+              ]
+            },
+            {
+              "face": 4492,
+              "loop": 17276,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "semantic_location_refs": [
+            "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2280"
+          ],
+          "source_anchors": [
+            {
+              "source_vertex_index": 2280,
+              "source_link_components": 1,
+              "source_position": [
+                9.71993637084961,
+                30.034896850585938,
+                3.166015863418579
+              ],
+              "identity_basis": "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2280"
+            }
+          ],
+          "source_status": "EXACT_SOURCE_VERTEX_ID",
+          "classes": {
+            "cross_domain": true,
+            "within_domain_cross_region": false,
+            "same_region": false
+          },
+          "class_overlap": false
+        },
+        {
+          "vertex": 6778,
+          "position": [
+            -16.858950500376523,
+            42.21834671031684,
+            4.038908958435059
+          ],
+          "link_components": [
+            {
+              "neighbors": [
+                6752,
+                6777,
+                6779
+              ],
+              "faces": [
+                4690,
+                4691
+              ],
+              "origins": [
+                {
+                  "patch": 701,
+                  "domain": "host-v0:patch-domain:2344cc6c187a8bf9b4c2cd4e",
+                  "region": "region:2",
+                  "face_id": "face:2",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1580')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:4014')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:9b2200ed8de503942a30a6fa')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:ceeecc6712808fec090268e0'), LineageId(value='host-v0:physical-lineage:fec9765f16686d0e89e280e3')}))"
+                },
+                {
+                  "patch": 701,
+                  "domain": "host-v0:patch-domain:2344cc6c187a8bf9b4c2cd4e",
+                  "region": "region:3",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1580')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:4069')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:af69c3a1bcc5b744e52bc391')}), lineage_ids=frozenset({LineageId(value='claim:envelope-instance:cf204f7dd93766ac0c91b9a0'), LineageId(value='host-v0:physical-lineage:aac9b1ce8131126f8a68a74a')}))"
+                }
+              ]
+            },
+            {
+              "neighbors": [
+                6791,
+                6794,
+                6795
+              ],
+              "faces": [
+                4700,
+                4703
+              ],
+              "origins": [
+                {
+                  "patch": 704,
+                  "domain": "host-v0:patch-domain:6fde3250da9bdbde0d5b43d1",
+                  "region": "region:3",
+                  "face_id": "face:0",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1584')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:4014')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:937c034d49c9272437440dd2')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:fec9765f16686d0e89e280e3'), LineageId(value='claim:envelope-instance:bdcd67bbb183cff009aafafe')}))"
+                },
+                {
+                  "patch": 704,
+                  "domain": "host-v0:patch-domain:6fde3250da9bdbde0d5b43d1",
+                  "region": "region:2",
+                  "face_id": "face:3",
+                  "provenance": "GeometryProvenanceV1(source_face_ids=frozenset({SourceFaceId(value='host-face:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1584')}), physical_edge_ids=frozenset({PhysicalEdgeId(value='host-edge:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:4016')}), chain_use_ids=frozenset({ChainUseId(value='host-v0:chain-use:96a15750e7fa3ba6e405e856')}), lineage_ids=frozenset({LineageId(value='host-v0:physical-lineage:0e11edb4e2feea996c566957'), LineageId(value='claim:envelope-instance:b184ab075047115bcf5d1e36')}))"
+                }
+              ]
+            }
+          ],
+          "uv_loops": [
+            {
+              "face": 4690,
+              "loop": 18063,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "face": 4691,
+              "loop": 18064,
+              "uv": [
+                29.14804600907866,
+                0.0
+              ]
+            },
+            {
+              "face": 4700,
+              "loop": 18100,
+              "uv": [
+                4.7446770875626285,
+                0.0
+              ]
+            },
+            {
+              "face": 4703,
+              "loop": 18115,
+              "uv": [
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "semantic_location_refs": [
+            "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2448"
+          ],
+          "source_anchors": [
+            {
+              "source_vertex_index": 2448,
+              "source_link_components": 1,
+              "source_position": [
+                -16.85395050048828,
+                42.22334671020508,
+                4.038908958435059
+              ],
+              "identity_basis": "location:src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2448"
+            }
+          ],
+          "source_status": "EXACT_SOURCE_VERTEX_ID",
+          "classes": {
+            "cross_domain": true,
+            "within_domain_cross_region": false,
+            "same_region": false
+          },
+          "class_overlap": false
+        }
+      ],
+      "within_domain_disconnected_links": 0,
+      "byte_check": {
+        "present": false,
+        "state": "NOT_STARTED_SYNCHRONOUS_W0",
+        "violations": null
+      },
+      "frozen_sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "frozen_sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "processes": [
+        {
+          "pid": 21136,
+          "argv": [
+            "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+            "-b",
+            "C:/Users/helmd/AppData/Local/Temp/cftuv_cover008_frozen_v2/buildings2_2.blend",
+            "--python-exit-code",
+            "1",
+            "--python",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field_diagnostic_v2.py",
+            "--",
+            "--case",
+            "cover008",
+            "--out",
+            "D:/CFTUV-export-20261015-evidence/w1-point-contact/field-cover008-01"
+          ],
+          "creation_filetime": 134365667909109290,
+          "exit": 0,
+          "expected_creation_filetime": null
+        }
+      ]
+    }
+  ],
+  "counts_can_overlap": true
+}
