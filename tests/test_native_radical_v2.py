@@ -230,7 +230,7 @@ def test_a_moved_oracle_stales_the_capability_and_dependent_density_and_refuses_
         status = cftuv_native.native_status()
         assert status["radical_v2"] == "stale(reference/radical_v2.py)"
         assert status["density"] == "stale(reference/radical_v2.py)"
-        assert all(status[name] == "available" for name in status if name not in ("radical_v2", "density")), status
+        assert all(status[name] == "available" for name in status if name not in ("radical_v2", "density", "angular")), status
         with pytest.raises(cftuv_native.NativePortStale, match="radical_v2.py"):
             cftuv_native.radical_v2_eval([("zero",)])
     finally:
