@@ -1,0 +1,10 @@
+{
+  "status": "FULL_PROFILE_CANDIDATE_COMPLETE_NOT_APPROVED",
+  "scope": "offline full-profile candidate only; no pin approval",
+  "candidate": "D:\\CFTUV-export-20261015-evidence\\angular-r2\\profile-candidate-311-full-064c.json",
+  "candidate_sha256": "afa6cc74c5a11d28ca5ff43bc94854a3e3523dfdec63ded433fb12196b82f75f",
+  "source_head": "064c97b97455db3d9b6efd20cbba49a380498ccd",
+  "hashes": 78,
+  "class_shapes": 28,
+  "frozen_sha256_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4"
+}
