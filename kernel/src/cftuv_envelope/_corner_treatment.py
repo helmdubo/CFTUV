@@ -48,6 +48,19 @@ JOIN, снятый при конфликте станций). Предел из�
 плоских доменов побитово те же. Решающий закон записи — `treatment_law` (`law_of`): записи с причинами митры несут
 `CORNER_MITER_ON_FOLD_V1`, остальные — `CORNER_JOIN_SAME_PCHAIN_V1`.
 
+ТРЕТИЙ ЗАКОН — МИТРА ПРИ НУЛЕВОЙ ПЛОТНОСТИ (`CORNER_MITER_AT_DENSITY_ZERO_V1`, решение владельца 2026-10-17). Только у
+запроса Density A со значением `LINEAR_REFLEX_DENSITY_0_V1`. Угол, который после JOIN и митры на изломе остался веером
+(`ANGULAR_PROFILE`), сверяется с УГЛОМ ДЕКАЛИ у внешнего угла полосы, `alpha = pi - δ`: веер d0 (один луч) — фаска, хорда
+срезает угол; владелец хочет митру (обе полосы до точки митры на `w / sin(alpha/2)`, один шов на биссектрисе), как у
+выпуклых углов источника. Предел — `alpha >= 89` градусов, то есть `δ/π <= 91/180` (`DENSITY_ZERO_MITER_BOUND_OVER_PI`,
+точная доля π; 89, а не 90 — допуск, чтобы прямой угол с шумом шёл митрой), ЗАМКНУТО, по верхней границе того же
+интервала, что видит закон счёта: `MITER_SEAM`, причина `DENSITY_ZERO_MITER`. Угол доказанно острее (`δ/π > 91/180` по
+нижней границе) остаётся фаской под именем `DENSITY_ZERO_SHARP_CORNER_BEVEL`; интервал поверх предела — фаской под именем
+`DENSITY_ZERO_MITER_BOUND_UNPROVEN` (п. 4 `AGENTS.md`: эвристика, которая меняет ответ, называет каждый исход). Плотности
+1..4 закон не видит: их записи побитово прежние. Митра с изгибом шире четверти оборота (`1/2 < δ/π <= 91/180`) проверяет
+в геометрии вычисления только ориентацию сектора (`reference/angular`), а не потолок `pi/2` JOIN: предел у этого закона —
+сам угол декали.
+
 Известное следствие, которое нельзя вывести из кода: хост режет цепь на куски не
 только в изломах, но и в вершинах разбиения шва (`cut_vertices_by_pair`), где
 у владельца излом может быть ≈ 0°; такой стык двух кусков одной цепи владельца
@@ -69,6 +82,7 @@ from .contracts.envelopes import (
     SelectionLaw,
 )
 from .contracts.lineage import owner_chain_source_prefix
+from .contracts.request import AngularProfileSelectionPolicyId, MaxSubturnValueId
 from .numeric import ExactRatioV1, IntervalEndpointKind
 
 CORNER_TREATMENT_LAW = "CORNER_JOIN_SAME_PCHAIN_V1"
@@ -81,6 +95,20 @@ MITER_LAW_REASONS = frozenset(
         CornerTreatmentReasonV1.BEND_BEYOND_MITER_BOUND,
     }
 )
+#: Имя закона МИТРЫ ПРИ НУЛЕВОЙ ПЛОТНОСТИ в `CornerTreatmentRecordV1.treatment_law` (причины `DENSITY_ZERO_LAW_REASONS`).
+DENSITY_ZERO_MITER_LAW = "CORNER_MITER_AT_DENSITY_ZERO_V1"
+#: Причины, которые пишет закон митры при нулевой плотности: митра и две именованные фаски.
+DENSITY_ZERO_LAW_REASONS = frozenset(
+    {
+        CornerTreatmentReasonV1.DENSITY_ZERO_MITER,
+        CornerTreatmentReasonV1.DENSITY_ZERO_SHARP_CORNER_BEVEL,
+        CornerTreatmentReasonV1.DENSITY_ZERO_MITER_BOUND_UNPROVEN,
+    }
+)
+#: ПРЕДЕЛ МИТРЫ ПРИ НУЛЕВОЙ ПЛОТНОСТИ, доля π рефлексного избытка `δ`: угол декали `alpha = pi - δ >= 89` градусов
+#: равносильно `δ/π <= 91/180` (ЗАМКНУТО). 89 градусов — точная доля π, поэтому предикат точный и рациональный. Запись
+#: реестра допусков `DENSITY_ZERO_MITER_BOUND_V1`.
+DENSITY_ZERO_MITER_BOUND_OVER_PI = Fraction(91, 180)
 #: ПРЕДЕЛ ИЗГИБА JOIN, доля π рефлексного избытка: 1/2 = четверть оборота = 90°, ИСКЛЮЧИТЕЛЬНЫЙ (JOIN при `δ/π < 1/2`; прежде
 #: здесь стоял порог выбора 1/4 = 45°, до него 1/6 = 30°: решал угол; теперь решает тождество цепи, а предел — строго
 #: меньше четверти оборота). Запись реестра допусков.
@@ -121,9 +149,68 @@ SELECTION_LAW_OF_TREATMENT = {
 
 
 def law_of(reason) -> str:
-    """Закон, который решил запись с этой причиной: митра на изломе либо JOIN по тождеству цепи."""
+    """Закон, который решил запись с этой причиной: митра при нулевой плотности, митра на изломе либо JOIN."""
 
+    if reason in DENSITY_ZERO_LAW_REASONS:
+        return DENSITY_ZERO_MITER_LAW
     return CORNER_MITER_LAW if reason in MITER_LAW_REASONS else CORNER_TREATMENT_LAW
+
+
+def selection_law_of(treatment, reason):
+    """Закон счёта `k = 0` сертификата селекции по записи угла; `None` — веер, счёт плотности.
+
+    Митру пишут два закона, и сертификат несёт закон того, кто её решил: при нулевой плотности —
+    `CORNER_MITER_AT_DENSITY_ZERO_V1`, на изломе — `CORNER_MITER_ON_FOLD_V1`.
+    """
+
+    if treatment is CornerTreatmentV1.MITER_SEAM and reason is CornerTreatmentReasonV1.DENSITY_ZERO_MITER:
+        return SelectionLaw.CORNER_MITER_AT_DENSITY_ZERO_V1
+    return SELECTION_LAW_OF_TREATMENT.get(treatment)
+
+
+#: Счётчики очереди закона митры при нулевой плотности: митры и две именованные фаски.
+DENSITY_ZERO_COUNTERS = (
+    ("CONVEYOR_DENSITY_ZERO_MITERED_CORNERS", CornerTreatmentReasonV1.DENSITY_ZERO_MITER),
+    ("CONVEYOR_DENSITY_ZERO_SHARP_BEVELS", CornerTreatmentReasonV1.DENSITY_ZERO_SHARP_CORNER_BEVEL),
+    ("CONVEYOR_DENSITY_ZERO_UNPROVEN_BEVELS", CornerTreatmentReasonV1.DENSITY_ZERO_MITER_BOUND_UNPROVEN),
+)
+
+
+def density_zero_counters(records) -> tuple:
+    """`(имя, число)` по записям углов домена, только ненулевые: плотности 1..4 и d0 без таких углов счётчиков не видят."""
+
+    counts = ((name, sum(item.reason is reason for item in records)) for name, reason in DENSITY_ZERO_COUNTERS)
+    return tuple((name, count) for name, count in counts if count)
+
+
+def is_density_zero(selection_policy_id, max_subturn_value_id) -> bool:
+    """Запрос (или сертификат) — Density A со значением плотности 0: только тогда действует митра при нулевой плотности."""
+
+    return (
+        selection_policy_id is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        and max_subturn_value_id is MaxSubturnValueId.LINEAR_REFLEX_DENSITY_0_V1
+    )
+
+
+def density_zero_decision(decision, measure):
+    """Закон МИТРЫ ПРИ НУЛЕВОЙ ПЛОТНОСТИ над решением, которое осталось веером; иначе `decision` без изменений.
+
+    Сравнение с пределом `δ/π <= 91/180` по сертифицированному интервалу (канонический угол — по канону): верхняя
+    граница в пределе (замкнуто) — митра; нижняя за пределом (либо на нём и открыта) — именованная фаска острого угла;
+    иначе интервал содержит предел — именованная фаска «не доказано». Общая линия (`shared`) переносится как факт.
+    """
+
+    if decision[0] is not CornerTreatmentV1.ANGULAR_PROFILE:
+        return decision
+    interval, _restoration = selector_reflex_excess_interval(measure.reflex_excess_over_pi)
+    lower, upper = Fraction(interval.lower), Fraction(interval.upper)
+    if upper <= DENSITY_ZERO_MITER_BOUND_OVER_PI:
+        return CornerTreatmentV1.MITER_SEAM, CornerTreatmentReasonV1.DENSITY_ZERO_MITER, decision[2]
+    if lower > DENSITY_ZERO_MITER_BOUND_OVER_PI or (
+        lower == DENSITY_ZERO_MITER_BOUND_OVER_PI and interval.lower_kind is IntervalEndpointKind.OPEN
+    ):
+        return CornerTreatmentV1.ANGULAR_PROFILE, CornerTreatmentReasonV1.DENSITY_ZERO_SHARP_CORNER_BEVEL, decision[2]
+    return CornerTreatmentV1.ANGULAR_PROFILE, CornerTreatmentReasonV1.DENSITY_ZERO_MITER_BOUND_UNPROVEN, decision[2]
 
 
 def decide(sector, measure, uses_by_id, chains_by_id):
@@ -178,17 +265,19 @@ def _fold_decision(decision, sector, measure, relation, fold):
     return CornerTreatmentV1.ANGULAR_PROFILE, CornerTreatmentReasonV1.BEND_BEYOND_MITER_BOUND, decision[2]
 
 
-def decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold):
+def decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold, *, density_zero=False):
     """`(обработка, причина, общая линия)` одного угла по сырым фактам: решение угла целиком.
 
     Порядок решения — порядок законов: сначала JOIN (`decide`: тождество цепи, предел изгиба), затем, если JOIN угол
-    не взял, МИТРА НА ИЗЛОМЕ (`fold` — `_corner_fold.CornerFoldFacts` того же снапшота).
+    не взял, МИТРА НА ИЗЛОМЕ (`fold` — `_corner_fold.CornerFoldFacts` того же снапшота), затем, только при нулевой
+    плотности (`density_zero`, `is_density_zero`) и только над веером, МИТРА ПРИ НУЛЕВОЙ ПЛОТНОСТИ.
     """
 
     decision = decide(sector, measure, uses_by_id, chains_by_id)
     if decision[0] is CornerTreatmentV1.JOIN_CONTINUATION:
         return decision
-    return _fold_decision(decision, sector, measure, relation, fold)
+    decision = _fold_decision(decision, sector, measure, relation, fold)
+    return density_zero_decision(decision, measure) if density_zero else decision
 
 
 def treatment_record(relation, sector, selection_id, measure, decision) -> CornerTreatmentRecordV1:
@@ -212,11 +301,11 @@ def treatment_record(relation, sector, selection_id, measure, decision) -> Corne
 
 
 def recompute_record(
-    relation, sector, selection_id, measure, uses_by_id, chains_by_id, fold
+    relation, sector, selection_id, measure, uses_by_id, chains_by_id, fold, *, density_zero=False
 ) -> CornerTreatmentRecordV1:
     """Запись угла, пересчитанная ЗАНОВО по сырым фактам снапшота (то, чем сверяются компиляция и план)."""
 
     return treatment_record(
         relation, sector, selection_id, measure,
-        decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold),
+        decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold, density_zero=density_zero),
     )

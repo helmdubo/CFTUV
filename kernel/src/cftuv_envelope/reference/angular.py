@@ -23,6 +23,7 @@ from ..contracts.envelopes import (
     ExactTurnSignV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
+    SelectionLaw,
     StripEnvelopeSpec,
     ZERO_SUPPORT_SELECTION_LAWS,
 )
@@ -70,6 +71,7 @@ from .evaluation_binding_noise import (
 from .direction_binding import (
     BINDING_MONOTONE,
     DirectionBindingCertificateUnproven,
+    _oriented_cross,
     _verify_k1_recipe_direction_bindings,
     bound_unit_normal,
     bound_unit_normal_from_vector,
@@ -256,6 +258,18 @@ def _interpolated_normals(
                 "hidden support unit-speed proof failed",
             )
     return incoming, hidden_one, hidden_two, outgoing
+
+
+def _verify_zero_support_turn(metric, ideal, orientation) -> None:
+    """Сектор угла `k = 0` (входящая -> исходящая опора) повёрнут в сторону угла в геометрии вычисления; иначе отказ.
+
+    Это та же проверка ориентации, что у веера (`BINDING_MONOTONE`), без потолка подшага: у митры нет скрытых опор,
+    и её предел изгиба — закон угла, а не `pi/q`.
+    """
+
+    expected = 1 if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION else -1
+    if exact_sign(_oriented_cross(metric, ideal[0], ideal[-1])) != expected:
+        raise DirectionBindingCertificateUnproven(BINDING_MONOTONE)
 
 
 def _verify_canonical_subturn_fan(context, spec, orientation, ideal, q):
@@ -1121,6 +1135,10 @@ def _angular_support_data_uncached(
                 ideal,
                 density_contract[0],
             )
+        elif selection.selection_law is SelectionLaw.CORNER_MITER_AT_DENSITY_ZERO_V1:
+            # Митра при нулевой плотности: опор привязывать нечего, а предел изгиба — угол декали (`δ/π <= 91/180`, закон
+            # `_corner_treatment`), не потолок `pi/2` JOIN. В геометрии вычисления проверяется только ориентация сектора.
+            _verify_zero_support_turn(context.metric, ideal, sector.turn_orientation)
         elif (
             selection.selection_policy_id
             is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1

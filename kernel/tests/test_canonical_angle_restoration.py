@@ -865,6 +865,12 @@ def test_canonical_fan_authority_is_recorded_only_where_the_source_law_failed(
         for item in compiled.compilation.envelope_specs
         if isinstance(item, AngularEnvelopeSpec)
     )
+    if density == 0:
+        # Плотность 0: восстановленный прямой угол — внешний угол декали 90 градусов, закон
+        # CORNER_MITER_AT_DENSITY_ZERO_V1 (2026-10-17) ставит митру `k = 0`; веера нет, власти нет.
+        assert spec.resolved_hidden_edge_count == 0
+        assert authorities == frozenset(), (density, q)
+        return
     tight = 2 * (spec.resolved_hidden_edge_count + 1) == q
     # q=6 больше не «тугой»: канонический веер из 3 шагов по 30° стоит на
     # пределе с иррациональными лучами, его единственная точка не имеет

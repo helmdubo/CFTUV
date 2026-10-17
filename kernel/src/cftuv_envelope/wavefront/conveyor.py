@@ -74,6 +74,7 @@ from ..contracts.envelopes import (
     StripEnvelopeSpec,
     ZERO_SUPPORT_SELECTION_LAWS,
 )
+from .._corner_treatment import density_zero_counters
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.metric import DevelopableBandChartCertificateV1, band_is_reach_limited
 from ..contracts.request import (
@@ -763,6 +764,8 @@ class _ArrivalLawsV1:
     narrow_band_refused_count: int = 0
     #: Углы закона митры на изломе из `mitered_corner_count`; счётчик выходит только когда ненулевой.
     fold_mitered_count: int = 0
+    #: Счётчики закона митры при нулевой плотности (`_corner_treatment.density_zero_counters`), только ненулевые.
+    density_zero_counters: tuple = ()
 
 
 _EXACT_LIMIT_LIFT_LAWS = frozenset(
@@ -855,6 +858,7 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
             for item in context.compilation.diagnostics
         ),
         fans.fold_mitered_count,
+        density_zero_counters(context.compilation.corner_treatments),
     )
 
 
@@ -1316,7 +1320,7 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
         (("CONVEYOR_FOLD_MITERED_CORNERS", reading.fold_mitered_count),)
         if reading.fold_mitered_count
         else ()
-    )
+    ) + reading.density_zero_counters
 
 
 def _preparation_counters(

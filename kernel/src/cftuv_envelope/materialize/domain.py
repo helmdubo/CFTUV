@@ -451,6 +451,17 @@ def _table_diagnostics(table, add) -> None:
             f"{len(miters)} concave corners on a folded neighbourhood mitered with a seam on the bisector, no flow: "
             f"{shown}" + (f" (+{len(miters) - 6} more)" if len(miters) > 6 else ""),
         )
+    zero_miters = getattr(table, "density_zero_miters", ())
+    if zero_miters:
+        shown = ", ".join(sorted(zero_miters)[:6])
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.CORNER_MITER_AT_DENSITY_ZERO_V1,
+            "domain",
+            (),
+            f"{len(zero_miters)} concave corners at fan density 0 mitered with a seam on the bisector instead of a bevel: "
+            f"{shown}" + (f" (+{len(zero_miters) - 6} more)" if len(zero_miters) > 6 else ""),
+        )
 
 
 def _near_planar_numbers(certificate, onto_surface: bool, lift_note: str) -> str:
