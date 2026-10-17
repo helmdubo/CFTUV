@@ -28,7 +28,9 @@ JOIN 45° сдвинули, пересняты текущим ядром (`artif
 `rerecorded.moved_by` названо, какой закон сдвинул сколько якорей), и ворота идут БЕЗ закрепок старых законов:
 закрепка веера и закрепка порога JOIN остались только красными контролями
 (`test_anchor_gate_goes_red_when_an_old_law_is_re_enabled`) — ворота, не краснеющие при возврате старого закона,
-перестали бы видеть закон.
+перестали бы видеть закон. Строки стены 2.001, walls.012 и building п17/п109 пересняты ещё раз законом митры при
+нулевой плотности (CORNER_MITER_AT_DENSITY_ZERO_V1, 2026-10-17): на Fan Density 0 угол декали не острее 89 градусов —
+митра, и ворота законов веера больше не видят (вееров в этих доменах нет); красные контроли — фаска d0.
 
 НЕ заморожен ИСТОРИЧЕСКИЙ СЧЁТЧИК УЗЛОВ. Ни 45, ни 49 не объявлены властью:
 какое из двух чисел верно, ещё не доказано, и заморозить любое значило бы
@@ -119,12 +121,14 @@ PIN_FRAME_FLAG = "--pin-frame"
 PIN_LADDER_FLAG = "--pin-ladder"
 PIN_FANS_FLAG = "--pin-fans"
 PIN_JOIN_FLAG = "--pin-join"
+PIN_DENSITY_ZERO_FLAG = "--pin-density-zero"
 # Закрепки законов вееров и порога JOIN — ТОЛЬКО красные контроли ворот якорей: ворота идут без них.
 _FAN_SUFFIX = "BEFORE_RIGHT_ANGLE_STABLE_V1"
 OLD_FAN_LAWS = f"FAN_LAWS_{_FAN_SUFFIX}"
 OLD_FAN_RAY_WINDOW = f"FAN_RAY_WINDOW_{_FAN_SUFFIX}"
-OLD_FAN_ROTATION_TABLE = f"FAN_ROTATION_TABLE_{_FAN_SUFFIX}"
 OLD_JOIN_THRESHOLD = "JOIN_SOFT_BEND_THRESHOLD_30_V1"
+#: Фаска d0 до закона митры при нулевой плотности (CORNER_MITER_AT_DENSITY_ZERO_V1, 2026-10-17): красный контроль.
+OLD_DENSITY_ZERO_BEVEL = "DENSITY_ZERO_BEVEL_BEFORE_MITER_V1"
 LEGACY_LIFT = "CERTIFIED_PLANE_V1"
 LEGACY_FRAME = "CANONICAL_ONLY_V1"
 NEAR_PLANAR_ONLY = "NEAR_PLANAR_ONLY_V1"
@@ -137,6 +141,7 @@ def route(
     pin_ladder: str | None = None,
     pin_fans: str | None = None,
     pin_join: str | None = None,
+    pin_density_zero: str | None = None,
 ) -> dict:
     """Полный маршрут слепка в отдельном процессе под капом работы.
 
@@ -147,7 +152,7 @@ def route(
     веера и порог JOIN 30° и нужны ТОЛЬКО красным контролям ворот якорей.
     """
 
-    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}|{pin_fans}|{pin_join}"
+    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}|{pin_fans}|{pin_join}|{pin_density_zero}"
     if key in _CACHE:
         return _CACHE[key]
     if snapshot == BUILDING:
@@ -176,6 +181,8 @@ def route(
         command += [PIN_FANS_FLAG, pin_fans]
     if pin_join is not None:
         command += [PIN_JOIN_FLAG, pin_join]
+    if pin_density_zero is not None:
+        command += [PIN_DENSITY_ZERO_FLAG, pin_density_zero]
     try:
         finished = subprocess.run(
             command,
@@ -210,8 +217,9 @@ def domain(
     pin_ladder: str | None = None,
     pin_fans: str | None = None,
     pin_join: str | None = None,
+    pin_density_zero: str | None = None,
 ) -> dict:
-    result = route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans, pin_join)
+    result = route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans, pin_join, pin_density_zero)
     for record in result["domains"]:
         if record["patch_id"] == patch_id:
             return record
@@ -251,8 +259,11 @@ def test_wall_2_001_route_reproduces_the_field_datum():
     assert counters["CONVEYOR_LATTICE_SCALE"] == 32768
     assert counters["CONVEYOR_ARRIVAL_LAWS"] == 35
     assert counters["CONVEYOR_SOURCE_EDGES"] == 35
-    assert counters["CONVEYOR_RATIONAL_VERTEX_FANS"] == 12
-    assert counters["CONVEYOR_FAN_SUPPORTS"] == 12
+    # Двенадцать вогнутых углов окон (Fan Density 0): с CORNER_MITER_AT_DENSITY_ZERO_V1 (2026-10-17) — митры `k = 0`, а не
+    # веера d0; на фаске до закона было 12 вееров и 12 опор (красный контроль `--pin-density-zero` ниже).
+    assert counters["CONVEYOR_RATIONAL_VERTEX_FANS"] == 0
+    assert counters["CONVEYOR_FAN_SUPPORTS"] == 0
+    assert counters["CONVEYOR_MITERED_CORNERS"] == counters["CONVEYOR_DENSITY_ZERO_MITERED_CORNERS"] == 12
     assert counters["CONVEYOR_AMBIGUOUS_OWNER_EDGES"] == 23
     assert record["bridge_outcome"] == "EXACT"
 
@@ -276,7 +287,7 @@ def test_wall_2_001_ownership_accounts_for_every_front():
     }
     ambiguous = {tuple(key) for key in record["ambiguous_owner_spans"]}
     assert all(name for _, name in record["owner_by_edge"])
-    # 12 владеемых + 23 ничьи = 35 рёбер-источников; веера все 12 владеемы.
+    # 12 владеемых + 23 ничьи = 35 рёбер-источников; вееров нет: углы d0 — митры (CORNER_MITER_AT_DENSITY_ZERO_V1).
     assert len(owned_source) == 12
     assert len(ambiguous) == 23
     assert not (owned_source & ambiguous)
@@ -285,13 +296,10 @@ def test_wall_2_001_ownership_accounts_for_every_front():
         == counters["CONVEYOR_SOURCE_EDGES"]
         == 35
     )
-    assert len(owned_fan) == counters["CONVEYOR_FAN_EDGES"] == 12
+    assert len(owned_fan) == counters["CONVEYOR_FAN_EDGES"] == 0
     assert record["wall_spans"] == []
     assert counters["CONVEYOR_WALL_EDGES"] == 0
-    assert {name.split(":")[0] for _, name in record["owner_by_edge"]} == {
-        "strip-spec",
-        "angular-spec",
-    }
+    assert {name.split(":")[0] for _, name in record["owner_by_edge"]} == {"strip-spec"}
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +392,7 @@ def anchor_findings(
     pin_frame: str | None = None,
     pin_fans: str | None = None,
     pin_join: str | None = None,
+    pin_density_zero: str | None = None,
 ) -> dict:
     """Расхождение маршрута с таблицей якорей: ОДНА функция и для ворот, и для красных контролей.
 
@@ -395,7 +404,7 @@ def anchor_findings(
     present = {
         locus_key(locus): locus
         for locus in domain(
-            snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join
+            snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join, pin_density_zero
         )["loci"]
     }
     missing = []
@@ -472,29 +481,33 @@ def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_fra
 
 
 #: КРАСНЫЕ КОНТРОЛИ ворот якорей: возврат ОДНОГО старого закона обязан дать находку, иначе ворота не видят закон.
-#: Строка: (слепок, патч, закрепка укладки, закрепка репера, закрепка веера, закрепка JOIN, находка, id). Что чем
-#: двигается — ИЗМЕРЕНО переснятием (`rerecorded.moved_by` в `anchor_loci.json`): окно луча (узкая полоса поворота
-#: вместо окна Вороного) двигает якоря walls.012 / building п109 (у walls.001 п0 вееров не осталось, см. ниже); строка таблицы лучей двигает якоря
-#: стены 2.001 и building п17 ТОЛЬКО вместе с окном (канонический угол ушёл от поиска в окне Вороного к строке
-#: таблицы, и возврат одного из двух старых лучей не возвращает); порог JOIN — walls.001. Допуск восстановления 0.1° и
-#: граница шума 1/400 в этих доменах не двигают НИ ОДНОГО якоря (замер на d0): эти ворота их закон не видят, его
-#: держат тесты ядра (границы допуска 0.0999 / 0.1001 в `kernel/tests/test_canonical_angle_restoration.py`).
+#: Строка: (слепок, патч, закрепка укладки, закрепка репера, закрепка веера, закрепка JOIN, находка, закрепка фаски d0, id).
+#: Что чем двигается — ИЗМЕРЕНО переснятием (`rerecorded.moved_by` в `anchor_loci.json`).
+#:
+#: ЗАКОНЫ ВЕЕРА (RIGHT-ANGLE-STABLE: окно луча, строка таблицы лучей, допуск восстановления, граница шума) эти ворота
+#: БОЛЬШЕ НЕ ВИДЯТ, и это измерено, а не предположено: ворота идут на Fan Density 0, а с законом митры при нулевой
+#: плотности (CORNER_MITER_AT_DENSITY_ZERO_V1, 2026-10-17) каждый канонический прямой угол этих доменов — митра `k = 0`,
+#: вееров в них нет (стена 2.001, walls.012, building п17 и п109: `CONVEYOR_RATIONAL_VERTEX_FANS` 0), и пять прежних
+#: контролей веера (2.001 все законы и строка+окно, walls.012 окно, п17 и п109 все законы) слепли по построению, как
+#: прежде контроль веера walls.001. Законы веера держат тесты ядра на d1/d3 (`kernel/tests/test_canonical_fan_rays.py`,
+#: границы допуска 0.0999 / 0.1001 в `kernel/tests/test_canonical_angle_restoration.py`).
 RED_CONTROLS = [
-    pytest.param(WALL_2_001, 0, None, None, OLD_FAN_LAWS, None, "missing", id="wall_2_001-all-old-fan-laws"),
+    # Порог JOIN на d0 виден только вместе с фаской d0: под законом митры при нулевой плотности угол, которого JOIN 30°
+    # не берёт, становится митрой `k = 0` — те же локусы, что у JOIN (контроль слеп по построению). С фаской d0 веера
+    # возвращаются, и снятые JOIN локусы — тоже (10 из 10).
     pytest.param(
-        WALL_2_001, 0, None, None, f"{OLD_FAN_ROTATION_TABLE},{OLD_FAN_RAY_WINDOW}", None, "missing",
-        id="wall_2_001-old-rotation-table-and-ray-window",
+        WALLS_001, 0, None, None, None, OLD_JOIN_THRESHOLD, "reappeared", OLD_DENSITY_ZERO_BEVEL,
+        id="walls_001-old-join-threshold",
     ),
-    # walls.001 п0 больше не держит красных контролей веера: с JOIN по тождеству цепи (2026-10-04) три излома двери по
-    # 45° стали продолжением полосы, и в домене НЕТ ни одного веера — старые законы веера не двигают ни одного якоря
-    # (контроль слеп по построению). Законы веера держат стена 2.001, walls.012 и building п17/п109 ниже.
-    pytest.param(WALLS_001, 0, None, None, None, OLD_JOIN_THRESHOLD, "reappeared", id="walls_001-old-join-threshold"),
+    # Закон митры при нулевой плотности сдвинул якоря стены 2.001 (30 из 45), walls.012 (7 из 12) и building п17 (22 из
+    # 29), п109 (4 из 10): фаска d0 обязана их сдвинуть обратно.
+    pytest.param(WALL_2_001, 0, None, None, None, None, "missing", OLD_DENSITY_ZERO_BEVEL, id="wall_2_001-old-d0-bevel"),
     pytest.param(
-        WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME, OLD_FAN_RAY_WINDOW, None, "missing", id="walls_012-old-ray-window"
+        WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME, None, None, "missing", OLD_DENSITY_ZERO_BEVEL, id="walls_012-old-d0-bevel"
     ),
-    pytest.param(BUILDING, 17, None, None, OLD_FAN_LAWS, None, "missing", id="building_17-all-old-fan-laws"),
+    pytest.param(BUILDING, 17, None, None, None, None, "missing", OLD_DENSITY_ZERO_BEVEL, id="building_17-old-d0-bevel"),
     pytest.param(
-        BUILDING, 109, None, LEGACY_FRAME, OLD_FAN_LAWS, None, "missing", id="building_109-all-old-fan-laws"
+        BUILDING, 109, None, LEGACY_FRAME, None, None, "missing", OLD_DENSITY_ZERO_BEVEL, id="building_109-old-d0-bevel"
     ),
 ]
 
@@ -527,10 +540,10 @@ def test_only_the_full_historical_fan_law_uses_the_frozen_binding_callback(pin_f
 
 
 @pytest.mark.parametrize(
-    "snapshot,patch_id,pin_lift,pin_frame,pin_fans,pin_join,finding", RED_CONTROLS
+    "snapshot,patch_id,pin_lift,pin_frame,pin_fans,pin_join,finding,pin_density_zero", RED_CONTROLS
 )
 def test_anchor_gate_goes_red_when_an_old_law_is_re_enabled(
-    snapshot, patch_id, pin_lift, pin_frame, pin_fans, pin_join, finding
+    snapshot, patch_id, pin_lift, pin_frame, pin_fans, pin_join, finding, pin_density_zero
 ):
     """Те же ворота (`anchor_findings`) на маршруте со старым законом краснеют именно тем, чем должны.
 
@@ -540,20 +553,22 @@ def test_anchor_gate_goes_red_when_an_old_law_is_re_enabled(
     сравнение перестало бы что-либо различать).
     """
 
-    substitutions = route(snapshot, pin_lift, pin_frame, None, pin_fans, pin_join)["substitutions"]
+    substitutions = route(snapshot, pin_lift, pin_frame, None, pin_fans, pin_join, pin_density_zero)["substitutions"]
     if pin_fans is not None:
         assert f"KERNEL_FAN_LAWS_PINNED:{pin_fans}" in substitutions
     assert ("DENSITY_BINDING_CALLBACK_PINNED:LEGACY_V1" in substitutions) == (pin_fans == OLD_FAN_LAWS)
     if pin_join is not None:
         assert f"KERNEL_JOIN_THRESHOLD_PINNED:{pin_join}" in substitutions
-    record = domain(snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join)
+    if pin_density_zero is not None:
+        assert f"KERNEL_DENSITY_ZERO_MITER_PINNED:{pin_density_zero}" in substitutions
+    record = domain(snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join, pin_density_zero)
     assert record["outcome"] == "EXACT", (
         f"RED_CONTROL_ROUTE_REFUSED: {snapshot} п{patch_id} на старом законе отказал {record['outcome']!r}: "
         "контроль не доказывает чувствительность ворот."
     )
-    findings = anchor_findings(snapshot, patch_id, pin_lift, pin_frame, pin_fans, pin_join)
+    findings = anchor_findings(snapshot, patch_id, pin_lift, pin_frame, pin_fans, pin_join, pin_density_zero)
     assert findings[finding], (
-        f"ANCHOR_GATE_IS_BLIND: возврат старого закона ({pin_fans or pin_join}) не дал находки {finding!r} "
+        f"ANCHOR_GATE_IS_BLIND: возврат старого закона ({pin_fans or pin_join or pin_density_zero}) не дал находки {finding!r} "
         f"у {snapshot} п{patch_id}: ворота якорей не видят этот закон."
     )
 
@@ -569,7 +584,8 @@ def test_walls_012_anchor_loci_survive():
 
     table = anchors(WALLS_012, 0)
     record = domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME)
-    assert table["anchor_loci"] == len(table["anchors"]) == record["skeleton_nodes"] == 12
+    # 12 до закона митры при нулевой плотности (2026-10-17): две митры d0 вместо вееров сняли два узла.
+    assert table["anchor_loci"] == len(table["anchors"]) == record["skeleton_nodes"] == 10
     assert route(WALLS_012, LEGACY_LIFT, LEGACY_FRAME)["substitutions"] == [
         f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{LEGACY_LIFT}",
         f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{LEGACY_FRAME}",

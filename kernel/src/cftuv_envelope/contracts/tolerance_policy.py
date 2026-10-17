@@ -1559,7 +1559,7 @@ _BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         authority="_corner_treatment.DENSITY_ZERO_MITER_BOUND_OVER_PI; SelectionLaw.CORNER_MITER_AT_DENSITY_ZERO_V1; DECISIONS.md 2026-10-17 (МИТРА ПРИ НУЛЕВОЙ ПЛОТНОСТИ)",
         applied_stage=TolerancePolicyAppliedStageV1.CORNER_TREATMENT_BEFORE_COUNT_LAW, allowed_effect=TolerancePolicyAllowedEffectV1.MITER_CORNER_AT_DENSITY_ZERO_WITHIN_DECAL_ANGLE_BOUND,
         changes_topology=True, preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH, declaration_sites=("cftuv_envelope._corner_treatment.DENSITY_ZERO_MITER_BOUND_OVER_PI",),
-        telemetry_counters=("STATION_DENSITY_ZERO_MITER_CORNERS", "CONVEYOR_MITERED_CORNERS", "CONVEYOR_DENSITY_ZERO_MITERED_CORNERS", "CONVEYOR_DENSITY_ZERO_SHARP_BEVELS", "CONVEYOR_DENSITY_ZERO_UNPROVEN_BEVELS"),
+        telemetry_counters=("STATION_DENSITY_ZERO_MITER_CORNERS", "STATION_DENSITY_ZERO_SHARP_BEVELS", "STATION_DENSITY_ZERO_UNPROVEN_BEVELS", "CONVEYOR_MITERED_CORNERS", "CONVEYOR_DENSITY_ZERO_MITERED_CORNERS", "CONVEYOR_DENSITY_ZERO_SHARP_BEVELS", "CONVEYOR_DENSITY_ZERO_UNPROVEN_BEVELS"),
         positive_fixture=f"{_KERNEL_TESTS}/test_corner_density_zero_miter.py::test_a_right_angle_at_density_zero_miters", negative_fixture=f"{_KERNEL_TESTS}/test_corner_density_zero_miter.py::test_a_sharp_decal_corner_keeps_the_bevel_by_name",
     ),
     TolerancePolicyV1(

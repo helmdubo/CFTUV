@@ -19,6 +19,7 @@
 | предел замкнут (верх на пределе — митра; низ на пределе закрытым концом — «не доказано») | `..._the_bound_is_closed_...` |
 | плотности 1..4 — прежние записи и счёт на тех же углах                                  | `..._densities_one_to_four_...` |
 | материализация: точка митры на `w / sin(alpha/2)`, шов, станции и диагностика назвали угол; изгиб шире четверти оборота строится | `..._the_miter_point_...`, `..._beyond_a_quarter_turn_...` |
+| закон подъёма канонического счёта не судит k = 0 закона угла (тугой d0 на шуме вычисления) | `..._count_lift_law_...` |
 | подделки: митра d0 под сертификатом d1, закон сертификата митры на изломе — отказ        | `..._forged_...` |
 """
 
@@ -191,6 +192,10 @@ def test_a_sharp_decal_corner_keeps_the_bevel_by_name():
     assert counters["CONVEYOR_DENSITY_ZERO_SHARP_BEVELS"] == 1 and "CONVEYOR_DENSITY_ZERO_UNPROVEN_BEVELS" not in counters
     straddle = dict(_prepared(*_case(91.0, bounds=("0.5055", "0.5056"))).counters)
     assert straddle["CONVEYOR_DENSITY_ZERO_UNPROVEN_BEVELS"] == 1 and "CONVEYOR_DENSITY_ZERO_SHARP_BEVELS" not in straddle
+    # Станции домена называют фаску тем же числом (продукт видит счётчики материализации).
+    _result, materialized = _materialized(prepared, request)
+    assert materialized["STATION_DENSITY_ZERO_SHARP_BEVELS"] == 1
+    assert "STATION_DENSITY_ZERO_MITER_CORNERS" not in materialized and "STATION_DENSITY_ZERO_UNPROVEN_BEVELS" not in materialized
 
 
 def test_the_bound_is_closed_and_the_interval_alone_names_every_outcome():
@@ -298,6 +303,24 @@ def test_a_miter_beyond_a_quarter_turn_builds_where_the_join_ceiling_would_refus
     refused = prepare_conveyor(*_case(90.5))
     assert refused.outcome.value == "DOMAIN_GEOMETRY_REFUSED" and "BINDING_INSIDE_OWN_ORDINAL_WINDOW" in refused.detail
     assert prepare_conveyor(*_case(90)).outcome.value == "EXACT"
+
+
+def test_the_canonical_count_lift_law_does_not_judge_a_corner_law_miter(monkeypatch):
+    """Канонический прямой угол на d0 тугой (`u q = 1 = k + 1`); шум вычисления шире `pi/2` (поле: 13 доменов `building`,
+    63 `cover.008`) делал его «счётом, который канон обязан был поднять». `k = 0` закона угла — не счёт плотности.
+
+    Неосуществимость в геометрии вычисления навязана подменой; красный контроль — та же подмена без пропуска законов угла.
+    """
+
+    from cftuv_envelope.reference import angular, evaluation_binding_noise
+    from cftuv_envelope.wavefront import prepare_conveyor
+
+    monkeypatch.setattr(evaluation_binding_noise, "canonical_count_is_feasible", lambda *args, **kwargs: False)
+    assert prepare_conveyor(*_case(90)).outcome.value == "EXACT"
+    monkeypatch.setattr(angular, "ZERO_SUPPORT_SELECTION_LAWS", frozenset())
+    refused = prepare_conveyor(*_case(90))
+    assert refused.outcome.value == "DOMAIN_GEOMETRY_REFUSED"
+    assert "canonical exact-limit count is not lifted" in refused.detail
 
 
 # --------------------------------------------------------------------------
