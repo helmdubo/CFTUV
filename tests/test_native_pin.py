@@ -296,7 +296,7 @@ def test_an_interpreter_below_the_floor_is_a_named_refusal_not_a_fallback(monkey
     _record, call = _a_call()
     monkeypatch.setattr(pin, "MINIMUM_PYTHON", (99, 0))
     pin.refresh()
-    assert cftuv_native.native_status() == {"coverage": "unsupported_python", "clip": "unsupported_python", "skeleton": "unsupported_python", "snap_embedding": "unsupported_python", "effective_alpha": "unsupported_python", "materialize_w1": "unsupported_python", "snapshot_check": "unsupported_python", "frame": "unsupported_python", "radical_v2": "unsupported_python", "density": "unsupported_python", "angular": "unavailable"}
+    assert cftuv_native.native_status() == {"coverage": "unsupported_python", "clip": "unsupported_python", "skeleton": "unsupported_python", "snap_embedding": "unsupported_python", "effective_alpha": "unsupported_python", "materialize_w1": "unsupported_python", "snapshot_check": "unsupported_python", "frame": "unsupported_python", "radical_v2": "unsupported_python", "density": "unsupported_python", "angular": "unsupported_python"}
     state = nc.capture_state(call.budget, None)
     with pytest.raises(cftuv_native.NativeUnsupportedPython, match="needs CPython 99.0 or newer"):
         cftuv_native.new_mirror().clip_geometry(call.args[0], call.budget, **call.kwargs)
