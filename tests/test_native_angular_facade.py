@@ -20,6 +20,14 @@ def facade(monkeypatch):
     pin = ModuleType(name + '.pin')
     pin.NativePortStale = type('NativePortStale', (RuntimeError,), {})
     pin.NativePortUnsupported = type('NativePortUnsupported', (RuntimeError,), {})
+    # Файловый пин операции (`pin.OPERATION_FILES['angular']`): по умолчанию совпадает.
+    pin.verdict = ['available']
+    def require(operation):
+        assert operation == 'angular'
+        if pin.verdict[0] != 'available':
+            raise pin.NativePortStale('the native `angular` port was compared with another version of the Python oracle; changed since the pin: ' + pin.verdict[0])
+    pin.require = require
+    pin.status = lambda operation: pin.verdict[0] if pin.verdict[0] == 'available' else f'stale({pin.verdict[0]})'
     sys.modules[pin.__name__] = pin
     try:
         op = importlib.import_module(name + '.angular_op')
@@ -74,6 +82,31 @@ def test_empty_production_table_is_unavailable_before_binding(facade,monkeypatch
     with pytest.raises(f.pin.NativePortStale,match='APPROVED_PROFILE_MISSING'):
         f.op.angular_compute(f.core,**f.options)
     assert f.log==[]
+
+
+def test_empty_table_stays_unavailable_whatever_the_file_pin_says(facade,monkeypatch):
+    f=facade
+    monkeypatch.setattr(f.op,'APPROVED_PINS',{})
+    for verdict in ('available','reference/metric.py'):
+        f.pin.verdict[0]=verdict
+        assert f.op.status()=='unavailable'
+
+
+def test_approved_table_status_is_the_file_pin_verdict(facade):
+    f=facade
+    assert f.op.status()=='available'
+    f.pin.verdict[0]='reference/angle_measure.py'
+    assert f.op.status()=='stale(reference/angle_measure.py)'
+
+
+def test_stale_file_pin_declines_before_binding_or_effects(facade):
+    f=facade
+    f.pin.verdict[0]='contracts/analysis.py'
+    with pytest.raises(f.pin.NativePortStale,match='contracts/analysis.py'):
+        f.op.angular_compute(f.core,**f.options)
+    with pytest.raises(f.pin.NativePortStale,match='contracts/analysis.py'):
+        f.op.warm(f.core,binding_inputs=f.inputs,dependencies=f.deps)
+    assert f.log==[] and not f.op._BINDINGS
 
 
 def test_pre_effect_decline_becomes_public_unsupported(facade,monkeypatch):

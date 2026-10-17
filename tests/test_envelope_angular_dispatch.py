@@ -2,19 +2,34 @@
 import ast
 import hashlib
 import inspect
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED_REFERENCE_AST = 'a809d58b53987591ca2e51c1804f6fbc49f45ab606fd653f71f2716e19b3d7e0'
+# The same body through _portable_ast_dump (empty fields dropped): one value on 3.10, 3.11 and 3.13 (3.13 stopped printing empty fields in ast.dump).
+APPROVED_REFERENCE_PORTABLE_AST = '95d4453f0b94222d8bd950e77226235cb415541a06265968fe6dcc9e494b3484'
+
+
+def _portable_ast_dump(node):
+    if isinstance(node, ast.AST):
+        parts = [f'{name}={_portable_ast_dump(value)}' for name in node._fields
+                 for value in (getattr(node, name, None),) if not (value is None or (isinstance(value, list) and not value))]
+        return f"{type(node).__name__}({', '.join(parts)})"
+    if isinstance(node, list):
+        return '[' + ', '.join(_portable_ast_dump(item) for item in node) + ']'
+    return repr(node)
 
 
 def test_reference_body_and_signature_remain_frozen():
     tree = ast.parse((ROOT / 'cftuv/envelope_angular_relations.py').read_text(encoding='utf-8'))
     functions = {n.name:n for n in tree.body if isinstance(n, ast.FunctionDef)}
     reference = functions['_build_angular_relations_reference']
-    assert hashlib.sha256(ast.dump(reference, include_attributes=False).encode()).hexdigest() == APPROVED_REFERENCE_AST
+    assert hashlib.sha256(_portable_ast_dump(reference).encode()).hexdigest() == APPROVED_REFERENCE_PORTABLE_AST
+    if sys.version_info < (3, 13):  # the historical ast.dump value that CI 3.10/3.11 has always checked
+        assert hashlib.sha256(ast.dump(reference, include_attributes=False).encode()).hexdigest() == APPROVED_REFERENCE_AST
     assert ast.dump(reference.args) == ast.dump(functions['build_angular_relations'].args)
 
 

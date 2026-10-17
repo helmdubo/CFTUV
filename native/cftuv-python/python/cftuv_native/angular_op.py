@@ -10,7 +10,11 @@ _DEPENDENCIES = ('kernel','sympy','angle_measure','measure','replay_event','host
 
 
 def status():
-    return 'unavailable'
+    # Пустая таблица: стадия недоступна при любом пине файлов; утверждённый профиль - вердикт файлового пина (pin.OPERATION_FILES['angular']).
+    if not APPROVED_PINS:
+        return 'unavailable'
+    from . import pin
+    return pin.status('angular')
 
 
 def _identity_inputs(inputs, dependencies):
@@ -37,6 +41,8 @@ def _prepared(core, binding_inputs, dependencies):
     if type(profile)is not str or profile not in APPROVED_PINS:
         raise NativePortStale('ANGULAR_APPROVED_PROFILE_MISSING')
     pins=APPROVED_PINS[profile]
+    from .pin import require
+    require('angular')
     callback=getattr(core,'angular_patch',None)
     if not callable(callback):
         raise NativePortStale('ANGULAR_PATCH_READER_MISSING')
