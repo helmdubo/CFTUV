@@ -1,6 +1,8 @@
-"""Portable host profile/offline authoring boundary checks; no pin approval."""
+"""Portable host profile/offline authoring boundary checks; the approved table is owner data, never generated."""
 import ast
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -30,7 +32,20 @@ def test_generator_import_has_no_host_or_native_or_blender_execution():
     assert not any(isinstance(n,ast.Name)and n.id=='APPROVED_PINS' for node in assignments for n in ast.walk(node))
 
 
-def test_production_profile_table_stays_empty():
-    tree=ast.parse((ROOT/'native/cftuv-python/python/cftuv_native/angular_op.py').read_text(encoding='utf-8'))
-    statement=next(n for n in tree.body if isinstance(n,ast.Assign)and any(isinstance(t,ast.Name)and t.id=='APPROVED_PINS'for t in n.targets))
-    assert isinstance(statement.value,ast.Call)and isinstance(statement.value.args[0],ast.Dict)and not statement.value.args[0].keys
+#: ANGULAR_PINS_APPROVED_V1 (владелец, 2026-10-17): ровно кандидаты r4 на 0cb37dad. Любое добавление или изменение - новое утверждение владельца.
+APPROVED_DIGESTS={'CPython-3.11:full':'6fade87372c0a91a8174392ff02e305e598fab7c607c35327c23fea50bb562af',
+                  'CPython-3.11:light':'cd3bdd69b65512114503142a5cc9da4e455839b56acf0a13b6977f1927f14d8c'}
+
+
+def test_production_profile_table_is_exactly_the_owner_approved_pins():
+    path=ROOT/'native/cftuv-python/python/cftuv_native/angular_approved_pins.py'
+    tree=ast.parse(path.read_text(encoding='utf-8'))
+    body=[n for n in tree.body if not(isinstance(n,ast.Expr)and isinstance(n.value,ast.Constant))]
+    assert len(body)==1 and isinstance(body[0],ast.Assign)and[t.id for t in body[0].targets]==['APPROVED'],'data only: one literal, no code'
+    table=ast.literal_eval(body[0].value)
+    assert set(table)==set(APPROVED_DIGESTS)
+    for profile,digest in APPROVED_DIGESTS.items():
+        assert hashlib.sha256(json.dumps(table[profile],sort_keys=True,separators=(',',':')).encode()).hexdigest()==digest,profile
+    op_tree=ast.parse((ROOT/'native/cftuv-python/python/cftuv_native/angular_op.py').read_text(encoding='utf-8'))
+    statement=next(n for n in op_tree.body if isinstance(n,ast.Assign)and any(isinstance(t,ast.Name)and t.id=='APPROVED_PINS'for t in n.targets))
+    assert ast.dump(statement.value)==ast.dump(ast.parse('MappingProxyType(_APPROVED)',mode='eval').body)

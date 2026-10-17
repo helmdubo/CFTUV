@@ -2,8 +2,8 @@
 
 ANGULAR_BIND_AT_WORKER_START_V1 / ANGULAR_BIND_ONCE_CHECK_PER_CALL_V1 / ANGULAR_BIND_SOURCE_SCOPE_V1: the source digests and code fingerprints
 (wire.bind + freeze) are taken once per bind, a pool worker binds in its start, and a call only compares identities with the snapshots of the
-bind. These tests use TEST-ONLY pins observed from the live host in the test itself (monkeypatched, restored), never product constants: the
-product table stays empty and `warm_angular` then binds nothing.
+bind. These tests use TEST-ONLY pins observed from the live host in the test itself (monkeypatched over the owner-approved product table,
+restored), never product constants; with an empty table `warm_angular` binds nothing.
 """
 import inspect
 import sys
@@ -43,7 +43,6 @@ def _observed_pins():
 
 @pytest.fixture
 def test_only_pins(monkeypatch):
-    assert not op.APPROVED_PINS, 'the product table is empty'
     profile, pins = _observed_pins()
     monkeypatch.setattr(op, 'APPROVED_PINS', MappingProxyType({profile: pins}))
     monkeypatch.setattr(op, '_BINDINGS', {})
@@ -56,8 +55,8 @@ def _warm():
     return backend.warm_angular(binding_inputs=host.build_binding_inputs(kernel), dependencies=host.build_dependencies(kernel, sympy))
 
 
-def test_empty_product_table_binds_nothing():
-    assert not op.APPROVED_PINS
+def test_empty_product_table_binds_nothing(monkeypatch):
+    monkeypatch.setattr(op, 'APPROVED_PINS', MappingProxyType({}))
     before = dict(op._BINDINGS)
     assert _warm() is False
     assert op._BINDINGS == before
