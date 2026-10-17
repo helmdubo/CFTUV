@@ -780,6 +780,15 @@ def warm_worker_identities() -> dict:
             from cftuv_envelope.backend import warm_frame
 
             warm_frame()  # привязка нативного допуска рамки (дайджесты функций контрактов, таблица классов): разовые десятки мс, не на первом домене
+        if stage_orders(DEFAULT_KERNEL_BACKEND).angular == "NATIVE":
+            import cftuv_envelope as kernel
+            import sympy
+            from cftuv_envelope.backend import warm_angular
+            from .envelope_angular_binding import build_binding_inputs, build_dependencies
+
+            # ANGULAR_BIND_AT_WORKER_START_V1: привязка ANGULAR (дайджесты исходников и отпечатки кода эталона, ~0.2 с) в старте воркера, не на первом домене;
+            # без утверждённого профиля - False, ничего не привязано
+            warm_angular(binding_inputs=build_binding_inputs(kernel), dependencies=build_dependencies(kernel, sympy))
         outcome = WORKER_IDENTITY_PREWARMED
     except Exception as exc:  # noqa: BLE001 - прогрев не ломает воркера: именованный исход и строка в stderr
         outcome = WORKER_IDENTITY_PREWARM_UNAVAILABLE

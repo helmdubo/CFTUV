@@ -53,9 +53,10 @@ def _prepared(core, binding_inputs, dependencies):
         if old_pins is not pins or old_callback is not callback or not _same(old_identity,identity):
             raise NativePortStale('ANGULAR_BINDING_INPUTS_CHANGED')
         return bound,callback
-    wb=wire.bind(**values)
-    bound=bindings.freeze(dependencies,checked_hashes=pins['hashes'],checked_runtime=pins['runtime'],
-                          wire_binding=wb,checked_wire_metadata=pins['wire_metadata'])
+    with wire.source_scope():
+        wb=wire.bind(**values)
+        bound=bindings.freeze(dependencies,checked_hashes=pins['hashes'],checked_runtime=pins['runtime'],
+                              wire_binding=wb,checked_wire_metadata=pins['wire_metadata'])
     _BINDINGS[profile]=(identity,pins,callback,bound)
     return bound,callback
 

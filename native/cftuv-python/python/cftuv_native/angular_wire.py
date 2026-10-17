@@ -3,7 +3,11 @@ Observed source digests are binding metadata, NOT approved native pins.
 """
 from dataclasses import dataclass, fields, is_dataclass
 from hashlib import sha256
-from inspect import getsource
+import ast as _ast
+import inspect as _inspect
+import linecache as _linecache
+import sys as _sys
+from contextlib import contextmanager
 from types import MappingProxyType
 
 MAX_ITEMS=100000
@@ -40,6 +44,65 @@ def _map(value):
     return value
 def _shape(kind):
     return tuple(field.name for field in fields(kind)) if is_dataclass(kind) else ()
+# ANGULAR_BIND_SOURCE_SCOPE_V1: inside source_scope() (one bind: wire.bind + bindings.freeze) every object's source text is read once and,
+# on CPython 3.11, every module is parsed once for all its classes. The text is exactly inspect.getsource's (the same lines, the same
+# first-match class lookup as inspect._ClassFinder, the same getblock); outside a scope this IS inspect.getsource.
+_SCOPE=[None]
+
+@contextmanager
+def source_scope():
+    outer=_SCOPE[0]
+    if outer is None:_SCOPE[0]={'text':{},'classes':{}}
+    try:yield
+    finally:
+        if outer is None:_SCOPE[0]=None
+
+_STATEMENT_LISTS=frozenset(('body','orelse','finalbody','handlers','cases'))
+
+def _all_classes(statements,stack,found):
+    """inspect._ClassFinder for every qualname in one walk: the first ClassDef in visiting order wins, as the raise of the finder does.
+    A ClassDef is a statement, so only statement lists are walked (in field order, as generic_visit does); expressions hold no class."""
+    for node in statements:
+        kind=type(node)
+        if kind is _ast.FunctionDef or kind is _ast.AsyncFunctionDef:
+            _all_classes(node.body,stack+(node.name,'<locals>'),found)
+        elif kind is _ast.ClassDef:
+            inner=stack+(node.name,)
+            found.setdefault('.'.join(inner),(node.decorator_list[0].lineno if node.decorator_list else node.lineno)-1)
+            _all_classes(node.body,inner,found)
+        else:
+            for field in node._fields:
+                if field in _STATEMENT_LISTS:
+                    items=getattr(node,field,None)
+                    if items:_all_classes(items,stack,found)
+
+def _class_source_311(value,scope):
+    if _inspect.unwrap(value) is not value:return None
+    file=_inspect.getsourcefile(value)
+    if not file:return None
+    _linecache.checkcache(file)
+    module=_inspect.getmodule(value,file)
+    lines=_linecache.getlines(file,module.__dict__) if module else _linecache.getlines(file)
+    if not lines:return None
+    source=''.join(lines)
+    cached=scope['classes'].get(file)
+    if cached is None or cached[0]!=source:
+        found={};_all_classes(_ast.parse(source).body,(),found);cached=(source,found);scope['classes'][file]=cached
+    lnum=cached[1].get(value.__qualname__)
+    if lnum is None:return None
+    return ''.join(_inspect.getblock(lines[lnum:]))
+
+def getsource(value):
+    scope=_SCOPE[0]
+    if scope is None:return _inspect.getsource(value)
+    entry=scope['text'].get(id(value))
+    if entry is not None and entry[0] is value:return entry[1]
+    text=None
+    if _sys.version_info[:2]==(3,11) and _inspect.isclass(value):text=_class_source_311(value,scope)
+    if text is None:text=_inspect.getsource(value)
+    scope['text'][id(value)]=(value,text)
+    return text
+
 def _source(value):
     return sha256(getsource(value).replace('\r\n','\n').encode()).hexdigest()
 

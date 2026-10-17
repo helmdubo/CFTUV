@@ -1333,6 +1333,22 @@ def frame_compute(**arguments):
     return answer if done else None
 
 
+def warm_angular(*, binding_inputs, dependencies) -> bool:
+    """Привязывает нативный ANGULAR (связка wire.bind + freeze: дайджесты исходников и отпечатки кода эталона) ДО первого домена; разовая цена процесса.
+
+    Воркер пула зовёт это в своём старте (`warm_worker_identities`), когда стадия заказана NATIVE (ANGULAR_BIND_AT_WORKER_START_V1). `False` - расширения или операции
+    нет, профиль не утверждён (пустая таблица пинов) либо пин ушёл: это не ошибка, первый домен назовёт откат сам. Аргументы opaque для ядра, как у `angular_compute`.
+    """
+
+    module, _detail = _native()
+    if module is None or not hasattr(module, "warm_angular"):
+        return False
+    try:
+        return bool(module.warm_angular(binding_inputs=binding_inputs, dependencies=dependencies))
+    except module.NATIVE_REFUSALS:
+        return False
+
+
 def angular_compute(**arguments):
     """(done, answer): только True разрешает использовать ответ, включая три пустых frozenset.
 
@@ -1393,6 +1409,7 @@ __all__ = (
     "ANGULAR",
     "active_angular_backend",
     "angular_compute",
+    "warm_angular",
     "DENSITY",
     "active_density_backend",
     "density_compute",

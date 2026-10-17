@@ -1250,6 +1250,24 @@ def test_a_worker_that_cannot_prewarm_names_it_and_stays_usable(monkeypatch, cap
     assert pool_module.WORKER_IDENTITY_PREWARM_UNAVAILABLE in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("order", ["NATIVE", "PYTHON", None])
+def test_the_worker_start_binds_angular_only_when_it_is_ordered_natively(monkeypatch, order):
+    """ANGULAR_BIND_AT_WORKER_START_V1: the one-time ANGULAR bind is the worker start's, not the first domain's, and only for a NATIVE order."""
+    from cftuv_envelope import backend
+
+    calls = []
+    monkeypatch.setattr(backend, "warm_angular", lambda **kwargs: calls.append(sorted(kwargs)) or False)
+    if order is None:
+        monkeypatch.delenv("CFTUV_ANGULAR_BACKEND", raising=False)
+    else:
+        monkeypatch.setenv("CFTUV_ANGULAR_BACKEND", order)
+
+    report = pool_module.warm_worker_identities()
+
+    assert report["outcome"] == pool_module.WORKER_IDENTITY_PREWARMED
+    assert calls == ([["binding_inputs", "dependencies"]] if order == "NATIVE" else [])
+
+
 def test_real_workers_report_their_prewarm_in_the_ready_frame():
     pool = get_domain_pool(2)
     pool.ensure_started()

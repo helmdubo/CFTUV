@@ -51,7 +51,8 @@ def compute(*, wire_binding, assembly_binding, native_patch, raw, symbolic_mode,
         if type(plan)is not tuple or len(plan)!=2 or type(plan[0])is not int or plan[0]!=0:
             raise bindings.NativePortStale('NATIVE_ACCEPT_PROTOCOL')
         plans.append(plan)
-    prepared=bindings.prepare_checked(assembly_binding,encoded,tuple(plans),maps=maps,revision=raw['revision'])
+    # Anchors were checked by the early gate of THIS call; prepare_checked repeats only the sidecar/map admission.
+    prepared=bindings.prepare_checked(assembly_binding,encoded,tuple(plans),maps=maps,revision=raw['revision'],anchors_checked=True)
     if type(prepared)is assembly.AssemblyDecline:
         return OperationDecline('ASSEMBLY:'+prepared.reason)
     # No catch beyond this boundary: reached effects belong to the real operation.

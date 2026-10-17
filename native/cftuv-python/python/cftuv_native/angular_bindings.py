@@ -5,12 +5,13 @@ prepare_checked is the integration entry; direct angular_assemble.prepare is unb
 """
 from dataclasses import dataclass
 from hashlib import sha256
-from inspect import getsource
 from enum import Enum
 import json
+from operator import is_
 from types import MappingProxyType
 from . import angular_assemble as assembly
 from . import angular_runtime_pins as runtime_pins
+from .angular_wire import getsource
 
 class NativePortStale(RuntimeError):
     """Binding/pin drift: propagate; never silently fall back to the oracle."""
@@ -40,6 +41,39 @@ def _class_members(kind):
     # Detect mutable class attributes/descriptors, including inherited ID methods.
     return tuple((base, tuple((name, id(value), _function_state(value)) for name, value in vars(base).items()))
                  for base in kind.__mro__ if base is not object)
+
+def _live_state(value):
+    # The objects _function_state reads, held once per bind; a call compares identities only.
+    fn=_identity(value); kw=getattr(fn,'__kwdefaults__',None)
+    return (fn,getattr(fn,'__code__',None),getattr(fn,'__defaults__',None),kw,
+            None if kw is None else tuple((key,id(item)) for key,item in kw.items()))
+
+def _state_unchanged(live):
+    fn,code,defaults,kw,items=live
+    if code is None: return True
+    if fn.__code__ is not code or fn.__defaults__ is not defaults: return False
+    current=fn.__kwdefaults__
+    if current is not kw: return False
+    return kw is None or tuple((key,id(item)) for key,item in kw.items())==items
+
+def _member_table(kind):
+    """Once per bind: the MRO and, per base, its namespace size, member names and values, and the live state of the code-bearing members (the per-call form of _class_members)."""
+    bases=[]
+    for base in kind.__mro__:
+        if base is object: continue
+        namespace=vars(base)
+        live=tuple(state for state in map(_live_state,namespace.values()) if state[1] is not None)
+        bases.append((base,len(namespace),tuple(namespace),tuple(namespace.values()),live))
+    return (kind.__mro__,tuple(bases))
+
+def _members_unchanged(kind, table):
+    mro,bases=table
+    if kind.__mro__!=mro: return False
+    for base,count,names,values,live in bases:
+        namespace=base.__dict__
+        if len(namespace)!=count or not all(map(is_,map(namespace.get,names),values)): return False
+        if not all(map(_state_unchanged,live)): return False
+    return True
 
 KERNEL = ('CertifiedDecimalIntervalV1','CertifiedReflexAngleMeasureV1','AngleNormalizationLaw','ExactRationalV1','ExactVector2V1','CertifiedAffineSupportDirectionV2',
  'SourceSupportRefV1','OrientedOwnerSectorV1','AngleCertificateId','ReflexAngleCertificateV1',
@@ -90,16 +124,31 @@ class BoundAssembly:
     sympy_owner: object
     sympy_core: object
 
-    def validate(self, wire, maps):
-        """Once per wholeop, BEFORE scalar staging. Stale is not ordinary decline."""
+    def __post_init__(self):
+        # ANGULAR_BIND_ONCE_CHECK_PER_CALL_V1: the class-member and function-state snapshots of every anchor are taken HERE, once per bind; a call
+        # compares identities against them (_members_unchanged, _state_unchanged) instead of rebuilding _class_members/_function_state.
+        live=[]
         for name,owner,key,value,members,state in self.anchors:
+            if members is not None and _class_members(value)!=members: raise NativePortStale('CLASS_MEMBERS_CHANGED:'+name)
+            if _function_state(value)!=state: raise NativePortStale('FUNCTION_STATE_CHANGED:'+name)
+            live.append((name,owner,key,_identity(value),_live_state(value),None if members is None else (value,_member_table(value))))
+        object.__setattr__(self,'_live',tuple(live))
+
+    def check_anchors(self):
+        """Every anchored host object is still the bound one (identity, code, defaults, class namespace). Stale is not ordinary decline."""
+        for name,owner,key,identity,live,table in self._live:
             current = _get(owner,key)
-            if _identity(current) is not _identity(value): raise NativePortStale('CALLABLE_OR_CLASS_CHANGED:'+name)
-            if _function_state(current)!=state: raise NativePortStale('FUNCTION_STATE_CHANGED:'+name)
-            if members is not None and _class_members(current)!=members: raise NativePortStale('CLASS_MEMBERS_CHANGED:'+name)
+            if _identity(current) is not identity: raise NativePortStale('CALLABLE_OR_CLASS_CHANGED:'+name)
+            if not _state_unchanged(live): raise NativePortStale('FUNCTION_STATE_CHANGED:'+name)
+            if table is not None and not _members_unchanged(*table): raise NativePortStale('CLASS_MEMBERS_CHANGED:'+name)
+
+    def validate(self, wire, maps, *, anchors_checked=False):
+        """Once per wholeop, BEFORE scalar staging. Stale is not ordinary decline. anchors_checked: the caller ran check_anchors in this call already."""
+        if not anchors_checked: self.check_anchors()
         if self.stage_owner.stage_names != self.stage_names: raise NativePortStale('STAGE_NAMES_CHANGED')
         if self.sympy_owner.core is not self.sympy_core: raise NativePortStale('SYMPY_CORE_CHANGED')
-        if _metadata(self.wire_binding.metadata) != self.wire_metadata or _metadata(wire.binding_metadata) != self.wire_metadata:
+        bound=_metadata(self.wire_binding.metadata)
+        if bound != self.wire_metadata or (wire.binding_metadata is not self.wire_binding.metadata and _metadata(wire.binding_metadata) != self.wire_metadata):
             raise NativePortStale('WIRE_BINDING_METADATA_CHANGED')
         try:
             if type(maps) is not dict or set(maps)!=set(IDS)-{'domain','metric'}: return BindingDecline('MAP_SET')
@@ -176,8 +225,8 @@ def freeze(dependencies, *, checked_hashes, checked_runtime, wire_binding, check
     return BoundAssembly(frozen,tuple(anchors),classes,metadata,wire_binding,dependencies,names,
                          dependencies.sympy,dependencies.sympy.core)
 
-def prepare_checked(binding, wire, native_plans, *, maps, revision):
+def prepare_checked(binding, wire, native_plans, *, maps, revision, anchors_checked=False):
     if type(binding)is not BoundAssembly: raise NativePortStale('EXACT_BOUND_ASSEMBLY_REQUIRED')
-    admitted=binding.validate(wire,maps)
+    admitted=binding.validate(wire,maps,anchors_checked=anchors_checked)
     if type(admitted)is BindingDecline: return assembly.AssemblyDecline(admitted.reason)
     return assembly.prepare(wire,native_plans,maps=admitted,revision=revision,dependencies=binding.dependencies)
