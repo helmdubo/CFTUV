@@ -199,6 +199,7 @@ def test_the_scope_class_lookup_is_first_match_like_inspect(tmp_path, monkeypatc
     monkeypatch.setitem(sys.modules, 'angular_twin_classes', module)
     spec.loader.exec_module(module)
     expected = inspect.getsource(module.Twin)
-    assert 'first' in expected
+    if sys.version_info[:2] == (3, 11):
+        assert 'first' in expected, 'the 3.11 finder returns the first match (3.13+ reads __firstlineno__ and is not this path)'
     with wire.source_scope():
         assert wire.getsource(module.Twin) == expected
