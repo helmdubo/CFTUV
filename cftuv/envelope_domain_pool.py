@@ -781,10 +781,11 @@ def warm_worker_identities() -> dict:
 
             warm_frame()  # привязка нативного допуска рамки (дайджесты функций контрактов, таблица классов): разовые десятки мс, не на первом домене
         if stage_orders(DEFAULT_KERNEL_BACKEND).angular == "NATIVE":
-            import cftuv_envelope as kernel
-            import sympy
             from cftuv_envelope.backend import warm_angular
             from .envelope_angular_binding import build_binding_inputs, build_dependencies
+            from .envelope_request_export import _load_kernel
+
+            kernel, sympy = _load_kernel()  # те же модули, что получит ANGULAR в экспорте домена
 
             # ANGULAR_BIND_AT_WORKER_START_V1: привязка ANGULAR (дайджесты исходников и отпечатки кода эталона, ~0.2 с) в старте воркера, не на первом домене;
             # без утверждённого профиля - False, ничего не привязано
