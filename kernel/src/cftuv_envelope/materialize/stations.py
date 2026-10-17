@@ -697,12 +697,12 @@ def _join_successors(context, uses: dict, present, skips: list, withdrawn=frozen
     return successors, outside
 
 
-def _fold_miters(context, present, *, density_zero=False) -> tuple:
-    """Вершины углов `MITER_SEAM` плана, у которых хоть одно вхождение имеет рёбра в петлях домена.
+def _fold_miters(context, present, reason=CornerTreatmentReasonV1.FOLDED_NEIGHBOURHOOD_MITER) -> tuple:
+    """Вершины углов плана с причиной `reason`, у которых хоть одно вхождение имеет рёбра в петлях домена.
 
     Записи плана идут по ВСЕМ углам патча, и угол чужой цепи домену не принадлежит. Потока у митры нет: угол остаётся
     `k = 0` с швом на биссектрисе (так же, как JOIN, снятый после конфликта станций), `_join_successors` её не берёт.
-    `density_zero` выбирает митры закона нулевой плотности (`DENSITY_ZERO_MITER`), иначе — митры на изломе.
+    По умолчанию — митры на изломе; `DENSITY_ZERO_MITER` — митры нулевой плотности, причины фасок d0 — их фаски.
     """
 
     relations = {item.corner_relation_id: item for item in context.snapshot.corner_relations}
@@ -711,9 +711,7 @@ def _fold_miters(context, present, *, density_zero=False) -> tuple:
         context.compilation.corner_treatments,
         key=lambda item: item.corner_relation_id.value,
     ):
-        if record.treatment is not CornerTreatmentV1.MITER_SEAM:
-            continue
-        if (record.reason is CornerTreatmentReasonV1.DENSITY_ZERO_MITER) is not density_zero:
+        if record.reason is not reason:
             continue
         if record.incoming_chain_use_id.value in present or record.outgoing_chain_use_id.value in present:
             vertex = relations[record.corner_relation_id].source_vertex_id
@@ -903,7 +901,14 @@ def chain_station_table(prepared, budget, withdrawn=frozenset()) -> ChainStation
     successors, outside = _join_successors(context, uses, by_use, skips, frozenset(withdrawn), plan_joined)
     same_chain = _same_chain_successors(context, uses, by_use, skips, successors, gram, frozenset(withdrawn))
     fold_miters = _fold_miters(context, by_use)
-    density_zero_miters = _fold_miters(context, by_use, density_zero=True)
+    density_zero_miters = _fold_miters(context, by_use, CornerTreatmentReasonV1.DENSITY_ZERO_MITER)
+    density_zero_bevels = tuple(
+        (name, len(_fold_miters(context, by_use, reason)))
+        for name, reason in (
+            ("STATION_DENSITY_ZERO_SHARP_BEVELS", CornerTreatmentReasonV1.DENSITY_ZERO_SHARP_CORNER_BEVEL),
+            ("STATION_DENSITY_ZERO_UNPROVEN_BEVELS", CornerTreatmentReasonV1.DENSITY_ZERO_MITER_BOUND_UNPROVEN),
+        )
+    )
     flows = _flows(by_use, successors)
     for flow, closed in flows:
         accumulated = None
@@ -962,6 +967,7 @@ def chain_station_table(prepared, budget, withdrawn=frozenset()) -> ChainStation
             ("STATION_SAME_PCHAIN_JOINS", len(same_chain)),
             ("STATION_FOLD_MITER_CORNERS", len(fold_miters)),
             *((("STATION_DENSITY_ZERO_MITER_CORNERS", len(density_zero_miters)),) if density_zero_miters else ()),
+            *(item for item in density_zero_bevels if item[1]),
         ),
         skips=tuple(skips),
         flow_of_run=flow_of_run,

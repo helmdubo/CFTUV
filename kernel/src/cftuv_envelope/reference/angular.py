@@ -839,6 +839,9 @@ def _verify_canonical_count_law(context, spec) -> None:
         selection.selection_policy_id
         is not AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         or huber_density_value_contract(selection.max_subturn_value_id) is None
+        # `k = 0` закона угла (JOIN, митра) — не счёт плотности: поднимать его нечего. Тугим он бывает только на d0
+        # (`u q = 1/2 * 2 = k + 1`), и там прямой угол с шумом вычисления шире `pi/2` отказывал бы доменом.
+        or selection.selection_law in ZERO_SUPPORT_SELECTION_LAWS
     ):
         return
     message = canonical_count_law_error(context, spec, selection)
