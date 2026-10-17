@@ -1,0 +1,12 @@
+accepted True failure None
+building base [1.624, 1.546, 1.545] med 1.5458 | branch [1.893, 1.928, 1.943] med 1.9276 +24.69%
+building_1_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_2_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_3_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_1_base build 82bff418 head ff5efed1 digest 4b94c44a839b
+building_2_base build 82bff418 head ff5efed1 digest 4b94c44a839b
+building_3_base build 82bff418 head ff5efed1 digest 4b94c44a839b
+foreign [[{'pid': 18016, 'cpu_before': 214.765625, 'cpu_after': 214.8125}], [{'pid': 18016, 'cpu_before': 214.8125, 'cpu_after': 214.84375}]]

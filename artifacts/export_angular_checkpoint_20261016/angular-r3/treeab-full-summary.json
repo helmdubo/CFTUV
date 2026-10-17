@@ -1,0 +1,1354 @@
+{
+ "verdict_lines": null,
+ "cases": {
+  "building w0": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 122,
+     "confirm1:None": 122,
+     "step1:None": 122,
+     "tick1:None": 122,
+     "tick2:None": 122,
+     "tick3:None": 122,
+     "tick4:None": 122,
+     "tick5:None": 122
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      122,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 122,
+     "confirm1:None": 122,
+     "step1:None": 122,
+     "tick1:None": 122,
+     "tick2:None": 122,
+     "tick3:None": 122,
+     "tick4:None": 122,
+     "tick5:None": 122
+    }
+   },
+   "differences": 0
+  },
+  "building w12": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 122,
+     "confirm1:None": 122,
+     "step1:None": 122,
+     "tick1:None": 122,
+     "tick2:None": 122,
+     "tick3:None": 122,
+     "tick4:None": 122,
+     "tick5:None": 122
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      122,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 122,
+     "confirm1:None": 122,
+     "step1:None": 122,
+     "tick1:None": 122,
+     "tick2:None": 122,
+     "tick3:None": 122,
+     "tick4:None": 122,
+     "tick5:None": 122
+    }
+   },
+   "differences": 0
+  },
+  "rounded w0": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 5,
+     "confirm1:None": 5,
+     "step1:None": 5,
+     "tick1:None": 5,
+     "tick2:None": 5,
+     "tick3:None": 5,
+     "tick4:None": 5,
+     "tick5:None": 5
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      5,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 5,
+     "confirm1:None": 5,
+     "step1:None": 5,
+     "tick1:None": 5,
+     "tick2:None": 5,
+     "tick3:None": 5,
+     "tick4:None": 5,
+     "tick5:None": 5
+    }
+   },
+   "differences": 0
+  },
+  "rounded w12": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 5,
+     "confirm1:None": 5,
+     "step1:None": 5,
+     "tick1:None": 5,
+     "tick2:None": 5,
+     "tick3:None": 5,
+     "tick4:None": 5,
+     "tick5:None": 5
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      5,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 5,
+     "confirm1:None": 5,
+     "step1:None": 5,
+     "tick1:None": 5,
+     "tick2:None": 5,
+     "tick3:None": 5,
+     "tick4:None": 5,
+     "tick5:None": 5
+    }
+   },
+   "differences": 0
+  },
+  "two w0": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 32,
+     "confirm1:None": 32,
+     "step1:None": 32,
+     "tick1:None": 32,
+     "tick2:None": 32,
+     "tick3:None": 32,
+     "tick4:None": 32,
+     "tick5:None": 32
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      32,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 32,
+     "confirm1:None": 32,
+     "step1:None": 32,
+     "tick1:None": 32,
+     "tick2:None": 32,
+     "tick3:None": 32,
+     "tick4:None": 32,
+     "tick5:None": 32
+    }
+   },
+   "differences": 0
+  },
+  "two w12": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 32,
+     "confirm1:None": 32,
+     "step1:None": 32,
+     "tick1:None": 32,
+     "tick2:None": 32,
+     "tick3:None": 32,
+     "tick4:None": 32,
+     "tick5:None": 32
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      32,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 32,
+     "confirm1:None": 32,
+     "step1:None": 32,
+     "tick1:None": 32,
+     "tick2:None": 32,
+     "tick3:None": 32,
+     "tick4:None": 32,
+     "tick5:None": 32
+    }
+   },
+   "differences": 0
+  },
+  "sagging0987 w0": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      2,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "differences": 0
+  },
+  "sagging0987 w12": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      2,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "differences": 0
+  },
+  "half_sphere w0": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      2,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "differences": 0
+  },
+  "half_sphere w12": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      2,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 2,
+     "confirm1:None": 2,
+     "step1:None": 2,
+     "tick1:None": 2,
+     "tick2:None": 2,
+     "tick3:None": 2,
+     "tick4:None": 2,
+     "tick5:None": 2
+    }
+   },
+   "differences": 0
+  },
+  "cover008 w0": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 1051,
+     "confirm1:None": 1051,
+     "step1:None": 1051,
+     "tick1:None": 1051,
+     "tick2:None": 1051,
+     "tick3:None": 1051,
+     "tick4:None": 1051,
+     "tick5:None": 1051
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      1048,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 1048,
+     "cold:None": 3,
+     "confirm1:None": 1051,
+     "step1:None": 1051,
+     "tick1:None": 1051,
+     "tick2:None": 1051,
+     "tick3:None": 1051,
+     "tick4:None": 1051,
+     "tick5:None": 1051
+    }
+   },
+   "differences": 0
+  },
+  "cover008 w12": {
+   "base": {
+    "calls": {
+     "cold": [
+      0,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:None": 1051,
+     "confirm1:None": 1051,
+     "step1:None": 1051,
+     "tick1:None": 1051,
+     "tick2:None": 1051,
+     "tick3:None": 1051,
+     "tick4:None": 1051,
+     "tick5:None": 1051
+    }
+   },
+   "branch": {
+    "calls": {
+     "cold": [
+      1048,
+      0,
+      0
+     ],
+     "confirm1": [
+      0,
+      0,
+      0
+     ],
+     "step1": [
+      0,
+      0,
+      0
+     ],
+     "tick1": [
+      0,
+      0,
+      0
+     ],
+     "tick2": [
+      0,
+      0,
+      0
+     ],
+     "tick3": [
+      0,
+      0,
+      0
+     ],
+     "tick4": [
+      0,
+      0,
+      0
+     ],
+     "tick5": [
+      0,
+      0,
+      0
+     ]
+    },
+    "ran": {
+     "cold:native": 1048,
+     "cold:None": 3,
+     "confirm1:None": 1051,
+     "step1:None": 1051,
+     "tick1:None": 1051,
+     "tick2:None": 1051,
+     "tick3:None": 1051,
+     "tick4:None": 1051,
+     "tick5:None": 1051
+    }
+   },
+   "differences": 0
+  }
+ },
+ "hook_injections": 167,
+ "hook_processes": {
+  "blender": 24,
+  "pool-worker": 143
+ },
+ "hook_profiles": [
+  [
+   "CPython-3.11:full",
+   "CPython-3.11:light"
+  ]
+ ],
+ "hook_modules": [
+  "D:\\cftuv-angular-gates-20261017/wheel-final2/site\\cftuv_native\\angular_op.py",
+  "D:\\cftuv-angular-gates-20261017\\wheel-final2\\site\\cftuv_native\\angular_op.py"
+ ]
+}

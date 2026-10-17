@@ -1,0 +1,317 @@
+{
+  "schema": "cftuv.real.operator.pairs.v1",
+  "controller_pid": 44272,
+  "controller_creation": 134366983635392630,
+  "controller_argv": [
+    "operator_controller.py",
+    "--base-tree",
+    "D:/CFTUV-export-angular-20261016",
+    "--base-native-site",
+    "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+    "--base-build-id",
+    "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+    "--branch-tree",
+    "D:/CFTUV-export-angular-20261016",
+    "--branch-native-site",
+    "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+    "--branch-build-id",
+    "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+    "--branch-env",
+    "CFTUV_ANGULAR_BACKEND=NATIVE",
+    "--branch-hook-profiles",
+    "D:/cftuv-angular-gates-20261017/cand/profile-test-CPython-3.11-light-82bff418.json;D:/cftuv-angular-gates-20261017/cand/profile-test-CPython-3.11-full-82bff418.json",
+    "--reps",
+    "3",
+    "--case",
+    "building",
+    "--output",
+    "D:/cftuv-angular-gates-20261017/timing/d1"
+  ],
+  "runs": [
+    {
+      "label": "building_1_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\operator\\operator_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-export-angular-20261016",
+        "--native-site",
+        "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+        "--build-id",
+        "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+        "--case",
+        "building",
+        "--output",
+        "D:\\cftuv-angular-gates-20261017\\timing\\d1\\building_1_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 18016,
+          "creation": 134366892066064193
+        }
+      ],
+      "exit": 0,
+      "pid": 37988,
+      "creation": 134366983636859902,
+      "process_wall_seconds": 10.170018100005109,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 18016,
+          "cpu_before": 214.765625,
+          "cpu_after": 214.8125
+        }
+      ]
+    },
+    {
+      "label": "building_1_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\abhook\\angular_pin_hook.py",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\operator\\operator_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-export-angular-20261016",
+        "--native-site",
+        "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+        "--build-id",
+        "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+        "--case",
+        "building",
+        "--output",
+        "D:\\cftuv-angular-gates-20261017\\timing\\d1\\building_1_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 18016,
+          "creation": 134366892066064193
+        }
+      ],
+      "exit": 0,
+      "pid": 29352,
+      "creation": 134366983739000827,
+      "process_wall_seconds": 10.177886000004946,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 18016,
+          "cpu_before": 214.8125,
+          "cpu_after": 214.84375
+        }
+      ]
+    },
+    {
+      "label": "building_2_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\abhook\\angular_pin_hook.py",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\operator\\operator_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-export-angular-20261016",
+        "--native-site",
+        "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+        "--build-id",
+        "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+        "--case",
+        "building",
+        "--output",
+        "D:\\cftuv-angular-gates-20261017\\timing\\d1\\building_2_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 18016,
+          "creation": 134366892066064193
+        }
+      ],
+      "exit": 0,
+      "pid": 43524,
+      "creation": 134366983841210632,
+      "process_wall_seconds": 10.174708999998984,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 18016,
+          "cpu_before": 214.84375,
+          "cpu_after": 214.890625
+        }
+      ]
+    },
+    {
+      "label": "building_2_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\operator\\operator_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-export-angular-20261016",
+        "--native-site",
+        "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+        "--build-id",
+        "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+        "--case",
+        "building",
+        "--output",
+        "D:\\cftuv-angular-gates-20261017\\timing\\d1\\building_2_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 18016,
+          "creation": 134366892066064193
+        }
+      ],
+      "exit": 0,
+      "pid": 30896,
+      "creation": 134366983943435650,
+      "process_wall_seconds": 10.174869800001034,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 18016,
+          "cpu_before": 214.890625,
+          "cpu_after": 214.90625
+        }
+      ]
+    },
+    {
+      "label": "building_3_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\operator\\operator_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-export-angular-20261016",
+        "--native-site",
+        "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+        "--build-id",
+        "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+        "--case",
+        "building",
+        "--output",
+        "D:\\cftuv-angular-gates-20261017\\timing\\d1\\building_3_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 18016,
+          "creation": 134366892066064193
+        }
+      ],
+      "exit": 0,
+      "pid": 17916,
+      "creation": 134366984045661349,
+      "process_wall_seconds": 10.170871499998611,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 18016,
+          "cpu_before": 214.90625,
+          "cpu_after": 214.9375
+        }
+      ]
+    },
+    {
+      "label": "building_3_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\abhook\\angular_pin_hook.py",
+        "--python",
+        "D:\\cftuv-angular-gates-20261017\\operator\\operator_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-export-angular-20261016",
+        "--native-site",
+        "D:/cftuv-angular-gates-20261017/wheel-final2/site",
+        "--build-id",
+        "82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d",
+        "--case",
+        "building",
+        "--output",
+        "D:\\cftuv-angular-gates-20261017\\timing\\d1\\building_3_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 18016,
+          "creation": 134366892066064193
+        }
+      ],
+      "exit": 0,
+      "pid": 11168,
+      "creation": 134366984147735418,
+      "process_wall_seconds": 10.177488799992716,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 18016,
+          "cpu_before": 214.9375,
+          "cpu_after": 215.0
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "building": {
+      "base": {
+        "samples": [
+          1.623810000004596,
+          1.5458374000008916,
+          1.5454542999941623
+        ],
+        "median": 1.5458374000008916
+      },
+      "branch": {
+        "samples": [
+          1.892521299989312,
+          1.9275721000012709,
+          1.9431310999934794
+        ],
+        "median": 1.9275721000012709
+      }
+    }
+  },
+  "accepted": true
+}

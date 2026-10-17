@@ -1,0 +1,41 @@
+ANGULAR r3 - 17.10.2026. TEST-ONLY evidence; NOT production approval. angular_op.APPROVED_PINS stays empty; ANGULAR stays 'unavailable' in product.
+
+CODE (711ae740, ff5efed1)
+- pin.OPERATION_FILES['angular'] = ANGULAR_FILES (7 kernel files the oracle binding reads). angular_op.status(): 'unavailable' while
+  APPROVED_PINS is empty; with an approved table pin.status('angular'); _prepared calls pin.require('angular') before binding.
+- tests/test_envelope_angular_dispatch: frozen-reference AST hash portable (95d4453f..., same on 3.10.20/3.11.11/3.13.1); historical
+  ast.dump value a809d58b... still checked below 3.13.
+- shim test-only entry cftuv_native.angular_patch (raw single-patch wire), used only by tests/test_native_angular_patch_wire.py.
+
+MUTATION GATES (mutation-gates.json): 59 single-site mutants of cftuv-angular + cftuv-python/src/angular.rs, built in a copy of native/
+on D:, never committed. First gate: cargo test 35 killed; fast wheel + whole-corpus replay (1218 calls) 8 killed; 16 survived.
+New witnesses (native/cftuv-angular/tests/admission.rs, stages.rs; tests/test_native_angular_patch_wire.py) kill 14 of the 16.
+Final: 57 killed, 2 equivalent survivors (R06: c!=0 implied by turn!=0 in the reflex branch; O08: dot_G(tangent, edge)!=0 on a
+consistent wire). Corpus coverage gap made visible by the gates: no off-junction and no beyond-chart-reach site, no admission violation.
+
+WHEEL / CANDIDATES (CPython 3.11.11, Blender 4.5 python; approved=false)
+- final wheel build id 82bff41899305761fdc7b76fd757954b1fc003b8a96c53668552e5d4e3bf986d (own site on D:, not installed anywhere).
+- light candidate at ff5efed1: file sha 89a5f489..., pins sha cd3bdd69... (78 hashes, 77 runtime, 23 class shapes, 28 sources);
+  pins identical to the 4ef3c403 light candidate.
+- full candidate at ff5efed1 (headless Blender, empty user config/scripts on D:): file sha 6e15d58f..., pins sha 6fade873...
+  (78 hashes, 77 runtime, 28 class shapes, 29 sources); pins identical to the 064c97b9 full candidate.
+- TEST-ONLY profiles for 82bff418 (approval_scope 'isolated parity evaluation only'): light 17cd2c8e..., full 4cd93c56...
+
+REPLAY (final wheel 82bff418, light profile): 80 chunks, 1221 tasks, 1218 calls FRESH_OPERATION_PAIR_EQUAL, unsupported 0, accepted.
+
+FIELD A/B (headless Blender 4.5, frozen testscene 750baefc / cover008 v2 a044b5aa, unchanged): tools/blender_tree_ab.py through
+scripts/angular_tree_ab.py (pin hook in every Blender and pool worker; abhook/), same tree ff5efed1 both sides, arm A
+CFTUV_ANGULAR_BACKEND=PYTHON, arm B NATIVE, --native-path + --expect-native-build-id 82bff418, --keys-may-differ,
+presses cold,step,tick x5,confirm, 6 cases x w0/w12: TREE_AB_IDENTICAL 12/12, 0 differences.
+Arm B ran natively: every domain angular_ran=native, calls native/python/fallback = building 122/0/0, rounded 5/0/0, two 32/0/0,
+sagging0987 2/0/0, half_sphere 2/0/0, cover008 1048/0/0 (3 domains without an ANGULAR call), at w0 and w12; 167 injections logged
+(24 Blender, 143 pool workers), all from the 82bff418 site. full report sha 39e3548b... (290 MB, kept on D: only).
+
+COLD BUTTON (real bpy.ops.hotspotuv.build_envelope_decal_mesh, w12, prewarm outside timer, alternating, 3 repeats; digests equal):
+  main 1d17ba1a (wheel ab93d182) -> branch ff5efed1 ANGULAR NATIVE (82bff418, hook):
+    building 1.5524 -> 1.9666 s (+26.7%);  cover008 8.7023 -> 9.3254 s (+7.2%)   [timing-t1-summary.txt]
+  diagnostic, same branch, product default (ANGULAR PYTHON, no hook) -> ANGULAR NATIVE: building 1.5458 -> 1.9276 s (+24.7%)
+  => the branch default equals main; the regression is ANGULAR NATIVE itself.
+  Cause (bind-cost.json, replay-final-82bf-elapsed.txt): first binding per process ~0.49 s (wire.bind 0.21 + freeze 0.20 +
+  inputs 0.05), paid inside the button by the parent and each pool worker (no warm-up at worker start yet); warm call ~2.4 ms of
+  binding validation alone; replay per call median native 5.77 ms vs Python oracle 1.13 ms. OWNER DECISION NEEDED before approval.

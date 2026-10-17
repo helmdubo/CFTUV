@@ -1,0 +1,12 @@
+{
+  "exit": 0,
+  "status": "COMPLETE_REPLAY_SCOPE",
+  "accepted": true,
+  "tasks": 1221,
+  "calls": 1218,
+  "chunks_done": 80,
+  "call_status": {
+    "FRESH_OPERATION_PAIR_EQUAL": 1218
+  },
+  "unsupported": 0
+}

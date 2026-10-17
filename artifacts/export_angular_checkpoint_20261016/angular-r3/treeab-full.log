@@ -1,0 +1,120 @@
+blender: C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
+base   D:/CFTUV-export-angular-20261016 -> D:\CFTUV-export-angular-20261016 ff5efed119 dirty=False
+branch D:/CFTUV-export-angular-20261016 -> D:\CFTUV-export-angular-20261016 ff5efed119 dirty=False
+NOTE: the same tree on both sides: a self-comparison (what it can show is noise of the harness)
+11:51:23 building w0 base rep1.1 pid=33808 exit=0 30.5s idle=not waited overlap=False 
+11:51:54 building w0 branch rep1.1 pid=29700 exit=0 31.2s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 122 only in base [(0, '8fc9dff39f2877b45b22610f79afa606eec1a1012f032f1f36abd92cd2f555d1'), (1, 'd2d973237a4c6401d0b12db4877b820c2927f4b954a5f470b8ee4cc9ac4d81c7'), (2, 'e75c188a87969c7a3313b38028b12efbea333db3fba3f7a51bd7b306c0cbc5c2')], 122 only in branch [(0, '2218b79a570f14102e75c4b60ec9bf14b49111e44bf3f433784bf42561231428'), (1, '3654c54a77404c31932b466c3570b617e92a57090627908f6fc36eed3afaa7bb'), (2, '4a9f4ef51db7de6dfaa85e9adf30ddd6fe66bff5105ceba5e4337222ad00a767')]
+  note [cold] base: effective-alpha pairs computed natively 8689, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 8689, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 244, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 244, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 117, run by the Python validators after a named decline 5
+11:52:12 building w12 base rep1.1 pid=36068 exit=0 17.0s idle=not waited overlap=False 
+11:52:29 building w12 branch rep1.1 pid=37812 exit=0 17.0s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 122 only in base [(0, '8fc9dff39f2877b45b22610f79afa606eec1a1012f032f1f36abd92cd2f555d1'), (1, 'd2d973237a4c6401d0b12db4877b820c2927f4b954a5f470b8ee4cc9ac4d81c7'), (2, 'e75c188a87969c7a3313b38028b12efbea333db3fba3f7a51bd7b306c0cbc5c2')], 122 only in branch [(0, '2218b79a570f14102e75c4b60ec9bf14b49111e44bf3f433784bf42561231428'), (1, '3654c54a77404c31932b466c3570b617e92a57090627908f6fc36eed3afaa7bb'), (2, '4a9f4ef51db7de6dfaa85e9adf30ddd6fe66bff5105ceba5e4337222ad00a767')]
+  note [cold] base: effective-alpha pairs computed natively 8689, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 8689, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 244, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 244, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 234, run by the Python validators after a named decline 10
+11:52:44 rounded w0 base rep1.1 pid=14804 exit=0 14.3s idle=not waited overlap=False 
+11:52:58 rounded w0 branch rep1.1 pid=25820 exit=0 14.4s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 5 only in base [(0, '2b89e84985e7140df4725710634874cf21429c98eb79fb5978cbb9f552b824df'), (1, 'bc4976b674a6a7defcb390fcb735d2f8bbbfbff00586ba06afb276a81c4282f2'), (2, '4d4d83842cc711e16edd935756259d7677cd1fde91ff6b61669bb06e46707078')], 5 only in branch [(0, '724cf8e3c20f10878d0c7313d5aec01315ce7dd873b7d9011b0a7c8a9e6194bf'), (1, 'e454a25fd3b71a27b0f1460ebde070c11e23d29cbe1c02b496a59abe29db2cd6'), (2, 'c61e4476759381e6b63ff109c28f156bd502e57d33d05e9d67c76fc0a8b7a659')]
+  note [cold] base: effective-alpha pairs computed natively 5192, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 5192, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 10, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 10, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 2, run by the Python validators after a named decline 3
+11:53:14 rounded w12 base rep1.1 pid=43100 exit=0 15.7s idle=not waited overlap=False 
+11:53:29 rounded w12 branch rep1.1 pid=14408 exit=0 15.5s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 5 only in base [(0, '2b89e84985e7140df4725710634874cf21429c98eb79fb5978cbb9f552b824df'), (1, 'bc4976b674a6a7defcb390fcb735d2f8bbbfbff00586ba06afb276a81c4282f2'), (2, '4d4d83842cc711e16edd935756259d7677cd1fde91ff6b61669bb06e46707078')], 5 only in branch [(0, '724cf8e3c20f10878d0c7313d5aec01315ce7dd873b7d9011b0a7c8a9e6194bf'), (1, 'e454a25fd3b71a27b0f1460ebde070c11e23d29cbe1c02b496a59abe29db2cd6'), (2, 'c61e4476759381e6b63ff109c28f156bd502e57d33d05e9d67c76fc0a8b7a659')]
+  note [cold] base: effective-alpha pairs computed natively 5192, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 5192, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 10, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 10, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 4, run by the Python validators after a named decline 6
+11:53:39 two w0 base rep1.1 pid=38628 exit=0 9.7s idle=not waited overlap=False 
+11:53:49 two w0 branch rep1.1 pid=45000 exit=0 10.1s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 32 only in base [(0, '00ba94124ac9b7a525bd29d7c4305f6761b34a01ff1245793e918be811002701'), (1, 'fd5d300c06ecfb04096ee2d09a080d98468d08a8756de4a4114221ab8f7b8c7b'), (2, '0473dede35afebd35df480e37f29b95d0d3dcce620b58d7e85b37539965f98ea')], 32 only in branch [(0, 'ccb49b4e631d82cb0dad2559ad6cd1d56078f70b87cf45025e6cad143edc688e'), (1, 'cb76e400fa615fbf642eabfa4fd7590df18a27277f81b64dd401cb1631d93834'), (2, '9541adde0f4f370bd6e8bb72969fe6e944469638eb2246d50fc2c29082fddd88')]
+  note [cold] base: effective-alpha pairs computed natively 2740, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 2740, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 64, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 64, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 32, run by the Python validators after a named decline 0
+11:54:01 two w12 base rep1.1 pid=9120 exit=0 11.6s idle=not waited overlap=False 
+11:54:14 two w12 branch rep1.1 pid=42380 exit=0 13.3s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 32 only in base [(0, '00ba94124ac9b7a525bd29d7c4305f6761b34a01ff1245793e918be811002701'), (1, 'fd5d300c06ecfb04096ee2d09a080d98468d08a8756de4a4114221ab8f7b8c7b'), (2, '0473dede35afebd35df480e37f29b95d0d3dcce620b58d7e85b37539965f98ea')], 32 only in branch [(0, 'ccb49b4e631d82cb0dad2559ad6cd1d56078f70b87cf45025e6cad143edc688e'), (1, 'cb76e400fa615fbf642eabfa4fd7590df18a27277f81b64dd401cb1631d93834'), (2, '9541adde0f4f370bd6e8bb72969fe6e944469638eb2246d50fc2c29082fddd88')]
+  note [cold] base: effective-alpha pairs computed natively 2740, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 2740, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 64, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 64, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 64, run by the Python validators after a named decline 0
+11:54:27 sagging0987 w0 base rep1.1 pid=33384 exit=0 12.7s idle=not waited overlap=False 
+11:54:40 sagging0987 w0 branch rep1.1 pid=41248 exit=0 12.4s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 2 only in base [(0, '7718e6bae3d5b2eca125862bd462e798d995f3e13ef91a8bd7cdf376761640dc'), (1, '7615d5bb04ee7e0374546de12cd43ad4592baac37a1236f5cbd78e0a8be88a98')], 2 only in branch [(0, '734af30643cf2f477dc8c194961d2cdc835feb011f537693a754cad789f9c386'), (1, '2bf20f73b95e1e1719196cbbb77f35ed7b0f79dcb81d46a84f4717000c4ce576')]
+  note [cold] base: effective-alpha pairs computed natively 1315, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 1315, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 0, run by the Python validators after a named decline 2
+11:54:53 sagging0987 w12 base rep1.1 pid=43384 exit=0 13.5s idle=not waited overlap=False 
+11:55:07 sagging0987 w12 branch rep1.1 pid=42928 exit=0 13.4s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 2 only in base [(0, '7718e6bae3d5b2eca125862bd462e798d995f3e13ef91a8bd7cdf376761640dc'), (1, '7615d5bb04ee7e0374546de12cd43ad4592baac37a1236f5cbd78e0a8be88a98')], 2 only in branch [(0, '734af30643cf2f477dc8c194961d2cdc835feb011f537693a754cad789f9c386'), (1, '2bf20f73b95e1e1719196cbbb77f35ed7b0f79dcb81d46a84f4717000c4ce576')]
+  note [cold] base: effective-alpha pairs computed natively 1315, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 1315, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 0, run by the Python validators after a named decline 4
+11:55:12 half_sphere w0 base rep1.1 pid=5880 exit=0 5.0s idle=not waited overlap=False 
+11:55:17 half_sphere w0 branch rep1.1 pid=37088 exit=0 5.3s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 2 only in base [(0, '94b7f2612205cbecbbbcdf93f252d6ef84e9e4607852da73535bdb07eb1b51a5'), (1, 'd4ca40a97d85ebbfaee0f5519fc5a5803cd63de32bdb4b892238a62f97dbbccd')], 2 only in branch [(0, '967efa34a1d004cf60e32d34786252650b200ec620ff02ca519ba8fd1d90e6bc'), (1, '8d68a1b047a65e9aca865389382611b63059db3d0b1a9f94f8b0d486ff54c853')]
+  note [cold] base: effective-alpha pairs computed natively 212, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 212, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 1, run by the Python validators after a named decline 1
+11:55:26 half_sphere w12 base rep1.1 pid=16332 exit=0 9.1s idle=not waited overlap=False 
+11:55:36 half_sphere w12 branch rep1.1 pid=23028 exit=0 9.7s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 2 only in base [(0, '94b7f2612205cbecbbbcdf93f252d6ef84e9e4607852da73535bdb07eb1b51a5'), (1, 'd4ca40a97d85ebbfaee0f5519fc5a5803cd63de32bdb4b892238a62f97dbbccd')], 2 only in branch [(0, '967efa34a1d004cf60e32d34786252650b200ec620ff02ca519ba8fd1d90e6bc'), (1, '8d68a1b047a65e9aca865389382611b63059db3d0b1a9f94f8b0d486ff54c853')]
+  note [cold] base: effective-alpha pairs computed natively 212, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 212, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 4, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 2, run by the Python validators after a named decline 2
+11:58:28 cover008 w0 base rep1.1 pid=15868 exit=0 171.8s idle=not waited overlap=False 
+12:01:26 cover008 w0 branch rep1.1 pid=28228 exit=0 177.4s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 1050 only in base [(0, '55fe31f48888902f76f076c141bb35eec5de720907e50ff1f7c5b7e1c913d2db'), (1, 'dddde403d9df898400ddc7e6d5079242b78bec8adb5af5f7eeacded0dcfd1e36'), (2, '2642a3be1357774895a5d44380553ec9aeb52350690e6a9a50a56323ceb875c5')], 1050 only in branch [(0, '0a33bea87e13dc047c950b5f6b6690fdce100d13de05cfda7ebe582c298c65af'), (1, '5aaa134a032fe09661f90e51bd1d16a85e2a6db43af4e3e342d87574435996f0'), (2, 'd3bfce1281636d4174b5f0f321f740700d14f2b16f98c6d5f9beb4fdadca471f')]
+  note [cold] base: effective-alpha pairs computed natively 63397, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 63397, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 2092, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 2092, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 1028, run by the Python validators after a named decline 20
+12:02:41 cover008 w12 base rep1.1 pid=35156 exit=0 68.4s idle=not waited overlap=False 
+12:03:50 cover008 w12 branch rep1.1 pid=34352 exit=0 68.7s idle=not waited overlap=False 
+  note [cold] content keys differ and are NOT compared (--keys-may-differ: the two sides order different executors, whose identity is part of a key): 1050 only in base [(0, '55fe31f48888902f76f076c141bb35eec5de720907e50ff1f7c5b7e1c913d2db'), (1, 'dddde403d9df898400ddc7e6d5079242b78bec8adb5af5f7eeacded0dcfd1e36'), (2, '2642a3be1357774895a5d44380553ec9aeb52350690e6a9a50a56323ceb875c5')], 1050 only in branch [(0, '0a33bea87e13dc047c950b5f6b6690fdce100d13de05cfda7ebe582c298c65af'), (1, '5aaa134a032fe09661f90e51bd1d16a85e2a6db43af4e3e342d87574435996f0'), (2, 'd3bfce1281636d4174b5f0f321f740700d14f2b16f98c6d5f9beb4fdadca471f')]
+  note [cold] base: effective-alpha pairs computed natively 63397, in Python after a named refusal 0
+  note [cold] branch: effective-alpha pairs computed natively 63397, in Python after a named refusal 0
+  note [cold] base: W1 (exact mesh) calls computed natively 2092, in Python after a named refusal 0
+  note [cold] branch: W1 (exact mesh) calls computed natively 2092, in Python after a named refusal 0
+  note [cold] base: snapshot checks (EXPORT validators, two per domain) proved natively 2056, run by the Python validators after a named decline 40
+
+case             workers        verdict domains materialized    mesh hash  timing (median s, base -> branch)
+------------------------------------------------------------------------------------------------------------
+building               0      IDENTICAL     122          122 50667cc53dd1  -
+building              12      IDENTICAL     122          122 50667cc53dd1  -
+rounded                0      IDENTICAL       5            5 71db0af14901  -
+rounded               12      IDENTICAL       5            5 71db0af14901  -
+two                    0      IDENTICAL      32           32 b6fc439fc62b  -
+two                   12      IDENTICAL      32           32 b6fc439fc62b  -
+sagging0987            0      IDENTICAL       2            2 f21dee97cad1  -
+sagging0987           12      IDENTICAL       2            2 f21dee97cad1  -
+half_sphere            0      IDENTICAL       2            2 8b79b1e4e096  -
+half_sphere           12      IDENTICAL       2            2 8b79b1e4e096  -
+cover008               0      IDENTICAL    1051         1046 e8b39bd2c226  -
+cover008              12      IDENTICAL    1051         1046 e8b39bd2c226  -
+scene testscene: sha256 before 750baefc50ddbcca after 750baefc50ddbcca -> unchanged
+scene cover008: sha256 before a044b5aa8d5156bc after a044b5aa8d5156bc -> unchanged
+report: D:\cftuv-angular-gates-20261017\ab\full.json
+pids: D:\cftuv-angular-gates-20261017\ab\full-work\pids.log
+TREE_AB_IDENTICAL cases=12 differing=0

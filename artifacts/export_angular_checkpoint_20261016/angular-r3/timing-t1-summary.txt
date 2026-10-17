@@ -1,0 +1,22 @@
+accepted True failure None
+building base [1.789, 1.541, 1.552] med 1.5524 | branch [1.982, 1.967, 1.89] med 1.9666 +26.69%
+cover008 base [8.702, 8.681, 8.739] med 8.7023 | branch [9.353, 9.325, 9.232] med 9.3254 +7.16%
+building_1_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_2_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_3_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+cover008_1_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+cover008_2_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+cover008_3_branch angular_env NATIVE angular_status available injections 13 build 82bff418 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+building_1_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+building_2_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+building_3_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+cover008_1_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+cover008_2_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+cover008_3_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+foreign [[{'pid': 18016, 'cpu_before': 212.796875, 'cpu_after': 212.890625}], [{'pid': 18016, 'cpu_before': 212.890625, 'cpu_after': 212.953125}]]
