@@ -76,6 +76,7 @@ __all__ = (
     "effective_alpha_contacts",
     "exact_mesh",
     "angular_compute",
+    "angular_patch",
     "warm_angular",
     "frame_metric",
     "frame_raw_layouts",
@@ -550,6 +551,13 @@ def angular_compute(*, binding_inputs, dependencies, raw, symbolic_mode, before_
     """Whole ANGULAR operation; unavailable until approved profile pins exist."""
     return angular_op.angular_compute(_core,binding_inputs=binding_inputs,dependencies=dependencies,
                                       raw=raw,symbolic_mode=symbolic_mode,before_assemble=before_assemble)
+
+
+def angular_patch(patch):
+    """Test-only: the raw single-patch ANGULAR evaluator on an encoded wire dict (`angular_wire.encode` shape): `(0, plans)` or `(2, tag, detail)`.
+
+    No pins, no binding, no assembly, no effects: the whole operation is `angular_compute`, which declines while no profile is approved."""
+    return _core.angular_patch(patch)
 
 
 def warm_angular(*, binding_inputs, dependencies):

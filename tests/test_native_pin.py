@@ -88,7 +88,7 @@ def test_the_pin_holds_a_digest_for_exactly_the_files_the_operations_mirror():
 
 @needs_matching_tree
 def test_the_pin_matches_the_tree_it_was_made_from():
-    assert pin.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available"}
+    assert pin.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available"}
     assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "unavailable"}
     assert pin.fingerprint("clip") != pin.fingerprint("coverage")
     assert pin.fingerprint("clip") == pin.fingerprint("clip", KERNEL)
@@ -315,10 +315,10 @@ def test_the_verdict_is_computed_once_per_process_and_forgotten_on_refresh(monke
     pin.refresh()
     for _ in range(5):
         pin.native_status()
-    assert sorted(calls) == ["clip", "coverage", "density", "effective_alpha", "frame", "materialize_w1", "radical_v2", "skeleton", "snap_embedding", "snapshot_check"]
+    assert sorted(calls) == ["angular", "clip", "coverage", "density", "effective_alpha", "frame", "materialize_w1", "radical_v2", "skeleton", "snap_embedding", "snapshot_check"]
     pin.refresh()
     pin.native_status()
-    assert len(calls) == 20
+    assert len(calls) == 22
 
 
 # --------------------------------------------------------------------------
