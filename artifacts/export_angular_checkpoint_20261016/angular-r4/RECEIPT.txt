@@ -1,0 +1,39 @@
+ANGULAR r4 - 17.10.2026. TEST-ONLY evidence; NOT production approval. angular_op.APPROVED_PINS stays empty; ANGULAR stays 'unavailable' in product.
+Task: fix the negative cold-button speedup of ANGULAR NATIVE found in r3 (angular-r3/RECEIPT.txt).
+
+CODE (69602a2f, 0cb37dad)
+- ANGULAR_BIND_AT_WORKER_START_V1: kernel backend.warm_angular; pool warm_worker_identities binds ANGULAR in the worker start
+  when the stage is ordered NATIVE (False and nothing bound without an approved profile). Kernel/SymPy from the host _load_kernel.
+- ANGULAR_BIND_ONCE_CHECK_PER_CALL_V1: BoundAssembly snapshots member tables and function state once per bind; a call compares
+  identities only (object, __code__, defaults, kwdefaults, class namespace names/values/size, MRO). Named stale reasons unchanged.
+  angular_operation: prepare_checked(anchors_checked=True) after the early gate of the same call.
+- ANGULAR_BIND_SOURCE_SCOPE_V1: inside one bind each object's source is read once; on 3.11 each module is parsed once for all
+  classes (one-walk inspect._ClassFinder, first match wins); text equals inspect.getsource (tested).
+- tests/test_native_angular_bind_once.py (14 tests, TEST-ONLY pins observed live and monkeypatched), pool warm test.
+
+SHIM MUTANTS (shim-mutants.json, scripts/py_mutants.py): 12 single-site mutants of the touched shim code in a dev site copy on D:.
+First pass 6 survived (identity check, member values, early gate, scope cache identity, first-match lookup, bind-time snapshot);
+6 new tests added; final 12/12 killed.
+
+WHEEL / CANDIDATES (CPython 3.11.11; approved=false)
+- wheel build id 6d580b9752342d6320b3c3ef1d7825d237a608d018dbe007ec844d3cf097eb9e (own site on D:, not installed).
+- light candidate at 0cb37dad: file sha 44727905..., pins sha cd3bdd69... (78/77/23 shapes/28 sources) - pins unchanged since r3.
+- full candidate at 0cb37dad (headless Blender, frozen 750baefc unchanged): file sha 2fe3802a..., pins sha 6fade873... (78/77/28/29).
+- TEST-ONLY profiles for 6d580b97: light 87c8d71c..., full eb616ec0...
+
+REPLAY (6d580b97, light): 80 chunks, 1221 tasks, 1218/1218 FRESH_OPERATION_PAIR_EQUAL, unsupported 0, accepted.
+  per call (replay-6d58-elapsed-warm.txt): first call per process native median 178 ms (bind); warm calls 1138:
+  native sum 2.08 s vs oracle 5.83 s; median native 1.30 ms vs oracle 1.12 ms (native <= oracle in 365/1138; fixed ~0.65 ms).
+BIND (bind-cost-f3.json): first warm 0.237 s (r3 0.49 s), warm re-check 0.65-0.74 ms (r3 ~2.6 ms).
+
+FIELD A/B at 0cb37dad (and 69602a2f): 6 cases x w0/w12, arm A PYTHON, arm B NATIVE, pin hook, build 6d580b97:
+  TREE_AB_IDENTICAL 12/12; arm B native building 122, rounded 5, two 32, sagging0987 2, half_sphere 2, cover008 1048 (+3 without call).
+  per-domain ANGULAR_RELATIONS sum, w12 cold (treeab-g3w12-stages.txt): building 0.815 -> 0.693 s, cover008 3.996 -> 3.189 s.
+
+COLD BUTTON (real operator, w12, prewarm outside timer, alternating; digests equal to main):
+  main 1d17ba1a -> branch ANGULAR NATIVE 6d580b97:
+    t3 (3 reps): building 1.6733 -> 1.8825 s (+12.5%); cover008 9.2919 -> 9.7340 s (+4.8%)
+    t4 (5 reps): building 1.6673 -> 1.6521 s (-0.9%);  cover008 9.5739 -> 9.0022 s (-6.0%)
+    t3+t4 (8 reps): building 1.670 -> 1.724 s (+3.2%); cover008 9.433 -> 9.309 s (-1.3%)
+  same branch, ANGULAR PYTHON -> NATIVE (d3, 3 reps): building 1.6727 -> 1.6169 s (-3.3%); cover008 8.8314 -> 9.1130 s (+3.2%)
+  Worker start prewarm grows ~0.5 -> ~0.8 s (bind moved there, outside the button).

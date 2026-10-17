@@ -1,0 +1,10 @@
+{
+  "status": "FULL_PROFILE_CANDIDATE_COMPLETE_NOT_APPROVED",
+  "scope": "offline full-profile candidate only; no pin approval",
+  "candidate": "D:\\cftuv-angular-gates-20261017\\cand\\full-0cb3.json",
+  "candidate_sha256": "2fe3802a4074ebc45da86457417e9f055d558e5d4ca6bb54a983c866c7136ed2",
+  "source_head": "0cb37dadc63374a28d79f1607129e2c925266799",
+  "hashes": 78,
+  "class_shapes": 28,
+  "frozen_sha256_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4"
+}

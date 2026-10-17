@@ -1,0 +1,2 @@
+first calls 80 native median ms 178.204 oracle median ms 1.97
+warm calls 1138 native sum s 2.075 median ms 1.303 | oracle sum s 5.829 median ms 1.119 | native<=oracle 365 of 1138

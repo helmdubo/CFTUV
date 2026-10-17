@@ -1,0 +1,74 @@
+[
+  {
+    "id": "Y01_state_check_skipped",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 9.35s"
+  },
+  {
+    "id": "Y02_members_check_skipped",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "2 failed, 39 passed in 8.79s"
+  },
+  {
+    "id": "Y03_identity_check_skipped",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "2 failed, 39 passed in 8.82s"
+  },
+  {
+    "id": "Y04_member_values_unchecked",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 8.66s"
+  },
+  {
+    "id": "Y05_member_count_unchecked",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 8.86s"
+  },
+  {
+    "id": "Y06_state_always_unchanged",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 8.75s"
+  },
+  {
+    "id": "Y07_validate_never_checks_anchors",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "5 failed, 36 passed in 8.99s"
+  },
+  {
+    "id": "Y08_early_gate_removed",
+    "file": "angular_operation.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 8.71s"
+  },
+  {
+    "id": "Y09_class_line_off_by_one",
+    "file": "angular_wire.py",
+    "killed": true,
+    "summary": "11 failed, 30 passed in 7.98s"
+  },
+  {
+    "id": "Y10_scope_cache_ignores_identity",
+    "file": "angular_wire.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 9.03s"
+  },
+  {
+    "id": "Y11_last_class_wins",
+    "file": "angular_wire.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 8.90s"
+  },
+  {
+    "id": "Y12_bind_snapshot_not_checked",
+    "file": "angular_bindings.py",
+    "killed": true,
+    "summary": "1 failed, 40 passed in 8.75s"
+  }
+]

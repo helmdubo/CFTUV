@@ -1,0 +1,34 @@
+accepted True failure None
+building base [1.667, 1.613, 1.709, 1.655, 1.743] med 1.6673 | branch [1.594, 1.539, 1.652, 1.759, 1.689] med 1.6521 -0.91%
+cover008 base [9.574, 10.301, 10.079, 9.107, 9.194] med 9.5739 | branch [9.329, 9.288, 8.898, 8.857, 9.002] med 9.0022 -5.97%
+building_1_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_2_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_3_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_4_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+building_5_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 4b94c44a839b
+    MATERIALIZED 122 / refused 0
+cover008_1_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+cover008_2_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+cover008_3_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+cover008_4_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+cover008_5_branch angular_env NATIVE angular_status available injections 13 build 6d580b97 digest 7a315fac5ac3
+    MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK
+building_1_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+building_2_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+building_3_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+building_4_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+building_5_base build ab93d182 head 1d17ba1a digest 4b94c44a839b
+cover008_1_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+cover008_2_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+cover008_3_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+cover008_4_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+cover008_5_base build ab93d182 head 1d17ba1a digest 7a315fac5ac3
+foreign [[], []]
