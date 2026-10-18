@@ -752,7 +752,9 @@ def test_the_tight_density_is_byte_identical_with_and_without_the_law(
 # B(w) либо атлас, а не равный шаг. Закон лучей теперь действует и на неподнятых
 # канонических углах, чьи лучи пришлось бы привязывать (d0, d1, d3).
 
-UNLIFTED_DENSITIES = (0, 1, 3)
+#: d0 здесь больше нет: на нулевой плотности канонический прямой угол — митра `k = 0` (CORNER_MITER_AT_DENSITY_ZERO_V1,
+#: 2026-10-17), веера таблицы `(1/2, 2, 2)` на нём нет (`test_at_density_zero_..._no_table_fan_remains`).
+UNLIFTED_DENSITIES = (1, 3)
 
 
 def _table_fans(compilation):
@@ -812,6 +814,24 @@ def test_every_unlifted_table_fan_is_one_and_the_same_shape(compiled, density):
         for spec in _table_fans(compilation):
             shapes.add(tuple(round(item, 1) for item in _fan_degrees(context, spec)[:-1]))
     assert len(shapes) == 1, shapes
+
+
+def test_at_density_zero_every_canonical_right_angle_is_a_miter_and_no_table_fan_remains(compiled):
+    """Поле (те же слепки): на d0 канонические прямые углы — митра закона нулевой плотности, ряда таблицы нет."""
+
+    from cftuv_envelope.contracts.envelopes import CornerTreatmentReasonV1, SelectionLaw
+
+    mitered = 0
+    for folder, name in CANONICAL_CASES:
+        _snapshot, compilation = compiled(folder, name, 0)
+        assert _table_fans(compilation) == [], name
+        records = {item.selection_certificate_id: item for item in compilation.corner_treatments}
+        for selection in compilation.profile_selection_certificates:
+            if records[selection.certificate_id].reason is CornerTreatmentReasonV1.DENSITY_ZERO_MITER:
+                mitered += 1
+                assert selection.resolved_hidden_edge_count == 0
+                assert selection.selection_law is SelectionLaw.CORNER_MITER_AT_DENSITY_ZERO_V1
+    assert mitered, "no canonical right angle of d0 in the fixtures"
 
 
 @pytest.mark.parametrize("density", (1, 3))

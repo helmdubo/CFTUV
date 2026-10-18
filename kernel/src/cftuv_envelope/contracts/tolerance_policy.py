@@ -137,6 +137,7 @@ class TolerancePolicyIdV1(str, Enum):
     SURFACE_OFFSET_OPPOSITION_DEPTH_V1 = "SURFACE_OFFSET_OPPOSITION_DEPTH_V1"
     CHART_REACH_CAP_V1 = "CHART_REACH_CAP_V1"
     CORNER_FOLD_SIN2_BUDGET_V1 = "CORNER_FOLD_SIN2_BUDGET_V1"
+    DENSITY_ZERO_MITER_BOUND_V1 = "DENSITY_ZERO_MITER_BOUND_V1"
     PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1 = "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1"
     SILHOUETTE_UV_SLIDE_V1 = "SILHOUETTE_UV_SLIDE_V1"
     SOURCE_CONTACT_GAP_V1 = "SOURCE_CONTACT_GAP_V1"
@@ -275,6 +276,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND = (
         "MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND"
     )
+    MITER_CORNER_AT_DENSITY_ZERO_WITHIN_DECAL_ANGLE_BOUND = "MITER_CORNER_AT_DENSITY_ZERO_WITHIN_DECAL_ANGLE_BOUND"
     ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL = (
         "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL"
     )
@@ -1548,6 +1550,17 @@ _BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             f"{_KERNEL_TESTS}/test_corner_fold.py"
             "::test_a_fold_within_the_budget_keeps_the_fan_and_its_old_reason"
         ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.DENSITY_ZERO_MITER_BOUND_V1, category=TolerancePolicyCategoryV1.AUTHORING_INTENT, value=_rational(Fraction(91, 180)), bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS, coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE, scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=("МИТРА ПРИ НУЛЕВОЙ ПЛОТНОСТИ (CORNER_MITER_AT_DENSITY_ZERO_V1, 2026-10-17): 91/180 π избытка δ — угол декали `pi - δ` ровно 89 градусов. Только d0 и только угол, "
+               "оставшийся веером после JOIN и митры на изломе: верх интервала в пределе (замкнуто) — `k = 0`, митра со швом на биссектрисе (DENSITY_ZERO_MITER); иначе фаска с именем."),
+        authority="_corner_treatment.DENSITY_ZERO_MITER_BOUND_OVER_PI; SelectionLaw.CORNER_MITER_AT_DENSITY_ZERO_V1; DECISIONS.md 2026-10-17 (МИТРА ПРИ НУЛЕВОЙ ПЛОТНОСТИ)",
+        applied_stage=TolerancePolicyAppliedStageV1.CORNER_TREATMENT_BEFORE_COUNT_LAW, allowed_effect=TolerancePolicyAllowedEffectV1.MITER_CORNER_AT_DENSITY_ZERO_WITHIN_DECAL_ANGLE_BOUND,
+        changes_topology=True, preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH, declaration_sites=("cftuv_envelope._corner_treatment.DENSITY_ZERO_MITER_BOUND_OVER_PI",),
+        telemetry_counters=("STATION_DENSITY_ZERO_MITER_CORNERS", "STATION_DENSITY_ZERO_SHARP_BEVELS", "STATION_DENSITY_ZERO_UNPROVEN_BEVELS", "CONVEYOR_MITERED_CORNERS", "CONVEYOR_DENSITY_ZERO_MITERED_CORNERS", "CONVEYOR_DENSITY_ZERO_SHARP_BEVELS", "CONVEYOR_DENSITY_ZERO_UNPROVEN_BEVELS"),
+        positive_fixture=f"{_KERNEL_TESTS}/test_corner_density_zero_miter.py::test_a_right_angle_at_density_zero_miters", negative_fixture=f"{_KERNEL_TESTS}/test_corner_density_zero_miter.py::test_a_sharp_decal_corner_keeps_the_bevel_by_name",
     ),
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1,

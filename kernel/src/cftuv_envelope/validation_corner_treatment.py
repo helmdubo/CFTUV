@@ -16,7 +16,13 @@ MITER_SEAM (иначе `k = 0` принималось бы на слово). П�
 from __future__ import annotations
 
 from ._corner_fold import CornerFoldFacts
-from ._corner_treatment import JOIN_BEND_BOUND_OVER_PI, SELECTION_LAW_OF_TREATMENT, law_of, recompute_record
+from ._corner_treatment import (
+    JOIN_BEND_BOUND_OVER_PI,
+    is_density_zero,
+    law_of,
+    recompute_record,
+    selection_law_of,
+)
 from .contracts.analysis import CertifiedReflexAngleMeasureV1
 from .contracts.envelopes import (
     ZERO_SUPPORT_SELECTION_LAWS,
@@ -25,10 +31,15 @@ from .contracts.envelopes import (
 )
 from .validation_issues import ValidationCode, add_issue
 
+#: Причины, которые принадлежат только своей обработке: JOIN — одна; митру пишут два закона (на изломе и при нулевой
+#: плотности), у каждого своя.
 _OWN_REASONS = {
-    CornerTreatmentV1.JOIN_CONTINUATION: CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN,
-    CornerTreatmentV1.MITER_SEAM: CornerTreatmentReasonV1.FOLDED_NEIGHBOURHOOD_MITER,
+    CornerTreatmentV1.JOIN_CONTINUATION: frozenset({CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN}),
+    CornerTreatmentV1.MITER_SEAM: frozenset(
+        {CornerTreatmentReasonV1.FOLDED_NEIGHBOURHOOD_MITER, CornerTreatmentReasonV1.DENSITY_ZERO_MITER}
+    ),
 }
+_ALL_OWN_REASONS = frozenset().union(*_OWN_REASONS.values())
 
 
 def _zero_support(certificate) -> bool:
@@ -46,8 +57,8 @@ def _reason_belongs(record) -> bool:
 
     own = _OWN_REASONS.get(record.treatment)
     if own is not None:
-        return record.reason is own
-    return record.reason not in _OWN_REASONS.values()
+        return record.reason in own
+    return record.reason not in _ALL_OWN_REASONS
 
 
 def validate_plan_corner_treatments(issues, plan) -> None:
@@ -68,7 +79,7 @@ def validate_plan_corner_treatments(issues, plan) -> None:
         problems = (
             (record.treatment_law != law_of(record.reason), "treatment law is not the declared one"),
             (record.corner_relation_id != certificate.corner_relation_id, "treatment record differs from its selection certificate corner"),
-            (_law_claimed(certificate) != SELECTION_LAW_OF_TREATMENT.get(record.treatment), "selection law and treatment disagree"),
+            (_law_claimed(certificate) != selection_law_of(record.treatment, record.reason), "selection law and treatment disagree"),
             (_zero_support(certificate) and certificate.resolved_hidden_edge_count != 0, "JOIN or miter corner must resolve k = 0"),
             (
                 (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator)
@@ -119,13 +130,15 @@ def validate_plan_corner_treatments_against_snapshot(issues, plan, snapshot, pre
             if _zero_support(certificate) or certificate.certificate_id in records:
                 add_issue(issues, ValidationCode.CORNER_TREATMENT, path, "corner treatment is claimed over raw facts that cannot be read (no certified angle, relation, sector or chains in the snapshot)")
             continue
+        # Нулевая плотность — по сертификату; его значение плотности сверяет с запросом проверяющий плана.
         expected = recompute_record(
-            relation, sector, certificate.certificate_id, angle.measure_payload, uses_by_id, chains_by_id, fold
+            relation, sector, certificate.certificate_id, angle.measure_payload, uses_by_id, chains_by_id, fold,
+            density_zero=is_density_zero(certificate.selection_policy_id, certificate.max_subturn_value_id),
         )
         record = records.get(certificate.certificate_id)
         if record is not None and record != expected:
             add_issue(issues, ValidationCode.CORNER_TREATMENT, path, "treatment record differs from the raw snapshot")
-        if _law_claimed(certificate) != SELECTION_LAW_OF_TREATMENT.get(expected.treatment):
+        if _law_claimed(certificate) != selection_law_of(expected.treatment, expected.reason):
             add_issue(
                 issues,
                 ValidationCode.CORNER_TREATMENT,

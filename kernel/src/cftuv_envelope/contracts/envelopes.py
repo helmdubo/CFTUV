@@ -224,6 +224,9 @@ class SelectionLaw(str, Enum):
     # СЛОЖЕНА (`sin^2` двугранного угла кольца-1 свыше бюджета), получает `k = 0` — митру прямого скелета со ШВОМ на
     # биссектрисе, без потока. Счёт по плотности такому углу не задаётся; решение и причина — `CornerTreatmentRecordV1`.
     CORNER_MITER_ON_FOLD_V1 = "CORNER_MITER_ON_FOLD_V1"
+    # Митра при нулевой плотности веера (`CORNER_MITER_AT_DENSITY_ZERO_V1`, `_corner_treatment`): на d0 угол декали не
+    # острее 89 градусов получает `k = 0` — митру прямого скелета со ШВОМ на биссектрисе вместо фаски одного луча.
+    CORNER_MITER_AT_DENSITY_ZERO_V1 = "CORNER_MITER_AT_DENSITY_ZERO_V1"
 
 
 #: Законы, под которыми счёт угла `k = 0` решён ЗАКОНОМ УГЛА, а не плотностью: у них нет веера и нет скрытых опор, а
@@ -231,7 +234,11 @@ class SelectionLaw(str, Enum):
 #: проверяющий плана, компиляция, очередь): закон, добавленный в одно из них и забытый в другом, остался бы углом с
 #: `k = 0`, принятым на слово.
 ZERO_SUPPORT_SELECTION_LAWS = frozenset(
-    {SelectionLaw.CORNER_JOIN_SOFT_BEND_V1, SelectionLaw.CORNER_MITER_ON_FOLD_V1}
+    {
+        SelectionLaw.CORNER_JOIN_SOFT_BEND_V1,
+        SelectionLaw.CORNER_MITER_ON_FOLD_V1,
+        SelectionLaw.CORNER_MITER_AT_DENSITY_ZERO_V1,
+    }
 )
 
 
@@ -460,6 +467,13 @@ class CornerTreatmentReasonV1(str, Enum):
     # Окрестность сложена свыше бюджета, но изгиб шире четверти оборота либо не доказан в её пределах: митра
     # неприменима, угол остаётся веером под счётом плотности (на здании `building` вершина 34 патча 89, изгиб ~178 градусов).
     BEND_BEYOND_MITER_BOUND = "BEND_BEYOND_MITER_BOUND"
+    # Закон `CORNER_MITER_AT_DENSITY_ZERO_V1` (только плотность 0): угол декали `alpha = pi - δ` не острее 89 градусов
+    # (`δ/π <= 91/180` по верхней границе, ЗАМКНУТО) — `MITER_SEAM` вместо фаски.
+    DENSITY_ZERO_MITER = "DENSITY_ZERO_MITER"
+    # Тот же закон: угол декали ДОКАЗАННО острее 89 градусов (`δ/π > 91/180`) — фаска (веер d0) остаётся, и названа.
+    DENSITY_ZERO_SHARP_CORNER_BEVEL = "DENSITY_ZERO_SHARP_CORNER_BEVEL"
+    # Тот же закон: интервал угла содержит предел 89 градусов — не доказано ни то, ни другое; остаётся фаска, и названа.
+    DENSITY_ZERO_MITER_BOUND_UNPROVEN = "DENSITY_ZERO_MITER_BOUND_UNPROVEN"
 
 
 @dataclass(frozen=True, slots=True)

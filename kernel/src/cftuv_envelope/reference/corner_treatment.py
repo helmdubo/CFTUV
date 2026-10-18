@@ -22,7 +22,9 @@ from .._corner_treatment import (  # noqa: F401  (имена закона ост
     JOIN_BEND_BOUND_OVER_PI,
     SELECTION_LAW_OF_TREATMENT,
     decide_corner,
+    is_density_zero,
     recompute_record,
+    selection_law_of,
     treatment_record,
 )
 from .._corner_fold import CornerFoldFacts
@@ -56,8 +58,11 @@ def resolve_corner_selection(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
             f"CornerRelation {relation.corner_relation_id} does not prove a unique angular profile",
         )
-    decision = decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold)
-    zero_support_law = SELECTION_LAW_OF_TREATMENT.get(decision[0])
+    decision = decide_corner(
+        sector, measure, uses_by_id, chains_by_id, relation, fold,
+        density_zero=is_density_zero(request.angular_profile_selection_policy_id, request.max_subturn_value_id),
+    )
+    zero_support_law = selection_law_of(decision[0], decision[1])
     if zero_support_law is not None:
         resolved = replace(
             resolved,
@@ -82,6 +87,8 @@ def corner_treatment_errors(compilation) -> tuple[str, ...]:
         for item in compilation.profile_selection_certificates
     }
     fold = CornerFoldFacts(snapshot)
+    request = compilation.decal_request
+    density_zero = is_density_zero(request.angular_profile_selection_policy_id, request.max_subturn_value_id)
     errors = []
     by_selection = {}
     for record in compilation.corner_treatments:
@@ -107,11 +114,12 @@ def corner_treatment_errors(compilation) -> tuple[str, ...]:
             errors.append(f"treatment record {selection_id} names unknown raw facts")
             continue
         expected = recompute_record(
-            relation, sector, selection_id, angle.measure_payload, uses_by_id, chains_by_id, fold
+            relation, sector, selection_id, angle.measure_payload, uses_by_id, chains_by_id, fold,
+            density_zero=density_zero,
         )
         if record != expected:
             errors.append(f"treatment record {selection_id} differs from the raw snapshot")
-        if (selection.selection_law if zero_support else None) != SELECTION_LAW_OF_TREATMENT.get(record.treatment):
+        if (selection.selection_law if zero_support else None) != selection_law_of(record.treatment, record.reason):
             errors.append(f"selection law and treatment disagree at {selection_id}")
         if zero_support and selection.resolved_hidden_edge_count != 0:
             errors.append(f"zero-support corner {selection_id} must resolve k = 0")

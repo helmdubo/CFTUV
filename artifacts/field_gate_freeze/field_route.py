@@ -69,6 +69,7 @@ PIN_FRAME_FLAG = "--pin-frame"
 PIN_LADDER_FLAG = "--pin-ladder"
 PIN_FANS_FLAG = "--pin-fans"
 PIN_JOIN_FLAG = "--pin-join"
+PIN_DENSITY_ZERO_FLAG = "--pin-density-zero"
 #: Законы вееров ДО RIGHT-ANGLE-STABLE (2026-10-03): допуск восстановления 7e-6 рад,
 #: граница шума привязки 1/1000, таблица лучей только лифтованного `(1/2, 4, 6)`, окно луча
 #: Вороного. Закрепка веера — ТОЛЬКО красный контроль и переснятие таблицы якорей
@@ -82,10 +83,14 @@ FAN_ROTATION_TABLE_PIN = "FAN_ROTATION_TABLE_BEFORE_RIGHT_ANGLE_STABLE_V1"
 FAN_RAY_WINDOW_PIN = "FAN_RAY_WINDOW_BEFORE_RIGHT_ANGLE_STABLE_V1"
 #: Порог мягкого излома JOIN ДО решения 45° (2026-10-03): 30° = π/6.
 JOIN_THRESHOLD_BEFORE_45 = "JOIN_SOFT_BEND_THRESHOLD_30_V1"
+#: Фаска d0 ДО закона митры при нулевой плотности (CORNER_MITER_AT_DENSITY_ZERO_V1, 2026-10-17): веер d0 (один луч)
+#: на каждом внешнем угле декали. Только красный контроль и атрибуция переснятия таблицы якорей.
+DENSITY_ZERO_BEVEL_BEFORE_MITER = "DENSITY_ZERO_BEVEL_BEFORE_MITER_V1"
 
 
 def split_pins(argv) -> tuple[list[str], dict[str, str]]:
-    """Позиционные аргументы и закрепки: `--pin-lift`, `--pin-frame`, `--pin-ladder`, `--pin-fans`, `--pin-join`."""
+    """Позиционные аргументы и закрепки: `--pin-lift`, `--pin-frame`, `--pin-ladder`, `--pin-fans`, `--pin-join`,
+    `--pin-density-zero`."""
 
     positional: list[str] = []
     pins: dict[str, str] = {}
@@ -98,6 +103,7 @@ def split_pins(argv) -> tuple[list[str], dict[str, str]]:
             PIN_LADDER_FLAG,
             PIN_FANS_FLAG,
             PIN_JOIN_FLAG,
+            PIN_DENSITY_ZERO_FLAG,
         ):
             if not items:
                 raise SystemExit(f"{item} needs a policy name")
@@ -235,6 +241,20 @@ def install_join_pin(name: str) -> None:
 
     for module in (treatment_module, validation_module, reference_module):
         module.JOIN_BEND_BOUND_OVER_PI = Fraction(1, 6)
+
+
+def install_density_zero_pin(name: str) -> None:
+    """Снять закон митры при нулевой плотности на время ЭТОГО процесса: на d0 угол снова фаска (веер d0).
+
+    Решение угла читают компиляция и оба проверяющих через `_corner_treatment.decide_corner`, а тот зовёт
+    `density_zero_decision` по имени модуля: подмена одной функции снимает закон у всех трёх дверей.
+    """
+
+    if name != DENSITY_ZERO_BEVEL_BEFORE_MITER:
+        raise SystemExit(f"unknown density-zero pin: {name}")
+    from cftuv_envelope import _corner_treatment as treatment_module
+
+    treatment_module.density_zero_decision = lambda decision, measure: decision
 
 
 def snapshot_sha256(name: str) -> str:
@@ -530,6 +550,11 @@ def _main() -> None:
         # локусы, которые закон 45° снял (`retired_by_join` в таблице якорей).
         install_join_pin(pinned_join)
         substitutions.append(f"KERNEL_JOIN_THRESHOLD_PINNED:{pinned_join}")
+    pinned_density_zero = pins.get(PIN_DENSITY_ZERO_FLAG)
+    if pinned_density_zero:
+        # Шестая ИМЕНОВАННАЯ закрепка — красный контроль закона митры d0: фаска на внешних углах декали.
+        install_density_zero_pin(pinned_density_zero)
+        substitutions.append(f"KERNEL_DENSITY_ZERO_MITER_PINNED:{pinned_density_zero}")
     if name == "building_full_snapshot.json":
         # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
         # через временный UV-unwrap внутри Blender. Без Blender шага НЕ
