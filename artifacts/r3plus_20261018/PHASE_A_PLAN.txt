@@ -1,0 +1,73 @@
+R3+ PHASE A - 18.10.2026. Cold profile of PLAN_COMPILE on base 61e46e89 (release/density0-miter = main 9af98028 + CORNER_MITER_AT_DENSITY_ZERO_V1),
+native wheel a14d5084 (= the owner-installed build; native/ is identical between 9af98028 and 61e46e89). Measurement, not acceptance.
+
+HOW (scripts/ in this folder; raw JSON on D:/r3plus-scratch/prof/out, not committed)
+- real operator bpy.ops.hotspotuv.build_envelope_decal_mesh, headless Blender 4.5, frozen scenes testscene 750baefc / cover008 v2 a044b5aa (sha checked before/after),
+  building alpha 0.2239 stretch 42 seam selection; cover.008 alpha 0.04214220866560936 stretch 20 stored selection; density 2, NATIVE.
+- pool w12: the worker bootstrap gets coldlaps (lap wrappers, outermost call per lap name) in THIS process only; laps summed over the 12 workers = worker-seconds.
+- serial w0 (the product's in-process path) only for cProfile shares inside PLAN_COMPILE; the serial path differs from the pool (no worker snapshot
+  check reuse, byte check inline), so its stage totals are NOT used for gains.
+- laps add wrapper overhead (~3-5 %); the button walls below are under laps, the clean timing is in Phase B (alternating, >=5 repeats).
+
+1. PROFILE (pool w12, cold FIRST press)                         cover008 (1053 dom)   building (122 dom)
+   button wall (under laps)                                       7.8-8.0 s             1.34-1.44 s
+   worker serve wall, sum                                         67.6 worker-s          11.2-11.5
+   regime                                                         throughput-bound       latency-bound (heaviest domain 1.04-1.14 s)
+   PREPARE                                                        35.3                   7.1
+   - PLAN_COMPILE (compile_reference_envelopes)                   16.4 (24 % of serve)   2.77 (24 %)
+     . _attach_direction_bindings (Density, R3)                    6.69                   1.18
+         native op density_compute_with_memo                         4.46                   0.76
+           of it density_pin.runtime_stale (per-call live check)     1.97 (1065 calls)      0.49 (134; 12 are worker-start warm)
+           Rust core + wire (rest of the op)                         ~2.4                   ~0.27
+         _prepared_attachment (Python raw extraction, raw_prefix)    1.94 (0.77)            0.34 (0.15)
+     . _attach_front_reading_declarations                          4.76                   0.87
+         support_segments_for_use (sympy: _unit_g sqrt 2.98,          4.44                   0.83
+           _face_side_normal 1.35); segments are kept in the transaction memo and READ AGAIN by DOMAIN_BUILD / ARRIVAL / PRODUCE (0.6+0.06+0.07 there)
+     . chain_station_plans (CHAIN_STATION_PLAN_V1, Fractions)       1.66                   0.20
+     . reference-geometry validators inside PLAN_COMPILE           ~2.2                   ~0.4
+         validate_reference_geometry_certificates: 6337 calls = 6 per domain (4 in PLAN_COMPILE) 2.66 total; validate_rational_affine_planar_metric 7440 calls 1.26;
+         verify_evaluation_geometry_binding 5164 calls = 5 per domain 1.45 total
+     . evaluation geometry build 0.43; corner selection/treatment 0.37+0.33; seeds/specs/provenance objects + rest ~1.0
+   - DOMAIN_BUILD verify_evaluation_direction_binding_reasons      6.81 (interpolated normals 2.80, canonical subturn fan 1.89, incident normal 0.83)
+   - SKELETON (native) 4.0; ARRIVAL/BRIDGE/FACES rest
+   PRODUCE 16.8, EXPORT 6.6, reply/pack ~5.4
+   heaviest domains, PLAN_COMPILE part: building patch 1 (1.14 s): PREPARE 0.93 = PLAN_COMPILE 0.30 (density op 0.08, prepared 0.04, front readings 0.085,
+     chain stations 0.013, validators 0.03) + DOMAIN_BUILD verify reasons 0.305 + skeleton 0.16; cover patch 0 (1.35 s): PLAN_COMPILE 0.27, verify reasons 0.17.
+   serial cProfile shares of PLAN_COMPILE self time: cover fractions 22 %, sympy 20 %, mpmath 0.6 %, builtins 22 %, kernel Python 24 %, native+pin 13 %;
+     building sympy 27 %, fractions 18 %.
+
+2. WHAT IS STILL PYTHON, AND ITS HAZARDS
+   - sympy: unit vectors x/sqrt(q) under the Gram metric (_unit_g, _owner_normal_g), the density angle predicate (sqrt(|a||b|), cos(pi r)), srepr texts as keys of the
+     transaction memo (_density_srepr) - the radicals are the CURRENCY of GeometryContext, i.e. of DOMAIN_BUILD/ARRIVAL/BRIDGE/PRODUCE consumers too.
+   - mpmath: interval sign decisions behind _density_exact_sign (precision ladder; only the exact sign is the answer, the ladder is cost).
+   - Fraction: chain stations, validation_metric, evaluation geometry snapping (robust/grid.snap_value), corner fold sin^2.
+   - Decimal: CertifiedDecimalIntervalV1 angle measures, context precision (snapshot_check already mirrors the context check).
+   - binary64: chain-station filter _beyond_by_floats uses float ** 2 = C pow (libm) - sound filter with 1e-6 margin, the exact path decides the rest,
+     so a 1-ulp pow difference cannot change an answer (the port must still reproduce the filter verdicts to stay cost-identical: no counter reads it).
+   - cost counters on this path: symbolic_backend.BACKEND_COUNTS (angle certificate sign), Density work articles (replayed by density_op), exact work budget.
+   - per-call shim cost: density_pin.runtime_stale re-freezes 20 constants and 83 class shapes on EVERY Density call (~1.07 ms warm, standalone) - the ANGULAR lesson.
+
+3. SLICES (gain = cold button, cover / building; worker-s x 0.95/12 for cover, critical-path domain for building)
+   S1 DENSITY_BIND_ONCE_CHECK_PER_CALL - shim only (cftuv_native/density_pin.py): digests once per bind, per call identity checks; mutable constants
+      (3 dicts) stay re-frozen. Gain -0.12..-0.15 s / ~0 (2 ms per domain). 0.5-1 d, low risk, no pin change (manifest unchanged).
+      STOP: per-call check not below 0.15 ms, or any weakening of stale detection that a test cannot pin.
+   S2 CHAIN_STATION_PLAN native op - _chain_station.chain_station_plans whole in Rust (exact rationals from binary64 positions, the binary64 filter, union-find
+      groups, run windows), Python builds the ChainStationPlanV1 records from codes. Gain -0.10..-0.13 s / -0.01. 3 d, low-medium risk.
+      NEW PINS (owner approval): _chain_station.py whole; shapes of contracts/chain_station.py; constants CLIP_DIAGONAL_CHORD_BUDGET, CANONICAL_RESTORATION_ARTIST_ERROR.
+      STOP: unit speedup < 5x incl. marshalling, or cover gain < 0.06 s median of >=5 alternating repeats.
+   S3 PREPARE GEOMETRY ATTEST - validate_reference_geometry_certificates (density-bounded) and verify_evaluation_geometry_binding clean-or-decline in Rust,
+      attested once per transaction (reuse cftuv-snapshot metric/angle; add the density predicate). Gain -0.20..-0.25 s / -0.03. 4-6 d, medium:
+      the density predicate is a different oracle function than snapshot_check's; BACKEND_COUNTS; the Python validators warm the transaction memo that
+      later stages read (the saving can move). STOP: decline rate > 5 % of domains on the corpus, or > 30 % of the saving reappears downstream.
+   S4 DENSITY extraction in Rust - _prepared_attachment / raw prefix fused into the R3 call (Rust reads compilation+snapshot instead of Python building
+      RawDensityBatchInputV1). Gain -0.15 s / -0.04. 5-7 d, medium-high (R3 wire and its pins). STOP: wire > 30 % of the saving.
+   S5 PLANAR RADICAL GEOMETRY - an own exact algebra for GeometryContext (vectors in Q(sqrt q) under a rational Gram, signs exact) for support segments,
+      owner normals, angular ideal supports and DOMAIN_BUILD verify reasons. Gain -0.8..-0.9 s / -0.2..-0.3 (it is the building critical path).
+      15-25 d, high: the sympy objects feed DOMAIN_BUILD/ARRIVAL/BRIDGE/PRODUCE, so either those move with it (Rust-resident context) or ExactPlanarVector
+      changes representation (a declared oracle change). OWNER DECISION before starting (design with a concrete example).
+   S6 seeds/specs/provenance objects in Rust - not worth it (Python records must exist; ~-0.05 s).
+   Order: S1 -> S2 -> S3 -> S4 -> owner decision on S5. Sum S1-S4 about -0.6 s cover / -0.08 building; with S5 about -1.4 / -0.35.
+
+4. PHASE B CHOICE
+   S2 is the top RUST slice by gain/risk that can be carried end to end (oracle unchanged, pure leaf, small output, no sympy, a Rust snapshot reader already
+   exists). S1 is cheaper and goes first as a separate commit (no Rust, no pin).

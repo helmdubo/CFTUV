@@ -1,0 +1,3729 @@
+{
+ "tree": "61e46e89260aa06ed3b0fae0d5c88fc9515762cb",
+ "native_build_id": "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+ "note": "laps are wall seconds of the outermost call per lap name inside the process that ran it (pool: summed over the 12 workers = worker-seconds); laps add wrapper overhead; button_wall is the real operator under laps (not a timing sample)",
+ "runs": {
+  "building_pool": {
+   "button_wall_with_laps": 1.335,
+   "status": "MATERIALIZED 122 / refused 0",
+   "decal": {
+    "vertices": 1191,
+    "faces": 907,
+    "digest": "4b94c44a839bb00ff4c746192187ab83a7a5dd77e2c7d87cc36e6cbecfe5d59b"
+   },
+   "selection_sha": "2861544dd7a33b0c9db9cae0c90d19284b83be9e1bf4415c317a6ab31cc77ac9",
+   "worker_seconds": {
+    "W.serve_task": [
+     122,
+     11.2344
+    ],
+    "W.cold_task_outer": [
+     122,
+     10.4044
+    ],
+    "W.cold_task": [
+     122,
+     10.3882
+    ],
+    "PREPARE.total": [
+     122,
+     6.9476
+    ],
+    "PREPARE.prepare_conveyor": [
+     122,
+     6.9285
+    ],
+    "PCD.pin_verdict": [
+     9851,
+     2.9909
+    ],
+    "prepx.lap.PLAN_COMPILE": [
+     122,
+     2.6783
+    ],
+    "prep.lap.PLAN_COMPILE": [
+     122,
+     2.6783
+    ],
+    "PC.compile_reference_envelopes": [
+     122,
+     2.6776
+    ],
+    "PRODUCE.total": [
+     122,
+     2.3713
+    ],
+    "PC.finalize": [
+     122,
+     2.1804
+    ],
+    "prepx.lap.DOMAIN_BUILD": [
+     122,
+     2.142
+    ],
+    "prep.lap.DOMAIN_BUILD": [
+     122,
+     2.142
+    ],
+    "PRODUCE.step_domain": [
+     122,
+     2.1266
+    ],
+    "DB.geometry_context_build@PREPARE": [
+     122,
+     1.8842
+    ],
+    "PC.verify_evaluation_direction_binding_reasons@PREPARE": [
+     122,
+     1.8237
+    ],
+    "PC.ideal_angular_support_data@PREPARE": [
+     558,
+     1.5128
+    ],
+    "PRODUCE.materialize": [
+     122,
+     1.3199
+    ],
+    "PC.attach_direction_bindings": [
+     122,
+     1.1377
+    ],
+    "EXPORT.task_inputs": [
+     122,
+     1.058
+    ],
+    "EXPORT.metric_export": [
+     122,
+     0.9753
+    ],
+    "stage.PATCH_METRIC_EXPORT": [
+     122,
+     0.9625
+    ],
+    "DBV.interpolated_normals": [
+     553,
+     0.9308
+    ],
+    "prepx.lap.SKELETON": [
+     122,
+     0.9301
+    ],
+    "prep.lap.SKELETON": [
+     122,
+     0.9301
+    ],
+    "native.skeleton_compute": [
+     122,
+     0.9293
+    ],
+    "PC.attach_front_reading_declarations": [
+     122,
+     0.846
+    ],
+    "PC.support_segments_for_use@PLAN_COMPILE": [
+     729,
+     0.8089
+    ],
+    "PRODUCE.coverage": [
+     122,
+     0.793
+    ],
+    "PCD.backend_density_compute": [
+     122,
+     0.7587
+    ],
+    "PCD.native_op_density_compute_with_memo": [
+     122,
+     0.7562
+    ],
+    "DBV.verify_evaluation_binding_reasons_one": [
+     186,
+     0.6618
+    ],
+    "prepx.lap.ARRIVAL_LAWS": [
+     122,
+     0.6216
+    ],
+    "prep.lap.ARRIVAL_LAWS": [
+     122,
+     0.6216
+    ],
+    "AL.arrival_laws": [
+     122,
+     0.621
+    ],
+    "PCS.unit_g": [
+     2334,
+     0.5966
+    ],
+    "stage.ANGULAR_RELATIONS": [
+     122,
+     0.568
+    ],
+    "leaf.codec_dumps@-": [
+     244,
+     0.5522
+    ],
+    "REL.canonical_json_bytes@-": [
+     244,
+     0.5261
+    ],
+    "DBV.canonical_subturn_fan_or_source": [
+     372,
+     0.4905
+    ],
+    "PCD.density_pin_runtime_stale": [
+     134,
+     0.4859
+    ],
+    "W.pack_prepared_reply": [
+     122,
+     0.4846
+    ],
+    "cov.lap.EFFECTIVE_ALPHA": [
+     122,
+     0.4652
+    ],
+    "EA.instance_ids_by_spec": [
+     122,
+     0.4647
+    ],
+    "mat.lap.SILHOUETTE": [
+     122,
+     0.4556
+    ],
+    "EA.resolve_component_alphas@PRODUCE": [
+     122,
+     0.4313
+    ],
+    "leaf.codec_loads@-": [
+     122,
+     0.4276
+    ],
+    "PC.validate_reference_geometry_certificates": [
+     737,
+     0.4077
+    ],
+    "prepx.lap.FACES": [
+     122,
+     0.3844
+    ],
+    "prep.lap.FACES": [
+     122,
+     0.3844
+    ],
+    "PCD.prepared_attachment": [
+     122,
+     0.339
+    ],
+    "cov.lap.COVERAGE_CLIP": [
+     122,
+     0.3231
+    ],
+    "native.covered_at": [
+     122,
+     0.3162
+    ],
+    "PCV.validate_angle_certificates": [
+     737,
+     0.2686
+    ],
+    "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": [
+     488,
+     0.2486
+    ],
+    "PCS.face_side_normal": [
+     981,
+     0.2279
+    ],
+    "CHECK.reject_snapshot[canonical bytes]@-": [
+     122,
+     0.2229
+    ],
+    "CHECK.reject_snapshot[canonical bytes]": [
+     122,
+     0.2228
+    ],
+    "PCE.verify_evaluation_geometry_binding": [
+     594,
+     0.221
+    ],
+    "EA.native_effective_alpha_compute": [
+     8689,
+     0.212
+    ],
+    "PACK.deferred_result": [
+     122,
+     0.2084
+    ],
+    "PC.station_plans_of": [
+     143,
+     0.195
+    ],
+    "PC.chain_station_plans@PLAN_COMPILE": [
+     122,
+     0.1938
+    ],
+    "mat.lap.STATIONS": [
+     122,
+     0.1856
+    ],
+    "W.reply_frame": [
+     152,
+     0.1819
+    ],
+    "DB.seal_angular_support_cache@PREPARE": [
+     122,
+     0.1636
+    ],
+    "DBV.incident_normal": [
+     1090,
+     0.1632
+    ],
+    "PC.support_segments_for_use@PREPARE": [
+     1090,
+     0.1568
+    ],
+    "PCD.raw_prefix": [
+     122,
+     0.1502
+    ],
+    "mat.lap.PARAMETRIC": [
+     122,
+     0.15
+    ],
+    "S6A.certificate_of": [
+     122,
+     0.1494
+    ],
+    "DB.geometry_context_build@PLAN_COMPILE": [
+     244,
+     0.1482
+    ],
+    "mat.lap.ASSEMBLE": [
+     122,
+     0.1477
+    ],
+    "PCV.validate_rational_affine_planar_metric": [
+     869,
+     0.1436
+    ],
+    "stage.FRAME_ADMISSION": [
+     122,
+     0.132
+    ],
+    "leaf.validate_reference_geometry_payload@PLAN_COMPILE": [
+     366,
+     0.1184
+    ],
+    "leaf.validate_reference_geometry_payload@-": [
+     122,
+     0.1135
+    ],
+    "leaf.validate_reference_geometry_certificates@-": [
+     122,
+     0.1123
+    ],
+    "leaf.validate_analysis_snapshot@-": [
+     122,
+     0.1072
+    ],
+    "native.coverage_compute": [
+     122,
+     0.1027
+    ],
+    "mat.lap.STATIONS_UV": [
+     122,
+     0.1001
+    ],
+    "native.w1_exact_mesh": [
+     122,
+     0.0983
+    ],
+    "PC.attach_evaluation_geometry": [
+     122,
+     0.0957
+    ],
+    "PC.seal_evaluation_geometry_authority": [
+     122,
+     0.094
+    ],
+    "mat.lap.CERTIFY": [
+     122,
+     0.0884
+    ],
+    "prepx.lap.BRIDGE": [
+     122,
+     0.0884
+    ],
+    "prep.lap.BRIDGE": [
+     122,
+     0.0884
+    ],
+    "BR.bridge_arrival_laws": [
+     122,
+     0.0857
+    ],
+    "EXPORT.decal_request": [
+     122,
+     0.0728
+    ],
+    "PC.resolve_corner_selection": [
+     186,
+     0.0666
+    ],
+    "PCC.corner_treatment_errors": [
+     122,
+     0.0635
+    ],
+    "mat.lap.COALESCE": [
+     122,
+     0.0589
+    ],
+    "prepx.lap.CHART_LATTICE": [
+     122,
+     0.0564
+    ],
+    "prep.lap.CHART_LATTICE": [
+     122,
+     0.0564
+    ],
+    "PCE.build_evaluation_geometry_binding": [
+     122,
+     0.0524
+    ],
+    "DB.build_domain_geometry@PREPARE": [
+     122,
+     0.0505
+    ],
+    "leaf.build_developable_chart@EXPORT": [
+     3,
+     0.0452
+    ],
+    "stage.SNAPSHOT_VALIDATION": [
+     122,
+     0.0447
+    ],
+    "leaf.validate_reference_geometry_payload@PREPARE": [
+     122,
+     0.0419
+    ],
+    "EXPORT.validate_exported_snapshot": [
+     122,
+     0.0409
+    ],
+    "leaf.validate_reference_geometry_certificates@PREPARE": [
+     122,
+     0.0406
+    ],
+    "PCD.op_validate_memo_snapshot": [
+     244,
+     0.0376
+    ],
+    "W.task_unpickle": [
+     152,
+     0.0375
+    ],
+    "mat.lap.VALIDATE": [
+     122,
+     0.0357
+    ],
+    "REL.batch_structure": [
+     122,
+     0.0339
+    ],
+    "stage.SOURCE_CONTACT_PREFLIGHT": [
+     122,
+     0.0329
+    ],
+    "native.w1_canonical_triangles": [
+     122,
+     0.0286
+    ],
+    "mat.lap.CLIP": [
+     5,
+     0.0272
+    ],
+    "PCD.attach_density_results_v1": [
+     122,
+     0.0243
+    ],
+    "PCS.analysis_direction": [
+     209,
+     0.0213
+    ],
+    "leaf.validate_analysis_snapshot@EXPORT": [
+     10,
+     0.0212
+    ],
+    "mat.lap.CHORD_STATIONS": [
+     122,
+     0.0211
+    ],
+    "mat.lap.AUDIT": [
+     122,
+     0.0181
+    ],
+    "CHECK.reject_snapshot[snapshot]@EXPORT": [
+     5,
+     0.0157
+    ],
+    "CHECK.reject_snapshot[snapshot]": [
+     5,
+     0.0157
+    ],
+    "native.clip_compute": [
+     13,
+     0.0154
+    ],
+    "mat.lap.FRAMES": [
+     122,
+     0.0137
+    ],
+    "PCS.validate_segment_corners": [
+     938,
+     0.0128
+    ],
+    "PACK.build_domain_view": [
+     122,
+     0.0119
+    ],
+    "REL.snapshot_check.clean_issues_for": [
+     122,
+     0.0098
+    ],
+    "PC.validate_snapshot_request_references": [
+     244,
+     0.0087
+    ],
+    "PC.support_segments_for_use@PRODUCE": [
+     729,
+     0.0085
+    ],
+    "PC.support_segments_for_use@ARRIVAL_LAWS": [
+     729,
+     0.0076
+    ],
+    "PC.resolve_angular_profile_selection": [
+     186,
+     0.0073
+    ]
+   },
+   "task_cpu_sum": 10.797,
+   "heaviest_domains": {
+    "6": {
+     "wall": 1.0506,
+     "laps": {
+      "W.cold_task_outer": 1.0076,
+      "W.cold_task": 1.0074,
+      "PREPARE.total": 0.7984,
+      "PREPARE.prepare_conveyor": 0.7982,
+      "prepx.lap.DOMAIN_BUILD": 0.2877,
+      "prep.lap.DOMAIN_BUILD": 0.2877,
+      "DB.geometry_context_build@PREPARE": 0.2646,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.2633,
+      "PC.ideal_angular_support_data@PREPARE": 0.223,
+      "prepx.lap.PLAN_COMPILE": 0.2218,
+      "prep.lap.PLAN_COMPILE": 0.2218,
+      "PC.compile_reference_envelopes": 0.2218,
+      "PC.finalize": 0.187,
+      "prepx.lap.SKELETON": 0.1676,
+      "prep.lap.SKELETON": 0.1676,
+      "native.skeleton_compute": 0.1675,
+      "PRODUCE.total": 0.1576,
+      "PRODUCE.step_domain": 0.1465,
+      "DBV.interpolated_normals": 0.1388,
+      "PC.attach_direction_bindings": 0.1179,
+      "DBV.canonical_subturn_fan_or_source": 0.0786,
+      "prepx.lap.ARRIVAL_LAWS": 0.0782,
+      "prep.lap.ARRIVAL_LAWS": 0.0782,
+      "AL.arrival_laws": 0.0781,
+      "PCD.backend_density_compute": 0.0773,
+      "PCD.native_op_density_compute_with_memo": 0.0773,
+      "PRODUCE.materialize": 0.0758,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0725,
+      "PRODUCE.coverage": 0.0705,
+      "PC.attach_front_reading_declarations": 0.0617,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0596,
+      "EXPORT.task_inputs": 0.0513,
+      "EXPORT.metric_export": 0.05,
+      "stage.PATCH_METRIC_EXPORT": 0.0498,
+      "PCS.unit_g": 0.0427,
+      "stage.ANGULAR_RELATIONS": 0.0399,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0394,
+      "EA.instance_ids_by_spec": 0.0394,
+      "EA.resolve_component_alphas@PRODUCE": 0.0379,
+      "prepx.lap.FACES": 0.037,
+      "prep.lap.FACES": 0.037,
+      "PCD.prepared_attachment": 0.0368,
+      "cov.lap.COVERAGE_CLIP": 0.031,
+      "native.covered_at": 0.0307,
+      "mat.lap.SILHOUETTE": 0.0301,
+      "W.pack_prepared_reply": 0.0263,
+      "PCD.raw_prefix": 0.0236,
+      "PCS.face_side_normal": 0.0206,
+      "PC.validate_reference_geometry_certificates": 0.0202,
+      "EA.native_effective_alpha_compute": 0.0193,
+      "PCV.validate_angle_certificates": 0.019,
+      "DBV.incident_normal": 0.0183,
+      "DB.seal_angular_support_cache@PREPARE": 0.0177,
+      "PC.support_segments_for_use@PREPARE": 0.0174,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0173,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0111,
+      "PACK.deferred_result": 0.0105,
+      "native.coverage_compute": 0.0102,
+      "PC.resolve_corner_selection": 0.0099,
+      "PC.station_plans_of": 0.0099,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0099,
+      "mat.lap.STATIONS": 0.0098,
+      "mat.lap.PARAMETRIC": 0.0095,
+      "S6A.certificate_of": 0.0095,
+      "PCC.corner_treatment_errors": 0.0088,
+      "mat.lap.ASSEMBLE": 0.0084,
+      "mat.lap.STATIONS_UV": 0.0083,
+      "native.w1_exact_mesh": 0.0083,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0066,
+      "W.reply_frame": 0.0063,
+      "mat.lap.CERTIFY": 0.004
+     }
+    },
+    "1": {
+     "wall": 1.0415,
+     "laps": {
+      "W.cold_task_outer": 1.0076,
+      "W.cold_task": 1.0074,
+      "PREPARE.total": 0.8212,
+      "PREPARE.prepare_conveyor": 0.821,
+      "prepx.lap.DOMAIN_BUILD": 0.2955,
+      "prep.lap.DOMAIN_BUILD": 0.2955,
+      "DB.geometry_context_build@PREPARE": 0.2621,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.2587,
+      "prepx.lap.PLAN_COMPILE": 0.2292,
+      "prep.lap.PLAN_COMPILE": 0.2292,
+      "PC.compile_reference_envelopes": 0.2292,
+      "PC.ideal_angular_support_data@PREPARE": 0.2139,
+      "PC.finalize": 0.2028,
+      "PRODUCE.total": 0.1555,
+      "prepx.lap.SKELETON": 0.1552,
+      "prep.lap.SKELETON": 0.1552,
+      "native.skeleton_compute": 0.1552,
+      "PRODUCE.step_domain": 0.146,
+      "DBV.interpolated_normals": 0.1391,
+      "PC.attach_direction_bindings": 0.1196,
+      "prepx.lap.ARRIVAL_LAWS": 0.0898,
+      "prep.lap.ARRIVAL_LAWS": 0.0898,
+      "AL.arrival_laws": 0.0897,
+      "PCD.backend_density_compute": 0.0811,
+      "PCD.native_op_density_compute_with_memo": 0.081,
+      "DBV.canonical_subturn_fan_or_source": 0.076,
+      "PRODUCE.coverage": 0.074,
+      "PC.attach_front_reading_declarations": 0.0737,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0721,
+      "PRODUCE.materialize": 0.0718,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0633,
+      "PCS.unit_g": 0.0534,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0445,
+      "EA.instance_ids_by_spec": 0.0445,
+      "prepx.lap.FACES": 0.0399,
+      "prep.lap.FACES": 0.0399,
+      "EA.resolve_component_alphas@PRODUCE": 0.0389,
+      "PCD.prepared_attachment": 0.0355,
+      "EXPORT.task_inputs": 0.0307,
+      "cov.lap.COVERAGE_CLIP": 0.0295,
+      "EXPORT.metric_export": 0.0294,
+      "native.covered_at": 0.0292,
+      "stage.PATCH_METRIC_EXPORT": 0.0291,
+      "DB.seal_angular_support_cache@PREPARE": 0.0282,
+      "mat.lap.SILHOUETTE": 0.0247,
+      "W.pack_prepared_reply": 0.0239,
+      "PCS.face_side_normal": 0.021,
+      "stage.ANGULAR_RELATIONS": 0.0205,
+      "EA.native_effective_alpha_compute": 0.0187,
+      "PCD.raw_prefix": 0.0185,
+      "PCE.verify_evaluation_geometry_binding": 0.0172,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0153,
+      "DBV.incident_normal": 0.014,
+      "PC.validate_reference_geometry_certificates": 0.0133,
+      "PC.support_segments_for_use@PREPARE": 0.0132,
+      "PCV.validate_angle_certificates": 0.0122,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0112,
+      "PC.station_plans_of": 0.0104,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0104,
+      "native.coverage_compute": 0.0093,
+      "mat.lap.STATIONS": 0.0091,
+      "PACK.deferred_result": 0.0089,
+      "mat.lap.PARAMETRIC": 0.0085,
+      "S6A.certificate_of": 0.0085,
+      "mat.lap.ASSEMBLE": 0.0081,
+      "PCC.corner_treatment_errors": 0.0074,
+      "PC.resolve_corner_selection": 0.0071,
+      "mat.lap.STATIONS_UV": 0.0065,
+      "native.w1_exact_mesh": 0.0064,
+      "mat.lap.COALESCE": 0.0057,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0056,
+      "prepx.lap.BRIDGE": 0.0055,
+      "prep.lap.BRIDGE": 0.0055,
+      "BR.bridge_arrival_laws": 0.0054,
+      "PC.seal_evaluation_geometry_authority": 0.0052,
+      "W.reply_frame": 0.0052,
+      "prepx.lap.CHART_LATTICE": 0.0045,
+      "prep.lap.CHART_LATTICE": 0.0045
+     }
+    },
+    "11": {
+     "wall": 0.8349,
+     "laps": {
+      "W.cold_task_outer": 0.7993,
+      "W.cold_task": 0.7992,
+      "PREPARE.total": 0.6142,
+      "PREPARE.prepare_conveyor": 0.614,
+      "prepx.lap.DOMAIN_BUILD": 0.2017,
+      "prep.lap.DOMAIN_BUILD": 0.2017,
+      "prepx.lap.PLAN_COMPILE": 0.191,
+      "prep.lap.PLAN_COMPILE": 0.191,
+      "PC.compile_reference_envelopes": 0.191,
+      "DB.geometry_context_build@PREPARE": 0.1781,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1746,
+      "PC.finalize": 0.1619,
+      "PC.ideal_angular_support_data@PREPARE": 0.1416,
+      "PRODUCE.total": 0.1385,
+      "prepx.lap.SKELETON": 0.1286,
+      "prep.lap.SKELETON": 0.1286,
+      "native.skeleton_compute": 0.1285,
+      "PRODUCE.step_domain": 0.1275,
+      "PC.attach_direction_bindings": 0.1013,
+      "DBV.interpolated_normals": 0.0751,
+      "PRODUCE.materialize": 0.0683,
+      "PCD.backend_density_compute": 0.0666,
+      "PCD.native_op_density_compute_with_memo": 0.0666,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0642,
+      "PRODUCE.coverage": 0.059,
+      "DBV.canonical_subturn_fan_or_source": 0.0581,
+      "prepx.lap.ARRIVAL_LAWS": 0.0575,
+      "prep.lap.ARRIVAL_LAWS": 0.0575,
+      "AL.arrival_laws": 0.0575,
+      "PC.attach_front_reading_declarations": 0.0511,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0496,
+      "EXPORT.task_inputs": 0.0464,
+      "EXPORT.metric_export": 0.0454,
+      "stage.PATCH_METRIC_EXPORT": 0.0451,
+      "stage.ANGULAR_RELATIONS": 0.0364,
+      "PCS.unit_g": 0.036,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0319,
+      "EA.instance_ids_by_spec": 0.0319,
+      "PCD.prepared_attachment": 0.0311,
+      "EA.resolve_component_alphas@PRODUCE": 0.0308,
+      "prepx.lap.FACES": 0.0272,
+      "prep.lap.FACES": 0.0272,
+      "cov.lap.COVERAGE_CLIP": 0.0271,
+      "native.covered_at": 0.0267,
+      "mat.lap.SILHOUETTE": 0.0248,
+      "W.pack_prepared_reply": 0.0241,
+      "PC.validate_reference_geometry_certificates": 0.0191,
+      "DB.seal_angular_support_cache@PREPARE": 0.019,
+      "PCD.raw_prefix": 0.0186,
+      "PCV.validate_angle_certificates": 0.0179,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0168,
+      "PCS.face_side_normal": 0.016,
+      "EA.native_effective_alpha_compute": 0.0149,
+      "DBV.incident_normal": 0.0145,
+      "PC.support_segments_for_use@PREPARE": 0.0137,
+      "PCE.verify_evaluation_geometry_binding": 0.0128,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0107,
+      "PACK.deferred_result": 0.0104,
+      "mat.lap.PARAMETRIC": 0.0084,
+      "S6A.certificate_of": 0.0084,
+      "native.coverage_compute": 0.0083,
+      "PC.station_plans_of": 0.0078,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0078,
+      "mat.lap.ASSEMBLE": 0.0076,
+      "mat.lap.STATIONS": 0.007,
+      "PCC.corner_treatment_errors": 0.0066,
+      "PC.resolve_corner_selection": 0.0065,
+      "mat.lap.STATIONS_UV": 0.0065,
+      "native.w1_exact_mesh": 0.0064,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0059,
+      "W.reply_frame": 0.0058,
+      "PC.seal_evaluation_geometry_authority": 0.0052,
+      "mat.lap.COALESCE": 0.0041
+     }
+    },
+    "15": {
+     "wall": 0.796,
+     "laps": {
+      "W.cold_task_outer": 0.7639,
+      "W.cold_task": 0.7637,
+      "PREPARE.total": 0.5942,
+      "PREPARE.prepare_conveyor": 0.594,
+      "prepx.lap.DOMAIN_BUILD": 0.2116,
+      "prep.lap.DOMAIN_BUILD": 0.2116,
+      "DB.geometry_context_build@PREPARE": 0.1917,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1888,
+      "prepx.lap.PLAN_COMPILE": 0.179,
+      "prep.lap.PLAN_COMPILE": 0.179,
+      "PC.compile_reference_envelopes": 0.179,
+      "PC.ideal_angular_support_data@PREPARE": 0.159,
+      "PC.finalize": 0.1526,
+      "PRODUCE.total": 0.1263,
+      "PRODUCE.step_domain": 0.1154,
+      "prepx.lap.SKELETON": 0.112,
+      "prep.lap.SKELETON": 0.112,
+      "native.skeleton_compute": 0.1119,
+      "DBV.interpolated_normals": 0.097,
+      "PC.attach_direction_bindings": 0.0925,
+      "PCD.backend_density_compute": 0.0608,
+      "PCD.native_op_density_compute_with_memo": 0.0608,
+      "DBV.canonical_subturn_fan_or_source": 0.0601,
+      "PRODUCE.materialize": 0.06,
+      "prepx.lap.ARRIVAL_LAWS": 0.0568,
+      "prep.lap.ARRIVAL_LAWS": 0.0568,
+      "AL.arrival_laws": 0.0567,
+      "PRODUCE.coverage": 0.0552,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0531,
+      "PC.attach_front_reading_declarations": 0.0504,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0487,
+      "EXPORT.task_inputs": 0.0431,
+      "EXPORT.metric_export": 0.0421,
+      "stage.PATCH_METRIC_EXPORT": 0.0419,
+      "PCS.unit_g": 0.0349,
+      "stage.ANGULAR_RELATIONS": 0.0338,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0298,
+      "EA.instance_ids_by_spec": 0.0298,
+      "PCD.prepared_attachment": 0.029,
+      "EA.resolve_component_alphas@PRODUCE": 0.0287,
+      "prepx.lap.FACES": 0.0277,
+      "prep.lap.FACES": 0.0277,
+      "cov.lap.COVERAGE_CLIP": 0.0253,
+      "native.covered_at": 0.0251,
+      "mat.lap.SILHOUETTE": 0.0209,
+      "W.pack_prepared_reply": 0.0209,
+      "PCS.face_side_normal": 0.0168,
+      "DB.seal_angular_support_cache@PREPARE": 0.0156,
+      "PC.validate_reference_geometry_certificates": 0.0156,
+      "PCD.raw_prefix": 0.0154,
+      "EA.native_effective_alpha_compute": 0.0143,
+      "PCV.validate_angle_certificates": 0.0143,
+      "DBV.incident_normal": 0.0136,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0133,
+      "PC.support_segments_for_use@PREPARE": 0.0128,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0119,
+      "PCE.verify_evaluation_geometry_binding": 0.0119,
+      "PACK.deferred_result": 0.0104,
+      "mat.lap.PARAMETRIC": 0.0084,
+      "S6A.certificate_of": 0.0084,
+      "native.coverage_compute": 0.0079,
+      "PC.resolve_corner_selection": 0.0078,
+      "PCC.corner_treatment_errors": 0.0078,
+      "mat.lap.STATIONS": 0.0073,
+      "PC.station_plans_of": 0.007,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.007,
+      "mat.lap.ASSEMBLE": 0.0064,
+      "PC.seal_evaluation_geometry_authority": 0.0059,
+      "mat.lap.STATIONS_UV": 0.0057,
+      "native.w1_exact_mesh": 0.0056,
+      "W.reply_frame": 0.0054,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0053
+     }
+    },
+    "7": {
+     "wall": 0.7312,
+     "laps": {
+      "W.cold_task_outer": 0.6917,
+      "W.cold_task": 0.6916,
+      "PREPARE.total": 0.5126,
+      "PREPARE.prepare_conveyor": 0.5124,
+      "prepx.lap.PLAN_COMPILE": 0.1924,
+      "prep.lap.PLAN_COMPILE": 0.1924,
+      "PC.compile_reference_envelopes": 0.1923,
+      "PC.finalize": 0.158,
+      "PRODUCE.total": 0.1435,
+      "PRODUCE.step_domain": 0.1317,
+      "prepx.lap.DOMAIN_BUILD": 0.1257,
+      "prep.lap.DOMAIN_BUILD": 0.1257,
+      "prepx.lap.SKELETON": 0.1154,
+      "prep.lap.SKELETON": 0.1154,
+      "native.skeleton_compute": 0.1153,
+      "DB.geometry_context_build@PREPARE": 0.1118,
+      "PC.attach_direction_bindings": 0.105,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1046,
+      "PC.ideal_angular_support_data@PREPARE": 0.0785,
+      "PRODUCE.materialize": 0.0732,
+      "PCD.backend_density_compute": 0.0615,
+      "PCD.native_op_density_compute_with_memo": 0.0615,
+      "PRODUCE.coverage": 0.0582,
+      "prepx.lap.ARRIVAL_LAWS": 0.0442,
+      "prep.lap.ARRIVAL_LAWS": 0.0442,
+      "AL.arrival_laws": 0.0442,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0426,
+      "PC.attach_front_reading_declarations": 0.0409,
+      "PCD.prepared_attachment": 0.0402,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0392,
+      "EA.instance_ids_by_spec": 0.0392,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.039,
+      "DBV.interpolated_normals": 0.0367,
+      "EA.resolve_component_alphas@PRODUCE": 0.0355,
+      "EXPORT.task_inputs": 0.0353,
+      "EXPORT.metric_export": 0.034,
+      "stage.PATCH_METRIC_EXPORT": 0.0337,
+      "mat.lap.SILHOUETTE": 0.0319,
+      "DBV.canonical_subturn_fan_or_source": 0.0315,
+      "W.pack_prepared_reply": 0.0281,
+      "prepx.lap.FACES": 0.0265,
+      "prep.lap.FACES": 0.0265,
+      "PCS.unit_g": 0.0259,
+      "PCD.raw_prefix": 0.0245,
+      "stage.ANGULAR_RELATIONS": 0.0226,
+      "PCE.verify_evaluation_geometry_binding": 0.019,
+      "cov.lap.COVERAGE_CLIP": 0.0189,
+      "native.covered_at": 0.0187,
+      "PC.station_plans_of": 0.0169,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0168,
+      "EA.native_effective_alpha_compute": 0.0168,
+      "DBV.incident_normal": 0.0148,
+      "PC.support_segments_for_use@PREPARE": 0.0139,
+      "PCS.face_side_normal": 0.0138,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0137,
+      "PC.validate_reference_geometry_certificates": 0.0133,
+      "PCV.validate_angle_certificates": 0.012,
+      "PACK.deferred_result": 0.0113,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0108,
+      "PC.resolve_corner_selection": 0.009,
+      "DB.seal_angular_support_cache@PREPARE": 0.0085,
+      "PCC.corner_treatment_errors": 0.0079,
+      "mat.lap.ASSEMBLE": 0.0076,
+      "mat.lap.STATIONS": 0.0073,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0067,
+      "PC.seal_evaluation_geometry_authority": 0.0065,
+      "W.reply_frame": 0.0065,
+      "mat.lap.PARAMETRIC": 0.0062,
+      "S6A.certificate_of": 0.0062,
+      "native.coverage_compute": 0.0055,
+      "mat.lap.STATIONS_UV": 0.0053,
+      "native.w1_exact_mesh": 0.0053,
+      "PC.attach_evaluation_geometry": 0.0049,
+      "mat.lap.COALESCE": 0.0048
+     }
+    }
+   }
+  },
+  "cover008_pool": {
+   "button_wall_with_laps": 7.775,
+   "status": "MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK",
+   "decal": {
+    "vertices": 9528,
+    "faces": 6653,
+    "digest": "7a315fac5ac31fb1990a361752604f8630f9157d87af895807623616cac84deb"
+   },
+   "selection_sha": "f86173be12f250ac784720835b5e646adaf778e9891b85c0af112cb250bc4ea8",
+   "worker_seconds": {
+    "W.serve_task": [
+     1056,
+     67.5999
+    ],
+    "W.cold_task_outer": [
+     1056,
+     59.0158
+    ],
+    "W.cold_task": [
+     1056,
+     58.8762
+    ],
+    "PREPARE.total": [
+     1053,
+     35.2877
+    ],
+    "PREPARE.prepare_conveyor": [
+     1053,
+     35.1276
+    ],
+    "PRODUCE.total": [
+     1053,
+     16.8581
+    ],
+    "prepx.lap.PLAN_COMPILE": [
+     1053,
+     16.4478
+    ],
+    "prep.lap.PLAN_COMPILE": [
+     1053,
+     16.4478
+    ],
+    "PC.compile_reference_envelopes": [
+     1053,
+     16.4415
+    ],
+    "PRODUCE.step_domain": [
+     1047,
+     14.9311
+    ],
+    "PC.finalize": [
+     1053,
+     12.9291
+    ],
+    "PRODUCE.materialize": [
+     1047,
+     9.2887
+    ],
+    "prepx.lap.DOMAIN_BUILD": [
+     1050,
+     8.9038
+    ],
+    "prep.lap.DOMAIN_BUILD": [
+     1050,
+     8.9038
+    ],
+    "DB.geometry_context_build@PREPARE": [
+     1050,
+     7.2437
+    ],
+    "PC.verify_evaluation_direction_binding_reasons@PREPARE": [
+     1050,
+     6.8115
+    ],
+    "PC.attach_direction_bindings": [
+     1053,
+     6.6867
+    ],
+    "EXPORT.task_inputs": [
+     1056,
+     6.6358
+    ],
+    "EXPORT.metric_export": [
+     1056,
+     6.001
+    ],
+    "stage.PATCH_METRIC_EXPORT": [
+     1056,
+     5.8986
+    ],
+    "PRODUCE.coverage": [
+     1047,
+     5.5279
+    ],
+    "PC.ideal_angular_support_data@PREPARE": [
+     2991,
+     5.2753
+    ],
+    "PC.attach_front_reading_declarations": [
+     1050,
+     4.7624
+    ],
+    "PCD.pin_verdict": [
+     72075,
+     4.5084
+    ],
+    "PCD.backend_density_compute": [
+     1053,
+     4.4833
+    ],
+    "PCD.native_op_density_compute_with_memo": [
+     1053,
+     4.4605
+    ],
+    "PC.support_segments_for_use@PLAN_COMPILE": [
+     6042,
+     4.4445
+    ],
+    "leaf.codec_dumps@-": [
+     2106,
+     4.2018
+    ],
+    "prepx.lap.SKELETON": [
+     1047,
+     3.9857
+    ],
+    "prep.lap.SKELETON": [
+     1047,
+     3.9857
+    ],
+    "native.skeleton_compute": [
+     1047,
+     3.9797
+    ],
+    "REL.canonical_json_bytes@-": [
+     2106,
+     3.9739
+    ],
+    "W.pack_prepared_reply": [
+     1056,
+     3.8147
+    ],
+    "mat.lap.SILHOUETTE": [
+     1046,
+     3.3344
+    ],
+    "cov.lap.EFFECTIVE_ALPHA": [
+     1047,
+     3.1114
+    ],
+    "EA.instance_ids_by_spec": [
+     1047,
+     3.1075
+    ],
+    "stage.ANGULAR_RELATIONS": [
+     1053,
+     3.0805
+    ],
+    "leaf.codec_loads@-": [
+     1053,
+     2.9845
+    ],
+    "PCS.unit_g": [
+     17210,
+     2.9763
+    ],
+    "EA.resolve_component_alphas@PRODUCE": [
+     1047,
+     2.9227
+    ],
+    "DBV.interpolated_normals": [
+     2967,
+     2.797
+    ],
+    "prepx.lap.ARRIVAL_LAWS": [
+     1048,
+     2.7881
+    ],
+    "prep.lap.ARRIVAL_LAWS": [
+     1048,
+     2.7881
+    ],
+    "AL.arrival_laws": [
+     1048,
+     2.7828
+    ],
+    "DBV.verify_evaluation_binding_reasons_one": [
+     995,
+     2.6873
+    ],
+    "PC.validate_reference_geometry_certificates": [
+     6337,
+     2.6575
+    ],
+    "cov.lap.COVERAGE_CLIP": [
+     1047,
+     2.379
+    ],
+    "native.covered_at": [
+     1047,
+     2.3265
+    ],
+    "PCD.density_pin_runtime_stale": [
+     1065,
+     1.9722
+    ],
+    "PCD.prepared_attachment": [
+     1053,
+     1.9399
+    ],
+    "DBV.canonical_subturn_fan_or_source": [
+     1990,
+     1.8848
+    ],
+    "CHECK.reject_snapshot[canonical bytes]@-": [
+     1053,
+     1.7289
+    ],
+    "CHECK.reject_snapshot[canonical bytes]": [
+     1053,
+     1.7278
+    ],
+    "PC.station_plans_of": [
+     1208,
+     1.6705
+    ],
+    "PC.chain_station_plans@PLAN_COMPILE": [
+     1053,
+     1.6594
+    ],
+    "prepx.lap.FACES": [
+     1047,
+     1.6461
+    ],
+    "prep.lap.FACES": [
+     1047,
+     1.6461
+    ],
+    "PACK.deferred_result": [
+     1046,
+     1.6151
+    ],
+    "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": [
+     4209,
+     1.4842
+    ],
+    "mat.lap.STATIONS": [
+     1047,
+     1.4641
+    ],
+    "PCE.verify_evaluation_geometry_binding": [
+     5164,
+     1.4526
+    ],
+    "W.reply_frame": [
+     1255,
+     1.4453
+    ],
+    "PCV.validate_angle_certificates": [
+     6337,
+     1.4182
+    ],
+    "EA.native_effective_alpha_compute": [
+     63417,
+     1.4173
+    ],
+    "PCS.face_side_normal": [
+     7611,
+     1.3446
+    ],
+    "PCV.validate_rational_affine_planar_metric": [
+     7440,
+     1.2602
+    ],
+    "mat.lap.PARAMETRIC": [
+     1046,
+     1.125
+    ],
+    "mat.lap.ASSEMBLE": [
+     1046,
+     1.1242
+    ],
+    "S6A.certificate_of": [
+     1046,
+     1.1197
+    ],
+    "DB.seal_angular_support_cache@PREPARE": [
+     1049,
+     0.9191
+    ],
+    "leaf.validate_reference_geometry_payload@PLAN_COMPILE": [
+     3156,
+     0.9179
+    ],
+    "leaf.validate_analysis_snapshot@-": [
+     1053,
+     0.8733
+    ],
+    "DB.geometry_context_build@PLAN_COMPILE": [
+     2106,
+     0.8552
+    ],
+    "leaf.validate_reference_geometry_payload@-": [
+     1053,
+     0.8376
+    ],
+    "DBV.incident_normal": [
+     5906,
+     0.8324
+    ],
+    "leaf.validate_reference_geometry_certificates@-": [
+     1053,
+     0.8265
+    ],
+    "PC.support_segments_for_use@PREPARE": [
+     5906,
+     0.7899
+    ],
+    "PCD.raw_prefix": [
+     1053,
+     0.7719
+    ],
+    "PC.attach_evaluation_geometry": [
+     1053,
+     0.764
+    ],
+    "prepx.lap.BRIDGE": [
+     1048,
+     0.7429
+    ],
+    "prep.lap.BRIDGE": [
+     1048,
+     0.7429
+    ],
+    "BR.bridge_arrival_laws": [
+     1048,
+     0.7197
+    ],
+    "stage.FRAME_ADMISSION": [
+     1054,
+     0.6938
+    ],
+    "PC.seal_evaluation_geometry_authority": [
+     1050,
+     0.6721
+    ],
+    "native.coverage_compute": [
+     1047,
+     0.6604
+    ],
+    "mat.lap.CERTIFY": [
+     1046,
+     0.614
+    ],
+    "EXPORT.decal_request": [
+     1053,
+     0.5541
+    ],
+    "mat.lap.STATIONS_UV": [
+     1047,
+     0.5147
+    ],
+    "native.w1_exact_mesh": [
+     1047,
+     0.5018
+    ],
+    "PCE.build_evaluation_geometry_binding": [
+     1053,
+     0.4319
+    ],
+    "DB.build_domain_geometry@PREPARE": [
+     1048,
+     0.411
+    ],
+    "prepx.lap.CHART_LATTICE": [
+     1048,
+     0.3985
+    ],
+    "prep.lap.CHART_LATTICE": [
+     1048,
+     0.3985
+    ],
+    "PC.resolve_corner_selection": [
+     1000,
+     0.3722
+    ],
+    "PCC.corner_treatment_errors": [
+     1053,
+     0.328
+    ],
+    "stage.SNAPSHOT_VALIDATION": [
+     1053,
+     0.3262
+    ],
+    "leaf.validate_reference_geometry_payload@PREPARE": [
+     1050,
+     0.3156
+    ],
+    "leaf.validate_reference_geometry_certificates@PREPARE": [
+     1050,
+     0.3046
+    ],
+    "W.task_unpickle": [
+     1255,
+     0.3002
+    ],
+    "stage.SOURCE_CONTACT_PREFLIGHT": [
+     1056,
+     0.2919
+    ],
+    "mat.lap.VALIDATE": [
+     1046,
+     0.2865
+    ],
+    "EXPORT.validate_exported_snapshot": [
+     1053,
+     0.2804
+    ],
+    "mat.lap.COALESCE": [
+     1047,
+     0.2729
+    ],
+    "REL.batch_structure": [
+     1046,
+     0.2493
+    ],
+    "native.w1_canonical_triangles": [
+     1046,
+     0.1814
+    ],
+    "mat.lap.AUDIT": [
+     1046,
+     0.146
+    ],
+    "PCD.attach_density_results_v1": [
+     1053,
+     0.136
+    ],
+    "leaf.validate_analysis_snapshot@EXPORT": [
+     50,
+     0.1213
+    ],
+    "PCS.analysis_direction": [
+     1341,
+     0.1142
+    ],
+    "PACK.build_domain_view": [
+     1046,
+     0.0923
+    ],
+    "mat.lap.FRAMES": [
+     1047,
+     0.0892
+    ],
+    "mat.lap.CLIP": [
+     20,
+     0.0881
+    ],
+    "mat.lap.CHORD_STATIONS": [
+     1047,
+     0.0864
+    ],
+    "CHECK.reject_snapshot[snapshot]@EXPORT": [
+     25,
+     0.0844
+    ],
+    "CHECK.reject_snapshot[snapshot]": [
+     25,
+     0.0843
+    ],
+    "REL.snapshot_check.clean_issues_for": [
+     1053,
+     0.0789
+    ],
+    "PC.validate_snapshot_request_references": [
+     2106,
+     0.071
+    ],
+    "PCS.validate_segment_corners": [
+     7383,
+     0.0703
+    ],
+    "PC.support_segments_for_use@PRODUCE": [
+     6019,
+     0.0686
+    ],
+    "leaf.build_developable_chart@EXPORT": [
+     18,
+     0.067
+    ],
+    "PC.support_segments_for_use@ARRIVAL_LAWS": [
+     6029,
+     0.0596
+    ],
+    "native.clip_compute": [
+     60,
+     0.0509
+    ],
+    "PC.resolve_angular_profile_selection": [
+     1000,
+     0.0421
+    ],
+    "PC.initial_front_support_features": [
+     1053,
+     0.0373
+    ],
+    "mat.lap.ADMIT": [
+     1047,
+     0.0366
+    ],
+    "leaf.validate_snapshot_request_references@EXPORT": [
+     1053,
+     0.0364
+    ],
+    "prepx.lap.DOMAIN_LOOPS": [
+     1048,
+     0.0353
+    ],
+    "prep.lap.DOMAIN_LOOPS": [
+     1048,
+     0.0353
+    ],
+    "mat.lap.DIGEST": [
+     1046,
+     0.0321
+    ],
+    "leaf.validate_snapshot_request_references@PLAN_COMPILE": [
+     1053,
+     0.0265
+    ],
+    "REL.ledger.with_preparation_record": [
+     2106,
+     0.0264
+    ],
+    "leaf.validate_reference_geometry_payload@EXPORT": [
+     25,
+     0.0234
+    ],
+    "leaf.validate_reference_geometry_certificates@EXPORT": [
+     25,
+     0.0231
+    ],
+    "REL.ledger.ledger_record": [
+     1056,
+     0.0189
+    ],
+    "mat.lap.CONTOURS": [
+     1047,
+     0.0138
+    ],
+    "PC.density_spec_with_hidden_count": [
+     321,
+     0.0119
+    ],
+    "stage.BUNDLE_SLICE": [
+     1056,
+     0.0092
+    ],
+    "leaf.embedding_certificate@EXPORT": [
+     36,
+     0.0077
+    ],
+    "S6A.capture_inputs": [
+     1046,
+     0.0076
+    ],
+    "REL.ledger.entered_backend": [
+     2109,
+     0.0067
+    ],
+    "PC.sync_effective_hidden_support": [
+     1050,
+     0.0064
+    ]
+   },
+   "task_cpu_sum": 65.016,
+   "heaviest_domains": {
+    "0": {
+     "wall": 1.3544,
+     "laps": {
+      "W.cold_task_outer": 1.2891,
+      "W.cold_task": 1.2889,
+      "PREPARE.total": 0.8988,
+      "PREPARE.prepare_conveyor": 0.8986,
+      "PRODUCE.total": 0.3243,
+      "PRODUCE.step_domain": 0.3084,
+      "prepx.lap.SKELETON": 0.3047,
+      "prep.lap.SKELETON": 0.3047,
+      "native.skeleton_compute": 0.3047,
+      "prepx.lap.PLAN_COMPILE": 0.2668,
+      "prep.lap.PLAN_COMPILE": 0.2668,
+      "PC.compile_reference_envelopes": 0.2668,
+      "PC.finalize": 0.2154,
+      "prepx.lap.DOMAIN_BUILD": 0.1916,
+      "prep.lap.DOMAIN_BUILD": 0.1916,
+      "DB.geometry_context_build@PREPARE": 0.1706,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1688,
+      "PRODUCE.coverage": 0.1649,
+      "PRODUCE.materialize": 0.1432,
+      "PC.ideal_angular_support_data@PREPARE": 0.141,
+      "PC.attach_direction_bindings": 0.1332,
+      "cov.lap.EFFECTIVE_ALPHA": 0.094,
+      "EA.instance_ids_by_spec": 0.094,
+      "EA.resolve_component_alphas@PRODUCE": 0.0894,
+      "mat.lap.SILHOUETTE": 0.0785,
+      "prepx.lap.ARRIVAL_LAWS": 0.0762,
+      "prep.lap.ARRIVAL_LAWS": 0.0762,
+      "AL.arrival_laws": 0.0762,
+      "PC.attach_front_reading_declarations": 0.0719,
+      "cov.lap.COVERAGE_CLIP": 0.0708,
+      "native.covered_at": 0.0702,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0685,
+      "PCD.backend_density_compute": 0.0681,
+      "PCD.native_op_density_compute_with_memo": 0.068,
+      "EXPORT.task_inputs": 0.0657,
+      "DBV.interpolated_normals": 0.0649,
+      "EXPORT.metric_export": 0.0643,
+      "stage.PATCH_METRIC_EXPORT": 0.064,
+      "PCD.prepared_attachment": 0.0606,
+      "DBV.canonical_subturn_fan_or_source": 0.0568,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0559,
+      "prepx.lap.FACES": 0.0496,
+      "prep.lap.FACES": 0.0496,
+      "stage.ANGULAR_RELATIONS": 0.0492,
+      "PCS.unit_g": 0.0443,
+      "PCD.raw_prefix": 0.0441,
+      "W.pack_prepared_reply": 0.0431,
+      "EA.native_effective_alpha_compute": 0.0426,
+      "DBV.incident_normal": 0.027,
+      "PCS.face_side_normal": 0.0266,
+      "PC.support_segments_for_use@PREPARE": 0.0257,
+      "PC.station_plans_of": 0.0245,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0245,
+      "PC.validate_reference_geometry_certificates": 0.0223,
+      "PCV.validate_angle_certificates": 0.021,
+      "native.coverage_compute": 0.0194,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0185,
+      "PACK.deferred_result": 0.0152,
+      "mat.lap.PARAMETRIC": 0.0152,
+      "S6A.certificate_of": 0.0152,
+      "mat.lap.STATIONS": 0.0135,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0131,
+      "DB.seal_angular_support_cache@PREPARE": 0.0121,
+      "PC.resolve_corner_selection": 0.011,
+      "mat.lap.ASSEMBLE": 0.0107,
+      "W.reply_frame": 0.0104,
+      "PCC.corner_treatment_errors": 0.0098,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0095,
+      "mat.lap.STATIONS_UV": 0.0083,
+      "native.w1_exact_mesh": 0.0082,
+      "prepx.lap.BRIDGE": 0.0068,
+      "prep.lap.BRIDGE": 0.0068,
+      "BR.bridge_arrival_laws": 0.0068,
+      "mat.lap.CERTIFY": 0.0067,
+      "PCE.verify_evaluation_geometry_binding": 0.0053,
+      "DB.build_domain_geometry@PREPARE": 0.0051,
+      "PC.attach_evaluation_geometry": 0.005,
+      "PC.seal_evaluation_geometry_authority": 0.0041
+     }
+    },
+    "602": {
+     "wall": 1.0044,
+     "laps": {
+      "W.cold_task_outer": 0.9792,
+      "W.cold_task": 0.9791,
+      "PREPARE.total": 0.6138,
+      "PREPARE.prepare_conveyor": 0.6135,
+      "prepx.lap.DOMAIN_BUILD": 0.2483,
+      "prep.lap.DOMAIN_BUILD": 0.2483,
+      "DB.geometry_context_build@PREPARE": 0.2337,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.2326,
+      "prepx.lap.PLAN_COMPILE": 0.2318,
+      "prep.lap.PLAN_COMPILE": 0.2318,
+      "PC.compile_reference_envelopes": 0.2318,
+      "PC.finalize": 0.2007,
+      "EXPORT.task_inputs": 0.1916,
+      "EXPORT.metric_export": 0.1743,
+      "stage.PATCH_METRIC_EXPORT": 0.1741,
+      "PRODUCE.total": 0.1736,
+      "PRODUCE.step_domain": 0.1672,
+      "DBV.verify_evaluation_binding_reasons_one": 0.1625,
+      "PRODUCE.materialize": 0.1243,
+      "PC.attach_direction_bindings": 0.1212,
+      "PC.ideal_angular_support_data@PREPARE": 0.1128,
+      "PCD.backend_density_compute": 0.1035,
+      "PCD.native_op_density_compute_with_memo": 0.1035,
+      "DBV.interpolated_normals": 0.0902,
+      "stage.ANGULAR_RELATIONS": 0.0851,
+      "PC.attach_front_reading_declarations": 0.0748,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0734,
+      "PCS.unit_g": 0.0625,
+      "prepx.lap.SKELETON": 0.0622,
+      "prep.lap.SKELETON": 0.0622,
+      "native.skeleton_compute": 0.0621,
+      "stage.FRAME_ADMISSION": 0.0615,
+      "prepx.lap.ARRIVAL_LAWS": 0.0484,
+      "prep.lap.ARRIVAL_LAWS": 0.0484,
+      "AL.arrival_laws": 0.0484,
+      "PRODUCE.coverage": 0.0427,
+      "mat.lap.PARAMETRIC": 0.0366,
+      "S6A.certificate_of": 0.0366,
+      "leaf.validate_analysis_snapshot@EXPORT": 0.0302,
+      "mat.lap.SILHOUETTE": 0.0292,
+      "mat.lap.CLIP": 0.0247,
+      "stage.SNAPSHOT_VALIDATION": 0.0226,
+      "EXPORT.validate_exported_snapshot": 0.0226,
+      "cov.lap.COVERAGE_CLIP": 0.0223,
+      "native.covered_at": 0.0221,
+      "PC.validate_reference_geometry_certificates": 0.0212,
+      "CHECK.reject_snapshot[snapshot]@EXPORT": 0.0209,
+      "CHECK.reject_snapshot[snapshot]": 0.0209,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0202,
+      "EA.instance_ids_by_spec": 0.0202,
+      "EA.resolve_component_alphas@PRODUCE": 0.0195,
+      "prepx.lap.FACES": 0.0192,
+      "prep.lap.FACES": 0.0192,
+      "DBV.incident_normal": 0.0187,
+      "PCV.validate_angle_certificates": 0.0186,
+      "PC.support_segments_for_use@PREPARE": 0.0183,
+      "PCS.face_side_normal": 0.018,
+      "EXPORT.decal_request": 0.0171,
+      "W.pack_prepared_reply": 0.0157,
+      "native.clip_compute": 0.0149,
+      "PCD.prepared_attachment": 0.0149,
+      "DBV.canonical_subturn_fan_or_source": 0.0143,
+      "mat.lap.CERTIFY": 0.014,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0136,
+      "PC.station_plans_of": 0.0128,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0128,
+      "DB.seal_angular_support_cache@PREPARE": 0.0122,
+      "EA.native_effective_alpha_compute": 0.0098,
+      "PCD.raw_prefix": 0.0085,
+      "mat.lap.STATIONS": 0.0074,
+      "leaf.validate_reference_geometry_payload@EXPORT": 0.0065,
+      "leaf.validate_reference_geometry_certificates@EXPORT": 0.0065,
+      "native.coverage_compute": 0.006,
+      "PACK.deferred_result": 0.0059,
+      "mat.lap.ASSEMBLE": 0.0055,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0049,
+      "PC.resolve_corner_selection": 0.0044,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0041
+     }
+    },
+    "975": {
+     "wall": 0.9676,
+     "laps": {
+      "W.cold_task_outer": 0.9287,
+      "W.cold_task": 0.9285,
+      "PREPARE.total": 0.7318,
+      "PREPARE.prepare_conveyor": 0.7316,
+      "prepx.lap.DOMAIN_BUILD": 0.2866,
+      "prep.lap.DOMAIN_BUILD": 0.2866,
+      "DB.geometry_context_build@PREPARE": 0.2638,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.2602,
+      "prepx.lap.PLAN_COMPILE": 0.2181,
+      "prep.lap.PLAN_COMPILE": 0.2181,
+      "PC.compile_reference_envelopes": 0.2181,
+      "PC.ideal_angular_support_data@PREPARE": 0.2017,
+      "PC.finalize": 0.1911,
+      "PRODUCE.total": 0.1527,
+      "PRODUCE.step_domain": 0.142,
+      "PC.attach_direction_bindings": 0.1211,
+      "prepx.lap.SKELETON": 0.1199,
+      "prep.lap.SKELETON": 0.1199,
+      "native.skeleton_compute": 0.1199,
+      "DBV.interpolated_normals": 0.1116,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0986,
+      "PCD.backend_density_compute": 0.0861,
+      "PCD.native_op_density_compute_with_memo": 0.0861,
+      "DBV.canonical_subturn_fan_or_source": 0.0762,
+      "PRODUCE.materialize": 0.0727,
+      "prepx.lap.ARRIVAL_LAWS": 0.0705,
+      "prep.lap.ARRIVAL_LAWS": 0.0705,
+      "AL.arrival_laws": 0.0705,
+      "PRODUCE.coverage": 0.0691,
+      "PC.attach_front_reading_declarations": 0.0583,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0567,
+      "EXPORT.task_inputs": 0.0439,
+      "EXPORT.metric_export": 0.0429,
+      "stage.PATCH_METRIC_EXPORT": 0.0426,
+      "PCS.unit_g": 0.042,
+      "cov.lap.COVERAGE_CLIP": 0.0377,
+      "native.covered_at": 0.0374,
+      "stage.ANGULAR_RELATIONS": 0.0334,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0313,
+      "EA.instance_ids_by_spec": 0.0313,
+      "EA.resolve_component_alphas@PRODUCE": 0.0296,
+      "PCD.prepared_attachment": 0.0293,
+      "prepx.lap.FACES": 0.0278,
+      "prep.lap.FACES": 0.0278,
+      "mat.lap.SILHOUETTE": 0.0234,
+      "W.pack_prepared_reply": 0.0224,
+      "DBV.incident_normal": 0.0208,
+      "PCS.face_side_normal": 0.0199,
+      "PC.support_segments_for_use@PREPARE": 0.0199,
+      "PC.validate_reference_geometry_certificates": 0.0195,
+      "PCV.validate_angle_certificates": 0.0183,
+      "PCD.raw_prefix": 0.0182,
+      "DB.seal_angular_support_cache@PREPARE": 0.0172,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.016,
+      "mat.lap.STATIONS": 0.0157,
+      "EA.native_effective_alpha_compute": 0.0143,
+      "PCE.verify_evaluation_geometry_binding": 0.0112,
+      "native.coverage_compute": 0.0108,
+      "PACK.deferred_result": 0.0101,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0092,
+      "mat.lap.PARAMETRIC": 0.0091,
+      "S6A.certificate_of": 0.0091,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0079,
+      "PC.station_plans_of": 0.0078,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0078,
+      "PC.resolve_corner_selection": 0.0076,
+      "W.reply_frame": 0.0068,
+      "mat.lap.ASSEMBLE": 0.0067,
+      "PC.seal_evaluation_geometry_authority": 0.0063,
+      "mat.lap.CERTIFY": 0.006,
+      "PCC.corner_treatment_errors": 0.0056,
+      "PC.attach_evaluation_geometry": 0.0048,
+      "prepx.lap.BRIDGE": 0.0048,
+      "prep.lap.BRIDGE": 0.0048,
+      "BR.bridge_arrival_laws": 0.0048,
+      "PCD.attach_density_results_v1": 0.0044
+     }
+    },
+    "37": {
+     "wall": 0.9517,
+     "laps": {
+      "W.cold_task_outer": 0.9171,
+      "W.cold_task": 0.9169,
+      "PREPARE.total": 0.7333,
+      "PREPARE.prepare_conveyor": 0.7331,
+      "prepx.lap.PLAN_COMPILE": 0.2447,
+      "prep.lap.PLAN_COMPILE": 0.2447,
+      "PC.compile_reference_envelopes": 0.2447,
+      "PC.finalize": 0.2154,
+      "prepx.lap.DOMAIN_BUILD": 0.2064,
+      "prep.lap.DOMAIN_BUILD": 0.2064,
+      "prepx.lap.SKELETON": 0.182,
+      "prep.lap.SKELETON": 0.182,
+      "native.skeleton_compute": 0.1819,
+      "DB.geometry_context_build@PREPARE": 0.1819,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1746,
+      "PRODUCE.total": 0.1532,
+      "PRODUCE.step_domain": 0.1427,
+      "PC.ideal_angular_support_data@PREPARE": 0.14,
+      "PC.attach_direction_bindings": 0.1394,
+      "PCD.backend_density_compute": 0.0802,
+      "PCD.native_op_density_compute_with_memo": 0.0801,
+      "PRODUCE.materialize": 0.0789,
+      "DBV.interpolated_normals": 0.0696,
+      "PRODUCE.coverage": 0.0636,
+      "DBV.canonical_subturn_fan_or_source": 0.0605,
+      "prepx.lap.ARRIVAL_LAWS": 0.0571,
+      "prep.lap.ARRIVAL_LAWS": 0.0571,
+      "AL.arrival_laws": 0.0571,
+      "PC.attach_front_reading_declarations": 0.057,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0559,
+      "PCD.prepared_attachment": 0.0546,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0545,
+      "PCS.unit_g": 0.0365,
+      "PCD.raw_prefix": 0.0333,
+      "cov.lap.COVERAGE_CLIP": 0.032,
+      "native.covered_at": 0.0318,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0315,
+      "EA.instance_ids_by_spec": 0.0315,
+      "mat.lap.SILHOUETTE": 0.0312,
+      "EXPORT.task_inputs": 0.0303,
+      "EA.resolve_component_alphas@PRODUCE": 0.0299,
+      "EXPORT.metric_export": 0.0292,
+      "prepx.lap.FACES": 0.0291,
+      "prep.lap.FACES": 0.0291,
+      "stage.PATCH_METRIC_EXPORT": 0.0289,
+      "PCE.verify_evaluation_geometry_binding": 0.0276,
+      "W.pack_prepared_reply": 0.0246,
+      "DBV.incident_normal": 0.0199,
+      "PCS.face_side_normal": 0.0189,
+      "PC.support_segments_for_use@PREPARE": 0.0189,
+      "stage.ANGULAR_RELATIONS": 0.0186,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0181,
+      "DB.seal_angular_support_cache@PREPARE": 0.0171,
+      "PC.validate_reference_geometry_certificates": 0.017,
+      "PCV.validate_angle_certificates": 0.0155,
+      "EA.native_effective_alpha_compute": 0.014,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0135,
+      "PC.station_plans_of": 0.0134,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0134,
+      "native.coverage_compute": 0.0106,
+      "PACK.deferred_result": 0.01,
+      "PC.seal_evaluation_geometry_authority": 0.0097,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0096,
+      "PCC.corner_treatment_errors": 0.0091,
+      "PC.attach_evaluation_geometry": 0.0084,
+      "PC.resolve_corner_selection": 0.0083,
+      "mat.lap.STATIONS": 0.0082,
+      "mat.lap.PARAMETRIC": 0.0079,
+      "S6A.certificate_of": 0.0079,
+      "prepx.lap.CHART_LATTICE": 0.0075,
+      "prep.lap.CHART_LATTICE": 0.0075,
+      "mat.lap.ASSEMBLE": 0.0072,
+      "mat.lap.COALESCE": 0.007,
+      "mat.lap.STATIONS_UV": 0.0069,
+      "native.w1_exact_mesh": 0.0068,
+      "W.reply_frame": 0.0053,
+      "PCE.build_evaluation_geometry_binding": 0.0051,
+      "prepx.lap.BRIDGE": 0.005,
+      "prep.lap.BRIDGE": 0.005,
+      "BR.bridge_arrival_laws": 0.005,
+      "mat.lap.CERTIFY": 0.004
+     }
+    },
+    "36": {
+     "wall": 0.9139,
+     "laps": {
+      "W.cold_task_outer": 0.8759,
+      "W.cold_task": 0.8758,
+      "PREPARE.total": 0.6767,
+      "PREPARE.prepare_conveyor": 0.6764,
+      "prepx.lap.PLAN_COMPILE": 0.2544,
+      "prep.lap.PLAN_COMPILE": 0.2544,
+      "PC.compile_reference_envelopes": 0.2544,
+      "PC.finalize": 0.206,
+      "prepx.lap.DOMAIN_BUILD": 0.1984,
+      "prep.lap.DOMAIN_BUILD": 0.1984,
+      "DB.geometry_context_build@PREPARE": 0.1813,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1767,
+      "PC.ideal_angular_support_data@PREPARE": 0.1407,
+      "PC.attach_direction_bindings": 0.1395,
+      "prepx.lap.SKELETON": 0.1366,
+      "prep.lap.SKELETON": 0.1366,
+      "native.skeleton_compute": 0.1366,
+      "PRODUCE.total": 0.1327,
+      "PRODUCE.step_domain": 0.1221,
+      "PCD.backend_density_compute": 0.0851,
+      "PCD.native_op_density_compute_with_memo": 0.0851,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0722,
+      "DBV.interpolated_normals": 0.0677,
+      "EXPORT.task_inputs": 0.0662,
+      "EXPORT.metric_export": 0.0648,
+      "stage.PATCH_METRIC_EXPORT": 0.0645,
+      "PRODUCE.coverage": 0.062,
+      "PRODUCE.materialize": 0.06,
+      "DBV.canonical_subturn_fan_or_source": 0.058,
+      "PC.attach_front_reading_declarations": 0.0522,
+      "stage.ANGULAR_RELATIONS": 0.0511,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0499,
+      "PCD.prepared_attachment": 0.0493,
+      "prepx.lap.ARRIVAL_LAWS": 0.0441,
+      "prep.lap.ARRIVAL_LAWS": 0.0441,
+      "AL.arrival_laws": 0.0441,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0398,
+      "EA.instance_ids_by_spec": 0.0398,
+      "EA.resolve_component_alphas@PRODUCE": 0.0385,
+      "PCS.unit_g": 0.0344,
+      "PCD.raw_prefix": 0.0314,
+      "prepx.lap.FACES": 0.0297,
+      "prep.lap.FACES": 0.0297,
+      "W.pack_prepared_reply": 0.0264,
+      "PC.validate_reference_geometry_certificates": 0.0238,
+      "mat.lap.SILHOUETTE": 0.023,
+      "DBV.incident_normal": 0.0224,
+      "PCV.validate_angle_certificates": 0.0224,
+      "cov.lap.COVERAGE_CLIP": 0.0221,
+      "native.covered_at": 0.0218,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0216,
+      "PC.support_segments_for_use@PREPARE": 0.0213,
+      "PCS.face_side_normal": 0.0192,
+      "EA.native_effective_alpha_compute": 0.0175,
+      "PCE.verify_evaluation_geometry_binding": 0.0154,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0153,
+      "PC.station_plans_of": 0.0151,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.015,
+      "PC.resolve_corner_selection": 0.0147,
+      "DB.seal_angular_support_cache@PREPARE": 0.0124,
+      "PACK.deferred_result": 0.0099,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0096,
+      "PCC.corner_treatment_errors": 0.0094,
+      "mat.lap.PARAMETRIC": 0.0085,
+      "S6A.certificate_of": 0.0085,
+      "prepx.lap.BRIDGE": 0.0084,
+      "prep.lap.BRIDGE": 0.0084,
+      "BR.bridge_arrival_laws": 0.0083,
+      "mat.lap.ASSEMBLE": 0.0077,
+      "PC.seal_evaluation_geometry_authority": 0.0069,
+      "PC.attach_evaluation_geometry": 0.0064,
+      "mat.lap.STATIONS": 0.0059,
+      "W.reply_frame": 0.0058,
+      "native.coverage_compute": 0.0052,
+      "mat.lap.CERTIFY": 0.004,
+      "PCD.attach_density_results_v1": 0.004,
+      "PCS.analysis_direction": 0.004
+     }
+    }
+   }
+  },
+  "building_pool_p2": {
+   "button_wall_with_laps": 1.438,
+   "status": "MATERIALIZED 122 / refused 0",
+   "decal": {
+    "vertices": 1191,
+    "faces": 907,
+    "digest": "4b94c44a839bb00ff4c746192187ab83a7a5dd77e2c7d87cc36e6cbecfe5d59b"
+   },
+   "selection_sha": "2861544dd7a33b0c9db9cae0c90d19284b83be9e1bf4415c317a6ab31cc77ac9",
+   "worker_seconds": {
+    "W.serve_task": [
+     122,
+     11.5083
+    ],
+    "W.cold_task_outer": [
+     122,
+     10.654
+    ],
+    "W.cold_task": [
+     122,
+     10.6371
+    ],
+    "PREPARE.total": [
+     122,
+     7.0956
+    ],
+    "PREPARE.prepare_conveyor": [
+     122,
+     7.0766
+    ],
+    "PCD.pin_verdict": [
+     9851,
+     3.0763
+    ],
+    "prepx.lap.PLAN_COMPILE": [
+     122,
+     2.7698
+    ],
+    "prep.lap.PLAN_COMPILE": [
+     122,
+     2.7698
+    ],
+    "PC.compile_reference_envelopes": [
+     122,
+     2.769
+    ],
+    "PRODUCE.total": [
+     122,
+     2.4285
+    ],
+    "PC.finalize": [
+     122,
+     2.2484
+    ],
+    "prepx.lap.DOMAIN_BUILD": [
+     122,
+     2.2026
+    ],
+    "prep.lap.DOMAIN_BUILD": [
+     122,
+     2.2026
+    ],
+    "PRODUCE.step_domain": [
+     122,
+     2.1818
+    ],
+    "DB.geometry_context_build@PREPARE": [
+     122,
+     1.9385
+    ],
+    "PC.verify_evaluation_direction_binding_reasons@PREPARE": [
+     122,
+     1.8731
+    ],
+    "PC.ideal_angular_support_data@PREPARE": [
+     558,
+     1.5592
+    ],
+    "PRODUCE.materialize": [
+     122,
+     1.3577
+    ],
+    "PC.attach_direction_bindings": [
+     122,
+     1.175
+    ],
+    "EXPORT.task_inputs": [
+     122,
+     1.1012
+    ],
+    "EXPORT.metric_export": [
+     122,
+     1.0182
+    ],
+    "stage.PATCH_METRIC_EXPORT": [
+     122,
+     1.0049
+    ],
+    "DBV.interpolated_normals": [
+     553,
+     0.9493
+    ],
+    "prepx.lap.SKELETON": [
+     122,
+     0.9358
+    ],
+    "prep.lap.SKELETON": [
+     122,
+     0.9358
+    ],
+    "native.skeleton_compute": [
+     122,
+     0.935
+    ],
+    "PC.attach_front_reading_declarations": [
+     122,
+     0.8688
+    ],
+    "PC.support_segments_for_use@PLAN_COMPILE": [
+     729,
+     0.8298
+    ],
+    "PRODUCE.coverage": [
+     122,
+     0.8105
+    ],
+    "PCD.backend_density_compute": [
+     122,
+     0.794
+    ],
+    "PCD.native_op_density_compute_with_memo": [
+     122,
+     0.7912
+    ],
+    "DBV.verify_evaluation_binding_reasons_one": [
+     186,
+     0.6552
+    ],
+    "prepx.lap.ARRIVAL_LAWS": [
+     122,
+     0.6099
+    ],
+    "prep.lap.ARRIVAL_LAWS": [
+     122,
+     0.6099
+    ],
+    "AL.arrival_laws": [
+     122,
+     0.6093
+    ],
+    "PCS.unit_g": [
+     2334,
+     0.6074
+    ],
+    "stage.ANGULAR_RELATIONS": [
+     122,
+     0.5776
+    ],
+    "leaf.codec_dumps@-": [
+     244,
+     0.5648
+    ],
+    "REL.canonical_json_bytes@-": [
+     244,
+     0.5369
+    ],
+    "DBV.canonical_subturn_fan_or_source": [
+     372,
+     0.5188
+    ],
+    "W.pack_prepared_reply": [
+     122,
+     0.5078
+    ],
+    "PCD.density_pin_runtime_stale": [
+     134,
+     0.4866
+    ],
+    "cov.lap.EFFECTIVE_ALPHA": [
+     122,
+     0.4743
+    ],
+    "EA.instance_ids_by_spec": [
+     122,
+     0.4738
+    ],
+    "mat.lap.SILHOUETTE": [
+     122,
+     0.4686
+    ],
+    "leaf.codec_loads@-": [
+     122,
+     0.4428
+    ],
+    "EA.resolve_component_alphas@PRODUCE": [
+     122,
+     0.4405
+    ],
+    "PC.validate_reference_geometry_certificates": [
+     737,
+     0.4324
+    ],
+    "prepx.lap.FACES": [
+     122,
+     0.381
+    ],
+    "prep.lap.FACES": [
+     122,
+     0.381
+    ],
+    "PCD.prepared_attachment": [
+     122,
+     0.3367
+    ],
+    "cov.lap.COVERAGE_CLIP": [
+     122,
+     0.3313
+    ],
+    "native.covered_at": [
+     122,
+     0.3242
+    ],
+    "PCV.validate_angle_certificates": [
+     737,
+     0.2851
+    ],
+    "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": [
+     488,
+     0.267
+    ],
+    "PCS.face_side_normal": [
+     981,
+     0.2342
+    ],
+    "CHECK.reject_snapshot[canonical bytes]@-": [
+     122,
+     0.2321
+    ],
+    "CHECK.reject_snapshot[canonical bytes]": [
+     122,
+     0.2319
+    ],
+    "EA.native_effective_alpha_compute": [
+     8689,
+     0.2204
+    ],
+    "PCE.verify_evaluation_geometry_binding": [
+     594,
+     0.2156
+    ],
+    "PACK.deferred_result": [
+     122,
+     0.2089
+    ],
+    "PC.station_plans_of": [
+     143,
+     0.1958
+    ],
+    "PC.chain_station_plans@PLAN_COMPILE": [
+     122,
+     0.1947
+    ],
+    "mat.lap.STATIONS": [
+     122,
+     0.1919
+    ],
+    "W.reply_frame": [
+     154,
+     0.1902
+    ],
+    "DBV.incident_normal": [
+     1090,
+     0.1697
+    ],
+    "DB.seal_angular_support_cache@PREPARE": [
+     122,
+     0.1656
+    ],
+    "PC.support_segments_for_use@PREPARE": [
+     1090,
+     0.1625
+    ],
+    "mat.lap.ASSEMBLE": [
+     122,
+     0.1555
+    ],
+    "PCD.raw_prefix": [
+     122,
+     0.1553
+    ],
+    "mat.lap.PARAMETRIC": [
+     122,
+     0.1526
+    ],
+    "S6A.certificate_of": [
+     122,
+     0.152
+    ],
+    "stage.FRAME_ADMISSION": [
+     122,
+     0.1506
+    ],
+    "PCV.validate_rational_affine_planar_metric": [
+     869,
+     0.1499
+    ],
+    "DB.geometry_context_build@PLAN_COMPILE": [
+     244,
+     0.1391
+    ],
+    "leaf.validate_reference_geometry_payload@PLAN_COMPILE": [
+     366,
+     0.1238
+    ],
+    "leaf.validate_reference_geometry_payload@-": [
+     122,
+     0.1179
+    ],
+    "leaf.validate_reference_geometry_certificates@-": [
+     122,
+     0.1166
+    ],
+    "leaf.validate_analysis_snapshot@-": [
+     122,
+     0.1117
+    ],
+    "native.coverage_compute": [
+     122,
+     0.104
+    ],
+    "PC.attach_evaluation_geometry": [
+     122,
+     0.1008
+    ],
+    "mat.lap.STATIONS_UV": [
+     122,
+     0.1006
+    ],
+    "native.w1_exact_mesh": [
+     122,
+     0.0987
+    ],
+    "PC.seal_evaluation_geometry_authority": [
+     122,
+     0.0951
+    ],
+    "prepx.lap.BRIDGE": [
+     122,
+     0.0929
+    ],
+    "prep.lap.BRIDGE": [
+     122,
+     0.0929
+    ],
+    "mat.lap.CERTIFY": [
+     122,
+     0.0915
+    ],
+    "BR.bridge_arrival_laws": [
+     122,
+     0.0901
+    ],
+    "EXPORT.decal_request": [
+     122,
+     0.0731
+    ],
+    "PC.resolve_corner_selection": [
+     186,
+     0.071
+    ],
+    "PCC.corner_treatment_errors": [
+     122,
+     0.0605
+    ],
+    "leaf.build_developable_chart@EXPORT": [
+     3,
+     0.0595
+    ],
+    "mat.lap.COALESCE": [
+     122,
+     0.0583
+    ],
+    "prepx.lap.CHART_LATTICE": [
+     122,
+     0.0569
+    ],
+    "prep.lap.CHART_LATTICE": [
+     122,
+     0.0569
+    ],
+    "PCE.build_evaluation_geometry_binding": [
+     122,
+     0.0559
+    ],
+    "DB.build_domain_geometry@PREPARE": [
+     122,
+     0.0531
+    ],
+    "stage.SNAPSHOT_VALIDATION": [
+     122,
+     0.0453
+    ],
+    "leaf.validate_reference_geometry_payload@PREPARE": [
+     122,
+     0.0436
+    ],
+    "leaf.validate_reference_geometry_certificates@PREPARE": [
+     122,
+     0.0423
+    ],
+    "EXPORT.validate_exported_snapshot": [
+     122,
+     0.0415
+    ],
+    "W.task_unpickle": [
+     154,
+     0.0385
+    ],
+    "mat.lap.VALIDATE": [
+     122,
+     0.0371
+    ],
+    "stage.SOURCE_CONTACT_PREFLIGHT": [
+     122,
+     0.0368
+    ],
+    "REL.batch_structure": [
+     122,
+     0.0328
+    ],
+    "native.w1_canonical_triangles": [
+     122,
+     0.029
+    ],
+    "mat.lap.CLIP": [
+     5,
+     0.028
+    ],
+    "PCD.attach_density_results_v1": [
+     122,
+     0.0271
+    ],
+    "leaf.validate_analysis_snapshot@EXPORT": [
+     10,
+     0.0231
+    ],
+    "PCS.analysis_direction": [
+     209,
+     0.0224
+    ],
+    "mat.lap.CHORD_STATIONS": [
+     122,
+     0.0218
+    ],
+    "mat.lap.AUDIT": [
+     122,
+     0.0193
+    ],
+    "CHECK.reject_snapshot[snapshot]@EXPORT": [
+     5,
+     0.0166
+    ],
+    "CHECK.reject_snapshot[snapshot]": [
+     5,
+     0.0165
+    ],
+    "native.clip_compute": [
+     13,
+     0.0151
+    ],
+    "mat.lap.FRAMES": [
+     122,
+     0.0144
+    ],
+    "PCS.validate_segment_corners": [
+     938,
+     0.0133
+    ],
+    "PACK.build_domain_view": [
+     122,
+     0.012
+    ],
+    "REL.snapshot_check.clean_issues_for": [
+     122,
+     0.0095
+    ],
+    "PC.validate_snapshot_request_references": [
+     244,
+     0.0094
+    ],
+    "PC.support_segments_for_use@PRODUCE": [
+     729,
+     0.0086
+    ],
+    "PC.resolve_angular_profile_selection": [
+     186,
+     0.0077
+    ],
+    "PC.support_segments_for_use@ARRIVAL_LAWS": [
+     729,
+     0.0075
+    ],
+    "prepx.lap.DOMAIN_LOOPS": [
+     122,
+     0.0053
+    ],
+    "prep.lap.DOMAIN_LOOPS": [
+     122,
+     0.0053
+    ]
+   },
+   "task_cpu_sum": 10.922,
+   "heaviest_domains": {
+    "1": {
+     "wall": 1.1385,
+     "laps": {
+      "W.cold_task_outer": 1.1073,
+      "W.cold_task": 1.1072,
+      "PREPARE.total": 0.928,
+      "PREPARE.prepare_conveyor": 0.9278,
+      "prepx.lap.DOMAIN_BUILD": 0.3358,
+      "prep.lap.DOMAIN_BUILD": 0.3358,
+      "DB.geometry_context_build@PREPARE": 0.3087,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.305,
+      "prepx.lap.PLAN_COMPILE": 0.3035,
+      "prep.lap.PLAN_COMPILE": 0.3035,
+      "PC.compile_reference_envelopes": 0.3035,
+      "PC.ideal_angular_support_data@PREPARE": 0.2605,
+      "PC.finalize": 0.2571,
+      "DBV.interpolated_normals": 0.1656,
+      "prepx.lap.SKELETON": 0.1633,
+      "prep.lap.SKELETON": 0.1633,
+      "native.skeleton_compute": 0.1633,
+      "PC.attach_direction_bindings": 0.1571,
+      "PRODUCE.total": 0.1409,
+      "PRODUCE.step_domain": 0.1318,
+      "PCD.backend_density_compute": 0.1092,
+      "PCD.native_op_density_compute_with_memo": 0.1092,
+      "DBV.canonical_subturn_fan_or_source": 0.0936,
+      "PC.attach_front_reading_declarations": 0.0851,
+      "prepx.lap.ARRIVAL_LAWS": 0.0838,
+      "prep.lap.ARRIVAL_LAWS": 0.0838,
+      "AL.arrival_laws": 0.0838,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0831,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0698,
+      "PRODUCE.materialize": 0.0693,
+      "PRODUCE.coverage": 0.0623,
+      "PCS.unit_g": 0.0619,
+      "PCD.prepared_attachment": 0.0438,
+      "EXPORT.task_inputs": 0.0382,
+      "EXPORT.metric_export": 0.0364,
+      "stage.PATCH_METRIC_EXPORT": 0.0361,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0355,
+      "EA.instance_ids_by_spec": 0.0355,
+      "EA.resolve_component_alphas@PRODUCE": 0.0312,
+      "prepx.lap.FACES": 0.029,
+      "prep.lap.FACES": 0.029,
+      "mat.lap.SILHOUETTE": 0.0277,
+      "PC.validate_reference_geometry_certificates": 0.0276,
+      "cov.lap.COVERAGE_CLIP": 0.0267,
+      "native.covered_at": 0.0265,
+      "PCD.raw_prefix": 0.0264,
+      "PCV.validate_angle_certificates": 0.0259,
+      "PCS.face_side_normal": 0.0247,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0244,
+      "stage.ANGULAR_RELATIONS": 0.0236,
+      "W.pack_prepared_reply": 0.0214,
+      "DB.seal_angular_support_cache@PREPARE": 0.0207,
+      "DBV.incident_normal": 0.0196,
+      "PC.support_segments_for_use@PREPARE": 0.0181,
+      "PCE.verify_evaluation_geometry_binding": 0.0158,
+      "EA.native_effective_alpha_compute": 0.015,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0146,
+      "PC.station_plans_of": 0.0131,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0131,
+      "PC.resolve_corner_selection": 0.0127,
+      "PCC.corner_treatment_errors": 0.01,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0092,
+      "PACK.deferred_result": 0.0086,
+      "native.coverage_compute": 0.0085,
+      "mat.lap.STATIONS": 0.0082,
+      "mat.lap.PARAMETRIC": 0.0081,
+      "S6A.certificate_of": 0.0081,
+      "PC.seal_evaluation_geometry_authority": 0.0078,
+      "mat.lap.ASSEMBLE": 0.0068,
+      "PC.attach_evaluation_geometry": 0.0063,
+      "prepx.lap.BRIDGE": 0.0061,
+      "prep.lap.BRIDGE": 0.0061,
+      "BR.bridge_arrival_laws": 0.0061,
+      "mat.lap.STATIONS_UV": 0.0051,
+      "native.w1_exact_mesh": 0.0051,
+      "W.reply_frame": 0.0048,
+      "prepx.lap.CHART_LATTICE": 0.0047,
+      "prep.lap.CHART_LATTICE": 0.0047,
+      "mat.lap.CERTIFY": 0.0044
+     }
+    },
+    "6": {
+     "wall": 1.0497,
+     "laps": {
+      "W.cold_task_outer": 1.0118,
+      "W.cold_task": 1.0116,
+      "PREPARE.total": 0.7885,
+      "PREPARE.prepare_conveyor": 0.7883,
+      "prepx.lap.DOMAIN_BUILD": 0.2871,
+      "prep.lap.DOMAIN_BUILD": 0.2871,
+      "DB.geometry_context_build@PREPARE": 0.2626,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.2613,
+      "prepx.lap.PLAN_COMPILE": 0.2285,
+      "prep.lap.PLAN_COMPILE": 0.2285,
+      "PC.compile_reference_envelopes": 0.2285,
+      "PC.ideal_angular_support_data@PREPARE": 0.2156,
+      "PC.finalize": 0.1916,
+      "PRODUCE.total": 0.1726,
+      "prepx.lap.SKELETON": 0.1652,
+      "prep.lap.SKELETON": 0.1652,
+      "native.skeleton_compute": 0.1652,
+      "PRODUCE.step_domain": 0.1618,
+      "DBV.interpolated_normals": 0.1371,
+      "PC.attach_direction_bindings": 0.1214,
+      "PRODUCE.materialize": 0.0829,
+      "PCD.backend_density_compute": 0.081,
+      "PCD.native_op_density_compute_with_memo": 0.0809,
+      "PRODUCE.coverage": 0.0787,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0759,
+      "DBV.canonical_subturn_fan_or_source": 0.0755,
+      "prepx.lap.ARRIVAL_LAWS": 0.067,
+      "prep.lap.ARRIVAL_LAWS": 0.067,
+      "AL.arrival_laws": 0.067,
+      "PC.attach_front_reading_declarations": 0.0627,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0609,
+      "EXPORT.task_inputs": 0.0505,
+      "EXPORT.metric_export": 0.0493,
+      "stage.PATCH_METRIC_EXPORT": 0.0491,
+      "PCS.unit_g": 0.0438,
+      "cov.lap.EFFECTIVE_ALPHA": 0.043,
+      "EA.instance_ids_by_spec": 0.043,
+      "EA.resolve_component_alphas@PRODUCE": 0.0414,
+      "stage.ANGULAR_RELATIONS": 0.0389,
+      "PCD.prepared_attachment": 0.0368,
+      "cov.lap.COVERAGE_CLIP": 0.0356,
+      "native.covered_at": 0.0353,
+      "prepx.lap.FACES": 0.034,
+      "prep.lap.FACES": 0.034,
+      "mat.lap.SILHOUETTE": 0.0322,
+      "W.pack_prepared_reply": 0.0256,
+      "PCD.raw_prefix": 0.0235,
+      "EA.native_effective_alpha_compute": 0.0218,
+      "PC.validate_reference_geometry_certificates": 0.0208,
+      "PCS.face_side_normal": 0.0207,
+      "PCV.validate_angle_certificates": 0.0195,
+      "DB.seal_angular_support_cache@PREPARE": 0.0188,
+      "DBV.incident_normal": 0.018,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0177,
+      "PC.support_segments_for_use@PREPARE": 0.0171,
+      "mat.lap.STATIONS": 0.0119,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0113,
+      "PC.station_plans_of": 0.0106,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0106,
+      "native.coverage_compute": 0.0104,
+      "PACK.deferred_result": 0.0103,
+      "PC.resolve_corner_selection": 0.0103,
+      "mat.lap.PARAMETRIC": 0.0094,
+      "S6A.certificate_of": 0.0094,
+      "mat.lap.STATIONS_UV": 0.0087,
+      "native.w1_exact_mesh": 0.0087,
+      "mat.lap.ASSEMBLE": 0.0086,
+      "PCC.corner_treatment_errors": 0.0083,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0068,
+      "W.reply_frame": 0.0061,
+      "prepx.lap.BRIDGE": 0.0045,
+      "prep.lap.BRIDGE": 0.0045,
+      "BR.bridge_arrival_laws": 0.0044,
+      "PCE.verify_evaluation_geometry_binding": 0.0043
+     }
+    },
+    "15": {
+     "wall": 0.8686,
+     "laps": {
+      "W.cold_task_outer": 0.8323,
+      "W.cold_task": 0.8321,
+      "PREPARE.total": 0.6527,
+      "PREPARE.prepare_conveyor": 0.6525,
+      "prepx.lap.DOMAIN_BUILD": 0.2476,
+      "prep.lap.DOMAIN_BUILD": 0.2476,
+      "DB.geometry_context_build@PREPARE": 0.2263,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.2225,
+      "prepx.lap.PLAN_COMPILE": 0.2102,
+      "prep.lap.PLAN_COMPILE": 0.2102,
+      "PC.compile_reference_envelopes": 0.2102,
+      "PC.ideal_angular_support_data@PREPARE": 0.1961,
+      "PC.finalize": 0.1785,
+      "PRODUCE.total": 0.1331,
+      "PRODUCE.step_domain": 0.1231,
+      "DBV.interpolated_normals": 0.1156,
+      "PC.attach_direction_bindings": 0.1098,
+      "prepx.lap.SKELETON": 0.1034,
+      "prep.lap.SKELETON": 0.1034,
+      "native.skeleton_compute": 0.1034,
+      "DBV.canonical_subturn_fan_or_source": 0.0769,
+      "PCD.backend_density_compute": 0.0726,
+      "PCD.native_op_density_compute_with_memo": 0.0725,
+      "PRODUCE.materialize": 0.0666,
+      "PC.attach_front_reading_declarations": 0.0595,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0578,
+      "prepx.lap.ARRIVAL_LAWS": 0.0577,
+      "prep.lap.ARRIVAL_LAWS": 0.0577,
+      "AL.arrival_laws": 0.0577,
+      "PRODUCE.coverage": 0.0564,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0542,
+      "EXPORT.task_inputs": 0.0461,
+      "EXPORT.metric_export": 0.0447,
+      "stage.PATCH_METRIC_EXPORT": 0.0445,
+      "PCS.unit_g": 0.041,
+      "stage.ANGULAR_RELATIONS": 0.0357,
+      "PCD.prepared_attachment": 0.0324,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0312,
+      "EA.instance_ids_by_spec": 0.0312,
+      "EA.resolve_component_alphas@PRODUCE": 0.0301,
+      "prepx.lap.FACES": 0.0264,
+      "prep.lap.FACES": 0.0264,
+      "mat.lap.SILHOUETTE": 0.0255,
+      "cov.lap.COVERAGE_CLIP": 0.0252,
+      "native.covered_at": 0.0249,
+      "W.pack_prepared_reply": 0.0233,
+      "PCS.face_side_normal": 0.0203,
+      "PC.validate_reference_geometry_certificates": 0.0191,
+      "PCV.validate_angle_certificates": 0.0178,
+      "PCD.raw_prefix": 0.0174,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0161,
+      "DBV.incident_normal": 0.0159,
+      "DB.seal_angular_support_cache@PREPARE": 0.0158,
+      "EA.native_effective_alpha_compute": 0.0154,
+      "PC.support_segments_for_use@PREPARE": 0.0152,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0129,
+      "PCE.verify_evaluation_geometry_binding": 0.011,
+      "PACK.deferred_result": 0.0094,
+      "PC.resolve_corner_selection": 0.0094,
+      "PCC.corner_treatment_errors": 0.0086,
+      "mat.lap.STATIONS": 0.0086,
+      "mat.lap.PARAMETRIC": 0.0082,
+      "S6A.certificate_of": 0.0082,
+      "PC.station_plans_of": 0.008,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.008,
+      "native.coverage_compute": 0.0074,
+      "mat.lap.STATIONS_UV": 0.0065,
+      "native.w1_exact_mesh": 0.0065,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0062,
+      "mat.lap.ASSEMBLE": 0.0061,
+      "W.reply_frame": 0.0057,
+      "PC.seal_evaluation_geometry_authority": 0.0044,
+      "PC.attach_evaluation_geometry": 0.0043
+     }
+    },
+    "11": {
+     "wall": 0.8382,
+     "laps": {
+      "W.cold_task_outer": 0.7941,
+      "W.cold_task": 0.7939,
+      "PREPARE.total": 0.6052,
+      "PREPARE.prepare_conveyor": 0.6051,
+      "prepx.lap.DOMAIN_BUILD": 0.1965,
+      "prep.lap.DOMAIN_BUILD": 0.1965,
+      "prepx.lap.PLAN_COMPILE": 0.1815,
+      "prep.lap.PLAN_COMPILE": 0.1815,
+      "PC.compile_reference_envelopes": 0.1815,
+      "DB.geometry_context_build@PREPARE": 0.1721,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.1688,
+      "PC.finalize": 0.1534,
+      "PRODUCE.total": 0.143,
+      "PC.ideal_angular_support_data@PREPARE": 0.1385,
+      "PRODUCE.step_domain": 0.132,
+      "prepx.lap.SKELETON": 0.1298,
+      "prep.lap.SKELETON": 0.1298,
+      "native.skeleton_compute": 0.1298,
+      "PC.attach_direction_bindings": 0.0967,
+      "DBV.interpolated_normals": 0.0742,
+      "PRODUCE.materialize": 0.0682,
+      "PRODUCE.coverage": 0.0636,
+      "PCD.backend_density_compute": 0.0634,
+      "PCD.native_op_density_compute_with_memo": 0.0634,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0604,
+      "prepx.lap.ARRIVAL_LAWS": 0.0594,
+      "prep.lap.ARRIVAL_LAWS": 0.0594,
+      "AL.arrival_laws": 0.0594,
+      "DBV.canonical_subturn_fan_or_source": 0.0569,
+      "PC.attach_front_reading_declarations": 0.0475,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.046,
+      "EXPORT.task_inputs": 0.0456,
+      "EXPORT.metric_export": 0.0445,
+      "stage.PATCH_METRIC_EXPORT": 0.0442,
+      "stage.ANGULAR_RELATIONS": 0.0354,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0335,
+      "EA.instance_ids_by_spec": 0.0335,
+      "PCS.unit_g": 0.0331,
+      "EA.resolve_component_alphas@PRODUCE": 0.032,
+      "prepx.lap.FACES": 0.0301,
+      "prep.lap.FACES": 0.0301,
+      "cov.lap.COVERAGE_CLIP": 0.03,
+      "native.covered_at": 0.0297,
+      "PCD.prepared_attachment": 0.0296,
+      "W.pack_prepared_reply": 0.0295,
+      "mat.lap.SILHOUETTE": 0.025,
+      "DB.seal_angular_support_cache@PREPARE": 0.02,
+      "PC.validate_reference_geometry_certificates": 0.0179,
+      "PCD.raw_prefix": 0.0176,
+      "PCV.validate_angle_certificates": 0.0168,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0157,
+      "PCS.face_side_normal": 0.0156,
+      "EA.native_effective_alpha_compute": 0.0156,
+      "DBV.incident_normal": 0.0141,
+      "PC.support_segments_for_use@PREPARE": 0.0134,
+      "PCE.verify_evaluation_geometry_binding": 0.012,
+      "PACK.deferred_result": 0.0102,
+      "native.coverage_compute": 0.0102,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.0102,
+      "mat.lap.PARAMETRIC": 0.009,
+      "S6A.certificate_of": 0.009,
+      "PC.station_plans_of": 0.0084,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0084,
+      "mat.lap.ASSEMBLE": 0.0084,
+      "W.reply_frame": 0.0076,
+      "PC.resolve_corner_selection": 0.0064,
+      "mat.lap.STATIONS": 0.0062,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0058,
+      "PCC.corner_treatment_errors": 0.0057,
+      "mat.lap.STATIONS_UV": 0.0056,
+      "native.w1_exact_mesh": 0.0055,
+      "PC.seal_evaluation_geometry_authority": 0.005,
+      "mat.lap.COALESCE": 0.0044
+     }
+    },
+    "7": {
+     "wall": 0.6886,
+     "laps": {
+      "W.cold_task_outer": 0.6462,
+      "W.cold_task": 0.6459,
+      "PREPARE.total": 0.4582,
+      "PREPARE.prepare_conveyor": 0.4579,
+      "prepx.lap.PLAN_COMPILE": 0.1658,
+      "prep.lap.PLAN_COMPILE": 0.1658,
+      "PC.compile_reference_envelopes": 0.1658,
+      "PRODUCE.total": 0.1533,
+      "PRODUCE.step_domain": 0.1411,
+      "PC.finalize": 0.136,
+      "prepx.lap.SKELETON": 0.1127,
+      "prep.lap.SKELETON": 0.1127,
+      "native.skeleton_compute": 0.1127,
+      "prepx.lap.DOMAIN_BUILD": 0.1056,
+      "prep.lap.DOMAIN_BUILD": 0.1056,
+      "DB.geometry_context_build@PREPARE": 0.0938,
+      "PC.attach_direction_bindings": 0.0899,
+      "PC.verify_evaluation_direction_binding_reasons@PREPARE": 0.0899,
+      "PRODUCE.materialize": 0.0782,
+      "PC.ideal_angular_support_data@PREPARE": 0.0682,
+      "PRODUCE.coverage": 0.0628,
+      "PCD.backend_density_compute": 0.0508,
+      "PCD.native_op_density_compute_with_memo": 0.0508,
+      "cov.lap.EFFECTIVE_ALPHA": 0.0412,
+      "EA.instance_ids_by_spec": 0.0412,
+      "prepx.lap.ARRIVAL_LAWS": 0.0378,
+      "prep.lap.ARRIVAL_LAWS": 0.0378,
+      "AL.arrival_laws": 0.0378,
+      "EA.resolve_component_alphas@PRODUCE": 0.0377,
+      "PC.attach_front_reading_declarations": 0.0359,
+      "PCD.prepared_attachment": 0.0353,
+      "DBV.verify_evaluation_binding_reasons_one": 0.0351,
+      "PC.support_segments_for_use@PLAN_COMPILE": 0.0343,
+      "EXPORT.task_inputs": 0.0343,
+      "EXPORT.metric_export": 0.033,
+      "stage.PATCH_METRIC_EXPORT": 0.0327,
+      "mat.lap.SILHOUETTE": 0.0318,
+      "DBV.interpolated_normals": 0.0317,
+      "W.pack_prepared_reply": 0.03,
+      "DBV.canonical_subturn_fan_or_source": 0.0285,
+      "prepx.lap.FACES": 0.0273,
+      "prep.lap.FACES": 0.0273,
+      "PCD.raw_prefix": 0.0221,
+      "stage.ANGULAR_RELATIONS": 0.0218,
+      "PCS.unit_g": 0.0217,
+      "cov.lap.COVERAGE_CLIP": 0.0215,
+      "native.covered_at": 0.0213,
+      "EA.native_effective_alpha_compute": 0.0177,
+      "PC.station_plans_of": 0.0145,
+      "PC.chain_station_plans@PLAN_COMPILE": 0.0145,
+      "PCE.verify_evaluation_geometry_binding": 0.0139,
+      "PC.validate_reference_geometry_certificates": 0.0134,
+      "PCS.face_side_normal": 0.0123,
+      "PCV.validate_angle_certificates": 0.0122,
+      "DBV.incident_normal": 0.0118,
+      "PACK.deferred_result": 0.0117,
+      "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": 0.0113,
+      "PC.support_segments_for_use@PREPARE": 0.011,
+      "DB.geometry_context_build@PLAN_COMPILE": 0.011,
+      "mat.lap.ASSEMBLE": 0.0078,
+      "W.reply_frame": 0.0076,
+      "mat.lap.STATIONS": 0.0075,
+      "DB.seal_angular_support_cache@PREPARE": 0.0072,
+      "PC.resolve_corner_selection": 0.0069,
+      "native.coverage_compute": 0.0068,
+      "mat.lap.CERTIFY": 0.0067,
+      "mat.lap.STATIONS_UV": 0.0067,
+      "native.w1_exact_mesh": 0.0066,
+      "leaf.validate_reference_geometry_payload@PLAN_COMPILE": 0.0065,
+      "PCC.corner_treatment_errors": 0.0064,
+      "mat.lap.PARAMETRIC": 0.0062,
+      "S6A.certificate_of": 0.0062,
+      "PC.seal_evaluation_geometry_authority": 0.0054,
+      "mat.lap.COALESCE": 0.0048,
+      "PC.attach_evaluation_geometry": 0.0042,
+      "prepx.lap.CHART_LATTICE": 0.004,
+      "prep.lap.CHART_LATTICE": 0.004
+     }
+    }
+   }
+  },
+  "building_serial": {
+   "button_wall_with_laps": 11.474,
+   "status": "MATERIALIZED 122 / refused 0",
+   "decal": {
+    "vertices": 1191,
+    "faces": 907,
+    "digest": "4b94c44a839bb00ff4c746192187ab83a7a5dd77e2c7d87cc36e6cbecfe5d59b"
+   },
+   "selection_sha": "2861544dd7a33b0c9db9cae0c90d19284b83be9e1bf4415c317a6ab31cc77ac9",
+   "serial_seconds": {
+    "stage.PRODUCTION_DOMAINS_WALL": [
+     1,
+     11.160494
+    ],
+    "PREPARE.total": [
+     122,
+     6.263926
+    ],
+    "PREPARE.prepare_conveyor": [
+     122,
+     6.255988
+    ],
+    "PRODUCE.total": [
+     122,
+     2.574377
+    ],
+    "PRODUCE.step_domain": [
+     122,
+     2.547471
+    ],
+    "prep.lap.PLAN_COMPILE": [
+     122,
+     2.436243
+    ],
+    "prepx.lap.PLAN_COMPILE": [
+     122,
+     2.436243
+    ],
+    "PC.compile_reference_envelopes": [
+     122,
+     2.435774
+    ],
+    "EXPORT.metric_export": [
+     122,
+     2.148293
+    ],
+    "stage.PATCH_METRIC_EXPORT": [
+     122,
+     2.138114
+    ],
+    "PC.finalize": [
+     122,
+     1.927691
+    ],
+    "prep.lap.DOMAIN_BUILD": [
+     122,
+     1.903743
+    ],
+    "prepx.lap.DOMAIN_BUILD": [
+     122,
+     1.903743
+    ],
+    "PRODUCE.materialize": [
+     122,
+     1.840739
+    ],
+    "DB.geometry_context_build@PREPARE": [
+     122,
+     1.679082
+    ],
+    "PC.verify_evaluation_direction_binding_reasons@PREPARE": [
+     122,
+     1.623201
+    ],
+    "PC.ideal_angular_support_data@PREPARE": [
+     558,
+     1.355882
+    ],
+    "stage.SNAPSHOT_VALIDATION": [
+     122,
+     1.240551
+    ],
+    "EXPORT.validate_exported_snapshot": [
+     122,
+     1.237125
+    ],
+    "PC.attach_direction_bindings": [
+     122,
+     1.014181
+    ],
+    "prep.lap.SKELETON": [
+     122,
+     0.871989
+    ],
+    "prepx.lap.SKELETON": [
+     122,
+     0.871989
+    ],
+    "native.skeleton_compute": [
+     122,
+     0.871378
+    ],
+    "PC.attach_front_reading_declarations": [
+     122,
+     0.737633
+    ],
+    "PC.support_segments_for_use@PLAN_COMPILE": [
+     729,
+     0.704351
+    ],
+    "PRODUCE.coverage": [
+     122,
+     0.695867
+    ],
+    "stage.ANGULAR_RELATIONS": [
+     122,
+     0.575367
+    ],
+    "leaf.codec_dumps@-": [
+     244,
+     0.562511
+    ],
+    "prep.lap.ARRIVAL_LAWS": [
+     122,
+     0.546947
+    ],
+    "prepx.lap.ARRIVAL_LAWS": [
+     122,
+     0.546947
+    ],
+    "AL.arrival_laws": [
+     122,
+     0.546496
+    ],
+    "REL.canonical_json_bytes@-": [
+     244,
+     0.533694
+    ],
+    "REL.canonical_json_bytes@PRODUCE": [
+     244,
+     0.521636
+    ],
+    "mat.lap.SILHOUETTE": [
+     122,
+     0.412937
+    ],
+    "leaf.codec_loads@-": [
+     122,
+     0.400502
+    ],
+    "cov.lap.EFFECTIVE_ALPHA": [
+     122,
+     0.392452
+    ],
+    "EA.instance_ids_by_spec": [
+     122,
+     0.392104
+    ],
+    "EA.resolve_component_alphas@PRODUCE": [
+     122,
+     0.363985
+    ],
+    "PC.validate_reference_geometry_certificates": [
+     737,
+     0.363778
+    ],
+    "mat.lap.SEMANTIC_DIGEST": [
+     122,
+     0.345118
+    ],
+    "prep.lap.FACES": [
+     122,
+     0.340939
+    ],
+    "prepx.lap.FACES": [
+     122,
+     0.340939
+    ],
+    "mat.lap.DIGEST": [
+     122,
+     0.331598
+    ],
+    "cov.lap.COVERAGE_CLIP": [
+     122,
+     0.299465
+    ],
+    "native.covered_at": [
+     122,
+     0.293992
+    ],
+    "CHECK.reject_snapshot[canonical bytes]@-": [
+     122,
+     0.224282
+    ],
+    "CHECK.reject_snapshot[canonical bytes]": [
+     122,
+     0.224142
+    ],
+    "leaf.validate_analysis_snapshot@-": [
+     249,
+     0.216484
+    ],
+    "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": [
+     488,
+     0.2094
+    ],
+    "EA.native_effective_alpha_compute": [
+     8689,
+     0.168812
+    ],
+    "mat.lap.STATIONS": [
+     122,
+     0.167953
+    ],
+    "PC.station_plans_of": [
+     143,
+     0.166473
+    ],
+    "PC.chain_station_plans@PLAN_COMPILE": [
+     122,
+     0.165528
+    ],
+    "PC.support_segments_for_use@PREPARE": [
+     1090,
+     0.143514
+    ],
+    "DB.seal_angular_support_cache@PREPARE": [
+     122,
+     0.140668
+    ],
+    "mat.lap.ASSEMBLE": [
+     122,
+     0.138307
+    ],
+    "mat.lap.PARAMETRIC": [
+     122,
+     0.136984
+    ],
+    "S6A.certificate_of": [
+     122,
+     0.136489
+    ],
+    "EXPORT.decal_request": [
+     122,
+     0.121425
+    ],
+    "stage.FRAME_ADMISSION": [
+     122,
+     0.117695
+    ],
+    "leaf.validate_reference_geometry_payload@-": [
+     127,
+     0.116294
+    ],
+    "DB.geometry_context_build@PLAN_COMPILE": [
+     244,
+     0.115227
+    ],
+    "leaf.validate_reference_geometry_certificates@-": [
+     127,
+     0.114706
+    ],
+    "leaf.validate_reference_geometry_payload@PLAN_COMPILE": [
+     366,
+     0.109665
+    ],
+    "PC.validate_snapshot_request_references": [
+     244,
+     0.10033
+    ],
+    "native.coverage_compute": [
+     122,
+     0.09776
+    ],
+    "leaf.validate_snapshot_request_references@PLAN_COMPILE": [
+     122,
+     0.096213
+    ],
+    "leaf.validate_analysis_snapshot@PLAN_COMPILE": [
+     122,
+     0.092343
+    ],
+    "PC.attach_evaluation_geometry": [
+     122,
+     0.085892
+    ],
+    "PC.seal_evaluation_geometry_authority": [
+     122,
+     0.084616
+    ],
+    "prep.lap.BRIDGE": [
+     122,
+     0.083457
+    ],
+    "prepx.lap.BRIDGE": [
+     122,
+     0.083457
+    ],
+    "BR.bridge_arrival_laws": [
+     122,
+     0.081092
+    ],
+    "mat.lap.CERTIFY": [
+     122,
+     0.078788
+    ],
+    "mat.lap.STATIONS_UV": [
+     122,
+     0.064431
+    ],
+    "native.w1_exact_mesh": [
+     122,
+     0.063311
+    ],
+    "PC.resolve_corner_selection": [
+     186,
+     0.056418
+    ],
+    "leaf.build_developable_chart@-": [
+     4,
+     0.052486
+    ],
+    "mat.lap.COALESCE": [
+     122,
+     0.052462
+    ],
+    "prep.lap.CHART_LATTICE": [
+     122,
+     0.049585
+    ],
+    "prepx.lap.CHART_LATTICE": [
+     122,
+     0.049585
+    ],
+    "DB.build_domain_geometry@PREPARE": [
+     122,
+     0.044055
+    ],
+    "leaf.validate_reference_geometry_payload@PREPARE": [
+     122,
+     0.038553
+    ],
+    "leaf.validate_reference_geometry_certificates@PREPARE": [
+     122,
+     0.037279
+    ],
+    "mat.lap.VALIDATE": [
+     122,
+     0.030203
+    ],
+    "stage.SOURCE_CONTACT_PREFLIGHT": [
+     122,
+     0.028821
+    ],
+    "REL.batch_structure": [
+     122,
+     0.028125
+    ],
+    "native.w1_canonical_triangles": [
+     122,
+     0.02411
+    ],
+    "mat.lap.CLIP": [
+     5,
+     0.023697
+    ],
+    "mat.lap.CHORD_STATIONS": [
+     122,
+     0.018886
+    ],
+    "stage.TOPOLOGY_EXPORT": [
+     1,
+     0.018725
+    ],
+    "mat.lap.AUDIT": [
+     122,
+     0.017099
+    ],
+    "CHECK.reject_snapshot[snapshot]@-": [
+     5,
+     0.017008
+    ],
+    "CHECK.reject_snapshot[snapshot]": [
+     5,
+     0.017
+    ],
+    "stage.SEAM_PARTITION_NORMALIZATION": [
+     1,
+     0.013103
+    ],
+    "native.clip_compute": [
+     13,
+     0.012626
+    ],
+    "mat.lap.FRAMES": [
+     122,
+     0.011395
+    ],
+    "PACK.build_domain_view": [
+     122,
+     0.010057
+    ],
+    "stage.TOPOLOGY_SCENE": [
+     1,
+     0.008595
+    ],
+    "PC.support_segments_for_use@PRODUCE": [
+     729,
+     0.007982
+    ],
+    "PC.support_segments_for_use@ARRIVAL_LAWS": [
+     729,
+     0.007049
+    ],
+    "PC.resolve_angular_profile_selection": [
+     186,
+     0.006162
+    ]
+   }
+  },
+  "cover008_serial": {
+   "button_wall_with_laps": 65.576,
+   "status": "MATERIALIZED 1046 / refused 5 (COVERAGE_IS_NOT_EXACT x2, NO_GRID_SCALE_RESTORES_RELATIONS, SOURCE_FACE_SELF_INTERSECTION, SOURCE_T_VERTEX) | warnings: ADAPTER_WELD_MITER_FALLBACK",
+   "decal": {
+    "vertices": 9528,
+    "faces": 6653,
+    "digest": "7a315fac5ac31fb1990a361752604f8630f9157d87af895807623616cac84deb"
+   },
+   "selection_sha": "f86173be12f250ac784720835b5e646adaf778e9891b85c0af112cb250bc4ea8",
+   "serial_seconds": {
+    "stage.PRODUCTION_DOMAINS_WALL": [
+     1,
+     63.101786
+    ],
+    "PREPARE.total": [
+     1053,
+     30.366881
+    ],
+    "PREPARE.prepare_conveyor": [
+     1053,
+     30.303439
+    ],
+    "PRODUCE.total": [
+     1053,
+     17.777003
+    ],
+    "PRODUCE.step_domain": [
+     1047,
+     17.564937
+    ],
+    "prep.lap.PLAN_COMPILE": [
+     1053,
+     14.291714
+    ],
+    "prepx.lap.PLAN_COMPILE": [
+     1053,
+     14.291714
+    ],
+    "PC.compile_reference_envelopes": [
+     1053,
+     14.287795
+    ],
+    "EXPORT.metric_export": [
+     1056,
+     13.999063
+    ],
+    "stage.PATCH_METRIC_EXPORT": [
+     1056,
+     13.915933
+    ],
+    "PRODUCE.materialize": [
+     1047,
+     12.772445
+    ],
+    "PC.finalize": [
+     1053,
+     10.635016
+    ],
+    "stage.SNAPSHOT_VALIDATION": [
+     1053,
+     8.587175
+    ],
+    "EXPORT.validate_exported_snapshot": [
+     1053,
+     8.558817
+    ],
+    "prep.lap.DOMAIN_BUILD": [
+     1050,
+     7.314029
+    ],
+    "prepx.lap.DOMAIN_BUILD": [
+     1050,
+     7.314029
+    ],
+    "DB.geometry_context_build@PREPARE": [
+     1050,
+     5.950059
+    ],
+    "PC.attach_direction_bindings": [
+     1053,
+     5.611134
+    ],
+    "PC.verify_evaluation_direction_binding_reasons@PREPARE": [
+     1050,
+     5.581379
+    ],
+    "PRODUCE.coverage": [
+     1047,
+     4.709094
+    ],
+    "PC.ideal_angular_support_data@PREPARE": [
+     2991,
+     4.349297
+    ],
+    "leaf.codec_dumps@-": [
+     2106,
+     3.902974
+    ],
+    "PC.attach_front_reading_declarations": [
+     1050,
+     3.789799
+    ],
+    "REL.canonical_json_bytes@PRODUCE": [
+     2092,
+     3.712786
+    ],
+    "prep.lap.SKELETON": [
+     1047,
+     3.689175
+    ],
+    "prepx.lap.SKELETON": [
+     1047,
+     3.689175
+    ],
+    "native.skeleton_compute": [
+     1047,
+     3.684679
+    ],
+    "REL.canonical_json_bytes@-": [
+     2106,
+     3.666652
+    ],
+    "PC.support_segments_for_use@PLAN_COMPILE": [
+     6042,
+     3.527004
+    ],
+    "stage.ANGULAR_RELATIONS": [
+     1053,
+     2.950487
+    ],
+    "mat.lap.SILHOUETTE": [
+     1046,
+     2.885443
+    ],
+    "leaf.codec_loads@-": [
+     1053,
+     2.81038
+    ],
+    "cov.lap.EFFECTIVE_ALPHA": [
+     1047,
+     2.628229
+    ],
+    "EA.instance_ids_by_spec": [
+     1047,
+     2.625338
+    ],
+    "mat.lap.SEMANTIC_DIGEST": [
+     1046,
+     2.470573
+    ],
+    "EA.resolve_component_alphas@PRODUCE": [
+     1047,
+     2.470569
+    ],
+    "prep.lap.ARRIVAL_LAWS": [
+     1048,
+     2.40322
+    ],
+    "prepx.lap.ARRIVAL_LAWS": [
+     1048,
+     2.40322
+    ],
+    "AL.arrival_laws": [
+     1048,
+     2.399609
+    ],
+    "mat.lap.DIGEST": [
+     1046,
+     2.347164
+    ],
+    "PC.validate_reference_geometry_certificates": [
+     6337,
+     2.184303
+    ],
+    "cov.lap.COVERAGE_CLIP": [
+     1047,
+     2.04984
+    ],
+    "native.covered_at": [
+     1047,
+     2.00894
+    ],
+    "leaf.validate_analysis_snapshot@-": [
+     2131,
+     1.62159
+    ],
+    "CHECK.reject_snapshot[canonical bytes]@-": [
+     1053,
+     1.532214
+    ],
+    "CHECK.reject_snapshot[canonical bytes]": [
+     1053,
+     1.530887
+    ],
+    "prep.lap.FACES": [
+     1047,
+     1.479531
+    ],
+    "prepx.lap.FACES": [
+     1047,
+     1.479531
+    ],
+    "PC.station_plans_of": [
+     1208,
+     1.419042
+    ],
+    "PC.chain_station_plans@PLAN_COMPILE": [
+     1053,
+     1.411195
+    ],
+    "mat.lap.STATIONS": [
+     1047,
+     1.278219
+    ],
+    "leaf.validate_reference_geometry_certificates@PLAN_COMPILE": [
+     4209,
+     1.217804
+    ],
+    "EA.native_effective_alpha_compute": [
+     63417,
+     1.148218
+    ],
+    "mat.lap.PARAMETRIC": [
+     1046,
+     1.006997
+    ],
+    "S6A.certificate_of": [
+     1046,
+     1.00305
+    ],
+    "EXPORT.decal_request": [
+     1053,
+     0.962823
+    ],
+    "mat.lap.ASSEMBLE": [
+     1046,
+     0.95316
+    ],
+    "PC.validate_snapshot_request_references": [
+     2106,
+     0.794422
+    ],
+    "leaf.validate_reference_geometry_payload@PLAN_COMPILE": [
+     3156,
+     0.772257
+    ],
+    "leaf.validate_snapshot_request_references@PLAN_COMPILE": [
+     1053,
+     0.757691
+    ],
+    "DB.seal_angular_support_cache@PREPARE": [
+     1049,
+     0.746968
+    ],
+    "leaf.validate_analysis_snapshot@PLAN_COMPILE": [
+     1053,
+     0.724816
+    ],
+    "DB.geometry_context_build@PLAN_COMPILE": [
+     2106,
+     0.71927
+    ],
+    "leaf.validate_reference_geometry_payload@-": [
+     1078,
+     0.702376
+    ],
+    "leaf.validate_reference_geometry_certificates@-": [
+     1078,
+     0.68912
+    ],
+    "prep.lap.BRIDGE": [
+     1048,
+     0.625559
+    ],
+    "prepx.lap.BRIDGE": [
+     1048,
+     0.625559
+    ],
+    "PC.attach_evaluation_geometry": [
+     1053,
+     0.625104
+    ],
+    "PC.support_segments_for_use@PREPARE": [
+     5906,
+     0.622007
+    ],
+    "BR.bridge_arrival_laws": [
+     1048,
+     0.60688
+    ],
+    "stage.FRAME_ADMISSION": [
+     1054,
+     0.599513
+    ],
+    "native.coverage_compute": [
+     1047,
+     0.583923
+    ],
+    "PC.seal_evaluation_geometry_authority": [
+     1050,
+     0.573136
+    ],
+    "mat.lap.CERTIFY": [
+     1046,
+     0.529979
+    ],
+    "mat.lap.STATIONS_UV": [
+     1047,
+     0.403627
+    ],
+    "native.w1_exact_mesh": [
+     1047,
+     0.395034
+    ],
+    "DB.build_domain_geometry@PREPARE": [
+     1048,
+     0.338181
+    ],
+    "prep.lap.CHART_LATTICE": [
+     1048,
+     0.331727
+    ],
+    "prepx.lap.CHART_LATTICE": [
+     1048,
+     0.331727
+    ],
+    "PC.resolve_corner_selection": [
+     1000,
+     0.31241
+    ],
+    "leaf.validate_reference_geometry_payload@PREPARE": [
+     1050,
+     0.267084
+    ],
+    "leaf.validate_reference_geometry_certificates@PREPARE": [
+     1050,
+     0.256967
+    ],
+    "mat.lap.COALESCE": [
+     1047,
+     0.242752
+    ],
+    "stage.SOURCE_CONTACT_PREFLIGHT": [
+     1056,
+     0.22789
+    ],
+    "mat.lap.VALIDATE": [
+     1046,
+     0.219923
+    ],
+    "REL.batch_structure": [
+     1046,
+     0.207911
+    ],
+    "native.w1_canonical_triangles": [
+     1046,
+     0.154261
+    ],
+    "mat.lap.AUDIT": [
+     1046,
+     0.126542
+    ],
+    "stage.TOPOLOGY_EXPORT": [
+     1,
+     0.124
+    ],
+    "stage.SEAM_PARTITION_NORMALIZATION": [
+     1,
+     0.08718
+    ],
+    "mat.lap.FRAMES": [
+     1047,
+     0.076641
+    ],
+    "PACK.build_domain_view": [
+     1046,
+     0.075237
+    ],
+    "mat.lap.CLIP": [
+     20,
+     0.075112
+    ],
+    "mat.lap.CHORD_STATIONS": [
+     1047,
+     0.073841
+    ],
+    "CHECK.reject_snapshot[snapshot]@-": [
+     25,
+     0.066614
+    ],
+    "CHECK.reject_snapshot[snapshot]": [
+     25,
+     0.06658
+    ],
+    "stage.TOPOLOGY_SCENE": [
+     1,
+     0.064147
+    ],
+    "PC.support_segments_for_use@PRODUCE": [
+     6019,
+     0.061645
+    ],
+    "PC.support_segments_for_use@ARRIVAL_LAWS": [
+     6029,
+     0.051385
+    ],
+    "leaf.build_developable_chart@-": [
+     24,
+     0.047686
+    ],
+    "native.clip_compute": [
+     60,
+     0.045595
+    ],
+    "REL.ledger.with_preparation_record": [
+     2109,
+     0.040126
+    ],
+    "REL.ledger.ledger_record": [
+     2109,
+     0.039031
+    ],
+    "PC.resolve_angular_profile_selection": [
+     1000,
+     0.035238
+    ],
+    "PC.initial_front_support_features": [
+     1053,
+     0.031589
+    ],
+    "leaf.validate_snapshot_request_references@-": [
+     1053,
+     0.030675
+    ],
+    "stage.HOST_CHAIN_COLLECTION": [
+     1,
+     0.029697
+    ],
+    "prep.lap.DOMAIN_LOOPS": [
+     1048,
+     0.028575
+    ],
+    "prepx.lap.DOMAIN_LOOPS": [
+     1048,
+     0.028575
+    ],
+    "mat.lap.ADMIT": [
+     1047,
+     0.024583
+    ],
+    "stage.SELECTION_SCOPE": [
+     1,
+     0.015458
+    ],
+    "mat.lap.CONTOURS": [
+     1047,
+     0.010068
+    ],
+    "PC.density_spec_with_hidden_count": [
+     321,
+     0.00957
+    ],
+    "stage.DOMAIN_GEOMETRY_EXPORT": [
+     1053,
+     0.008552
+    ],
+    "REL.ledger.entered_backend": [
+     3162,
+     0.007223
+    ],
+    "stage.BUNDLE_SLICE": [
+     1056,
+     0.007147
+    ],
+    "leaf.embedding_certificate@-": [
+     36,
+     0.00597
+    ],
+    "PC.sync_effective_hidden_support": [
+     1050,
+     0.005425
+    ],
+    "S6A.capture_inputs": [
+     1046,
+     0.005203
+    ]
+   }
+  }
+ }
+}
