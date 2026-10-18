@@ -365,6 +365,8 @@ def _compare_press(label: str, a: dict, b: dict, allowed: tuple, out: Comparison
             out.notes.append(f"[{label}] {side}: frame admissions (EXPORT, one per exported patch) built natively {press['frame_calls'][0]}, by the Python builder after a named decline {press['frame_calls'][1]}")
         if press.get("angular_calls") and any(press["angular_calls"]):
             out.notes.append(f"[{label}] {side}: angular relations (EXPORT, one per domain snapshot) computed natively {press['angular_calls'][0]}, by the Python oracle {press['angular_calls'][1]} (named fallbacks {press['angular_calls'][2]})")
+        if press.get("chain_station_calls") and any(press["chain_station_calls"]):
+            out.notes.append(f"[{label}] {side}: chain station plans (PLAN_COMPILE, one per domain) computed natively {press['chain_station_calls'][0]}, by the Python law {press['chain_station_calls'][1]} (named fallbacks {press['chain_station_calls'][2]})")
     for side, press in (("base", a), ("branch", b)):
         if press.get("density_calls") and any(press["density_calls"]):
             out.notes.append(f"[{label}] {side}: Density calls native {press['density_calls'][0]}, Python {press['density_calls'][1]}, named fallbacks {press['density_calls'][2]}")
@@ -1152,6 +1154,7 @@ def domain_rows(run) -> list:
             "frame_calls": None if record is None else [getattr(record, "frame_native_calls", 0), getattr(record, "frame_python_calls", 0)],
             "angular_ran": None if record is None else (getattr(record, "angular_ran", None) or None),
             "angular_calls": None if record is None else [getattr(record, "angular_native_calls", 0), getattr(record, "angular_python_calls", 0), len(getattr(record, "angular_fallbacks", ()))],
+            "chain_station_calls": None if record is None else [getattr(record, "chain_station_native_calls", 0), getattr(record, "chain_station_python_calls", 0), len(getattr(record, "chain_station_fallbacks", ()))],
             "density_requested": None if record is None else getattr(record, "density_requested", None),
             "density_calls": None if record is None else [getattr(record, "density_native_calls", 0), getattr(record, "density_python_calls", 0), len(getattr(record, "density_fallbacks", ()))],
         })
@@ -1199,9 +1202,10 @@ def press_report(run, mesh_module, offset: float, seconds: float, keys: list, co
     frame_calls = [sum(row["frame_calls"][index] for row in rows if row.get("frame_calls")) for index in (0, 1)]
     density_calls = [sum(row["density_calls"][index] for row in rows if row.get("density_calls")) for index in (0, 1, 2)]
     angular_calls = [sum(row["angular_calls"][index] for row in rows if row.get("angular_calls")) for index in (0, 1, 2)]
+    chain_station_calls = [sum(row["chain_station_calls"][index] for row in rows if row.get("chain_station_calls")) for index in (0, 1, 2)]
     return {
         "run_seconds": seconds, "arrays_seconds": arrays_seconds, "exact_seconds": seconds + arrays_seconds, "kind": kind, "lean": lean, "rows": rows, "mesh_hash": mesh_hash, "mesh_counts": mesh_counts, "outcomes": outcomes, "materialized": outcomes.get("MATERIALIZED", 0), "domains": len(rows),
-        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls, "frame_calls": frame_calls, "density_calls": density_calls, "angular_calls": angular_calls,
+        "process_counters": counters, "effective_alpha_calls": alpha_calls, "materialize_calls": materialize_calls, "snapshot_check_calls": snapshot_check_calls, "frame_calls": frame_calls, "density_calls": density_calls, "angular_calls": angular_calls, "chain_station_calls": chain_station_calls,
         "cold": bool(run.cold), "content_keys": sorted(keys), "profile_counters": {item.name: item.value for item in profile.counters if item.patch_domain_id is None},
         "profile_domain_counters": _hash(sorted((item.name, item.patch_domain_id, item.value) for item in profile.counters if item.patch_domain_id is not None)),
         "profile_domain_counters_by_name": {

@@ -97,6 +97,7 @@ STAGES = (
     ("frame", "frame"),
     ("density", "density"),
     ("angular", "angular"),
+    ("chain_station", "chain station"),
 )
 #: Какой признак `NativeStatusV1` говорит, что стадия готова нативно.
 _STATUS_FLAGS = {
@@ -109,10 +110,13 @@ _STATUS_FLAGS = {
     "frame": "frame_available",
     "density": "density_available",
     "angular": "angular_available",
+    "chain_station": "chain_station_available",
 }
 #: Переменная среды, которой A/B и тесты заказывают порядок ОДНОЙ стадии мимо главного переключателя (`PYTHON` | `NATIVE`; крюк инструментов, не настройка продукта): читается только без явного порядка
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
-STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND", "frame": "CFTUV_FRAME_BACKEND", "density": "CFTUV_DENSITY_BACKEND", "angular": "CFTUV_ANGULAR_BACKEND"}
+STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND", "frame": "CFTUV_FRAME_BACKEND", "density": "CFTUV_DENSITY_BACKEND", "angular": "CFTUV_ANGULAR_BACKEND", "chain_station": "CFTUV_CHAIN_STATION_BACKEND"}
+#: Стадии-кандидаты до утверждения пинов владельцем: при главном `NATIVE` без явного заказа (среда, keyword) они остаются `PYTHON`.
+OPT_IN_STAGES = ("angular", "chain_station")
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
 _LAST_BACKEND = [DEFAULT_KERNEL_BACKEND]
@@ -140,6 +144,7 @@ class StageOrdersV1:
     frame: str
     density: str
     angular: str = KERNEL_BACKEND_PYTHON
+    chain_station: str = KERNEL_BACKEND_PYTHON
 
     def as_arguments(self) -> tuple:
         """`(backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend)` для `cftuv_envelope.backend.use_backend`."""
@@ -149,7 +154,7 @@ class StageOrdersV1:
     def as_keywords(self) -> dict:
         """Frame, Density и ANGULAR передаются только именем: шесть прежних позиционных аргументов ядра сохраняются."""
 
-        return {"frame_backend": self.frame, "density_backend": self.density, "angular_backend": self.angular}
+        return {"frame_backend": self.frame, "density_backend": self.density, "angular_backend": self.angular, "chain_station_backend": self.chain_station}
 
 
 def environment_order(stage: str, master: str) -> str:
@@ -158,7 +163,7 @@ def environment_order(stage: str, master: str) -> str:
     if master == KERNEL_BACKEND_PYTHON:
         return KERNEL_BACKEND_PYTHON
     ordered = os.environ.get(STAGE_ENVIRONMENT[stage], "").strip()
-    return normalize_kernel_backend(ordered) if ordered else (KERNEL_BACKEND_PYTHON if stage == "angular" else master)
+    return normalize_kernel_backend(ordered) if ordered else (KERNEL_BACKEND_PYTHON if stage in OPT_IN_STAGES else master)
 
 
 def stage_orders(
@@ -172,6 +177,7 @@ def stage_orders(
     frame_backend=None,
     density_backend=None,
     angular_backend=None,
+    chain_station_backend=None,
 ) -> StageOrdersV1:
     """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
@@ -190,6 +196,7 @@ def stage_orders(
         environment_order("frame", master) if frame_backend is None else normalize_kernel_backend(frame_backend),
         environment_order("density", master) if density_backend is None else normalize_kernel_backend(density_backend),
         environment_order("angular", master) if angular_backend is None else normalize_kernel_backend(angular_backend),
+        environment_order("chain_station", master) if chain_station_backend is None else normalize_kernel_backend(chain_station_backend),
     )
 
 
@@ -264,14 +271,14 @@ def fold_legacy_skeleton_setting(mesh_settings):
 
 
 def backend_identity_of(
-    kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None, snapshot_check_backend=None, *, frame_backend=None, density_backend=None, angular_backend=None
+    kernel_backend, skeleton_backend=None, embedding_backend=None, effective_alpha_backend=None, materialize_backend=None, snapshot_check_backend=None, *, frame_backend=None, density_backend=None, angular_backend=None, chain_station_backend=None
 ) -> str:
     """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...`, `|snap_embedding=...`, `|effective_alpha=...`, `|materialize_w1=...`, `|snapshot_check=...`, `|frame=...` `|density=...` и `|angular=...` при нативных стадиях.
 
     Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
     """
 
-    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend, frame_backend=frame_backend, density_backend=density_backend, angular_backend=angular_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend, effective_alpha_backend, materialize_backend, snapshot_check_backend, frame_backend=frame_backend, density_backend=density_backend, angular_backend=angular_backend, chain_station_backend=chain_station_backend)
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
@@ -282,7 +289,8 @@ def backend_identity_of(
         base = base if orders.snapshot_check == KERNEL_BACKEND_PYTHON else f"{base}|snapshot_check={orders.snapshot_check}"
         base = base if orders.frame == KERNEL_BACKEND_PYTHON else f"{base}|frame={orders.frame}"
         base = base if orders.density == KERNEL_BACKEND_PYTHON else f"{base}|density={orders.density}"
-        return base if orders.angular == KERNEL_BACKEND_PYTHON else f"{base}|angular={orders.angular}"
+        base = base if orders.angular == KERNEL_BACKEND_PYTHON else f"{base}|angular={orders.angular}"
+        return base if orders.chain_station == KERNEL_BACKEND_PYTHON else f"{base}|chain_station={orders.chain_station}"
     return backend_identity(*orders.as_arguments(), **orders.as_keywords())
 
 
@@ -401,6 +409,8 @@ def with_kernel_backend(produce):
     def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, density_backend=None, **kwargs):
         if "angular_backend" in kwargs:
             raise TypeError("product ANGULAR override must use CFTUV_ANGULAR_BACKEND so execution identity follows it")
+        if "chain_station_backend" in kwargs:
+            raise TypeError("product CHAIN_STATION override must use CFTUV_CHAIN_STATION_BACKEND so execution identity follows it")
         with entered_backend(backend, skeleton_backend, embedding_backend, density_backend=density_backend) as ledger:
             result = produce(*args, **kwargs)
         if ledger is None:
@@ -485,6 +495,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             recorded.frame_requested,
             recorded.density_requested,
             getattr(recorded, "angular_requested", KERNEL_BACKEND_PYTHON),
+            getattr(recorded, "chain_station_requested", KERNEL_BACKEND_PYTHON),
         )
     counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
     patches = {name: {} for name, _label in STAGES}
@@ -505,6 +516,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             "snapshot_check": (record.snapshot_check_ran, record.snapshot_check_outcomes),
             "frame": (record.frame_ran, record.frame_outcomes),
             "angular": (getattr(record, "angular_ran", ""), getattr(record, "angular_outcomes", ())),
+            "chain_station": (getattr(record, "chain_station_ran", ""), getattr(record, "chain_station_outcomes", ())),
             "density": (getattr(record, "density_ran", ""), getattr(record, "density_outcomes", ())) if fresh else ("", ()),
         }
         for name, _label in STAGES:
@@ -591,7 +603,7 @@ def native_status_line(kernel_backend, status) -> tuple:
     """
 
     orders = stage_orders(kernel_backend)
-    shown = [(name, label) for name, label in STAGES if name != "angular" or orders.angular == KERNEL_BACKEND_NATIVE]
+    shown = [(name, label) for name, label in STAGES if name not in OPT_IN_STAGES or getattr(orders, name) == KERNEL_BACKEND_NATIVE]
     ready = [label for name, label in shown if getattr(status, _STATUS_FLAGS[name])]
     missing = [label for name, label in shown if not getattr(status, _STATUS_FLAGS[name])]
     if normalize_kernel_backend(kernel_backend) == KERNEL_BACKEND_PYTHON:

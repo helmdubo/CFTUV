@@ -51,7 +51,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, angular_op, buildid, codec, cost, density_op, effective_alpha_op, embedding_op, frame_op, materialize_w1_op, pin, snapshot_check_op
+from . import _core, angular_op, buildid, chain_station_op, codec, cost, density_op, effective_alpha_op, embedding_op, frame_op, materialize_w1_op, pin, snapshot_check_op
 
 __all__ = (
     "CostMirror",
@@ -61,6 +61,7 @@ __all__ = (
     "NativePortUnsupported",
     "NativeUnsupportedPython",
     "build_skeleton",
+    "chain_station_plans",
     "clip_geometry",
     "clip_seam_run",
     "clip_seam_table",
@@ -78,6 +79,7 @@ __all__ = (
     "angular_compute",
     "angular_patch",
     "warm_angular",
+    "warm_chain_station",
     "frame_metric",
     "frame_raw_layouts",
     "canonical_triangles",
@@ -218,9 +220,20 @@ def native_status() -> dict:
 
     found = pin.native_status()
     found["angular"] = angular_op.status()
+    found["chain_station"] = chain_station_op.status()
     if "density" not in found:
         found["density"] = "pending_validation" if hasattr(_core, "density_compute") else "unavailable"
     return found
+
+
+def chain_station_plans(snapshot, patch_domain_id):
+    """`CHAIN_STATION_PLAN_V1`: the frozenset of `ChainStationPlanV1` the Python law answers, or `NativePortUnsupported` naming why the port declined (see `chain_station_op.py`)."""
+    return chain_station_op.chain_station_plans(_core, snapshot, patch_domain_id)
+
+
+def warm_chain_station() -> bool:
+    """Binds the native chain station law to the live kernel ahead of the first domain (`chain_station_op.warm`)."""
+    return chain_station_op.warm(_core)
 
 
 def density_compute(batch):

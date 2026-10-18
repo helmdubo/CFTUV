@@ -780,6 +780,10 @@ def warm_worker_identities() -> dict:
             from cftuv_envelope.backend import warm_frame
 
             warm_frame()  # привязка нативного допуска рамки (дайджесты функций контрактов, таблица классов): разовые десятки мс, не на первом домене
+        if stage_orders(DEFAULT_KERNEL_BACKEND).chain_station == "NATIVE":
+            from cftuv_envelope.backend import warm_chain_station
+
+            warm_chain_station()  # CHAIN_STATION_BIND_AT_WORKER_START_V1: дайджесты файлов закона и таблица классов один раз на процесс, не на первом домене
         if stage_orders(DEFAULT_KERNEL_BACKEND).angular == "NATIVE":
             from cftuv_envelope.backend import warm_angular
             from .envelope_angular_binding import build_binding_inputs, build_dependencies

@@ -33,7 +33,7 @@ use pyo3::{ffi, intern, IntoPyObjectExt};
 use crate::pyobj::{ibig_from_int, note_attr_reads, process_mode, refuse, Raw, SlotMode};
 
 /// A failure of reading: a Python error (surfaces as an exception), or a decline (the snapshot is not the canonical shape of the contract).
-enum Fail {
+pub(crate) enum Fail {
     Py(PyErr),
     Decline(Decline),
 }
@@ -50,9 +50,9 @@ impl From<Decline> for Fail {
     }
 }
 
-type Read<T> = Result<T, Fail>;
+pub(crate) type Read<T> = Result<T, Fail>;
 
-fn shape<T>(text: impl Into<String>) -> Read<T> {
+pub(crate) fn shape<T>(text: impl Into<String>) -> Read<T> {
     Err(Fail::Decline(Decline { reason: Reason::Shape, detail: text.into() }))
 }
 
@@ -61,7 +61,7 @@ fn shape<T>(text: impl Into<String>) -> Read<T> {
 // --------------------------------------------------------------------------
 
 /// The slots of a class in the order of its MRO (`__slots__` of every class that has them), the raw access when the probe confirms it, and the position of each requested field.
-struct Cls {
+pub(crate) struct Cls {
     class: Py<PyAny>,
     class_ptr: usize,
     names: Vec<Py<PyString>>,
@@ -94,7 +94,7 @@ fn all_slots(py: Python<'_>, class: &Bound<'_, PyAny>) -> PyResult<Vec<String>> 
 
 impl Cls {
     /// `wanted`: the fields the reader asks for, in the order it asks (`get(object, k)` is the k-th).
-    fn new(py: Python<'_>, mode: SlotMode, label: &str, class: &Bound<'_, PyAny>, wanted: &[&str]) -> PyResult<Cls> {
+    pub(crate) fn new(py: Python<'_>, mode: SlotMode, label: &str, class: &Bound<'_, PyAny>, wanted: &[&str]) -> PyResult<Cls> {
         let slots = all_slots(py, class)?;
         let names: Vec<Py<PyString>> = slots.iter().map(|name| PyString::new(py, name).unbind()).collect();
         let mut position = Vec::with_capacity(wanted.len());
@@ -110,7 +110,7 @@ impl Cls {
         Ok(Cls { class_ptr: class.as_ptr() as usize, class: class_owned, names, raw, position })
     }
 
-    fn is(&self, object: &Bound<'_, PyAny>) -> bool {
+    pub(crate) fn is(&self, object: &Bound<'_, PyAny>) -> bool {
         object.get_type().as_ptr() as usize == self.class_ptr
     }
 
@@ -119,7 +119,7 @@ impl Cls {
     }
 
     /// The k-th requested field of an instance of exactly this class.
-    fn get<'py>(&self, object: &Bound<'py, PyAny>, k: usize) -> Read<Bound<'py, PyAny>> {
+    pub(crate) fn get<'py>(&self, object: &Bound<'py, PyAny>, k: usize) -> Read<Bound<'py, PyAny>> {
         let slot = self.position[k];
         if let Some(raw) = &self.raw {
             if let Some(found) = raw.read(object, slot) {
@@ -145,7 +145,7 @@ impl ClassName for Py<PyAny> {
 }
 
 /// An enum class: its members by identity.
-struct Members {
+pub(crate) struct Members {
     class_ptr: usize,
     members: Vec<(usize, u8)>,
     name: String,
@@ -153,7 +153,7 @@ struct Members {
 
 impl Members {
     /// `names`: the member names the reader distinguishes, in order; a member of the enum not in `names` reads as code 255.
-    fn new(py: Python<'_>, class: &Bound<'_, PyAny>, names: &[&str]) -> PyResult<Members> {
+    pub(crate) fn new(py: Python<'_>, class: &Bound<'_, PyAny>, names: &[&str]) -> PyResult<Members> {
         let mut members = Vec::new();
         for member in class.try_iter()? {
             let member = member?;
@@ -170,7 +170,7 @@ impl Members {
         Ok(Members { class_ptr: class.as_ptr() as usize, members, name: class.getattr(intern!(py, "__name__"))?.extract()? })
     }
 
-    fn code(&self, object: &Bound<'_, PyAny>) -> Read<u8> {
+    pub(crate) fn code(&self, object: &Bound<'_, PyAny>) -> Read<u8> {
         if object.get_type().as_ptr() as usize != self.class_ptr {
             return shape(format!("a value that is not a member of {}", self.name));
         }
@@ -258,7 +258,7 @@ struct Bindings {
     none_ptr: usize,
 }
 
-fn class_of<'py>(classes: &Bound<'py, PyDict>, name: &str) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn class_of<'py>(classes: &Bound<'py, PyDict>, name: &str) -> PyResult<Bound<'py, PyAny>> {
     match classes.get_item(name)? {
         Some(found) => Ok(found),
         None => Err(refuse(format!("the shim did not hand over `{name}`"))),

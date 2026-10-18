@@ -69,10 +69,10 @@ def test_frozen_choice_survives_environment_change_and_pickle(monkeypatch, cls, 
 
 
 def test_density_and_frame_are_public_stages_with_six_positional_arguments():
-    assert host.STAGES[-2:] == (('density', 'density'), ('angular', 'angular'))
-    assert len(host.STAGES) == 9
+    assert host.STAGES[-3:] == (('density', 'density'), ('angular', 'angular'), ('chain_station', 'chain station'))
+    assert len(host.STAGES) == 10
     assert host.stage_orders().as_arguments() == ('NATIVE',) * 3 + ('PYTHON',) * 3
-    assert host.stage_orders().as_keywords() == {'frame_backend': 'PYTHON', 'density_backend': 'NATIVE', 'angular_backend': 'PYTHON'}
+    assert host.stage_orders().as_keywords() == {'frame_backend': 'PYTHON', 'density_backend': 'NATIVE', 'angular_backend': 'PYTHON', 'chain_station_backend': 'PYTHON'}
     with host.entered_backend('NATIVE') as ledger:
         assert backend.active_density_backend() is backend.KernelBackendV1.NATIVE
         assert ledger.density_requested == 'NATIVE'

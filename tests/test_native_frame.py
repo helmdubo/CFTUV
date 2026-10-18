@@ -313,7 +313,7 @@ def test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_an_answer(monkeyp
     try:
         status = cftuv_native.native_status()
         assert status["frame"] == "stale(planar_metric.py)"
-        assert all(status[name] == "available" for name in status if name not in ("frame", "angular")), status
+        assert all(status[name] == "available" for name in status if name not in ("frame", "angular", "chain_station")), status
         with backend.use_backend("PYTHON", embedding_backend="NATIVE", frame_backend="NATIVE") as ledger:
             assert backend.frame_compute(**corpus.native_arguments(_answered())) is None
         assert ledger.record().frame_native_calls == 0 and ledger.record().frame_python_calls == 1

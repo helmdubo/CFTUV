@@ -127,6 +127,7 @@ dependencies = [
  "cftuv-radical",
  "cftuv-skeleton",
  "cftuv-snapshot",
+ "cftuv-station",
  "mimalloc",
  "pyo3",
  "sha2",
@@ -158,6 +159,13 @@ version = "0.1.0"
 dependencies = [
  "cftuv-canon",
  "cftuv-core",
+ "dashu-int",
+]
+
+[[package]]
+name = "cftuv-station"
+version = "0.1.0"
+dependencies = [
  "dashu-int",
 ]
 

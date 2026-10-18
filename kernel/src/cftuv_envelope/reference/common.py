@@ -87,7 +87,9 @@ def settled_result(memo, name: str, subjects: tuple, compute):
 def station_plans_of(snapshot, patch_domain_id, memo):
     """Планы станций домена (`chain_station_plans`): один раз на снапшот и домен транзакции, а не на каждую проверку."""
 
-    return settled_result(memo, "station-plans", (snapshot, patch_domain_id), lambda: chain_station_plans(snapshot, patch_domain_id))
+    from ..backend import chain_station_compute
+
+    return settled_result(memo, "station-plans", (snapshot, patch_domain_id), lambda: chain_station_compute(snapshot, patch_domain_id, chain_station_plans))
 
 
 def _verify_plan_inputs(compilation, memo) -> None:

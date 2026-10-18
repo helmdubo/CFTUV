@@ -1,0 +1,254 @@
+[
+ {
+  "id": "BASELINE",
+  "outcome": "passed",
+  "seconds": 45.1,
+  "first_failure": ""
+ },
+ {
+  "id": "L01_exponent_not_shifted_by_stripped_zeros",
+  "outcome": "killed",
+  "seconds": 17.1,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "L02_sign_of_coordinate_dropped",
+  "outcome": "killed",
+  "seconds": 18.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[cover008:9b016154]"
+ },
+ {
+  "id": "L03_surface_face_overwrite_keeps_the_first",
+  "outcome": "killed",
+  "seconds": 18.2,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[building:e14832f6]"
+ },
+ {
+  "id": "L04_neighbour_face_shadows_the_surface_face",
+  "outcome": "killed",
+  "seconds": 18.2,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[building:e14832f6]"
+ },
+ {
+  "id": "L05_neighbour_position_overwrites",
+  "outcome": "killed",
+  "seconds": 18.4,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[building:e14832f6]"
+ },
+ {
+  "id": "L06_newell_skips_the_last_triangle",
+  "outcome": "killed",
+  "seconds": 17.7,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "L07_within_forgets_the_count",
+  "outcome": "killed",
+  "seconds": 17.7,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L08_inert_one_way",
+  "outcome": "killed",
+  "seconds": 17.7,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[building:12948b02]"
+ },
+ {
+  "id": "L09_flat_together_smallest_face",
+  "outcome": "killed",
+  "seconds": 20.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_random_strips_arcs_and_rings_are_answered_alike_and_reach_the_windows_and_the_joints"
+ },
+ {
+  "id": "L10_float_filter_unsound_low_margin",
+  "outcome": "killed",
+  "seconds": 45.6,
+  "first_failure": "cargo test: 504, 1.6311321489465036]\n  left: true\n right: false\n\n\nfailures:\n    tests::float_filter_is_sound_at_the_margin\n    tests::the_exact_segment_distance_agrees_with_the_filter_wherever_the_filter_decides\n\ntest result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finishe"
+ },
+ {
+  "id": "L11_segment_start_branch_dropped",
+  "outcome": "killed",
+  "seconds": 48.3,
+  "first_failure": "cargo test: : false\n right: true\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    tests::the_exact_segment_distance_agrees_with_the_filter_wherever_the_filter_decides\n\ntest result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finishe"
+ },
+ {
+  "id": "L12_segment_far_end_from_start",
+  "outcome": "killed",
+  "seconds": 46.5,
+  "first_failure": "cargo test: : true\n right: false\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    tests::the_exact_segment_distance_agrees_with_the_filter_wherever_the_filter_decides\n\ntest result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finishe"
+ },
+ {
+  "id": "L13_backward_turn_admitted",
+  "outcome": "killed",
+  "seconds": 19.4,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L14_bend_limit_inverted",
+  "outcome": "killed",
+  "seconds": 18.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L15_chord_against_the_far_arm",
+  "outcome": "killed",
+  "seconds": 18.2,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L16_corner_vertex_not_a_junction",
+  "outcome": "killed",
+  "seconds": 17.6,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L17_border_expects_two_faces",
+  "outcome": "killed",
+  "seconds": 17.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "L18_unknown_side_for_every_kind",
+  "outcome": "killed",
+  "seconds": 18.1,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[building:d7dd5f82]"
+ },
+ {
+  "id": "L19_chain_edges_taken_as_transverse",
+  "outcome": "killed",
+  "seconds": 17.5,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "L20_two_patches_not_a_junction",
+  "outcome": "killed",
+  "seconds": 17.7,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L21_pairs_unsorted",
+  "outcome": "killed",
+  "seconds": 18.0,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_seed_domain_is_answered_alike[building:7438cb23]"
+ },
+ {
+  "id": "L22_deep_groups_never_demoted",
+  "outcome": "killed",
+  "seconds": 17.7,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L23_joints_never_agree",
+  "outcome": "killed",
+  "seconds": 20.2,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_random_strips_arcs_and_rings_are_answered_alike_and_reach_the_windows_and_the_joints"
+ },
+ {
+  "id": "L24_ring_starts_at_the_largest_name",
+  "outcome": "killed",
+  "seconds": 28.9,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_long_strips_and_square_rings_drift_through_the_run_windows_alike"
+ },
+ {
+  "id": "L25_joint_vertex_listed_twice",
+  "outcome": "killed",
+  "seconds": 24.8,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_random_strips_arcs_and_rings_are_answered_alike_and_reach_the_windows_and_the_joints"
+ },
+ {
+  "id": "L26_carried_vertex_opens_no_window",
+  "outcome": "killed",
+  "seconds": 20.6,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_random_strips_arcs_and_rings_are_answered_alike_and_reach_the_windows_and_the_joints"
+ },
+ {
+  "id": "L27_window_skips_its_last_vertex",
+  "outcome": "killed",
+  "seconds": 24.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_long_strips_and_square_rings_drift_through_the_run_windows_alike"
+ },
+ {
+  "id": "L29_joint_with_a_third_chain",
+  "outcome": "killed",
+  "seconds": 17.2,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "L30_partner_outside_the_domain",
+  "outcome": "killed",
+  "seconds": 20.2,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_random_strips_arcs_and_rings_are_answered_alike_and_reach_the_windows_and_the_joints"
+ },
+ {
+  "id": "L31_closed_chain_keeps_the_repeated_end",
+  "outcome": "killed",
+  "seconds": 20.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_random_strips_arcs_and_rings_are_answered_alike_and_reach_the_windows_and_the_joints"
+ },
+ {
+  "id": "L32_window_drift_never_demotes",
+  "outcome": "killed",
+  "seconds": 17.8,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "P01_ids_ranked_backwards",
+  "outcome": "killed",
+  "seconds": 18.4,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "P02_point_x_read_as_y",
+  "outcome": "killed",
+  "seconds": 14.9,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "P03_unavailable_position_declined",
+  "outcome": "killed",
+  "seconds": 16.8,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_seeded_mutants_of_every_seed_domain_are_answered_alike_or_declined_where_the_oracle_raises[building:e14832f6]"
+ },
+ {
+  "id": "P04_chain_kinds_swapped",
+  "outcome": "killed",
+  "seconds": 14.1,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "P05_closed_negated",
+  "outcome": "killed",
+  "seconds": 15.0,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "P06_pair_written_backwards",
+  "outcome": "killed",
+  "seconds": 15.5,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ },
+ {
+  "id": "P07_domain_chains_dropped",
+  "outcome": "killed",
+  "seconds": 14.8,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "P08_neighbours_ignored",
+  "outcome": "killed",
+  "seconds": 15.9,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it"
+ },
+ {
+  "id": "S01_free_under_chart_never_named",
+  "outcome": "killed",
+  "seconds": 15.4,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_seed_domain_is_answered_alike[rounded:72d2d6f6]"
+ },
+ {
+  "id": "S02_payload_mode_ignored",
+  "outcome": "killed",
+  "seconds": 7.3,
+  "first_failure": "FAILED tests/test_native_chain_station.py::test_every_world_of_the_kernel_law_tests_is_answered_alike"
+ }
+]

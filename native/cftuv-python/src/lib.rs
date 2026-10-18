@@ -5,6 +5,7 @@
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
 mod angular;
+mod chain_station;
 mod clip;
 mod clip_seams;
 mod coverage;
@@ -541,6 +542,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(embedding::snap_embedding, module)?)?;
     module.add_class::<effective_alpha::AlphaFrame>()?;
     module.add_class::<snapshot_check::SnapshotCheck>()?;
+    module.add_class::<chain_station::ChainStation>()?;
     module.add_class::<frame::FrameOp>()?;
     module.add_function(wrap_pyfunction!(effective_alpha::alpha_frame, module)?)?;
     module.add_function(wrap_pyfunction!(radical_v2::radical_v2_eval, module)?)?;

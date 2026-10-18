@@ -71,3 +71,22 @@ HOW (scripts/ in this folder; raw JSON on D:/r3plus-scratch/prof/out, not commit
 4. PHASE B CHOICE
    S2 is the top RUST slice by gain/risk that can be carried end to end (oracle unchanged, pure leaf, small output, no sympy, a Rust snapshot reader already
    exists). S1 is cheaper and goes first as a separate commit (no Rust, no pin).
+
+5. PHASE B RESULT (2026-10-19)
+   S1 NOT DONE - needs the owner: tests/test_native_density_pin.py::test_dataclass_field_schema_change_after_warm_is_stale pins that a dataclass field schema change AFTER warm (`field.compare` flipped in place) is stale
+      on the next call; a bind-once digest cannot see an in-place mutation without re-freezing the shapes per call, which is the cost S1 removes.
+      Keeping the guarantee and dropping the cost are exclusive; which one wins is an owner semantic (question in the report).
+   S2 DONE as a CANDIDATE (pins approved=False, stage opt-in like ANGULAR: CFTUV_CHAIN_STATION_BACKEND=NATIVE, warmed at worker start).
+      native/cftuv-station (exact integer predicates: every coordinate scaled by one power of two, no centroid division; the binary64 filter mirrored),
+      cftuv-python/src/chain_station.rs (reader, bound once), cftuv_native/chain_station_op.py, kernel backend.chain_station_compute at station_plans_of.
+      parity: field corpus 1218/1218 equal (plans and per-plan pickles) on 3.11 and 3.13; kernel law worlds 47 shadowed; seed 26 domains + seeded mutants;
+              600 random strips/rings + 2000 long strips/square rings; declines only where the oracle raises (empty neighbour, missing window position).
+      per call (corpus): Python 1.64 ms -> native 0.062 ms on 3.11 (26x); 0.91 -> 0.057 ms on 3.13 (16x).
+      mutation gate: 41 single-site mutants (L lib.rs, P reader, S shim) all killed by tests/test_native_chain_station.py + cargo test -p cftuv-station
+              (station_mutants_results.json); equivalent sites listed in station_mutants.py.
+      field A/B (tools/blender_tree_ab.py, cold, w0 and w12, one tree, PYTHON vs NATIVE, in-memory pin approval): building, rounded, two, sagging0987,
+              half_sphere, cover008 all IDENTICAL (12/12); branch chain station plans native 122/5/32/2/2/1048, Python 0, named fallbacks 0.
+      cold button, 6 alternating repeats, medians (station_timing_controller_s2c.json), base 61e46e89 vs branch:
+              cover008 8.478 -> 8.359 s (-0.120 s, -1.4 %, ranges disjoint); building 1.592 -> 1.594 s (no change, as estimated).
+      STOP rules: unit speedup >= 5x (16-26x), cover gain >= 0.06 s (0.12) - both pass.
+   NEXT: S3 PREPARE GEOMETRY ATTEST (-0.20..-0.25 s cover), after the owner approves the S2 pins.
