@@ -1,0 +1,54 @@
+{
+  "base": "f8f52ed75dce0ecb650d8f1f45dcb586597b1de0",
+  "previous_design_commit": "1d89542a9fcf62007d23c6335b986e112a1ed20b",
+  "date": "2026-10-19",
+  "product_diff_vs_base": [],
+  "scene_sha256": {
+    "building": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+    "cover008": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32"
+  },
+  "native_build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "captured_preparation_sha256": "1bbda1b1c92f090a504e99fc428a11577efb31774c0b50dde4ee8cf96be4d404",
+  "evidence_files_sha256": {
+    "INDEPENDENT_DESIGN_RU.txt": "f87f4aad735bab19a8642c745bbb05a33fbe7cd016b6c352e990df8f3f4c0b23",
+    "independent_focus.json": "6301b26cf4693add217eb623d58fecd6811f2d521e2b166ad0f746998e9185b7",
+    "exact_event.json": "b614c6d01a3942179060cbea7180565b3393a9818bd7cff025ddf4d5a1ecc808",
+    "float_switch_observations.json": "570940a21cfb08bc23ab1d32e5300de76256dbe81b38fd41baf9164edd375a90",
+    "scripts/independent_focus.py": "a56c8365733b94d29a84c8adbfb7c2639d0fc60a573a7e8e0487932192864c29",
+    "scripts/exact_event.py": "18e8719eab0bde867054f6c107de21a8dfa3b96e07058d9f2560b5d6f8082224",
+    "scripts/bundle_independent_evidence.py": "c6db4c8201d8c1d3f0c8eac24616d8249b559f65f17bca6ff114172de6725a28"
+  },
+  "executed": [
+    "headless narrow saved-preparation materialization, 7 named widths",
+    "headless 81-width fine grid plus 87 clean no-hook count checks",
+    "exact degree-10 polynomial and rational interval sign/derivative proof",
+    "source audit and scene hash checks"
+  ],
+  "not_executed": [
+    "new full-scene capture",
+    "new whole-corpus sweep",
+    "new tree_ab",
+    "Blender timing benchmark",
+    "GUI/perceptual acceptance",
+    "product implementation"
+  ],
+  "replay": [
+    "Blender -b <frozen cover008> --python-exit-code 1 --python independent_focus.py",
+    "python exact_event.py",
+    "Blender -b <frozen cover008> --python-exit-code 1 --python independent_focus.py -- --fine",
+    "python bundle_independent_evidence.py"
+  ],
+  "limits": [
+    "Polynomial is exact conditional on recorded affine operands; three-width check is not a global law proof.",
+    "Sampled FP oscillation is not a certified enclosing band.",
+    "Performance and complete certification remain implementation acceptance work."
+  ],
+  "free_bytes_end": {
+    "C:/": 9493032960,
+    "D:/": 93758595072,
+    "E:/": 10643607552,
+    "F:/": 36508590080,
+    "G:/": 9018380288,
+    "H:/": 2959712256
+  }
+}

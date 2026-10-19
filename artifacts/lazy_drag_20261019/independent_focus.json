@@ -1,0 +1,1016 @@
+{
+  "base": "f8f52ed75dce0ecb650d8f1f45dcb586597b1de0",
+  "coefficients": {
+    "facts": [
+      [
+        {
+          "intercept": [
+            [
+              196326880594514,
+              "5/2048"
+            ]
+          ],
+          "slope": []
+        },
+        {
+          "intercept": [],
+          "slope": []
+        }
+      ],
+      [
+        {
+          "intercept": [
+            [
+              107895191192066,
+              "1/2048"
+            ],
+            [
+              196326880594514,
+              "5/2048"
+            ]
+          ],
+          "slope": []
+        },
+        {
+          "intercept": [],
+          "slope": []
+        }
+      ],
+      [
+        {
+          "intercept": [
+            [
+              107895191192066,
+              "1/2048"
+            ],
+            [
+              196326880594514,
+              "5/2048"
+            ]
+          ],
+          "slope": [
+            [
+              1,
+              "3730898944/10387105"
+            ],
+            [
+              107895191192066,
+              "-65536/10387105"
+            ]
+          ]
+        },
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "65536"
+            ]
+          ]
+        }
+      ],
+      [
+        {
+          "intercept": [
+            [
+              196326880594514,
+              "5/2048"
+            ]
+          ],
+          "slope": []
+        },
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "65536"
+            ]
+          ]
+        }
+      ],
+      [
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "542310400/14011667"
+            ],
+            [
+              196326880594514,
+              "65536/14011667"
+            ]
+          ]
+        },
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "65536"
+            ]
+          ]
+        }
+      ],
+      [
+        {
+          "intercept": [],
+          "slope": []
+        },
+        {
+          "intercept": [],
+          "slope": []
+        }
+      ]
+    ],
+    "points": [
+      [
+        {
+          "intercept": [
+            [
+              1,
+              "-2"
+            ]
+          ],
+          "slope": []
+        },
+        {
+          "intercept": [
+            [
+              1,
+              "57076"
+            ]
+          ],
+          "slope": []
+        }
+      ],
+      [
+        {
+          "intercept": [],
+          "slope": []
+        },
+        {
+          "intercept": [
+            [
+              1,
+              "65536"
+            ]
+          ],
+          "slope": []
+        }
+      ],
+      [
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "-268435456/10387105"
+            ],
+            [
+              107895191192066,
+              "67108864/114870994195"
+            ]
+          ]
+        },
+        {
+          "intercept": [
+            [
+              1,
+              "65536"
+            ]
+          ],
+          "slope": [
+            [
+              1,
+              "-227096395776/2077421"
+            ],
+            [
+              107895191192066,
+              "-67108864/114870994195"
+            ]
+          ]
+        }
+      ],
+      [
+        {
+          "intercept": [
+            [
+              1,
+              "-2"
+            ]
+          ],
+          "slope": [
+            [
+              107895191192066,
+              "2048/27149845"
+            ],
+            [
+              196326880594514,
+              "2048/5429969"
+            ]
+          ]
+        },
+        {
+          "intercept": [
+            [
+              1,
+              "57076"
+            ]
+          ],
+          "slope": [
+            [
+              107895191192066,
+              "-58445824/27149845"
+            ],
+            [
+              196326880594514,
+              "8663040/5429969"
+            ]
+          ]
+        }
+      ],
+      [
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "-268435456/70058335"
+            ],
+            [
+              196326880594514,
+              "67108864/154955025353"
+            ]
+          ]
+        },
+        {
+          "intercept": [],
+          "slope": [
+            [
+              1,
+              "7660611043328/70058335"
+            ],
+            [
+              196326880594514,
+              "-67108864/154955025353"
+            ]
+          ]
+        }
+      ],
+      [
+        {
+          "intercept": [],
+          "slope": []
+        },
+        {
+          "intercept": [],
+          "slope": []
+        }
+      ]
+    ]
+  },
+  "evidence_limit": "Third-point equality is a cross-check, not an interval proof or a certified float event band.",
+  "exact_affine_third_width_mismatches": [],
+  "lattice_scale": "65536",
+  "native": {
+    "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+    "host_native_status": {
+      "angular": "available",
+      "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+      "chain_station": "available",
+      "clip": "available",
+      "coverage": "available",
+      "density": "available",
+      "detail": "",
+      "effective_alpha": "available",
+      "frame": "available",
+      "materialize_w1": "available",
+      "skeleton": "available",
+      "snap_embedding": "available",
+      "snapshot_check": "available",
+      "version": "0.1.0"
+    },
+    "module": "D:\\lazydrag-scratch/site\\cftuv_native\\__init__.py"
+  },
+  "patch": "host-v0:patch-domain:1146c49e3661ee2471ae903d",
+  "pickle_sha256": "1bbda1b1c92f090a504e99fc428a11577efb31774c0b50dde4ee8cf96be4d404",
+  "previous_design": "1d89542a9fcf62007d23c6335b986e112a1ed20b",
+  "scene_sha256_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+  "scene_sha256_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+  "union": [
+    "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+    "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+    "node:3",
+    "node:4",
+    "node:5",
+    "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+  ],
+  "widths": {
+    "0.04214220866560936": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 5,
+      "interval": {
+        "alpha": 0.04214220866560936,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": false,
+        "affine_uv_in_chart": false,
+        "chord_m": 1.9481786011310962e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.004415084903449088,
+        "residual_hex": "0x1.2158d544f5e6ap-8",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE": 1
+        },
+        "tau": "1/256"
+      },
+      "structure": {
+        "boundary_chains": "19716ce82ec0b333",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "6fdd7633a87bb804",
+        "facts": "947bde20503130a1",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ee552cfedddced75",
+        "vertices": "a5abcf6d1c628599"
+      },
+      "vertices": 10
+    },
+    "0.045": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 5,
+      "interval": {
+        "alpha": 0.045,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": false,
+        "affine_uv_in_chart": false,
+        "chord_m": 2.0207380093425953e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.004169235968077284,
+        "residual_hex": "0x1.113c2c21d7c86p-8",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE": 1
+        },
+        "tau": "1/256"
+      },
+      "structure": {
+        "boundary_chains": "19716ce82ec0b333",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "6fdd7633a87bb804",
+        "facts": "947bde20503130a1",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ee552cfedddced75",
+        "vertices": "a5abcf6d1c628599"
+      },
+      "vertices": 10
+    },
+    "0.047": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 5,
+      "interval": {
+        "alpha": 0.047,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": false,
+        "affine_uv_in_chart": false,
+        "chord_m": 2.065923001161158e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.004014949408964086,
+        "residual_hex": "0x1.071fac6816a0dp-8",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE": 1
+        },
+        "tau": "1/256"
+      },
+      "structure": {
+        "boundary_chains": "19716ce82ec0b333",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "6fdd7633a87bb804",
+        "facts": "947bde20503130a1",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ee552cfedddced75",
+        "vertices": "a5abcf6d1c628599"
+      },
+      "vertices": 10
+    },
+    "0.048518914007": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 5,
+      "interval": {
+        "alpha": 0.048518914007,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": false,
+        "affine_uv_in_chart": false,
+        "chord_m": 2.0975641824259974e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.003906250000024422,
+        "residual_hex": "0x1.0000000006dfdp-8",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE": 1
+        },
+        "tau": "1/256"
+      },
+      "structure": {
+        "boundary_chains": "19716ce82ec0b333",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "6fdd7633a87bb804",
+        "facts": "947bde20503130a1",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ee552cfedddced75",
+        "vertices": "a5abcf6d1c628599"
+      },
+      "vertices": 10
+    },
+    "0.0485189140073579": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 5,
+      "interval": {
+        "alpha": 0.0485189140073579,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": false,
+        "affine_uv_in_chart": false,
+        "chord_m": 2.0975641824333072e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.003906250000000973,
+        "residual_hex": "0x1.0000000000462p-8",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE": 1
+        },
+        "tau": "1/256"
+      },
+      "structure": {
+        "boundary_chains": "19716ce82ec0b333",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "6fdd7633a87bb804",
+        "facts": "947bde20503130a1",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ee552cfedddced75",
+        "vertices": "a5abcf6d1c628599"
+      },
+      "vertices": 10
+    },
+    "0.0485189140074579": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 4,
+      "interval": {
+        "alpha": 0.0485189140074579,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": true,
+        "affine_uv_in_chart": false,
+        "chord_m": 2.0975641824298683e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.0039062499999938287,
+        "residual_hex": "0x1.fffffffffc86ap-9",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_EDGES_DISSOLVED": 1,
+          "MATERIALIZE_SILHOUETTE_EDGES_WITHIN_UV_TOLERANCE": 1
+        },
+        "tau": "1/256"
+      },
+      "node4_dissolved": true,
+      "structure": {
+        "boundary_chains": "8de3bb2936f452e8",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "0fcbfc719d41c274",
+        "facts": "c225dcd54f9ddad4",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ea73a00417a2fa07",
+        "vertices": "5da7e2e4ef2d104b"
+      },
+      "vertices": 9
+    },
+    "0.048518914008": {
+      "before_silhouette": {
+        "faces": 6,
+        "rings": [
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261",
+            "node:5",
+            "node:1",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553",
+            "node:2",
+            "node:3",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+            "node:3",
+            "node:4",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264",
+            "node:0",
+            "node:2",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1553"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+            "node:4",
+            "node:5",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+          ],
+          [
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2330",
+            "node:1",
+            "node:0",
+            "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2264"
+          ]
+        ],
+        "vertices": 12
+      },
+      "faces": 4,
+      "interval": {
+        "alpha": 0.048518914008,
+        "clip_events": 0,
+        "events": 24,
+        "high": 0.07741444544365941,
+        "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+        "low": 2.321522358767365e-14,
+        "reason": "",
+        "scope": [
+          "COVERAGE_NODE_ARRIVALS",
+          "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+          "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+        ],
+        "status": "CERTIFIED",
+        "uncertified": [
+          "TESSELLATION_AND_PARTITION_DECISIONS",
+          "SILHOUETTE_DISSOLVE_TOLERANCE",
+          "HOST_POSITION_LAW",
+          "STATION_PLAN_AND_UV",
+          "CELL_DIAGONAL_CHORD_VERDICT"
+        ]
+      },
+      "merge": {
+        "accepted_by_uv": true,
+        "affine_uv_in_chart": false,
+        "chord_m": 2.0975641824512982e-07,
+        "edge": [
+          "node:4",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265"
+        ],
+        "residual": 0.003906249999955837,
+        "residual_hex": "0x1.ffffffffe7237p-9",
+        "ring": [
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:2265",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1554",
+          "node:3",
+          "node:4",
+          "node:5",
+          "src:host-vertex:host-source:e65179df503e61d2e6c232cf2343e75d04748ffb1cc0e4e2c43d731b7407dbb8:cover.008:1261"
+        ],
+        "tally_delta": {
+          "MATERIALIZE_SILHOUETTE_EDGES_DISSOLVED": 1,
+          "MATERIALIZE_SILHOUETTE_EDGES_WITHIN_UV_TOLERANCE": 1
+        },
+        "tau": "1/256"
+      },
+      "node4_dissolved": true,
+      "structure": {
+        "boundary_chains": "8de3bb2936f452e8",
+        "diagnostics": "e2939e90c91c7165",
+        "faces": "0fcbfc719d41c274",
+        "facts": "c225dcd54f9ddad4",
+        "interface_chains": "16b2bd372f7dbd25",
+        "regions": "ea73a00417a2fa07",
+        "vertices": "5da7e2e4ef2d104b"
+      },
+      "vertices": 9
+    }
+  }
+}

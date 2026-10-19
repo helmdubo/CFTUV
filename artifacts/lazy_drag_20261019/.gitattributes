@@ -1,0 +1,8 @@
+# Preserve the exact bytes covered by INDEPENDENT_RECEIPT.json.
+INDEPENDENT_* -text
+exact_event.json -text
+float_switch_observations.json -text
+independent_focus.json -text
+scripts/independent_focus.py -text
+scripts/exact_event.py -text
+scripts/bundle_independent_evidence.py -text
