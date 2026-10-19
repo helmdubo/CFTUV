@@ -86,7 +86,8 @@ from .envelope_alpha_preview import (
 )
 from .envelope_gc_pause import gc_paused, gc_paused_function
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
-from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified
+from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
+from .envelope_width_stream import SETTLE_PENDING
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
@@ -379,11 +380,31 @@ def width_event_preview(controller, width: float, offset: float, owners=None):
     которых кадр НЕ двигает целиком: придержанных (интервал ядра кончился либо за досягаемостью), в карантине журнала доверия и тех, что не вошли
     в меш. Нет модели либо кадр отказан (имя в статусе) — линии всех путей, как прежде. Число пропущенных путей названо в статусе линий
     (`WidthPreviewV1.outcomes`). Возвращает состояние кадра меша либо `None` (кадра нет).
+
+    LIVE_DRAG_MESH_ONLY_V1: при живом точном меше (`live_drag_mesh_only`) линий нет вовсе - меш виден всё время, придержанные домены стоят на последней точной геометрии, пока такт их
+    не заменит. Единственный откат на линии - кадр меша не записан (модели нет, меш не наш, запись отказана): тогда меш не двигается, и линии - единственный ответ руке; откат назван
+    в журнале перетаскивания (`LIVE_DRAG_LINES_FALLBACK_NO_MESH_FRAME`).
     """
 
     state = preview_mesh_now(controller, width, owners)
+    if live_drag_mesh_only(controller):
+        if state is not None:
+            if controller.width_preview is not None:
+                set_preview(controller, None)
+            return state
+        controller.width_live_drag.count(controller.width_live_drag.refused, LINES_FALLBACK_NO_MESH_FRAME)
     preview_now(controller, width, offset, frozenset() if state is None else state.moving)
     return state
+
+
+#: LIVE_DRAG_MESH_ONLY_V1: кадр меша не записан при живом точном меше - линии превью показаны как откат (назван в журнале).
+LINES_FALLBACK_NO_MESH_FRAME = "LIVE_DRAG_LINES_FALLBACK_NO_MESH_FRAME"
+
+
+def live_drag_mesh_only(controller) -> bool:
+    """LIVE_DRAG_MESH_ONLY_V1: идёт перетаскивание с живым точным мешем - линии превью (оверлей) не показываются, виден только настоящий меш."""
+
+    return bool(getattr(controller, "width_drag_active", False)) and getattr(controller, "width_live_drag", None) is not None
 
 
 # --------------------------------------------------------------------------
@@ -845,6 +866,7 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             label="width",
             hold=lambda: _in_flight(controller.alpha_preview),
             idle=lambda: _live_drag_idle(controller),
+            settle=lambda request, now: settle_hold(controller.width_live_drag, request, now, drag_active=controller.width_drag_active),
         )
         controller.width_live = scheduler
     return scheduler
@@ -866,6 +888,7 @@ def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
         log.baseline = controller.width_live.counters
     if log is not None:
         seed_verified(log, controller.width_displayed, controller.width_incremental)
+        log.settle = bool(getattr(mesh_settings, "drag_settle_on_pause", True))  # LIVE_DRAG_SETTLE_ON_PAUSE_V1
     controller.width_live_drag = log
     return log
 
@@ -984,6 +1007,9 @@ def status_lines(controller) -> tuple[str, ...]:
     scheduler = controller.width_live
     if scheduler is not None and scheduler.status_text:
         lines.append(f"Width: {scheduler.status_text}")
+    waiting = None if scheduler is None else scheduler.settling
+    if waiting is not None:
+        lines.append(f"{SETTLE_PENDING}: the exact mesh of width {waiting.alpha:.4g} is swapped in when the hand rests")
     state = controller.width_preview
     if state is not None:
         lines.append(state.preview.status_text())
@@ -1016,6 +1042,9 @@ def draw_decal_width_rows(layout) -> None:
     if mesh_settings is not None:
         layout.prop(mesh_settings, "drag_exact_ticks")
         layout.prop(mesh_settings, "drag_live_mesh")
+        row = layout.row()
+        row.enabled = bool(getattr(mesh_settings, "drag_live_mesh", False))
+        row.prop(mesh_settings, "drag_settle_on_pause")
     if problem:
         layout.label(text=problem, icon="INFO")
         return

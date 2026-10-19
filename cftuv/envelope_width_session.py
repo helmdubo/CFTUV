@@ -132,9 +132,12 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
     )
     runtime = AdjustRuntimeV1(session, controller, float(mesh_settings.offset), start)
     begin_drag(controller)  # пока идёт перетаскивание, действуют точные lean-кадры (`request_drag_tick`, WIDTH_REFRESH_LEAN_V1); запомнено, к чему вернёт отмена
-    begin_live_drag(controller, mesh_settings)  # LIVE_DRAG_STREAM_V1: журнал живого точного меша этого перетаскивания (настройка выключена - `None`)
-    # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.
-    preview_now(controller, start, runtime.offset, moving_now(controller, start))
+    live = begin_live_drag(controller, mesh_settings)  # LIVE_DRAG_STREAM_V1: журнал живого точного меша этого перетаскивания (настройка выключена - `None`)
+    if live is None:
+        # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.
+        preview_now(controller, start, runtime.offset, moving_now(controller, start))
+    else:
+        set_preview(controller, None)  # LIVE_DRAG_MESH_ONLY_V1: при живом точном меше линий нет - виден только меш
     return runtime
 
 

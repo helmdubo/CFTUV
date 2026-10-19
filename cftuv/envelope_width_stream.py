@@ -48,6 +48,9 @@ WELD_CHANGED = "WELD_CHANGED"
 IDLE_BUDGET_SPENT = "DRAG_VERIFY_IDLE_BUDGET_SPENT"
 #: Сколько тактов сверки простой заказывает за одну остановку руки: дальше домены остаются `STRUCTURE_AS_OF` до следующего шага, полного такта или COMMIT.
 IDLE_TICKS_PER_PAUSE = 8
+#: LIVE_DRAG_SETTLE_ON_PAUSE_V1: рука «остановилась», если ширина не менялась столько секунд; до того готовый точный такт ждёт под именем `SETTLE_PENDING`.
+SETTLE_PAUSE_SECONDS = 0.12
+SETTLE_PENDING = "LIVE_DRAG_SETTLE_PENDING"
 #: Имя статуса обслуженного домена: структура его последнего точного счёта на названной ширине.
 STRUCTURE_AS_OF = "STRUCTURE_AS_OF"
 
@@ -86,6 +89,12 @@ class LiveDragLogV1:
     #: (`ADAPTER_WELD_POSITION_MISMATCH` массивов такта): обслуженный домен равен точному лишь с точностью округления, и побитовая сварка может развести вершины.
     weld_changes: int = 0
     weld_position_mismatch: int = 0
+    #: LIVE_DRAG_SETTLE_ON_PAUSE_V1: точные такты ложатся только на остановке руки; момент заказа последнего шага (часы планировщика); сколько готовых тактов ждали остановки
+    #: (`LIVE_DRAG_SETTLE_PENDING`) и номер последнего ждавшего (каждый считается один раз).
+    settle: bool = False
+    last_step_at: float | None = None
+    settle_held: int = 0
+    settle_seen: int = -1
     #: Такты, чья раскладка группы переложена (COMPOSITE_SPLICE_V1: имя причины -> сколько) и что откатились на массивы всего меша (имя отката -> сколько).
     spliced: dict = field(default_factory=dict)
     fallbacks: dict = field(default_factory=dict)
@@ -121,6 +130,7 @@ def note_step(log: LiveDragLogV1, request, target) -> None:
     log.target = target
     log.idle_left = None
     log.idle_in_pause = 0
+    log.last_step_at = float(request.requested_at)
     log.events.append((EVENT_STEP, int(request.sequence), float(request.alpha), float(request.requested_at)))
 
 
@@ -183,6 +193,20 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
     return log.cursor
 
 
+def settle_hold(log: LiveDragLogV1 | None, request, now: float, *, drag_active: bool) -> bool:
+    """LIVE_DRAG_SETTLE_ON_PAUSE_V1: готовый потоковый такт `request` ждёт остановки руки (`True`): настройка включена, перетаскивание идёт, и с последнего шага прошло меньше
+    `SETTLE_PAUSE_SECONDS`. Каждый ждавший такт считается один раз (`settle_held`)."""
+
+    if log is None or not log.settle or not drag_active or log.last_step_at is None or not getattr(request, "stream", False):
+        return False
+    if now - log.last_step_at >= SETTLE_PAUSE_SECONDS:
+        return False
+    if log.settle_seen != int(request.sequence):
+        log.settle_seen = int(request.sequence)
+        log.settle_held += 1
+    return True
+
+
 def pointer_after(log: LiveDragLogV1 | None, request) -> float | None:
     """Ширина курсора, к которой такт `request` надо сдвинуть кадром модели, когда он ляжет, либо `None` (журнала нет либо курсор на ширине такта); то же решение, что вернёт `note_applied`."""
 
@@ -240,6 +264,7 @@ def report(log: LiveDragLogV1, counters=None) -> dict:
         "verify_domains": log.verify_domains, "structure_changes": log.structure_changes, "layout_changes": log.layout_changes, "idle_ticks": log.idle_ticks,
         "idle_budget_spent": log.idle_budget_spent, "weld_changes": log.weld_changes, "weld_position_mismatch": log.weld_position_mismatch,
         "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused), "spliced": dict(log.spliced), "fallbacks": dict(log.fallbacks),
+        "settle": log.settle, "settle_held": log.settle_held,
     }
     if counters is not None:
         names = {"requested": "requested", "superseded": "coalesced", "started": "started", "applied": "applied", "nearest": "nearest",
@@ -265,6 +290,7 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
         f"(+{log.idle_ticks} idle ticks" + (f", {IDLE_BUDGET_SPENT} {log.idle_budget_spent}" if log.idle_budget_spent else "") + f"), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected" + (f" ({outcomes})" if outcomes else "") + as_of
         + (f"; layouts spliced (COMPOSITE_SPLICE_V1): " + ", ".join(f"{name} {count}" for name, count in sorted(log.spliced.items())) if log.spliced else "")
         + (f"; whole-mesh rollbacks: " + ", ".join(f"{name} {count}" for name, count in sorted(log.fallbacks.items())) if log.fallbacks else "")
+        + (f"; settle on pause: {log.settle_held} exact ticks waited ({SETTLE_PENDING}) for the hand to rest {SETTLE_PAUSE_SECONDS:g} s" if log.settle else "")
         + (f"; weld diverged in {log.weld_changes} ticks" if log.weld_changes else "")
         + (f"; {OUTCOME_WELD_POSITION_MISMATCH} up to {log.weld_position_mismatch}" if log.weld_position_mismatch else "")
         + f"; verification periods not run as full ticks {deferred}" + (f"; full ticks: {full}" if full else "") + (f"; refused: {refused}" if refused else "")
@@ -290,6 +316,9 @@ __all__ = (
     "pointer_after",
     "report",
     "seed_verified",
+    "SETTLE_PAUSE_SECONDS",
+    "SETTLE_PENDING",
+    "settle_hold",
     "status_line",
     "unverified_at",
     "WELD_CHANGED",

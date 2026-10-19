@@ -158,8 +158,11 @@ def test_without_stream_orders_the_idle_is_never_asked():
 # ==========================================================================
 
 
-def _live_world(monkeypatch, *, enabled=True):
-    """Мир после кнопки с перетаскиванием и включённой настройкой; такт ложится в сессию как у `lean_exact_now` (образец, модель, запись сверки), сдвиг к курсору записан."""
+def _live_world(monkeypatch, *, enabled=True, settle=False):
+    """Мир после кнопки с перетаскиванием и включённой настройкой; такт ложится в сессию как у `lean_exact_now` (образец, модель, запись сверки), сдвиг к курсору записан.
+
+    `settle` - «Settle topology on pause» (LIVE_DRAG_SETTLE_ON_PAUSE_V1); выключена, чтобы такты ложились сразу (их закон держат тесты раздела 1-2 без оседания), своё держат её тесты.
+    """
 
     monkeypatch.setattr(incremental, "INCREMENTAL_MIN_DOMAINS", 0)  # ряд из пяти доменов: правило малого выделения выключено, иначе каждый такт полный
     calls: list = []
@@ -167,6 +170,8 @@ def _live_world(monkeypatch, *, enabled=True):
     controller = _after_the_button(world)
     world.mesh_settings.drag_exact_ticks = False
     world.mesh_settings.drag_live_mesh = enabled
+    world.mesh_settings.drag_settle_on_pause = settle
+    world.event_preview = live.width_event_preview
     live.begin_live_drag(controller, world.mesh_settings)
     world.calls, world.reframes, world.reframed_in_lay, world.owners = calls, [], [], []
 
@@ -413,6 +418,75 @@ def test_the_idle_verification_has_a_budget_per_pause_and_names_where_it_stopped
     assert live.request_drag_tick(world.context, controller, 0.251)  # новый шаг руки - новый бюджет
     live.settle_width_live(controller)
     assert log.idle_ticks == 2 and log.idle_budget_spent == 2
+
+
+def test_a_settled_stream_result_waits_for_the_hand_and_the_newest_one_lands():
+    """LIVE_DRAG_SETTLE_ON_PAUSE_V1 (фальшивки): пока `settle` держит, готовый потоковый результат ждёт; новый заменяет ждавший (`stale`); отпустил - ложится на ближайшем шаге."""
+
+    holding = {"on": True}
+    h = Harness(settle=lambda request, now: holding["on"])
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.01).step()
+    h.at(0.02).scheduler.request(0.31, stream=True)
+    h.jobs[0].finished = True
+    h.at(0.03).step()  # первый готов, рука движется: ждёт; стартует второй
+    assert h.applied == [] and h.scheduler.settling.alpha == 0.30 and h.begun[-1].alpha == 0.31 and h.scheduler.busy
+    h.jobs[1].finished = True
+    h.at(0.04).step()  # второй заменил ждавший
+    assert h.applied == [] and h.scheduler.settling.alpha == 0.31 and h.scheduler.counters.stale == 1
+    assert h.scheduler._next_delay() is not None  # опрос идёт, пока ждёт
+    holding["on"] = False
+    h.at(0.2).step()
+    assert h.applied == [(0.31, ("scene", 0.31))] and h.scheduler.settling is None
+    counters = h.scheduler.counters
+    assert _outcomes(counters) == counters.requested
+
+
+def test_the_end_of_the_drag_drops_a_settling_result():
+    h = Harness(settle=lambda request, now: True)
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.01).step()
+    h.jobs[0].finished = True
+    h.at(0.02).step()
+    assert h.scheduler.settling is not None
+    assert h.scheduler.retire_stream("drag ended") and h.scheduler.settling is None and not h.scheduler.busy
+    h.at(0.5).step()
+    assert h.applied == []
+
+
+def test_settle_on_pause_holds_the_exact_tick_while_the_hand_moves_and_swaps_it_in_when_it_rests(monkeypatch):
+    world, controller = _live_world(monkeypatch, settle=True)
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    scheduler = controller.width_live
+    scheduler.step()
+    _finish(scheduler)  # готов раньше SETTLE_PAUSE_SECONDS после шага: ждёт
+    assert world.calls == [] and scheduler.settling is not None and controller.width_live_drag.settle_held == 1
+    assert any(line.startswith(stream.SETTLE_PENDING) for line in live.status_lines(controller))
+    monkeypatch.setattr(stream, "SETTLE_PAUSE_SECONDS", 0.0)  # рука остановилась
+    scheduler.step()
+    assert [item.sample.alpha for item in world.calls] == [0.2505] and scheduler.settling is None
+    assert "settle on pause: 1 exact ticks waited" in stream.status_line(controller.width_live_drag)
+
+
+def test_with_the_live_mesh_the_drag_shows_only_the_mesh_and_never_the_front_lines(monkeypatch):
+    """LIVE_DRAG_MESH_ONLY_V1: событие перетаскивания при живом меше не считает и не показывает линии; линии - только откат, когда кадр меша не записан (назван)."""
+
+    world, controller = _live_world(monkeypatch)
+    lines: list = []
+    monkeypatch.setattr(live, "preview_now", lambda session, width, offset, skip=frozenset(): lines.append(width))
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: "frame")
+    controller.width_preview = object()
+    assert world.event_preview(controller, 0.2505, OFFSET) == "frame"
+    assert lines == [] and controller.width_preview is None
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: None)
+    assert world.event_preview(controller, 0.251, OFFSET) is None
+    assert lines == [0.251] and controller.width_live_drag.refused == {live.LINES_FALLBACK_NO_MESH_FRAME: 1}
+    controller.width_drag_active = False  # не перетаскивание (калбэк поля ширины): линии, как прежде
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: SimpleNamespace(moving=frozenset()))
+    world.event_preview(controller, 0.252, OFFSET)
+    assert lines == [0.251, 0.252]
 
 
 def test_a_step_without_a_displayed_sample_is_named(monkeypatch):

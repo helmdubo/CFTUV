@@ -131,6 +131,14 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
             "Off by default: field test"
         ),
     )
+    drag_settle_on_pause: BoolProperty(
+        name="Settle topology on pause",
+        default=True,
+        description=(
+            "With the live exact mesh (LIVE_DRAG_SETTLE_ON_PAUSE_V1): while the hand moves, only model frames move the mesh (its structure stays the one of the last exact refresh); "
+            "exact refreshes still compute in the background, and the newest one is swapped in only when the hand rests (LIVE_DRAG_SETTLE_PENDING until then) or on release"
+        ),
+    )
     status: StringProperty(name="Decal Mesh Status", default="")
     timing: StringProperty(name="Decal Mesh Timing", default="")
 

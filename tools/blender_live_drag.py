@@ -40,6 +40,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--case", default="building")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--live", default="on", choices=("on", "off", "ticks"))
+    parser.add_argument("--settle", default="on", choices=("on", "off"), help="LIVE_DRAG_SETTLE_ON_PAUSE_V1 (\"Settle topology on pause\") under --live on")
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--interval", type=float, default=1.0 / 60.0, help="seconds between mouse steps (60 Hz)")
     parser.add_argument("--span", type=float, default=0.10, help="the drag reaches +-span of the cold width")
@@ -122,6 +123,8 @@ def run_drag(session, args, report: dict) -> None:
         raise RuntimeError("this tree has no LIVE_DRAG_STREAM_V1 switch (drag_live_mesh)")
     if hasattr(session.mesh_settings, "drag_live_mesh"):
         session.mesh_settings.drag_live_mesh = args.live == "on"
+    if hasattr(session.mesh_settings, "drag_settle_on_pause"):
+        session.mesh_settings.drag_settle_on_pause = args.settle == "on"
     session.mesh_settings.drag_exact_ticks = args.live == "ticks"  # the previous switch "Exact ticks while dragging" (debounced, cancelled by the hand)
     scheduler = live.scheduler_of(controller)
     scheduler._timers = _NoTimers()
@@ -215,6 +218,37 @@ def summarize(report: dict, rows: list, log) -> None:
         "own_latency": drag_ticks.stats(own), "catch_up_latency": drag_ticks.stats(caught), "steps_with_own_tick": len(own), "steps_caught_up_before_release": len(caught),
         "structure_changes_corrected": None if log is None else log.structure_changes, "layout_changes_corrected": None if log is None else log.layout_changes,
         "full_ticks": None if log is None else dict(log.full_ticks), "unverified_at_release": report.get("unverified_at_release"),
+    }
+    report["settle"] = settle_metrics(report, rows)
+
+
+#: The hand "moves" while the previous width step is younger than this (LIVE_DRAG_SETTLE_ON_PAUSE_V1 uses the same 0.12 s); a step followed by a gap longer than PAUSE_GAP starts a pause.
+MOVING_SECONDS = 0.12
+PAUSE_GAP = 0.5
+
+
+def settle_metrics(report: dict, rows: list) -> dict:
+    """Swaps during motion (an exact tick applied while the previous step is younger than MOVING_SECONDS and the hand moves on), the settle latency (the last step before a pause or the release ->
+    an exact mesh of that or a later width) and the mouse events split: while moving, and the first events after a pause (the hand resumes while the settled swap may still be applying)."""
+
+    steps = [row["at"] for row in rows]
+    applies = [item[3] for item in report.get("exact_events", []) if item[3] <= report["release_at"]]
+    swaps_moving = 0
+    for moment in applies:
+        before = [at for at in steps if at <= moment]
+        after = [at for at in steps if at > moment]
+        if before and moment - before[-1] < MOVING_SECONDS and after and after[0] - before[-1] < PAUSE_GAP:
+            swaps_moving += 1
+    pauses = [index for index, at in enumerate(steps) if index + 1 == len(steps) or steps[index + 1] - at > PAUSE_GAP]
+    settle = [rows[index]["catch_up"] for index in pauses if rows[index]["catch_up"] is not None]
+    samples = report.get("event_samples", [])
+    resumed = {index + 1 for index in pauses if index + 1 < len(samples)}
+    moving = [item for index, item in enumerate(samples) if index not in resumed]
+    first = [item for index, item in enumerate(samples) if index in resumed]
+    return {
+        "swaps_during_motion": swaps_moving, "swaps_total": len(applies), "pauses": len(pauses), "settle_latency": drag_ticks.stats(settle),
+        "moving_event_cost": drag_ticks.stats([item[2] for item in moving]), "moving_event_late": drag_ticks.stats([item[1] - item[0] for item in moving]),
+        "resume_event_cost": drag_ticks.stats([item[2] for item in first]), "resume_event_late": drag_ticks.stats([item[1] - item[0] for item in first]),
     }
 
 
