@@ -34,7 +34,7 @@ WHAT IS COMPARED, per domain and press (any difference is a failure; the exit co
   outcome, detail, content and semantic digests, EVERY counter (the six `EXACT_WORK_*` included), diagnostics, normals (and their digests), topology law, orientation, structure digest;
   the set of domains; the hash of the whole mesh (positions, faces, UVs, owners, seams: floats as hex); the content key of every domain the parent computed (the code identity is pinned
   to the same constants in both trees, otherwise two different sources would differ in every key by construction); the counters of the run and of its domains, profile receipts and stages.
-  Counters that depend on WHICH pool worker took a domain (the worker-local interval memo, the blob store, the clip memo) are compared by the SUM of their group; timing counters (`*_US`, `*_SECONDS`,
+  Counters that depend on WHICH pool worker took a domain (the worker-local interval memo, the blob store, the clip memo, the parametric slope memo) are compared by the SUM of their group; timing counters (`*_US`, `*_SECONDS`,
   `*_MS`) and byte counters of the run are not answers. `--allow-counter PREFIX` names counters a change adds on purpose: they are listed, never silently ignored.
   The process counters of the kernel's symbolic backend (`symbolic_backend.BACKEND_COUNTS`, `planar_types.SYMBOLIC_FALLBACK_COUNTS`) are compared too, per press, when the press was computed in this
   process (`--workers 0`; a pool worker keeps counters of its own, which the parent does not see). Label-only fields (step path, placement, clip memo, who ran, who ran the effective-alpha stage) are counted
