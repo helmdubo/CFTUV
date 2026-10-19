@@ -45,20 +45,20 @@ SILHOUETTE_FIELDS = (
 )
 PLANE_FIELDS = ("origin", "basis_a", "basis_b", "scale")
 
-_VERDICT: list = []
 _KERNEL: list = []
 
 
 def refresh() -> None:
-    """Forgets the verdict: the next call reads the pins again (the harness that installs pins calls it)."""
+    """Forgets the verdict: the next call reads the pins again. The verdict lives in `pin`'s cache of verdicts, so `pin.refresh()` forgets it too."""
 
-    _VERDICT.clear()
+    pin._VERDICTS.pop(OPERATION, None)
 
 
 def verdict() -> tuple:
-    """`("unavailable",)` without approved pins, `("unsupported_python",)`, `("stale", files)` or `("available",)`; once per process."""
+    """`("unavailable",)` without approved pins, `("unsupported_python",)`, `("stale", files)` or `("available",)`; once per process (until `pin.refresh()`)."""
 
-    if not _VERDICT:
+    found = pin._VERDICTS.get(OPERATION)
+    if found is None:
         if not APPROVED_PINS:
             found = ("unavailable",)
         elif not pin.python_supported():
@@ -67,8 +67,8 @@ def verdict() -> tuple:
             root = pin.kernel_root()
             stale = tuple(name if pin.digest(root, name) is not None else f"{name} (missing)" for name, wanted in APPROVED_PINS.items() if pin.digest(root, name) != wanted)
             found = ("stale", stale) if stale else ("available",)
-        _VERDICT.append(found)
-    return _VERDICT[0]
+        pin._VERDICTS[OPERATION] = found
+    return found
 
 
 def status() -> str:
