@@ -87,10 +87,25 @@ class IncrementalPlanV1:
     seconds: float = 0.0
     composite: bool = False
     fallback: str = ""
+    #: LIVE_DRAG_STREAM_V1: срок сверки (`INCREMENTAL_VERIFY_PERIOD_*`), отложенный потоковым тактом, пока рука движется (пусто - не откладывали).
+    deferred: str = ""
 
     @property
     def incremental(self) -> bool:
         return self.mode == REFRESH_INCREMENTAL
+
+
+@dataclass(frozen=True, slots=True)
+class StreamPolicyV1:
+    """Потоковый такт живого точного меша (LIVE_DRAG_STREAM_V1): `defer` - срок сверки откладывается, пока рука движется (сверку делает простой);
+    `force` - имя причины, по которой такт полный безусловно (сверка в простое); пусто - нет."""
+
+    defer: bool = True
+    force: str = ""
+
+
+#: Поводы полного такта, которые потоковый такт откладывает до простоя: это сроки, а не невозможность инкрементального такта.
+DEFERRABLE_REASONS = (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE)
 
 
 def full_plan(reason: str, domains: int = 0) -> IncrementalPlanV1:
@@ -141,6 +156,7 @@ def next_state(state: IncrementalStateV1 | None, plan: IncrementalPlanV1 | None,
 
 
 __all__ = (
+    "DEFERRABLE_REASONS",
     "ENVIRONMENT_SWITCH",
     "HELD_NOT_IN_BASE",
     "INCREMENTAL_MIN_DOMAINS",
@@ -159,6 +175,7 @@ __all__ = (
     "REASON_PERIOD_TICKS",
     "REASON_SMALL_SELECTION",
     "REASON_SWITCHED_OFF",
+    "StreamPolicyV1",
     "full_plan",
     "incremental_enabled",
     "mark_attempt",

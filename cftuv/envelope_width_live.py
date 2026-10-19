@@ -63,6 +63,10 @@ Decal Mesh»), а активный объект меняется. Инструм
 не сложился - название причины и путь из сдвинутых результатов всех доменов, `envelope_width_rebase`). Структура обслуженных доменов не заверена, поэтому политика сверки (путь ширины от сверки, число тактов, мало обслуженных) делает такт ПОЛНЫМ
 lean-тактом, а подтверждение всегда COMMIT; сверку, которую рука прервала, `_begin` отмечает, и тики не запираются. `CFTUV_INCREMENTAL=0` возвращает прежние lean-такты.
 
+ЖИВОЙ ТОЧНЫЙ МЕШ (LIVE_DRAG_STREAM_V1, `envelope_width_stream`, настройка «Live exact mesh while dragging», по умолчанию выключена). Такты того же класса заказываются ПОТОКОМ: без паузы, полёт не
+отменяется, последнее значение побеждает, такт ближайшей ширины ложится и меш сдвигается к курсору кадром новой модели; срок сверки откладывается, пока рука движется, а сверку (полный lean-такт
+`LIVE_DRAG_RECONCILE_IDLE`) заказывает простой планировщика, и рука её вытесняет. Подтверждение - тот же COMMIT, отмена - тот же возврат. Выключенная настройка не меняет ничего.
+
 ПАУЗА СБОРЩИКА (GC_PAUSED_DURING_WIDTH_TICK_V1, `envelope_gc_pause`). Циклический сборщик родителя стоит на паузе ровно на работе тика, а не на простое между ними: счёт в потоке (`compute`:
 тот же для точного заказа и подтверждения), применение на главном потоке (`_apply`) и подтверждение инструмента (`envelope_width_session.finish_adjust`). Сборщик общий
 на процесс, поэтому пока поток внутри `compute`, он выключен и для главного потока (тот в это время опрашивает таймер; тик длится секунды), а когда `compute` вернулся, включён: и пауза
@@ -80,7 +84,9 @@ from .envelope_alpha_preview import (
     ThreadedPreviewJob,
 )
 from .envelope_gc_pause import gc_paused, gc_paused_function
-from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, mark_attempt, verification_reason
+from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
+from .envelope_width_stream import RECONCILE_IDLE, STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step
+from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
 from .envelope_width_mesh_preview import (
@@ -167,6 +173,9 @@ class WidthLiveTargetV1:
     #: Класс обновления (WIDTH_REFRESH_LEAN_V1): `COMMIT` - полный путь, зафиксированный ответ (умолчание: подтверждение инструмента, ползунок, кнопка);
     #: `WIDTH_REFRESH_LEAN_V1` - без работы, нужной только фиксации.
     grade: str = REFRESH_COMMIT
+    #: LIVE_DRAG_STREAM_V1 (`envelope_width_stream`): потоковый такт живого точного меша (срок сверки отложен, пока рука движется) и сверка в простое (полный lean-такт `RECONCILE_IDLE`).
+    stream: bool = False
+    reconcile: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -638,14 +647,16 @@ def _begin(controller, request):
     displayed, previous = controller.width_displayed, controller.width_model
     trust = controller.width_trust
     state = controller.width_incremental  # запись сверки читает главный поток: поток счёта получает её значением
-    if grade == REFRESH_INCREMENTAL and state is not None and verification_reason(state, alpha) in (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE):
+    # LIVE_DRAG_STREAM_V1: потоковый такт откладывает срок сверки (её закажет простой), сверка в простое полна под своим именем; `None` - прежнее решение.
+    stream = (StreamPolicyV1(force=RECONCILE_IDLE) if target.reconcile else StreamPolicyV1()) if target.stream else None
+    if stream is None and grade == REFRESH_INCREMENTAL and state is not None and verification_reason(state, alpha) in (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE):
         controller.width_incremental = mark_attempt(state)  # сверку начали: прервёт её рука - повтор не раньше чем через `INCREMENTAL_RETRY_AFTER_TICKS` тактов (поток считает по записи ДО отметки)
     offset = float(target.offset)
     key = sample_key(record, offset)
 
     @gc_paused_function  # GC_PAUSED_DURING_WIDTH_TICK_V1: пауза сборщика стоит ровно на счёте тика (поток живёт секунды), а не на простое между тиками; сборщик общий на процесс
     def compute(cancel):
-        plan = plan_tick(grade, displayed, previous, state, alpha)  # WIDTH_REFRESH_INCREMENTAL_V1: какие домены обслужит сертификат (`None` - тик не инкрементальный)
+        plan = plan_tick(grade, displayed, previous, state, alpha, stream)  # WIDTH_REFRESH_INCREMENTAL_V1: какие домены обслужит сертификат (`None` - тик не инкрементальный)
         try:
             run = run_production(
                 controller,
@@ -712,8 +723,12 @@ def _apply_lean(controller, request, job, live) -> None:
 
     from .envelope_production_export import production_timing_text
 
+    before = controller.width_displayed
     reason = lean_exact_now(controller, live)
     if reason:
+        log = controller.width_live_drag
+        if request.payload.stream and log is not None:
+            log.count(log.refused, reason)
         raise PreviewUnavailable(reason)
     mesh_settings = getattr(bpy.context.scene, "hotspotuv_decal_mesh", None)
     if mesh_settings is not None:
@@ -725,6 +740,14 @@ def _apply_lean(controller, request, job, live) -> None:
         )
         mesh_settings.timing = f"{production_timing_text(live.run)} | live width {float(request.alpha):.4g}"
     set_preview(controller, None)  # точный кадр на ширине курсора: линии превью этой ширины не нужны
+    log = controller.width_live_drag
+    if request.payload.stream and log is not None:
+        import time
+
+        # LIVE_DRAG_STREAM_V1: точный такт ближайшей ширины лёг, а курсор ушёл дальше - меш сдвинут к курсору кадром модели НОВОГО образца (линии - только где модель не двигает).
+        pointer = note_applied(log, request, live, before, time.monotonic(), reconcile=request.payload.reconcile)
+        if pointer is not None:
+            width_event_preview(controller, pointer, float(request.payload.offset))
     tag_view3d_redraw()
 
 
@@ -808,9 +831,40 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             on_change=lambda _status: tag_view3d_redraw(),
             label="width",
             hold=lambda: _in_flight(controller.alpha_preview),
+            idle=lambda: _live_drag_idle(controller),
         )
         controller.width_live = scheduler
     return scheduler
+
+
+def _live_drag_idle(controller):
+    """LIVE_DRAG_STREAM_V1: простой после потокового такта - `(ширина курсора, заказ сверки)` либо `None` (`envelope_width_stream.idle_answer`)."""
+
+    log = controller.width_live_drag
+    width = idle_answer(log, controller.width_incremental, drag_active=controller.width_drag_active, has_sample=controller.width_displayed is not None)
+    return None if width is None else (width, replace(log.target, reconcile=True))
+
+
+def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
+    """Перетаскивание началось: журнал живого точного меша заведён заново, если настройка «Live exact mesh while dragging» включена (иначе `None`)."""
+
+    log = LiveDragLogV1() if getattr(mesh_settings, "drag_live_mesh", False) else None
+    if log is not None and controller.width_live is not None:
+        log.baseline = controller.width_live.counters
+    controller.width_live_drag = log
+    return log
+
+
+def end_live_drag(controller) -> str:
+    """Перетаскивание кончилось: строка журнала в консоль (журнал остаётся до следующего перетаскивания: его показывает панель). Пусто - живого точного меша не было."""
+
+    log = controller.width_live_drag
+    if log is None:
+        return ""
+    scheduler = controller.width_live
+    line = live_drag_status_line(log, None if scheduler is None else scheduler.counters)
+    print(f"[CFTUV][WidthLive] {line}", flush=True)
+    return line
 
 
 def request_drag_tick(context, controller, width: float) -> bool:
@@ -826,15 +880,26 @@ def request_drag_tick(context, controller, width: float) -> bool:
     mesh_settings = getattr(scene, "hotspotuv_decal_mesh", None)
     if controller is None or settings is None or mesh_settings is None or controller.width_build is None:
         return False
+    # LIVE_DRAG_STREAM_V1: «Live exact mesh while dragging» - потоковый заказ (без паузы, полёт не отменяется, последнее побеждает); иначе прежний заказ «Exact ticks while dragging».
+    live_mesh = bool(getattr(mesh_settings, "drag_live_mesh", False))
     # Дешёвое - первым: событие мыши приходит десятки раз в секунду, а вопрос «есть ли у активного объекта своя декаль» обходит объекты сцены.
-    if not getattr(mesh_settings, "drag_exact_ticks", False) or not controller.width_drag_active or controller.width_displayed is None:
+    if not (live_mesh or getattr(mesh_settings, "drag_exact_ticks", False)) or not controller.width_drag_active:
+        return False
+    if controller.width_displayed is None:
+        if live_mesh and controller.width_live_drag is not None:
+            controller.width_live_drag.count(controller.width_live_drag.refused, STEP_NO_SAMPLE)
         return False
     if width_problem(context):
         return False
-    target = replace(target_of(settings, mesh_settings, controller.width_build), grade=REFRESH_INCREMENTAL)
+    target = replace(target_of(settings, mesh_settings, controller.width_build), grade=REFRESH_INCREMENTAL, stream=live_mesh)
     if target_problem(controller, target):
         return False
-    scheduler_of(controller).request(float(width), target)
+    request = scheduler_of(controller).request(float(width), target, stream=live_mesh)
+    if live_mesh:
+        log = controller.width_live_drag
+        if log is None:  # настройку включили посреди перетаскивания: журнал с этого шага
+            log = controller.width_live_drag = LiveDragLogV1()
+        note_step(log, request, target)
     return True
 
 
@@ -907,6 +972,9 @@ def status_lines(controller) -> tuple[str, ...]:
     if state is not None:
         lines.append(state.preview.status_text())
     lines.extend(mesh_preview_status_lines(controller))
+    log = getattr(controller, "width_live_drag", None)
+    if log is not None:
+        lines.append(live_drag_status_line(log, None if scheduler is None else scheduler.counters))
     return tuple(lines)
 
 
@@ -931,6 +999,7 @@ def draw_decal_width_rows(layout) -> None:
     mesh_settings = getattr(getattr(context, "scene", None), "hotspotuv_decal_mesh", None)
     if mesh_settings is not None:
         layout.prop(mesh_settings, "drag_exact_ticks")
+        layout.prop(mesh_settings, "drag_live_mesh")
     if problem:
         layout.label(text=problem, icon="INFO")
         return
@@ -1005,7 +1074,9 @@ __all__ = (
     "WidthPreviewStateV1",
     "active_target",
     "availability_problem",
+    "begin_live_drag",
     "draw_decal_width_rows",
+    "end_live_drag",
     "follow_active_object",
     "has_preview_runs",
     "note_depsgraph",

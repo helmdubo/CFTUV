@@ -358,6 +358,8 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "plan_tick",
         "grade",
         "state",
+        # LIVE_DRAG_STREAM_V1: политика потокового такта (`StreamPolicyV1`: отложить срок сверки / полная сверка в простое) - неизменяемое значение, собранное `_begin` из заказа на главном потоке.
+        "stream",
     }
 )
 

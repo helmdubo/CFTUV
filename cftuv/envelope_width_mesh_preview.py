@@ -45,6 +45,7 @@ import numpy as np
 from .envelope_gc_pause import gc_paused_function
 from .envelope_production_result import PLACEMENT_REBASED, REFRESH_INCREMENTAL, REFRESH_LEAN
 from .envelope_width_incremental import (
+    DEFERRABLE_REASONS,
     HELD_NOT_IN_BASE,
     INCREMENTAL_MIN_SERVED_SHARE,
     REASON_FEW_SERVED,
@@ -277,17 +278,25 @@ def _model_or_refusal(base, ledger):
         return PreviewRefusalV1(MODEL_BUILD_FAILED, f"{type(exc).__name__}: {exc}")
 
 
-def plan_tick(grade, displayed, model, state, alpha: float) -> IncrementalPlanV1 | None:
+def plan_tick(grade, displayed, model, state, alpha: float, stream=None) -> IncrementalPlanV1 | None:
     """Решение тика (WIDTH_REFRESH_INCREMENTAL_V1): `None` - тик не заказывал инкрементальности (`grade` не `REFRESH_INCREMENTAL`), иначе `IncrementalPlanV1`.
 
     Тик инкрементальный, когда политика сверки (`verification_reason`) не требует полного такта, у образца на экране есть своя модель и результаты, которые можно сдвигать, и сертификат обслуживает не меньше
     `INCREMENTAL_MIN_SERVED_SHARE` его доменов. Обслуживает ровно те домены, что двигает кадр модели на этой ширине (`served_mask`: интервал ядра, досягаемость, не в карантине), поэтому обслуженное
     равно кадру модели; остальные домены назывной причиной попадают в `held` и считаются заново. Чистая функция значений (её зовёт поток счёта): ни `bpy`, ни записи в сессию.
+
+    `stream` (`StreamPolicyV1`, LIVE_DRAG_STREAM_V1): `force` делает такт полным под своим именем (сверка в простое), `defer` откладывает срок сверки (`DEFERRABLE_REASONS`), пока рука движется:
+    отложенный срок назван в `IncrementalPlanV1.deferred`. `None` - прежнее решение побитово.
     """
 
     if grade != REFRESH_INCREMENTAL:
         return None
+    if stream is not None and stream.force:
+        return full_plan(stream.force, 0 if displayed is None else len(displayed.domains))
     reason = verification_reason(state, float(alpha))
+    deferred = ""
+    if reason in DEFERRABLE_REASONS and stream is not None and stream.defer:
+        deferred, reason = reason, ""
     if reason:
         return full_plan(reason)
     if model is None:
@@ -315,7 +324,7 @@ def plan_tick(grade, displayed, model, state, alpha: float) -> IncrementalPlanV1
     domains = len(displayed.domains)
     if len(served) < INCREMENTAL_MIN_SERVED_SHARE * domains:
         return full_plan(REASON_FEW_SERVED, domains)
-    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started)
+    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started, deferred=deferred)
 
 
 def rebase_served(plan: IncrementalPlanV1, displayed: PreviewSampleV1, alpha: float) -> dict:
