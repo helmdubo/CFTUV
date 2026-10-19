@@ -70,12 +70,15 @@ class MaterializeMemoV1:
     чужие числа за свои), как у памяти контактов источников.
     """
 
-    __slots__ = ("entries", "hits", "misses", "__weakref__")
+    __slots__ = ("entries", "hits", "misses", "parametric", "__weakref__")
 
     def __init__(self) -> None:
         self.entries: dict = {}
         self.hits = 0
         self.misses = 0
+        #: Память наклонов сертификата перетаскивания (`parametric.SlopeMemoV1`, PARAMETRIC_SLOPE_MEMO_V1) либо `None`: СВОЁ место, а не запись `entries`, поэтому
+        #: она не вытесняет записи подготовки (шаг ширины, таблицу станций, подъём) и они не вытесняют её.
+        self.parametric = None
         _LIVE.add(self)
 
     def __reduce__(self):
@@ -156,6 +159,7 @@ def clear_live_memos() -> None:
     for memo in tuple(_LIVE):
         memo.entries.clear()
         memo.hits = memo.misses = 0
+        memo.parametric = None
 
 
 def memo_of(prepared) -> MaterializeMemoV1 | None:

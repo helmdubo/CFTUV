@@ -762,6 +762,29 @@ class EnvelopeDebugSessionController:
         key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget) + metric_law_key(topology_export)
         return key in self._patch_metric_cache
 
+    @staticmethod
+    def _patch_metric_key(topology_export: EnvelopeTopologyExportV1, domain_id: str) -> tuple:
+        return (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget) + metric_law_key(topology_export)
+
+    @staticmethod
+    def _domain_geometry_key(metric_export: EnvelopePatchMetricExportV1) -> tuple:
+        band = () if metric_export.band_key is None else (metric_export.band_key,)
+        return (metric_export.source_revision_value, metric_export.patch_domain_id, metric_export.developable_stretch_budget) + band + metric_law_key(metric_export)
+
+    def peek_domain_snapshot(self, topology_export: EnvelopeTopologyExportV1, patch_id: int):
+        """Снапшот домена патча, когда `get_patch_metric` и `get_domain_geometry` ОБА отдали бы его из кэша (метрика целого патча, не запомненный отказ), иначе `None`.
+
+        Ничего не строит, счётчиков не пишет и ничего не бросает - как эти два вызова на попадании без профиля (SCAN_REUSED_ENTRY_WITHOUT_BACKEND_BLOCK_V1: так скан берёт вход домена из записи сборки).
+        """
+
+        export = topology_export.without_chart_band()
+        domain_id = export.patch_domain_id_by_patch.get(int(patch_id))
+        metric = None if domain_id is None else self._patch_metric_cache.get(self._patch_metric_key(export, domain_id))
+        if metric is None or isinstance(metric, _CachedMetricFailure):
+            return None
+        geometry = self._domain_geometry_cache.get(self._domain_geometry_key(metric))
+        return None if geometry is None else geometry.snapshot
+
     def get_patch_metric(
         self,
         topology_export: EnvelopeTopologyExportV1,
@@ -886,7 +909,7 @@ class EnvelopeDebugSessionController:
         """
 
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
-        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget) + metric_law_key(topology_export)
+        key = self._patch_metric_key(topology_export, domain_id)
         cached = self._patch_metric_cache.get(key)
         if cached is not None:
             self._record_cache(
@@ -954,11 +977,7 @@ class EnvelopeDebugSessionController:
         *,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
     ) -> EnvelopeDomainGeometryExportV1:
-        key = (
-            metric_export.source_revision_value,
-            metric_export.patch_domain_id,
-            metric_export.developable_stretch_budget,
-        ) + (() if metric_export.band_key is None else (metric_export.band_key,)) + metric_law_key(metric_export)
+        key = self._domain_geometry_key(metric_export)
         cached = self._domain_geometry_cache.get(key)
         if cached is not None:
             self._record_cache(

@@ -47,6 +47,8 @@ PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
 #: воркера своя) и чья посчитана и записана в неё. Остальные — без резки либо память выключена.
 PRODUCTION_CLIP_MEMO_HITS = "PRODUCTION_CLIP_MEMO_HITS"
 PRODUCTION_CLIP_MEMO_MISSES = "PRODUCTION_CLIP_MEMO_MISSES"
+#: Из посчитанных доменов с сертификатом перетаскивания: метка памяти наклонов (`parametric.MEMO_LABELS`, PARAMETRIC_SLOPE_MEMO_V1; `HIT` и `MISS` пишутся всегда). Метка запуска, не ответ.
+PRODUCTION_PARAMETRIC_MEMO_PREFIX = "PRODUCTION_PARAMETRIC_MEMO_"
 #: Хранилище по содержимому домена (`envelope_content_store`): домены с ключом содержимого, домены, чей
 #: результат либо подготовка взяты оттуда при другой ревизии, результаты, перенесённые на ревизию прогона,
 #: и переносы, которых не вышло (домен тогда считается заново, причина названа строкой консоли).

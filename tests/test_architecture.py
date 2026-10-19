@@ -1165,7 +1165,9 @@ MODULE_LINE_ALLOWANCE = {
     "cftuv/envelope_production_export.py": 1100,
     "cftuv/envelope_production_result.py": 450,
     "cftuv/envelope_production_task.py": 400,
-    "cftuv/envelope_production_scan.py": 500,
+    # 500 -> 520. +19 за домен из записи сборки без блока бэкенда на домен (SCAN_REUSED_ENTRY_WITHOUT_BACKEND_BLOCK_V1): `_Scan._reused` (запись пустого блока раз на обход,
+    # модуль ядра раз на обход) и одна проверка `peek_domain_snapshot` перед блоком. Сама проверка кэшей живёт в `envelope_debug_session`, память идентичности домена - в `envelope_scan_memo`.
+    "cftuv/envelope_production_scan.py": 520,
 }
 
 

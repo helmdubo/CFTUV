@@ -34,6 +34,14 @@
 
 ЦЕНА. Сертификат считается ПОСЛЕ всего ответа (счётчики, валидация, аудит, дайджест, интервал) и на СВОЁМ бюджете (`unlimited_reference_budget`, `PARAMETRIC`): он не двигает ни
 статьи `EXACT_WORK_*`, ни память резки (боковые резки идут мимо неё), ни ответ. `CFTUV_PARAMETRIC=0` выключает его (замер «до»).
+
+ПАМЯТЬ НАКЛОНОВ (PARAMETRIC_SLOPE_MEMO_V1). Наклоны фактов (`_fact_slopes`) и наклоны позиций (`_plane_slope`, `_triangle_slope`) - чистые функции, в которые ширина НЕ входит:
+их входы - формулы граней (пробег, прямая, веер, номер региона, ключи контура), наклоны точек (константы шаблона `B`) и перекладины; плоскость, треугольник и масштаб.
+Воркер держит их значения при подготовке (`memo.MaterializeMemoV1.parametric`), и ключ записи - ПОЛНЫЙ перечень этих входов (`_fact_key`; у позиции - плоскость, треугольник, масштаб, наклон точки; читаемые поля
+названы `FACT_KEY_READS` и держатся тестом по исходнику), а не ширина, интервал или подпись структуры: равный ключ - тот же вызов той же функции, ответ тот же побитово.
+Всё, что от ширины зависит, считается КАЖДЫЙ раз: наклоны точек покрытия (`point_slopes_of`, и его отказы), узлы резки (`_clip_slopes`), уход с ребра (`_leaves_edge`), скорость
+нормали развёртки (`_normal_rate`) и ширина `alpha` сертификата. Метка `ParametricCertificateV1.memo` называет, как получены наклоны (`MEMO_LABELS`), хост считает метки
+(`PRODUCTION_PARAMETRIC_MEMO_*`). `CFTUV_PARAMETRIC_MEMO=0` (и `CFTUV_MATERIALIZE_MEMO=0`) выключают память; точный режим (`exact`, тесты теоремы) её не берёт.
 """
 
 from __future__ import annotations
@@ -48,9 +56,10 @@ from fractions import Fraction
 
 from ..exact_sqrt_sum import SqrtSumV1, unlimited_reference_budget
 from .clip import cut_domain
-from .clip_memo import memo_disabled as clip_memo_disabled
+from .clip_memo import kernel_code_identity, memo_disabled as clip_memo_disabled
 from .frames import MaterializationRefusal
 from .lift import PlaneLiftV1, enclosure_midpoint, ENCLOSURE_BITS
+from .memo import memo_enabled, memo_of
 from .stations import transverse_root
 from ..wavefront.coverage_template import KIND_CUT
 
@@ -97,9 +106,25 @@ _STEP_ATTEMPTS = 3
 #: Боковые резки идут мимо памяти резки (`clip_memo.memo_disabled` переключает флаг процесса): один сертификат в процессе за раз, чтобы чужая резка не увидела выключенную память.
 _SIDE_CUT_LOCK = threading.Lock()
 
+MEMO_SWITCH = "CFTUV_PARAMETRIC_MEMO"
+#: Метки памяти наклонов у сертификата: все наклоны из памяти, все посчитаны, часть из памяти; память выключена; точный режим; у подготовки нет памяти; сертификат отказал раньше первого обращения.
+MEMO_HIT, MEMO_MISS, MEMO_PARTIAL = "HIT", "MISS", "PARTIAL"
+MEMO_OFF, MEMO_BYPASS_EXACT, MEMO_NO_STORE, MEMO_NOT_REACHED = "OFF", "BYPASS_EXACT", "NO_STORE", "NOT_REACHED"
+MEMO_LABELS = (MEMO_HIT, MEMO_MISS, MEMO_PARTIAL, MEMO_OFF, MEMO_BYPASS_EXACT, MEMO_NO_STORE, MEMO_NOT_REACHED)
+#: Записей на подготовку: таблиц фактов (одна на набор формул и наклонов: интервал и структура) и наклонов позиций. Переполнение сбрасывает записи (цена, не ответ).
+MEMO_FACT_LIMIT = 8
+MEMO_POSITION_LIMIT = 65536
+#: Поля, которые `_fact_slopes` читает у грани кадра, пробега и прямой: ровно они (и ключи контуров, наклоны точек, перекладины, номер региона) образуют ключ `_fact_key` (тест сверяет с исходником).
+FACT_KEY_READS = {"frame_face": ("line", "run", "is_fan"), "run": ("run_id", "covector", "inverse_length"), "line": ("q", "a", "b")}
+_MEMO_LOCK = threading.Lock()
+
 
 def parametric_enabled() -> bool:
     return os.environ.get(ENVIRONMENT_SWITCH, "1").strip().lower() not in ("0", "off", "false", "no")
+
+
+def parametric_memo_enabled() -> bool:
+    return os.environ.get(MEMO_SWITCH, "1").strip().lower() not in ("0", "off", "false", "no")
 
 
 class ParametricRefusal(Exception):
@@ -169,6 +194,8 @@ class ParametricCertificateV1:
     approximate: tuple = ()
     #: Только у домена с `approximate`: наибольшая скорость поворота нормали смещения по ширине (`|d n / d alpha|`, 1/м) среди движущихся вершин, первый порядок; ноль - нормали не движутся.
     approximate_rate: float = 0.0
+    #: Как получены наклоны (`MEMO_LABELS`, PARAMETRIC_SLOPE_MEMO_V1): метка запуска, как `clip_memo`, а не ответ - числа и причины от неё не зависят.
+    memo: str = ""
 
     @property
     def is_affine(self) -> bool:
@@ -364,6 +391,157 @@ def _fact_slopes(frame_faces, cycles, layout, key_slope, rungs, budget) -> dict:
             raise ParametricRefusal(PARAM_IDENTITY_AT_POINT, f"vertex {slot[1]} in region {slot[0]}: equal answers with different slopes")
         found[slot] = first
     return found
+
+
+# --------------------------------------------------------------------------
+# Память наклонов (PARAMETRIC_SLOPE_MEMO_V1)
+# --------------------------------------------------------------------------
+
+
+def _value_identity(value: SqrtSumV1) -> tuple:
+    """Тождество точной величины по канонической записи (она у `SqrtSumV1` единственна): равные тождества - равные величины."""
+
+    return tuple((radicand, coefficient.numerator, coefficient.denominator) for radicand, coefficient in value.terms)
+
+
+def _fact_key(frame_faces, cycles, layout, key_slope, rungs) -> tuple:
+    """`(ключ, номера регионов)`: ВСЕ входы `_fact_slopes`, кроме бюджета (неограниченный, ответа не решает), и перевод канонических номеров регионов в номера этого вызова.
+
+    По грани - регион, пробег (имя, ковектор, `1/|d|`), веер, номер прямой в порядке первой встречи (тождество прямой решает, какие формулы `_fact_slopes` считает одной) и
+    ключи контура; коэффициенты прямых; наклоны движущихся точек; перекладины. Регион входит КАНОНИЧЕСКИМ номером (порядок первой встречи в гранях): номера `region:N`
+    выводятся из имён экземпляров, а те - из ширины, и тот же регион на другой ширине получает другой номер. `_fact_slopes` от номеров зависит лишь как от меток (ключ
+    слота, членство в перекладинах; порядок обхода - порядок граней), поэтому её ответ при перенумерации - тот же ответ с перенумерованными слотами (кроме текста отказа:
+    отказы память не держит).
+    """
+
+    lines: dict = {}
+    regions: dict = {}
+    coefficients = []
+    faces = []
+    for frame_face, cycle in zip(frame_faces, cycles):
+        line, run = frame_face.line, frame_face.run
+        number = lines.get(id(line))
+        if number is None:
+            number = lines[id(line)] = len(coefficients)
+            coefficients.append((line.q, line.a, line.b))
+        region = regions.setdefault(layout.region_of(frame_face), len(regions))
+        faces.append((region, run.run_id, run.covector, _value_identity(run.inverse_length), frame_face.is_fan, number, tuple(key for key, _point in cycle)))
+    moving = tuple(sorted((key, _point_identity(slope)) for key, slope in key_slope.items() if slope is not None))
+    canonical_rungs = frozenset((regions[region], key) if region in regions else ("raw", region, key) for region, key in rungs)
+    return (tuple(faces), tuple(coefficients), moving, canonical_rungs), tuple(regions)
+
+
+def _fact_floats(found: dict) -> dict:
+    """`{("region:N", ключ): (float s, float r)}` наклонов фактов: те же округления, что петли UV брали бы по одной."""
+
+    return {(f"region:{slot[0]}", slot[1]): (_float(pair[0]), _float(pair[1])) for slot, pair in found.items()}
+
+
+class SlopeMemoV1:
+    """Наклоны ОДНОЙ подготовки по полным входам их функций; живёт в `MaterializeMemoV1.parametric` и с ней (пикл её не несёт).
+
+    `facts`: ключ `_fact_key` -> `(наклоны, их float)` по КАНОНИЧЕСКИМ номерам регионов. `positions`: содержимое, которое читает функция наклона позиции (`("plane", a, b)` -
+    `_plane_slope`; `("triangle", карта, углы, двойная площадь, масштаб)` - `_triangle_slope`) -> `{тождество наклона точки: (точный наклон позиции, его float)}`.
+    """
+
+    __slots__ = ("code", "facts", "positions", "size")
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        self.facts: dict = {}
+        self.positions: dict = {}
+        self.size = 0
+
+
+class _SlopeSource:
+    """Наклоны одного сертификата: из памяти подготовки (`memo`) либо счётом (`memo` None: память выключена, точный режим); попадания и промахи дают метку."""
+
+    __slots__ = ("memo", "label", "hits", "misses", "tables")
+
+    def __init__(self, memo: SlopeMemoV1 | None, label: str = "") -> None:
+        self.memo, self.label, self.hits, self.misses, self.tables = memo, label, 0, 0, {}
+
+    def final_label(self) -> str:
+        if self.label:
+            return self.label
+        if not self.hits and not self.misses:
+            return MEMO_NOT_REACHED
+        return MEMO_HIT if not self.misses else MEMO_MISS if not self.hits else MEMO_PARTIAL
+
+    def facts(self, frame_faces, cycles, layout, key_slope, rungs, budget) -> tuple:
+        """`(наклоны фактов, их float по "region:N")` либо `ParametricRefusal` - тот же, что дал бы `_fact_slopes` (отказ считается всегда заново: его текст несёт номер региона)."""
+
+        memo = self.memo
+        if memo is None:
+            found = _fact_slopes(frame_faces, cycles, layout, key_slope, rungs, budget)
+            return found, _fact_floats(found)
+        key, numbers = _fact_key(frame_faces, cycles, layout, key_slope, rungs)
+        entry = memo.facts.get(key)
+        if entry is not None:
+            self.hits += 1
+            canonical, floats = entry
+            return ({(numbers[slot[0]], slot[1]): pair for slot, pair in canonical.items()},
+                    {(f"region:{numbers[slot[0]]}", slot[1]): pair for slot, pair in floats.items()})
+        self.misses += 1
+        found = _fact_slopes(frame_faces, cycles, layout, key_slope, rungs, budget)
+        floats = _fact_floats(found)
+        index = {number: position for position, number in enumerate(numbers)}
+        canonical = {(index[slot[0]], slot[1]): pair for slot, pair in found.items()}
+        canonical_floats = {(index[slot[0]], slot[1]): floats[(f"region:{slot[0]}", slot[1])] for slot in found}
+        with _MEMO_LOCK:
+            while len(memo.facts) >= MEMO_FACT_LIMIT:
+                del memo.facts[next(iter(memo.facts))]
+            memo.facts[key] = (canonical, canonical_floats)
+        return found, floats
+
+    def position(self, plane, triangle, name, slope, scale: int) -> tuple:
+        """`(точный наклон позиции, его float)`: `_plane_slope` (`triangle` None) либо `_triangle_slope`; таблица по содержимому плоскости либо треугольника - одна на вызов."""
+
+        memo = self.memo
+        if memo is None:
+            values = _plane_slope(plane, slope) if triangle is None else _triangle_slope(triangle, slope, scale)
+            return values, tuple(_float(item) for item in values)
+        table = self.tables.get(name)
+        if table is None:
+            content = ("plane", plane.basis_a, plane.basis_b) if triangle is None else ("triangle", triangle.chart, triangle.corners, triangle.twice_area, scale)
+            with _MEMO_LOCK:
+                table = memo.positions.get(content)
+                if table is None:
+                    if memo.size >= MEMO_POSITION_LIMIT:
+                        memo.positions.clear()
+                        memo.size = 0
+                    table = memo.positions[content] = {}
+            self.tables[name] = table
+        identity = _point_identity(slope)
+        found = table.get(identity)
+        if found is not None:
+            self.hits += 1
+            return found
+        self.misses += 1
+        values = _plane_slope(plane, slope) if triangle is None else _triangle_slope(triangle, slope, scale)
+        found = (values, tuple(_float(item) for item in values))
+        with _MEMO_LOCK:
+            table[identity] = found
+            memo.size += 1
+        return found
+
+
+def _slope_source(prepared, request) -> _SlopeSource:
+    """Источник наклонов сертификата: память подготовки воркера, если она есть и включена, и режим не точный."""
+
+    if request.exact:
+        return _SlopeSource(None, MEMO_BYPASS_EXACT)
+    if not parametric_memo_enabled() or not memo_enabled():
+        return _SlopeSource(None, MEMO_OFF)
+    memo = memo_of(prepared)
+    if memo is None:
+        return _SlopeSource(None, MEMO_NO_STORE)
+    code = kernel_code_identity()
+    with _MEMO_LOCK:
+        store = memo.parametric
+        if store is None or store.code != code:
+            store = memo.parametric = SlopeMemoV1(code)
+    return _SlopeSource(store)
 
 
 # --------------------------------------------------------------------------
@@ -574,24 +752,26 @@ def certificate_of(inputs: ParametricInputsV1, batch, interval, request: Paramet
     """Сертификат материализованного домена; причина отказа - в `markers`, исключения не выходят."""
 
     alpha, scale = inputs.alpha, inputs.scale
+    source = _slope_source(prepared, request)
     try:
         if interval is None or interval.status != "CERTIFIED":
             raise ParametricRefusal(PARAM_WINDOW_NOT_CERTIFIED, "" if interval is None else f"{interval.status} {interval.reason}".strip())
-        found = _certificate(inputs, batch, interval, request, prepared, coverage, developable)
+        found = _certificate(inputs, batch, interval, request, prepared, coverage, developable, source)
         # У домена-развёртки позиции до смещения аффинны, но смещение идёт по нормали вершины (не рациональной): числа есть, домен назван в `approximate`.
-        return replace(found, approximate=(PARAM_DEVELOPABLE_OFFSET,)) if developable else found
+        return replace(found, approximate=(PARAM_DEVELOPABLE_OFFSET,), memo=source.final_label()) if developable else replace(found, memo=source.final_label())
     except ParametricRefusal as refusal:
-        return unavailable(alpha, scale, refusal.name, refusal.detail)
+        return replace(unavailable(alpha, scale, refusal.name, refusal.detail), memo=source.final_label())
 
 
-def _certificate(inputs, batch, interval, request, prepared, coverage, developable: bool = False) -> ParametricCertificateV1:
+def _certificate(inputs, batch, interval, request, prepared, coverage, developable: bool = False, source: _SlopeSource | None = None) -> ParametricCertificateV1:
     scale = inputs.scale
     normal_rate = 0.0
+    source = _SlopeSource(None) if source is None else source
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
     moving = point_slopes_of(prepared, coverage, request.templates)
-    # Точки до резки: наклоны покрытия по ключу вершины; факты до резки: формулы граней.
+    # Точки до резки: наклоны покрытия по ключу вершины; факты до резки: формулы граней (из памяти наклонов, PARAMETRIC_SLOPE_MEMO_V1).
     key_slope = {key: moving.get(_point_identity(point)) for key, point in inputs.points_before.items()} if moving else {}
-    fact_slope = _fact_slopes(inputs.frame_faces, inputs.cycles, inputs.layout, key_slope, inputs.rungs, budget)
+    fact_slope, fact_floats = source.facts(inputs.frame_faces, inputs.cycles, inputs.layout, key_slope, inputs.rungs, budget)
     clip_points: dict = {}
     clip_facts: dict = {}
     if inputs.cut is not None:
@@ -617,7 +797,7 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
         else:
             moving_vertices += 1
             if triangles is None:
-                values = _plane_slope(plane, slope)
+                values, floats = source.position(plane, None, None, slope, scale)
             else:
                 name = inputs.lifted_names.get(key, (None, None))[0]
                 triangle = triangles.get(name)
@@ -625,22 +805,22 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
                     raise ParametricRefusal(PARAM_LIFT_UNSUPPORTED, f"vertex {key}: no source triangle")
                 if _leaves_edge(triangle, point, slope):
                     raise ParametricRefusal(PARAM_LIFT_ON_EDGE, f"vertex {key}")
-                values = _triangle_slope(triangle, slope, scale)
+                values, floats = source.position(plane, triangle, name, slope, scale)
                 if developable:
                     normal_rate = max(normal_rate, _normal_rate(plane, triangle, point, slope, scale))
-            position_slopes.extend(_float(item) for item in values)
+            position_slopes.extend(floats)
             positions_exact = values
         if request.exact:
             exact_points.append(point)
             exact_point_slopes.append(slope if slope is not None else _ZERO_PAIR)
             exact_position_slopes.append(positions_exact)
             exact_positions.append(_exact_lift(plane, triangles, inputs.lifted_names.get(key, (None, None))[0], point))
-    # Петли UV.
+    # Петли UV: float наклонов фактов из памяти (те же `_float`), факты резки - поверх, как в точной таблице.
+    region_floats = {**fact_floats, **_fact_floats(clip_facts)} if clip_facts else fact_floats
     region_slopes: dict = {}
-    for slot, found in fact_slope.items():
-        region_slopes[(f"region:{slot[0]}", slot[1])] = found
-    for slot, found in clip_facts.items():
-        region_slopes[(f"region:{slot[0]}", slot[1])] = found
+    if request.exact:
+        for slot, found in (*fact_slope.items(), *clip_facts.items()):
+            region_slopes[(f"region:{slot[0]}", slot[1])] = found
     loops = array("d")
     exact_loops, exact_loop_slopes, exact_loop_ids = [], [], []
     count = 0
@@ -650,15 +830,15 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
         number = int(region.split(":", 1)[1])
         ring = _ring_of(face) if request.exact else None
         for fact in face.uv_facts:
-            slope = region_slopes.get((region, fact.vert_key.value))
-            if slope is None:
+            pair = region_floats.get((region, fact.vert_key.value))
+            if pair is None:
                 raise ParametricRefusal(PARAM_FACT_UNRESOLVED, f"{region}/{fact.vert_key.value}")
-            loops.append(_float(slope[0]))
-            loops.append(_float(slope[1]))
+            loops.append(pair[0])
+            loops.append(pair[1])
             count += 1
             if request.exact:
                 exact_loops.append(facts[(number, fact.vert_key.value)])
-                exact_loop_slopes.append(slope)
+                exact_loop_slopes.append(region_slopes[(region, fact.vert_key.value)])
                 exact_loop_ids.append((ring, fact.vert_key.value))
     exact = None
     if request.exact:

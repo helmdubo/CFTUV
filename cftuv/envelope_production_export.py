@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import time
+from collections import Counter
 from dataclasses import dataclass, field, replace
 
 from .envelope_chart_band import tightened_cap_of_facts
@@ -92,6 +93,7 @@ from .envelope_production_result import (  # noqa: F401 - переэкспорт
     PRODUCTION_INTERVAL_FAST_HITS,
     PRODUCTION_INTERVAL_VERIFY_MISMATCH,
     PRODUCTION_MATERIALIZED,
+    PRODUCTION_PARAMETRIC_MEMO_PREFIX,
     PRODUCTION_PATCH_METRIC_BUILDS,
     PRODUCTION_POOL_BLOBS_SHIPPED,
     PRODUCTION_POOL_BLOB_BYTES_SHIPPED,
@@ -737,6 +739,9 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
     computed = [result for entry, result in zip(entries, results) if entry.computes]
     for name, label in ((PRODUCTION_CLIP_MEMO_HITS, "HIT"), (PRODUCTION_CLIP_MEMO_MISSES, "MISS")):
         profile.set_counter(name, sum(1 for item in computed if item.clip_memo == label))
+    labels = Counter(getattr(item.parametric, "memo", "") for item in computed if getattr(item, "parametric", None) is not None)  # PARAMETRIC_SLOPE_MEMO_V1
+    for label in sorted({"HIT", "MISS", *labels} - {""}):
+        profile.set_counter(PRODUCTION_PARAMETRIC_MEMO_PREFIX + label, labels.get(label, 0))
     _interval_step_counters(profile, computed)
     for name, status in (
         (PRODUCTION_ALPHA_INTERVALS_CERTIFIED, "CERTIFIED"),

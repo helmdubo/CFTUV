@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import dataclass, fields
 from decimal import Decimal, InvalidOperation
-from functools import cache
+from functools import cache, lru_cache
 
 #: Сколько прогонов (выделение и политика) держит память: ширина меняется при одном, к двум-трём возвращает отмена.
 SCAN_MEMO_RUN_LIMIT = 4
@@ -52,7 +52,17 @@ def request_alpha(alpha) -> Decimal | None:
     return value if value.is_finite() and value >= 0 else None
 
 
-def request_at(record: ScanRecordV1, alpha: Decimal):
+@lru_cache(maxsize=65536, typed=True)
+def patch_domain_id(revision: str, patch_id) -> str:
+    """Идентичность домена патча (`_typed_value("patch-domain", ревизия, патч)`): чистая функция строк, а скан выводил её заново на каждом шаге ширины для каждого патча
+    (хеш sha256 по json, 0.02 с на шаг `cover.008`). Память ключуется значениями С ТИПОМ: `1` и `1.0` дают разный json и не делят запись."""
+
+    from .envelope_request_export import _typed_value
+
+    return _typed_value("patch-domain", revision, patch_id)
+
+
+def request_at(record: ScanRecordV1, alpha: Decimal, kernel=None):
     """Запрос записи при ширине `alpha`: единственное поле, в котором он от ширины зависит.
 
     Копия собирается напрямую (поля старого запроса и новая ширина), а не `dataclasses.replace`: тот проходит по полям через интроспекцию и стоил 31 мкс на домен (32 мс на шаг
@@ -60,9 +70,10 @@ def request_at(record: ScanRecordV1, alpha: Decimal):
     его, а прямая сборка - нет.
     """
 
-    from .envelope_request_export import _load_kernel
+    if kernel is None:  # модуль ядра скан берёт один раз на обход (_Scan.kernel): импорт на каждый домен стоил половину этой функции
+        from .envelope_request_export import _load_kernel
 
-    kernel, _ = _load_kernel()
+        kernel, _ = _load_kernel()
     request = record.request
     clone = object.__new__(type(request))
     for name in _request_field_names(type(request)):

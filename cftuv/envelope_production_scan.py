@@ -394,7 +394,7 @@ def _note_relabel_failure(run: _RunInputsV1, patch_id, exc) -> None:
     )
 
 
-def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record, alpha):
+def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record, alpha, kernel=None):
     """Домен по записи сборки: запрос с шириной прогона, подготовка и результат из кэшей сессии (то же, что `_entry_with_inputs`)."""
 
     from .envelope_scan_memo import request_at
@@ -413,7 +413,7 @@ def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record,
         domain_id,
         selected,
         prepared=controller.peek_conveyor_item_by_key(record.prep_key),
-        inputs=(record.snapshot, request_at(record, alpha)),
+        inputs=(record.snapshot, request_at(record, alpha, kernel)),
         result_key=key,
         cached=controller.peek_production_result(key),
     )
@@ -422,7 +422,7 @@ def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record,
 class _Scan:
     """Один обход доменов прогона: состояние (`records`, счёт доменов из записей) и `entry(patch_id)` - то, что сессия знает об ОДНОМ домене (`_scan` ходит по патчам по порядку, потоковый обход - `envelope_production_stream`)."""
 
-    __slots__ = ("run", "alpha", "records", "reused")
+    __slots__ = ("run", "alpha", "records", "reused", "kernel", "empty")
     def __init__(self, run: _RunInputsV1) -> None:
         from . import envelope_scan_memo as memo
 
@@ -430,18 +430,35 @@ class _Scan:
         self.alpha = memo.request_alpha(run.alpha)
         key = None if self.alpha is None else memo.scan_key(run)
         self.records = run.scan_records["records"] = None if key is None else run.controller.scan_memo.records_of(key)
-        self.reused = 0
+        self.reused, self.kernel, self.empty = 0, None, _NO_BINDING
+
+    def _reused(self, patch_id, domain_id, selected, record) -> _DomainEntryV1:
+        """SCAN_REUSED_ENTRY_WITHOUT_BACKEND_BLOCK_V1: домен из записи сборки, когда метрика и геометрия в кэшах (`peek_domain_snapshot`), без блока бэкенда на домен. Прежний блок звал
+        только попадания кэшей и `_entry_from_record` (словари, ни одной точки диспетчеризации ядра): журнал пуст, а запись пустого блока тех же порядков берётся раз на обход, там же, где обход впервые входил в блок."""
+
+        run = self.run
+        if self.empty is _NO_BINDING:
+            from .envelope_request_export import _load_kernel
+
+            self.kernel = _load_kernel()[0]
+            with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend) as ledger:
+                self.empty = ledger_record(ledger)
+        entry = _entry_from_record(run, patch_id, domain_id, selected, record, self.alpha, self.kernel)
+        entry.export_records.append(self.empty)
+        self.reused += 1
+        return entry
 
     def entry(self, patch_id) -> _DomainEntryV1 | None:
         """Домен патча по кэшам сессии (`None` - патч не считается этим прогоном)."""
 
-        from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
+        from .envelope_request_export import EnvelopeHostAdapterError
+        from .envelope_scan_memo import patch_domain_id
 
         run = self.run
         controller = run.controller
         if patch_id in run.skipped:
             return None
-        domain_id = _typed_value("patch-domain", run.revision, patch_id)
+        domain_id = patch_domain_id(run.revision, patch_id)
         refusal = controller.byte_check_refusal(domain_id)
         if refusal is not None:
             # SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: фон нашёл, что байты снапшота домена не прошли круг кодека; следующее действие отказывает домен тем же исходом, что дала бы проверка на нажатии.
@@ -461,6 +478,8 @@ class _Scan:
         export = run.hooks.export_provider(patch_id, run.alpha, run.request_id, run.density)
         if export is not None:
             return _content_entry(run, patch_id, domain_id, selected, export)
+        if record is not None and record.snapshot is controller.peek_domain_snapshot(run.topology_export, patch_id):
+            return self._reused(patch_id, domain_id, selected, record)
         with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend) as ledger:
             try:
                 snapshot = controller.get_domain_geometry(controller.get_patch_metric(run.topology_export, patch_id)).snapshot

@@ -253,6 +253,71 @@ def test_the_selection_by_patch_names_the_domains_the_scan_derived():
     assert [item.domain_id for item in run.results] == [_typed_value("patch-domain", run.revision, patch) for patch in range(ROW)]
 
 
+def test_the_remembered_domain_identity_is_the_derived_one_and_keeps_the_type_of_the_patch():
+    from cftuv.envelope_request_export import _typed_value
+
+    for patch in (0, 7, 1053):
+        assert scan_memo.patch_domain_id("rev", patch) == _typed_value("patch-domain", "rev", patch)
+    assert scan_memo.patch_domain_id("rev", 1.0) == _typed_value("patch-domain", "rev", 1.0) != scan_memo.patch_domain_id("rev", 1)
+
+
+# --------------------------------------------------------------------------
+# Домен из записи сборки без блока бэкенда (SCAN_REUSED_ENTRY_WITHOUT_BACKEND_BLOCK_V1)
+# --------------------------------------------------------------------------
+
+
+def _second_press(monkeypatch, *, records: bool, alpha: float = 0.2611):
+    import cftuv.envelope_production_scan as scan_module
+
+    controller = EnvelopeDebugSessionController()
+    controller.scan_memo.enabled = records
+    bundle = with_revision(quad_row_bundle(ROW), "row")
+
+    def press(width):
+        return run_production(controller, bundle, frozenset(range(ROW)), width, source_object_key="o", source_data_key="m", density=None, workers=0, domain_pool=None)
+
+    press(0.25)
+    blocks = []
+    original = scan_module.entered_backend
+    monkeypatch.setattr(scan_module, "entered_backend", lambda *a, **k: (blocks.append(a), original(*a, **k))[1])
+    return press(alpha), len(blocks)
+
+
+def _answer(result) -> tuple:
+    return (result.patch_id, result.domain_id, result.outcome, result.detail, result.counters, result.content_digest, result.diagnostics, result.backend_record, result.structure_digest)
+
+
+def test_a_width_step_from_the_records_without_a_block_per_domain_is_the_full_rebuild(monkeypatch):
+    """Шаг ширины, где каждый домен взят из записи сборки (метрика и геометрия в кэшах), равен шагу с ПОЛНОЙ пересборкой входа (записи выключены): исходы, счётчики, дайджесты и
+    запись бэкенда каждого домена (она несёт журнал блока скана) те же; блок бэкенда скан открыл ОДИН раз (запись пустого блока на обход), а не на каждый домен."""
+
+    from cftuv.envelope_production_result import PRODUCTION_SCAN_RECORDS_REUSED
+
+    remembered, blocks = _second_press(monkeypatch, records=True)
+    rebuilt, rebuilt_blocks = _second_press(monkeypatch, records=False)
+    assert remembered.counter(PRODUCTION_SCAN_RECORDS_REUSED) == ROW and rebuilt.counter(PRODUCTION_SCAN_RECORDS_REUSED) == 0
+    assert blocks == 1 and rebuilt_blocks == ROW
+    assert [_answer(item) for item in remembered.results] == [_answer(item) for item in rebuilt.results]
+    assert all(item.backend_record is not None for item in remembered.results)
+
+
+def test_the_peek_is_the_snapshot_the_two_cache_calls_give_and_builds_nothing(monkeypatch):
+    controller = EnvelopeDebugSessionController()
+    bundle = with_revision(quad_row_bundle(ROW), "row")
+    seen = []
+    original = EnvelopeDebugSessionController.peek_domain_snapshot
+    monkeypatch.setattr(EnvelopeDebugSessionController, "peek_domain_snapshot", lambda self, export, patch: (seen.append((export, patch)), original(self, export, patch))[1])
+    for width in (0.25, 0.2611):
+        run_production(controller, bundle, frozenset(range(ROW)), width, source_object_key="o", source_data_key="m", density=None, workers=0, domain_pool=None)
+    assert [patch for _export, patch in seen] == list(range(ROW))  # первое нажатие записей не имеет и не спрашивает
+    builds = dict(controller.build_counts)
+    for export, patch in seen:
+        peeked = original(controller, export, patch)
+        assert peeked is not None and peeked is controller.get_domain_geometry(controller.get_patch_metric(export, patch)).snapshot
+        assert original(EnvelopeDebugSessionController(), export, patch) is None  # пустые кэши: не строит, а говорит «нет»
+    assert dict(controller.build_counts) == builds
+
+
 # --------------------------------------------------------------------------
 # Что НЕ кэшируется, и почему
 # --------------------------------------------------------------------------
