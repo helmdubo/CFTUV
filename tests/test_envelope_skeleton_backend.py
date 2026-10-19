@@ -95,19 +95,19 @@ def test_the_identity_of_the_stage_and_of_the_execution(monkeypatch):
     assert host_backend.skeleton_identity_of("PYTHON") == "PYTHON|density=NATIVE:unavailable"
     assert host_backend.skeleton_identity_of() == "NATIVE:unavailable|density=NATIVE:unavailable"
     # идентичность двух стадий (сертификат вложения, лист эффективной alpha и W1 материализации заказаны явно на PYTHON: они не меняют строку)
-    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON", frame_backend="PYTHON", density_backend="PYTHON") == "NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE", embedding_backend="PYTHON", effective_alpha_backend="PYTHON", materialize_backend="PYTHON", snapshot_check_backend="PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|frame=NATIVE:unavailable|density=NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|frame=NATIVE:unavailable|density=NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON", "PYTHON", frame_backend="PYTHON", density_backend="PYTHON", chain_station_backend="PYTHON") == "NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", embedding_backend="PYTHON", effective_alpha_backend="PYTHON", materialize_backend="PYTHON", snapshot_check_backend="PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|frame=NATIVE:unavailable|density=NATIVE:unavailable|chain_station=NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == "NATIVE:unavailable|skeleton=NATIVE:unavailable|frame=NATIVE:unavailable|density=NATIVE:unavailable|chain_station=NATIVE:unavailable"
     # умолчания третьей, четвёртой и пятой стадий - Native (EMBEDDING_NATIVE_DEFAULT_V1, EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1, MATERIALIZE_W1_NATIVE_DEFAULT_V1): идентичность умолчания продукта несёт все шесть
     assert host_backend.backend_identity_of("NATIVE") == (
-        "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable|frame=NATIVE:unavailable|density=NATIVE:unavailable"
+        "NATIVE:unavailable|skeleton=NATIVE:unavailable|snap_embedding=NATIVE:unavailable|effective_alpha=NATIVE:unavailable|materialize_w1=NATIVE:unavailable|snapshot_check=NATIVE:unavailable|frame=NATIVE:unavailable|density=NATIVE:unavailable|chain_station=NATIVE:unavailable"
     )
     _fake_native()
     assert host_backend.skeleton_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("PYTHON", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"PYTHON|skeleton=NATIVE:{BUILD_ID}"
-    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|frame=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
+    assert host_backend.backend_identity_of("NATIVE", "NATIVE", "PYTHON", "PYTHON", "PYTHON", "PYTHON") == f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|frame=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}|chain_station=NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("NATIVE", "NATIVE") == (
-        f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}|materialize_w1=NATIVE:{BUILD_ID}|snapshot_check=NATIVE:{BUILD_ID}|frame=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}"
+        f"NATIVE:{BUILD_ID}|skeleton=NATIVE:{BUILD_ID}|snap_embedding=NATIVE:{BUILD_ID}|effective_alpha=NATIVE:{BUILD_ID}|materialize_w1=NATIVE:{BUILD_ID}|snapshot_check=NATIVE:{BUILD_ID}|frame=NATIVE:{BUILD_ID}|density=NATIVE:{BUILD_ID}|chain_station=NATIVE:{BUILD_ID}"
     )
 
 

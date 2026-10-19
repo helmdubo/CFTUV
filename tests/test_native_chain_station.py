@@ -10,8 +10,7 @@ the port must decline (the dispatcher then runs the oracle, which raises its own
   the seams removed, chains closed or of another kind, faces without area;
 * the owner's FIELD corpus (every domain of the cold press of the six scenes; `native_field` tier, not in CI).
 
-The pins are a candidate awaiting the owner (`chain_station_op.CANDIDATE`, `approved: False`): the stage is `unavailable` and refuses by name until then. These tests install the
-candidate IN MEMORY (`monkeypatch`), which changes no file and no build id.
+The pins are approved by the gates (CHAIN_STATION_PINS_APPROVED_V1, `chain_station_approved_pins.py`); a stale or missing table refuses by name.
 """
 
 from __future__ import annotations
@@ -70,15 +69,11 @@ def _report(request):
 
 
 @pytest.fixture
-def approved(monkeypatch):
-    """TEST-ONLY: the pin candidate installed in this process."""
+def approved():
+    """The stage answers under its approved pins against this tree (a moved oracle is a failure here: a delta port and new pins are a separate step)."""
 
-    monkeypatch.setattr(op, "APPROVED_PINS", dict(op.CANDIDATE["files"]))
     op.refresh()
-    found = op.status()
-    if found != "available":
-        op.refresh()
-        pytest.skip(f"the native chain_station is `{found}` against this tree: the oracle moved past the candidate (a delta port and a new candidate are a separate step)")
+    assert op.status() == "available", op.status()
     yield
     op.refresh()
 
@@ -106,42 +101,49 @@ def compare(snapshot, domain, label: str = "") -> str:
 
 
 # --------------------------------------------------------------------------
-# the stage before the owner's approval
+# the pins: approved by the gates (CHAIN_STATION_PINS_APPROVED_V1); without them, or stale, the stage refuses by name and the dispatcher names its fallback
 # --------------------------------------------------------------------------
 
 
-def test_until_the_owner_approves_the_candidate_the_stage_is_unavailable_and_refuses_by_name():
+def test_the_approved_pins_cover_the_law_and_the_records_whole_and_answer_against_this_tree():
     op.refresh()
-    if op.CANDIDATE["approved"]:
-        pytest.skip("the candidate is approved: the stage answers under its pins")
-    assert op.APPROVED_PINS == {}
-    assert cftuv_native.native_status()["chain_station"] == "unavailable"
-    snapshot = SimpleNamespace()
-    with pytest.raises(pin.NativePortStale, match="CHAIN_STATION_PINS_NOT_APPROVED"):
-        cftuv_native.chain_station_plans(snapshot, None)
+    assert set(op.APPROVED_PINS) == {"_chain_station.py", "contracts/chain_station.py"}
+    assert cftuv_native.native_status()["chain_station"] == "available"
 
 
-def test_the_candidate_pins_the_law_and_the_records_whole():
-    assert set(op.CANDIDATE["files"]) == {"_chain_station.py", "contracts/chain_station.py"}
-    assert all(len(value) == 64 for value in op.CANDIDATE["files"].values())
+def test_without_approved_pins_the_stage_is_unavailable_and_refuses_by_name(monkeypatch):
+    monkeypatch.setattr(op, "APPROVED_PINS", {})
+    op.refresh()
+    try:
+        assert cftuv_native.native_status()["chain_station"] == "unavailable"
+        with pytest.raises(pin.NativePortStale, match="CHAIN_STATION_PINS_NOT_APPROVED"):
+            cftuv_native.chain_station_plans(SimpleNamespace(), None)
+    finally:
+        monkeypatch.undo()
+        op.refresh()
 
 
-def test_outside_a_native_order_the_dispatcher_is_the_oracle_and_an_unapproved_port_falls_back_by_name():
+def test_outside_a_native_order_the_dispatcher_is_the_oracle_and_a_stale_port_falls_back_by_name(monkeypatch):
     calls = []
 
     def oracle(snapshot, domain):
         calls.append((snapshot, domain))
         return frozenset()
 
-    assert backend.chain_station_compute("s", "d", oracle) == frozenset() and calls == [("s", "d")]
+    with backend.use_backend("PYTHON", chain_station_backend="PYTHON"):
+        assert backend.chain_station_compute("s", "d", oracle) == frozenset() and calls == [("s", "d")]
+    monkeypatch.setattr(op, "APPROVED_PINS", {**op.APPROVED_PINS, "_chain_station.py": "0" * 64})
     op.refresh()
-    if op.CANDIDATE["approved"]:
-        return
-    with backend.use_backend("PYTHON", chain_station_backend="NATIVE") as ledger:
-        assert backend.chain_station_compute("s", "d", oracle) == frozenset()
-    record = ledger.record()
-    assert (record.chain_station_requested, record.chain_station_native_calls, record.chain_station_python_calls) == ("NATIVE", 0, 1)
-    assert record.chain_station_outcomes == ("NATIVE_PORT_STALE",)
+    try:
+        assert cftuv_native.native_status()["chain_station"] == "stale(_chain_station.py)"
+        with backend.use_backend("PYTHON", chain_station_backend="NATIVE") as ledger:
+            assert backend.chain_station_compute("s", "d", oracle) == frozenset()
+        record = ledger.record()
+        assert (record.chain_station_requested, record.chain_station_native_calls, record.chain_station_python_calls) == ("NATIVE", 0, 1)
+        assert record.chain_station_outcomes == ("NATIVE_PORT_STALE",)
+    finally:
+        monkeypatch.undo()
+        op.refresh()
 
 
 def test_under_a_native_order_the_dispatcher_answers_natively_and_counts_it(approved):

@@ -1,0 +1,1111 @@
+{
+  "schema": "cftuv.real.operator.pairs.v1",
+  "controller_pid": 41692,
+  "controller_creation": 134368873577940864,
+  "controller_argv": [
+    "station_timing_controller.py",
+    "--base-tree",
+    "D:/r3plus-scratch/base-tree",
+    "--base-native-site",
+    "D:/r3plus-scratch/base-site",
+    "--base-build-id",
+    "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+    "--branch-tree",
+    "D:/CFTUV-r3plus",
+    "--branch-native-site",
+    "D:/r3plus-scratch/wheel-s3/site",
+    "--branch-build-id",
+    "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+    "--reps",
+    "6",
+    "--case",
+    "both",
+    "--output",
+    "D:/r3plus-scratch/timing-s3"
+  ],
+  "runs": [
+    {
+      "label": "building_1_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_1_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 30616,
+      "creation": 134368873579728528,
+      "process_wall_seconds": 22.341856600003666,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.40625,
+          "cpu_after": 391.4375
+        }
+      ]
+    },
+    {
+      "label": "building_1_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_1_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 24956,
+      "creation": 134368873803566313,
+      "process_wall_seconds": 12.196578399991267,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.4375,
+          "cpu_after": 391.453125
+        }
+      ]
+    },
+    {
+      "label": "building_2_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_2_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 28188,
+      "creation": 134368873925960488,
+      "process_wall_seconds": 10.174819300009403,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.453125,
+          "cpu_after": 391.46875
+        }
+      ]
+    },
+    {
+      "label": "building_2_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_2_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 23088,
+      "creation": 134368874028094555,
+      "process_wall_seconds": 10.181006400001934,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.46875,
+          "cpu_after": 391.53125
+        }
+      ]
+    },
+    {
+      "label": "building_3_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_3_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 33280,
+      "creation": 134368874130344710,
+      "process_wall_seconds": 10.186228999999003,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.53125,
+          "cpu_after": 391.59375
+        }
+      ]
+    },
+    {
+      "label": "building_3_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_3_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 23064,
+      "creation": 134368874232608442,
+      "process_wall_seconds": 10.172819900006289,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.59375,
+          "cpu_after": 391.640625
+        }
+      ]
+    },
+    {
+      "label": "building_4_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_4_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 13576,
+      "creation": 134368874334706358,
+      "process_wall_seconds": 10.173992399999406,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.640625,
+          "cpu_after": 391.6875
+        }
+      ]
+    },
+    {
+      "label": "building_4_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_4_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 25968,
+      "creation": 134368874436831197,
+      "process_wall_seconds": 10.177515100003802,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.6875,
+          "cpu_after": 391.75
+        }
+      ]
+    },
+    {
+      "label": "building_5_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_5_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 11980,
+      "creation": 134368874538982716,
+      "process_wall_seconds": 10.172141000002739,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.75,
+          "cpu_after": 391.765625
+        }
+      ]
+    },
+    {
+      "label": "building_5_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_5_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 39356,
+      "creation": 134368874641160674,
+      "process_wall_seconds": 10.16928590000316,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.765625,
+          "cpu_after": 391.84375
+        }
+      ]
+    },
+    {
+      "label": "building_6_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_6_branch.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 9396,
+      "creation": 134368874743304767,
+      "process_wall_seconds": 10.173628599994117,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.84375,
+          "cpu_after": 391.90625
+        }
+      ]
+    },
+    {
+      "label": "building_6_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "building",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\building_6_base.json"
+      ],
+      "sha_before": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 25932,
+      "creation": 134368874845432230,
+      "process_wall_seconds": 11.191889299996546,
+      "sha_after": "750baefc50ddbccad2ff090dae135c55e7b0d1584ca62697261a32b249e15fb4",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.90625,
+          "cpu_after": 391.953125
+        }
+      ]
+    },
+    {
+      "label": "cover008_1_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_1_base.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 28896,
+      "creation": 134368874957841923,
+      "process_wall_seconds": 24.43642070000351,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 391.953125,
+          "cpu_after": 392.078125
+        }
+      ]
+    },
+    {
+      "label": "cover008_1_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_1_branch.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 39928,
+      "creation": 134368875202641869,
+      "process_wall_seconds": 23.458949099993333,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.078125,
+          "cpu_after": 392.15625
+        }
+      ]
+    },
+    {
+      "label": "cover008_2_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_2_branch.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 7016,
+      "creation": 134368875437685266,
+      "process_wall_seconds": 24.467374400002882,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.15625,
+          "cpu_after": 392.296875
+        }
+      ]
+    },
+    {
+      "label": "cover008_2_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_2_base.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 15340,
+      "creation": 134368875682777602,
+      "process_wall_seconds": 23.453484800003935,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.296875,
+          "cpu_after": 392.375
+        }
+      ]
+    },
+    {
+      "label": "cover008_3_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_3_base.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 28896,
+      "creation": 134368875917739733,
+      "process_wall_seconds": 23.43710799999826,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.375,
+          "cpu_after": 392.515625
+        }
+      ]
+    },
+    {
+      "label": "cover008_3_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_3_branch.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 37664,
+      "creation": 134368876152577433,
+      "process_wall_seconds": 23.45176910000737,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.515625,
+          "cpu_after": 392.578125
+        }
+      ]
+    },
+    {
+      "label": "cover008_4_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_4_branch.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 36396,
+      "creation": 134368876387561120,
+      "process_wall_seconds": 23.46244389998901,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.578125,
+          "cpu_after": 392.765625
+        }
+      ]
+    },
+    {
+      "label": "cover008_4_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_4_base.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 41004,
+      "creation": 134368876622646518,
+      "process_wall_seconds": 23.469081799994456,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.765625,
+          "cpu_after": 392.9375
+        }
+      ]
+    },
+    {
+      "label": "cover008_5_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_5_base.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 39984,
+      "creation": 134368876857781342,
+      "process_wall_seconds": 23.46965060000366,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 392.9375,
+          "cpu_after": 393.0625
+        }
+      ]
+    },
+    {
+      "label": "cover008_5_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_5_branch.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 40500,
+      "creation": 134368877092923231,
+      "process_wall_seconds": 23.4507270000031,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 393.0625,
+          "cpu_after": 393.125
+        }
+      ]
+    },
+    {
+      "label": "cover008_6_branch",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/CFTUV-r3plus",
+        "--native-site",
+        "D:/r3plus-scratch/wheel-s3/site",
+        "--build-id",
+        "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_6_branch.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 3820,
+      "creation": 134368877327886320,
+      "process_wall_seconds": 23.441714000000502,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 393.125,
+          "cpu_after": 393.171875
+        }
+      ]
+    },
+    {
+      "label": "cover008_6_base",
+      "argv": [
+        "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+        "-b",
+        "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "D:\\CFTUV-r3plus\\artifacts\\r3plus_20261018\\scripts\\station_timing_runner.py",
+        "--",
+        "--tree",
+        "D:/r3plus-scratch/base-tree",
+        "--native-site",
+        "D:/r3plus-scratch/base-site",
+        "--build-id",
+        "a14d5084e0363e9a3f8693e95e5b1ac48c98045f77d242bae25ff86b52db60d7",
+        "--case",
+        "cover008",
+        "--output",
+        "D:\\r3plus-scratch\\timing-s3\\cover008_6_base.json"
+      ],
+      "sha_before": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "foreign_seen": [
+        {
+          "pid": 39272,
+          "creation": 134368717888836527
+        }
+      ],
+      "exit": 0,
+      "pid": 40584,
+      "creation": 134368877562759723,
+      "process_wall_seconds": 23.465776600001846,
+      "sha_after": "a044b5aa8d5156bcf64167d7181557fb563b2d1472d8f837b4c6a51ce414ab32",
+      "low_disk": false,
+      "foreign_idle": [
+        {
+          "pid": 39272,
+          "cpu_before": 393.171875,
+          "cpu_after": 393.1875
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "building": {
+      "base": {
+        "samples": [
+          1.7930465999961598,
+          1.680779899994377,
+          1.841006800008472,
+          1.672340399993118,
+          1.644652799994219,
+          1.6765016999997897
+        ],
+        "median": 1.6786407999970834
+      },
+      "branch": {
+        "samples": [
+          1.827214399992954,
+          1.684105099993758,
+          1.6322594999946887,
+          1.7522147999989102,
+          1.6415666000102647,
+          1.7888612000097055
+        ],
+        "median": 1.718159949996334
+      }
+    },
+    "cover008": {
+      "base": {
+        "samples": [
+          9.747414400000707,
+          9.781107899994822,
+          9.830925799993565,
+          9.610395999989123,
+          9.735393299997668,
+          9.460777399988729
+        ],
+        "median": 9.741403849999188
+      },
+      "branch": {
+        "samples": [
+          9.509505099995295,
+          9.898246400000062,
+          9.335386399994604,
+          9.38300750000053,
+          9.30551099999866,
+          9.41939850000199
+        ],
+        "median": 9.40120300000126
+      }
+    }
+  },
+  "accepted": true
+}

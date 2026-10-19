@@ -112,11 +112,13 @@ def seed(args):
 
 
 def approve_in_memory():
-    """TEST-ONLY: the pin candidate installed in this process (no file changes, the build id stays)."""
+    """TEST-ONLY: the pin candidate installed in this process (no file changes, the build id stays); a wheel with the approved table
+    (CHAIN_STATION_PINS_APPROVED_V1) has no candidate and needs nothing."""
 
     from cftuv_native import chain_station_op
 
-    chain_station_op.APPROVED_PINS = dict(chain_station_op.CANDIDATE["files"])
+    if hasattr(chain_station_op, "CANDIDATE"):
+        chain_station_op.APPROVED_PINS = dict(chain_station_op.CANDIDATE["files"])
     chain_station_op.refresh()
 
 

@@ -116,7 +116,7 @@ _STATUS_FLAGS = {
 #: стадии и не поднимает стадию над главным переключателем `PYTHON`. Стадии без записи здесь следуют главному переключателю без исключений.
 STAGE_ENVIRONMENT = {"effective_alpha": "CFTUV_EFFECTIVE_ALPHA_BACKEND", "materialize_w1": "CFTUV_MATERIALIZE_W1_BACKEND", "snapshot_check": "CFTUV_SNAPSHOT_CHECK_BACKEND", "frame": "CFTUV_FRAME_BACKEND", "density": "CFTUV_DENSITY_BACKEND", "angular": "CFTUV_ANGULAR_BACKEND", "chain_station": "CFTUV_CHAIN_STATION_BACKEND"}
 #: Стадии-кандидаты до утверждения пинов владельцем: при главном `NATIVE` без явного заказа (среда, keyword) они остаются `PYTHON`.
-OPT_IN_STAGES = ("angular", "chain_station")
+OPT_IN_STAGES = ("angular",)  # chain_station: NATIVE by default since CHAIN_STATION_PINS_APPROVED_V1
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
 _LAST_BACKEND = [DEFAULT_KERNEL_BACKEND]

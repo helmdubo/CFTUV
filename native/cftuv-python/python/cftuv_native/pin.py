@@ -348,9 +348,12 @@ _VERDICTS: dict = {}
 
 
 def refresh() -> None:
-    """Forgets the cached verdicts: the next call reads the oracle again."""
+    """Forgets the cached verdicts and the bound Density classes: the next call reads the oracle again."""
 
     _VERDICTS.clear()
+    from .density_pin import unbind
+
+    unbind()
 
 
 def verdict(operation: str) -> tuple:

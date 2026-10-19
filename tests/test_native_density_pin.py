@@ -66,17 +66,72 @@ def test_mutable_constant_change_after_warm_is_stale():
     assert pins.runtime_stale() == ()
 
 
-def test_dataclass_field_schema_change_after_warm_is_stale():
+def _first_dataclass_row():
     file, name, _ = next(row for row in pins.CLASSES if dataclasses.is_dataclass(pins._resolve(row[0], row[1])))
-    cls = pins._resolve(file, name)
+    return file, name, pins._resolve(file, name)
+
+
+def test_dataclass_field_schema_change_after_bind_is_out_of_contract_and_named_at_the_next_bind():
+    """DENSITY_SHAPES_BOUND_ONCE_V1: the schema is taken when the class is bound (worker start); an in-place change of a BOUND class is out of contract
+    (the per-call check does not see it), and the next bind (`pin.refresh` / `unbind`) names it."""
+
+    file, name, cls = _first_dataclass_row()
     field = dataclasses.fields(cls)[0]
     original = field.compare
+    pins.unbind()
     assert pins.runtime_stale() == ()
     try:
         field.compare = not original
+        assert pins.runtime_stale() == ()
+        pins.unbind()
         assert file + ":" + name + " (shape)" in pins.runtime_stale()
     finally:
         field.compare = original
+        pins.unbind()
+    assert pins.runtime_stale() == ()
+
+
+def test_dataclass_field_schema_change_before_bind_refuses_by_name(monkeypatch):
+    file, name, cls = _first_dataclass_row()
+    field = dataclasses.fields(cls)[0]
+    original = field.compare
+    pin.refresh()
+    try:
+        field.compare = not original
+        assert file + ":" + name + " (shape)" in pins.runtime_stale()
+        pin.refresh()
+        monkeypatch.setitem(pin._VERDICTS, "density", ("available",))
+        with pytest.raises(pin.NativePortStale, match=name.split(".")[-1]):
+            pin.require("density")
+    finally:
+        field.compare = original
+        pin.refresh()
+    assert pins.runtime_stale() == ()
+
+
+def test_a_bound_class_is_not_digested_again_per_call(monkeypatch):
+    pins.unbind()
+    assert pins.runtime_stale() == ()
+
+    def forbidden(*args):
+        raise AssertionError("schema taken again on a warm call")
+
+    monkeypatch.setattr(pins, "_class_digest", forbidden)
+    monkeypatch.setattr(pins, "_class_shape", forbidden)
+    assert pins.runtime_stale() == ()
+
+
+def test_a_module_attribute_naming_another_class_is_stale_on_the_next_call(monkeypatch):
+    file, name, cls = _first_dataclass_row()
+    assert pins.runtime_stale() == ()
+    owner = pins._module(file)
+    parts = name.split(".")
+    for part in parts[:-1]:
+        owner = getattr(owner, part)
+    impostor = dataclasses.make_dataclass(cls.__name__, [("other", int)])
+    monkeypatch.setattr(owner, parts[-1], impostor)
+    assert file + ":" + name + " (shape)" in pins.runtime_stale()
+    monkeypatch.undo()
     assert pins.runtime_stale() == ()
 
 
@@ -165,3 +220,105 @@ def test_density_identity_includes_expected_closure_only(monkeypatch):
     assert first != previous
     monkeypatch.setattr(pin, "DENSITY_CLOSURE_DIGEST", "changed expected contract")
     assert pin.fingerprint("density") != first
+
+
+# --------------------------------------------------------------------------
+# DENSITY_SHAPES_BOUND_ONCE_V1 parity corpus: every pinned class, every perturbation the contract keeps, answered as the per-call reference answers
+# --------------------------------------------------------------------------
+
+
+def _reference_runtime_stale():
+    """The per-call check before DENSITY_SHAPES_BOUND_ONCE_V1 (fc817d2d), verbatim but for the name: every class schema taken again on every call."""
+
+    failures = []
+    for package_name, wanted in pins.VERSIONS:
+        try:
+            if importlib.import_module(package_name).__version__ != wanted:
+                failures.append(package_name + ":version")
+        except (ImportError, AttributeError):
+            failures.append(package_name + ":version (missing)")
+    for file, qualified, wanted in pins.FUNCTIONS:
+        try:
+            if pins._source_digest(pins._resolve(file, qualified)) != wanted:
+                failures.append(file + ":" + qualified + " (live)")
+        except (ImportError, AttributeError, OSError, TypeError):
+            failures.append(file + ":" + qualified + " (live missing/invalid)")
+    for rows, reader, suffix in ((pins.CONSTANTS, pins._value_digest, "constant"), (pins.CLASSES, pins._class_digest, "shape")):
+        for file, qualified, wanted in rows:
+            try:
+                value = pins._resolve(file, qualified)
+                digest = pins._cached_value_digest((file, qualified), value) if suffix == "constant" else reader(value)
+                if digest != wanted:
+                    failures.append(file + ":" + qualified + " (" + suffix + ")")
+            except (ImportError, AttributeError, OSError, TypeError, ValueError):
+                failures.append(file + ":" + qualified + " (" + suffix + " missing/invalid)")
+    for file, qualified, names, wanted in pins.ENUM_SUBSETS:
+        try:
+            if pins._cached_value_digest((file, qualified, names), pins._enum_subset(file, qualified, names)) != wanted:
+                failures.append(file + ":" + qualified + " (enum subset)")
+        except (ImportError, AttributeError, TypeError):
+            failures.append(file + ":" + qualified + " (enum subset missing/invalid)")
+    return tuple(failures)
+
+
+def _owner(file, qualified):
+    owner = pins._module(file)
+    parts = qualified.split(".")
+    for part in parts[:-1]:
+        owner = getattr(owner, part)
+    return owner, parts[-1]
+
+
+def test_every_pinned_class_and_every_kept_perturbation_is_answered_as_the_per_call_reference(monkeypatch):
+    checked = {"unchanged": 0, "rebound after bind": 0, "method code after bind": 0, "schema before bind": 0, "missing after bind": 0}
+
+    def same(label):
+        found = pins.runtime_stale()
+        assert found == _reference_runtime_stale(), label
+        return found
+
+    pins.unbind()
+    assert same("unchanged") == ()
+    checked["unchanged"] += 1
+    for file, qualified, _wanted in pins.CLASSES:
+        cls = pins._resolve(file, qualified)
+        owner, name = _owner(file, qualified)
+        # the module attribute names another class: seen on the next call, without a rebind
+        monkeypatch.setattr(owner, name, type(cls.__name__, (), {}))
+        assert file + ":" + qualified + " (shape)" in same(f"{qualified} rebound")
+        monkeypatch.undo()
+        assert same(f"{qualified} restored") == ()
+        checked["rebound after bind"] += 1
+        # the attribute is gone: named missing/invalid on the next call
+        monkeypatch.delattr(owner, name)
+        assert file + ":" + qualified + " (shape missing/invalid)" in same(f"{qualified} deleted")
+        monkeypatch.undo()
+        assert same(f"{qualified} restored") == ()
+        checked["missing after bind"] += 1
+        # a checked method gets other code in place: seen on the next call
+        for method_name in ("__post_init__", "validate_candidate"):  # literal: the checked methods of the contract, not the module's own list
+            method = cls.__dict__.get(method_name)
+            if method is None or not hasattr(method, "__code__"):
+                continue
+            original = method.__code__
+            method.__code__ = (lambda self, *args, **kwargs: None).__code__
+            try:
+                assert file + ":" + qualified + " (shape)" in same(f"{qualified}.{method_name} code")
+            finally:
+                method.__code__ = original
+            assert same(f"{qualified}.{method_name} restored") == ()
+            checked["method code after bind"] += 1
+        # the schema changed in place BEFORE the bind: named by both
+        if dataclasses.is_dataclass(cls) and dataclasses.fields(cls):
+            field = dataclasses.fields(cls)[0]
+            original = field.compare
+            pins.unbind()
+            field.compare = not original
+            try:
+                assert file + ":" + qualified + " (shape)" in same(f"{qualified} schema before bind")
+            finally:
+                field.compare = original
+                pins.unbind()
+            assert same(f"{qualified} schema restored") == ()
+            checked["schema before bind"] += 1
+    assert checked["rebound after bind"] == checked["missing after bind"] == len(pins.CLASSES) and checked["method code after bind"] > 19 and checked["schema before bind"], checked

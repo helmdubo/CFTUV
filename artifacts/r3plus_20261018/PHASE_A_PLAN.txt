@@ -90,3 +90,18 @@ HOW (scripts/ in this folder; raw JSON on D:/r3plus-scratch/prof/out, not commit
               cover008 8.478 -> 8.359 s (-0.120 s, -1.4 %, ranges disjoint); building 1.592 -> 1.594 s (no change, as estimated).
       STOP rules: unit speedup >= 5x (16-26x), cover gain >= 0.06 s (0.12) - both pass.
    NEXT: S3 PREPARE GEOMETRY ATTEST (-0.20..-0.25 s cover), after the owner approves the S2 pins.
+
+6. APPROVAL, S2 DEFAULT AND S1 (2026-10-19)
+   PIN_APPROVAL_BY_GATES_V1 (owner): pins of Rust-only stages are approved by the gates (corpus parity, mutants killed, field A/B IDENTICAL, CI green on the exact SHA).
+   CHAIN_STATION_PINS_APPROVED_V1: chain_station_approved_pins.py = the S2 candidate verbatim (digests checked before writing); chain_station left OPT_IN_STAGES:
+      NATIVE by default, CFTUV_CHAIN_STATION_BACKEND=PYTHON isolates it, a stale/empty table is the named fallback NATIVE_PORT_STALE.
+   S1 DENSITY_SHAPES_BOUND_ONCE_V1 (owner semantics): class schemas taken at bind (worker start, pin.refresh, a rebound module attribute); per call: identity of the class and of
+      the code of its checked methods; versions, functions, constants, enum subset unchanged per call.
+      per call runtime_stale (s1_timing.py, 7 alternating reps x 500 calls, medians): 3.11 1.452 -> 0.676 ms, 3.13 0.928 -> 0.418 ms.
+      parity corpus: tests/test_native_density_pin.py - all 83 classes x (rebound, deleted, method code, schema before bind) answered as the per-call reference.
+      mutants (s1_mutants.py): 12/12 killed (s1_mutants_results.json), 2 equivalent sites named.
+   field A/B, product pins, no hook (tools/blender_tree_ab.py, cold, w0/w12, PYTHON env vs product default): 12/12 IDENTICAL; branch chain station native
+      122/5/32/2/2/1048, Density native on every domain, 0 fallbacks.
+   cold button vs base 61e46e89 (S2 default + S1; the machine was slower than on 10-18, base cover 9.7 s vs 8.5 s):
+      run 1, 6 reps: cover008 9.741 -> 9.401 s (-0.34), building 1.679 -> 1.718 s (noise); run 2, cover only, 8 reps: 9.792 -> 9.576 s (-0.22).
+      (timing_controller_s1_s2_product*.json)

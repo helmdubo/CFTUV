@@ -1,0 +1,80 @@
+[
+ {
+  "id": "BASELINE",
+  "outcome": "passed",
+  "seconds": 4.5,
+  "first_failure": ""
+ },
+ {
+  "id": "B01_bound_identity_not_checked",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_a_module_attribute_naming_another_class_is_stale_on_the_next_call"
+ },
+ {
+  "id": "B02_method_identity_not_checked",
+  "outcome": "killed",
+  "seconds": 2.4,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_method_code_change_is_stale"
+ },
+ {
+  "id": "B03_method_code_not_checked",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_method_code_change_is_stale"
+ },
+ {
+  "id": "B05_never_bound",
+  "outcome": "killed",
+  "seconds": 2.4,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_field_schema_change_after_bind_is_out_of_contract_and_named_at_the_next_bind"
+ },
+ {
+  "id": "B06_unbind_keeps_the_binding",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_field_schema_change_after_bind_is_out_of_contract_and_named_at_the_next_bind"
+ },
+ {
+  "id": "B07_refresh_does_not_unbind",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_field_schema_change_before_bind_refuses_by_name"
+ },
+ {
+  "id": "B08_bound_digest_ignored_on_rebind",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_field_schema_change_after_bind_is_out_of_contract_and_named_at_the_next_bind"
+ },
+ {
+  "id": "B09_bound_without_methods",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_method_code_change_is_stale"
+ },
+ {
+  "id": "B10_one_method_name_only",
+  "outcome": "killed",
+  "seconds": 3.6,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_every_pinned_class_and_every_kept_perturbation_is_answered_as_the_per_call_reference"
+ },
+ {
+  "id": "B11_class_failure_not_named",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_field_schema_change_after_bind_is_out_of_contract_and_named_at_the_next_bind"
+ },
+ {
+  "id": "B12_missing_class_not_named",
+  "outcome": "killed",
+  "seconds": 3.1,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_every_pinned_class_and_every_kept_perturbation_is_answered_as_the_per_call_reference"
+ },
+ {
+  "id": "B13_first_bind_key_shared",
+  "outcome": "killed",
+  "seconds": 2.5,
+  "first_failure": "FAILED tests/test_native_density_pin.py::test_dataclass_field_schema_change_after_bind_is_out_of_contract_and_named_at_the_next_bind"
+ }
+]

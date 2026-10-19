@@ -35,7 +35,7 @@ def test_density_default_and_explicit_python_have_separate_execution_identities(
     _fake_native()
     python_density=host.backend_identity_of('NATIVE',density_backend='PYTHON')
     default=host.backend_identity_of('NATIVE')
-    assert default==python_density+'|density=NATIVE:'+BUILD_ID
+    assert default==python_density.replace('|chain_station=NATIVE:'+BUILD_ID,'|density=NATIVE:'+BUILD_ID+'|chain_station=NATIVE:'+BUILD_ID)
     monkeypatch.setenv('CFTUV_DENSITY_BACKEND','NATIVE')
     assert host.backend_identity_of('NATIVE')==default
     assert host.backend_identity_of('PYTHON')=='PYTHON'

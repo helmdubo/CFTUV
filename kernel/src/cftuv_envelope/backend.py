@@ -128,7 +128,7 @@ FRAME = "frame"
 DENSITY = "density"
 #: ANGULAR до приёмки включается только явным keyword-заказом.
 ANGULAR = "angular"
-#: `CHAIN_STATION_PLAN_V1` (`_chain_station.chain_station_plans`), opt-in до утверждения пинов владельцем: как ANGULAR, включается только явным заказом.
+#: `CHAIN_STATION_PLAN_V1` (`_chain_station.chain_station_plans`): пины утверждены гейтами (CHAIN_STATION_PINS_APPROVED_V1), продукт заказывает NATIVE по умолчанию; откат в Python назван.
 CHAIN_STATION = "chain_station"
 #: Статус операции нативного ядра, когда `cftuv_native` не импортируется.
 UNAVAILABLE = "unavailable"

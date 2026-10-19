@@ -11,6 +11,7 @@ import importlib
 import inspect
 import json
 from pathlib import Path
+import sys
 
 # Только математический oracle; extraction/attachment/compile glue здесь не заморожен.
 FILES = (
@@ -178,6 +179,42 @@ def _class_digest(cls):
     return digest
 
 
+# DENSITY_SHAPES_BOUND_ONCE_V1 (владелец, 2026-10-19): схема класса (базы, слоты, поля и параметры датакласса, члены enum) снимается при ПРИВЯЗКЕ —
+# первая проверка процесса (прогрев в старте воркера), после `unbind()` (`pin.refresh`) или когда атрибут модуля называет другой объект. Изменение схемы
+# привязанного класса на месте — вне контракта. На каждом вызове остаётся: атрибут модуля — тот же привязанный класс, проверяемые методы — те же объекты
+# с тем же `__code__` (подмена кода видна сразу). Привязка с несовпавшим дайджестом остаётся отказом до перепривязки.
+_METHOD_NAMES = ("__post_init__", "validate_candidate")
+_BOUND = {}
+
+
+def unbind():
+    """Forgets the bound classes: the next check takes every schema again."""
+
+    _BOUND.clear()
+
+
+def _live_module(file):
+    name = "cftuv_envelope." + file[:-3].replace("/", ".")
+    module = sys.modules.get(name)
+    return module if module is not None else importlib.import_module(name)
+
+
+def _methods(cls):
+    return tuple((name, method, getattr(method, "__code__", None)) for name in _METHOD_NAMES for method in (getattr(cls, name, None),))
+
+
+def _bound_class_digest(file, qualified):
+    cls = _live_module(file)
+    for name in qualified.split("."):
+        cls = getattr(cls, name)
+    bound = _BOUND.get((file, qualified))
+    if bound is not None and bound[0] is cls and all(getattr(cls, name, None) is method and getattr(method, "__code__", None) is code for name, method, code in bound[1]):
+        return bound[2]
+    digest = _class_digest(cls)
+    _BOUND[(file, qualified)] = (cls, _methods(cls), digest)
+    return digest
+
+
 # Закрытые части общего enum: добавление чужого исхода не меняет Density oracle.
 ENUM_SUBSET_NAMES = (
     ("reference/contracts.py", "ReferenceOutcome", (
@@ -231,15 +268,18 @@ def runtime_stale():
                 failures.append(file + ":" + qualified + " (live)")
         except (ImportError, AttributeError, OSError, TypeError):
             failures.append(file + ":" + qualified + " (live missing/invalid)")
-    for rows, reader, suffix in ((CONSTANTS, _value_digest, "constant"), (CLASSES, _class_digest, "shape")):
-        for file, qualified, wanted in rows:
-            try:
-                value = _resolve(file, qualified)
-                digest = _cached_value_digest((file, qualified), value) if suffix == "constant" else reader(value)
-                if digest != wanted:
-                    failures.append(file + ":" + qualified + " (" + suffix + ")")
-            except (ImportError, AttributeError, OSError, TypeError, ValueError):
-                failures.append(file + ":" + qualified + " (" + suffix + " missing/invalid)")
+    for file, qualified, wanted in CONSTANTS:
+        try:
+            if _cached_value_digest((file, qualified), _resolve(file, qualified)) != wanted:
+                failures.append(file + ":" + qualified + " (constant)")
+        except (ImportError, AttributeError, OSError, TypeError, ValueError):
+            failures.append(file + ":" + qualified + " (constant missing/invalid)")
+    for file, qualified, wanted in CLASSES:
+        try:
+            if _bound_class_digest(file, qualified) != wanted:
+                failures.append(file + ":" + qualified + " (shape)")
+        except (ImportError, AttributeError, OSError, TypeError, ValueError):
+            failures.append(file + ":" + qualified + " (shape missing/invalid)")
     for file, qualified, names, wanted in ENUM_SUBSETS:
         try:
             if _cached_value_digest((file, qualified, names), _enum_subset(file, qualified, names)) != wanted:

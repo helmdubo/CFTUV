@@ -8,31 +8,24 @@ What crosses the boundary: the snapshot graph, read slot by slot from exactly th
 inputs, not pinned constants); and back the codes of each station, with the chain records and face id objects of the snapshot itself. The records (`ChainStationV1`,
 `ChainStationPlanV1`) are built here from the live contract classes, and `FREE_UNDER_CHART` is named by the law's own `_chart_is_developed`.
 
-PINS: a candidate awaiting the owner. The mirrored files are `_chain_station.py` (the law, whole) and `contracts/chain_station.py` (the records and the enum members the codes name).
-`CANDIDATE` holds their digests with `approved: False`; while it is not approved the stage is `unavailable` and a call refuses (`NativePortStale`), whatever the files say. Approving is
-the owner's step (flip `approved`); nothing here approves. A test harness may install the candidate in memory (`APPROVED_PINS`) for an A/B: that changes no file and no build id.
+PINS: gate-approved (CHAIN_STATION_PINS_APPROVED_V1, PIN_APPROVAL_BY_GATES_V1, `chain_station_approved_pins.py`, data only). The mirrored files are `_chain_station.py` (the law, whole) and
+`contracts/chain_station.py` (the records and the enum members the codes name). A file that differs from its pin makes the stage `stale(<file>)` and a call refuse
+(`NativePortStale`); the dispatcher then names the fallback and runs the Python law. An empty table would keep the stage `unavailable`.
 """
 
 from __future__ import annotations
 
 import importlib
 import sys
+from types import MappingProxyType
 
 from . import pin
+from .chain_station_approved_pins import APPROVED as _APPROVED
 
 OPERATION = "chain_station"
 
-#: The oracle files the Rust code mirrors and their sha256 (CRLF turned into LF), compared on 61e46e89. `approved: False` - awaiting the owner (R3+ S2).
-CANDIDATE = {
-    "approved": False,
-    "files": {
-        "_chain_station.py": "ee1394436daf4539658b63fcdba8b1d5e629fd8cc51f704d797f2a8868cb2c21",
-        "contracts/chain_station.py": "7c74d5446e2aded5af0d711885fec8218dfaa5de9ef8adf9b7074afda1d47e8e",
-    },
-}
-
-#: The pins the stage answers under: the candidate's files once the owner approved it, empty otherwise (empty: `unavailable`).
-APPROVED_PINS: dict = dict(CANDIDATE["files"]) if CANDIDATE["approved"] else {}
+#: The pins the stage answers under: exactly the gate-approved table (empty: `unavailable`).
+APPROVED_PINS = MappingProxyType(_APPROVED)
 
 #: The status codes of the extension's answer (`chain_station.rs`).
 STATUS_PLANS = 0
@@ -101,7 +94,7 @@ def status() -> str:
 def _require() -> None:
     found = verdict()
     if found[0] == "unavailable":
-        raise pin.NativePortStale("CHAIN_STATION_PINS_NOT_APPROVED: the pin candidate of the native chain_station awaits the owner (chain_station_op.CANDIDATE)")
+        raise pin.NativePortStale("CHAIN_STATION_PINS_NOT_APPROVED: the native chain_station has no approved pins (chain_station_approved_pins.APPROVED is empty)")
     if found[0] == "unsupported_python":
         raise pin.NativeUnsupportedPython(f"the native `{OPERATION}` port needs CPython {'.'.join(map(str, pin.MINIMUM_PYTHON))} or newer")
     if found[0] == "stale":

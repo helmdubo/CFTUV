@@ -1,8 +1,8 @@
-"""Whole ANGULAR facade; only owner-approved offline pins open the port (an empty table keeps it unavailable)."""
+"""Whole ANGULAR facade; only gate-approved offline pins open the port (an empty table keeps it unavailable)."""
 from types import MappingProxyType, SimpleNamespace, MethodType
 from . import angular_wire as wire, angular_bindings as bindings, angular_operation as operation
 
-# Только отдельно утверждённые константы, никогда live observe(): владелец утвердил r4 (ANGULAR_PINS_APPROVED_V1).
+# Только отдельно утверждённые константы, никогда live observe(): r4 утверждён (ANGULAR_PINS_APPROVED_V1; утверждение по гейтам — PIN_APPROVAL_BY_GATES_V1).
 from .angular_approved_pins import APPROVED as _APPROVED
 APPROVED_PINS = MappingProxyType(_APPROVED)
 _BINDINGS = {}
