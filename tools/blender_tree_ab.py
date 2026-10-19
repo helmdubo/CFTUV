@@ -91,6 +91,8 @@ SCHEDULING_GROUPS = {
     "pool blobs": lambda name: name in ("PRODUCTION_POOL_BLOB_HITS", "PRODUCTION_POOL_BLOBS_SHIPPED"),
     # the memo of the clip stage lives in each worker: a domain that lands on a worker that has seen it is a hit, on another one a miss (a base-vs-base run of the pool shows 2/3 and 1/4)
     "clip memo": lambda name: name.startswith("PRODUCTION_CLIP_MEMO_"),
+    # PARAMETRIC_SLOPE_MEMO_V1: the slope memo lives in the preparation a worker holds; base vs base of the pool shows hits 113 / misses 8 against 99 / 22 (the sum, the domains asked, is the answer)
+    "parametric memo": lambda name: name.startswith("PRODUCTION_PARAMETRIC_MEMO_"),
 }
 TIMING_SUFFIXES = ("_US", "_SECONDS", "_MS")
 #: WIDTH_REFRESH_INCREMENTAL_V1. The label of a domain served by its certificate, the refresh class that names an incremental press, the tolerance of a served domain against the exact one (metres and UV

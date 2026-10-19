@@ -141,6 +141,18 @@ def test_the_worker_local_clip_memo_is_a_scheduling_group_found_by_comparing_a_t
     assert ab.scheduling_group("PRODUCTION_CLIP_MEMO_HITS") == "clip memo" and ab.scheduling_group("EXACT_WORK_PRIME") is None
 
 
+def test_the_worker_local_parametric_memo_is_a_scheduling_group():
+    """PARAMETRIC_SLOPE_MEMO_V1 keeps the slopes in the preparation a pool worker holds: base vs base at 12 workers saw hits 113 / misses 8 against 99 / 22, and a partial on one side only."""
+
+    base = make_report()
+    base["presses"]["step1"]["profile_counters"].update({"PRODUCTION_PARAMETRIC_MEMO_HIT": 113, "PRODUCTION_PARAMETRIC_MEMO_MISS": 7, "PRODUCTION_PARAMETRIC_MEMO_PARTIAL": 1})
+    for counters, same in (({"PRODUCTION_PARAMETRIC_MEMO_HIT": 99, "PRODUCTION_PARAMETRIC_MEMO_MISS": 22}, True), ({"PRODUCTION_PARAMETRIC_MEMO_HIT": 99, "PRODUCTION_PARAMETRIC_MEMO_MISS": 21}, False)):
+        branch = make_report()
+        branch["presses"]["step1"]["profile_counters"].update(counters)
+        assert ab.compare_runs(base, branch).identical is same, counters
+    assert ab.scheduling_group("PRODUCTION_PARAMETRIC_MEMO_PARTIAL") == "parametric memo"
+
+
 def test_a_counter_a_change_adds_on_purpose_is_named_not_ignored():
     base, branch = make_report(), make_report()
     branch["presses"]["cold"]["profile_counters"]["PRODUCTION_SNAPSHOT_BYTE_CHECK_DOMAINS"] = 7
