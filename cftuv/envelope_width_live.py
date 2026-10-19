@@ -86,7 +86,7 @@ from .envelope_alpha_preview import (
 )
 from .envelope_gc_pause import gc_paused, gc_paused_function
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
-from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, seed_verified
+from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
@@ -94,10 +94,12 @@ from .envelope_width_mesh_preview import (
     capture_ownership,
     ensure_model,
     finish_live_run,
+    lay_exact_now,
     lean_exact_now,
     log_of,
     note_decal_updates,
     note_exact_display,
+    same_layout_of,
     note_history,
     plan_tick,
     preview_mesh_now,
@@ -369,7 +371,7 @@ def preview_now(controller, width: float, offset: float, skip_patches: frozenset
     return preview
 
 
-def width_event_preview(controller, width: float, offset: float):
+def width_event_preview(controller, width: float, offset: float, owners=None):
     """Превью одного события (калбэк ползунка и перетаскивание): кадр настоящего меша, а линии — только там, где меш не движется.
 
     PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1. Пока модель двигает меш (`preview_mesh_now`), линии каждого события считались зря: на `building`
@@ -379,7 +381,7 @@ def width_event_preview(controller, width: float, offset: float):
     (`WidthPreviewV1.outcomes`). Возвращает состояние кадра меша либо `None` (кадра нет).
     """
 
-    state = preview_mesh_now(controller, width)
+    state = preview_mesh_now(controller, width, owners)
     preview_now(controller, width, offset, frozenset() if state is None else state.moving)
     return state
 
@@ -730,9 +732,12 @@ def _apply_lean(controller, request, job, live) -> None:
 
     applying = time.perf_counter()
     before = controller.width_displayed
-    reason = lean_exact_now(controller, live)
+    log = controller.width_live_drag
+    # LIVE_DRAG_ONE_WRITE_V1: курсор ушёл дальше ширины такта - при той же раскладке меш пишет один раз кадр модели нового образца на ширине курсора (с номерами владельцев образца), а не образец и следом кадр.
+    pointer = pointer_after(log, request) if request.payload.stream else None
+    one_write = pointer is not None and same_layout_of(before, live.sample)
+    reason = lean_exact_now(controller, live, reframe_to=pointer) if one_write else lean_exact_now(controller, live)
     if reason:
-        log = controller.width_live_drag
         if request.payload.stream and log is not None:
             log.count(log.refused, reason)
         raise PreviewUnavailable(reason)
@@ -746,13 +751,16 @@ def _apply_lean(controller, request, job, live) -> None:
         )
         mesh_settings.timing = f"{production_timing_text(live.run)} | live width {float(request.alpha):.4g}"
     set_preview(controller, None)  # точный кадр на ширине курсора: линии превью этой ширины не нужны
-    log = controller.width_live_drag
     if request.payload.stream and log is not None:
         # LIVE_DRAG_STREAM_V1: точный такт ближайшей ширины лёг, а курсор ушёл дальше - меш сдвинут к курсору кадром модели НОВОГО образца (линии - только где модель не двигает).
         moments = (float(getattr(job, "started_at", 0.0)), float(getattr(job, "finished_at", 0.0)), applying, time.perf_counter())
         pointer = note_applied(log, request, live, before, moments)
         if pointer is not None:
-            width_event_preview(controller, pointer, float(request.payload.offset))
+            state = width_event_preview(controller, pointer, float(request.payload.offset), owners=live.sample.image.face_owner if one_write else None)
+            if one_write and state is None:  # кадра к курсору нет (модель снята с именем): образец ложится своими числами - меш не остаётся прежним
+                problem = lay_exact_now(controller, live.sample)
+                if problem:
+                    log.count(log.refused, problem)
     tag_view3d_redraw()
 
 

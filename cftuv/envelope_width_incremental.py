@@ -117,26 +117,26 @@ DEFERRABLE_REASONS = (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE)
 
 
 def verify_batch(candidates, verified, alpha: float, batch: int) -> list:
-    """DRAG_VERIFY_BACKGROUND_V1: какие из обслуживаемых доменов `candidates` (`(патч, низ интервала, верх интервала либо None)`) такт считает заново ради сверки.
+    """DRAG_VERIFY_BACKGROUND_V1: какие из обслуживаемых доменов `candidates` (`(патч, домен приближённый, число вершин)`) такт считает заново ради сверки.
 
-    Порядок риска: путь ширины от последнего точного счёта домена, делённый на запас до ближайшего конца его интервала (ни разу не считанный и стоящий у конца интервала - первыми);
-    домен, посчитанный точно на этой ширине, не нужен. Ничьи - по номеру патча. Чистая функция значений.
+    Порядок риска (VERIFY_RISK_ORDER_V1): приближённые домены (развёртка, `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`) - первыми, затем путь ширины от последнего точного счёта домена (ни разу не
+    считанный - первым), ничьи - по числу вершин (МЕНЬШЕ - первым: партия дешевле, и за секунду пула сверено больше доменов; на `cover.008` партия крупнейших доменов подняла счёт такта
+    0.02 -> 0.10-0.17 с, а «рука -> меш» p50 0.55 -> 1.07 с), затем по номеру патча. Запас до конца интервала ядра в порядок не входит: решения с допуском (силуэт, хорды) он не
+    описывает. Домен, посчитанный точно на этой ширине, не нужен. Чистая функция значений.
     """
 
     if batch <= 0:
         return []
     alpha = float(alpha)
     ranked = []
-    for patch, low, high in candidates:
+    for patch, approximate, vertices in candidates:
         last = None if verified is None else verified.get(patch)
         if last is not None and last == alpha:
             continue
-        headroom = min(alpha - low, (float("inf") if high is None else high) - alpha)
         drift = float("inf") if last is None else abs(alpha - last)
-        risk = float("inf") if not headroom > 0.0 else drift / headroom
-        ranked.append((-risk, patch))
+        ranked.append((not approximate, -drift, int(vertices), patch))
     ranked.sort()
-    return [patch for _risk, patch in ranked[:batch]]
+    return [item[3] for item in ranked[:batch]]
 
 
 def full_plan(reason: str, domains: int = 0) -> IncrementalPlanV1:

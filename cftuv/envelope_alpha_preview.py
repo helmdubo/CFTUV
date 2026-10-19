@@ -463,6 +463,25 @@ class AlphaPreviewScheduler:
             self._set_phase(STATUS_CANCELLED, f"cancelled: {reason}")
         return had_work
 
+    def retire_stream(self, reason: str) -> bool:
+        """Снимает ПОТОКОВУЮ работу (LIVE_DRAG_STREAM_V1: перетаскивание кончилось - отмена, подтверждение): потоковый заказ, что ждёт, снят, потоковый полёт остановлен, и его результат
+        выбрасывается как снятый, а простой больше не спрашивается. Обычный заказ и его полёт (COMMIT) не тронуты. `True` - было что снимать (счётчик `cancelled`)."""
+
+        hit = False
+        if self._pending is not None and self._pending.stream:
+            self._pending = None
+            hit = True
+        request = self._job_request
+        if self._job is not None and request is not None and request.stream:
+            self._retired_through = max(self._retired_through, request.sequence)
+            self._job.cancel()
+            hit = True
+        self._stream_open = False
+        if hit:
+            self._counts["cancelled"] += 1
+            self._set_phase(STATUS_CANCELLED, f"cancelled: {reason}")
+        return hit
+
     def quiesce(self, reason: str) -> bool:
         """`supersede` и ожидание конца полёта: после возврата поток счёта не пишет в подготовки."""
 

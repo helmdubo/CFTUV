@@ -10,9 +10,9 @@
 полным (полный lean-такт стоит 0.24 с на `building` и 1.46 с на `cover.008`, и рука его отменяла): каждый потоковый такт считает заново ещё `batch` обслуживаемых доменов (половина воркеров) в порядке риска
 (`envelope_width_incremental.verify_batch`: путь ширины от их последнего точного счёта к запасу интервала), и они ложатся в образец точными - их структура становится новой основой. Обслуженный домен показывает
 структуру своего последнего точного счёта (журнал `verified`), каждый домен такта обслужен либо придержан с именем (`DRAG_VERIFY_BACKGROUND_V1` - ради сверки). Сверку рука не отменяет и не ждёт: партия
-идёт внутри такта, который рука и так ждёт. Когда рука стоит, простой заказывает такты на ширине курсора, пока все домены не сверены на ней (`idle_answer`); новое движение просто становится
+идёт внутри такта, который рука и так ждёт. Когда рука стоит, простой заказывает такты на ширине курсора, пока все домены не сверены на ней, но не больше `IDLE_TICKS_PER_PAUSE` за остановку (`idle_answer`); новое движение просто становится
 следующим тактом. Исход сверки домена назван (`verify_outcomes`): `STRUCTURE_SAME`; `STRUCTURE_CHANGED` - структура разошлась с показанной, и посчитанный результат ПРИНЯТ новой основой домена
-(он ложится в образец и его сертификат двигает домен дальше), число таких отдельно (`structure_changes`), смена раскладки меша - `layout_changes`; `INCOMPARABLE` - домена нет в одном из образцов.
+(он ложится в образец и его сертификат двигает домен дальше), число таких отдельно (`structure_changes`), смена раскладки меша - `layout_changes`; `WELD_CHANGED` - структура та же, но сварка группы такта разошлась с мешем на экране; `INCOMPARABLE` - домена нет в одном из образцов.
 Сверка - на ширине своего такта: такт ближайшей ширины сверяет домены на СВОЕЙ ширине, а не на ширине курсора; журнал сверки привязан к ключу образца (другой ключ - журнал заведён заново).
 
 ЧЕГО ЭТО НЕ ОБЕЩАЕТ. Обслуженный домен показывает структуру своего последнего точного счёта: `STRUCTURE_AS_OF:<ширина>` (строка панели называет, сколько доменов показаны по другой ширине и самую
@@ -30,6 +30,8 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from .envelope_production_result import PLACEMENT_REBASED
+from .envelope_production_weld import OUTCOME_WELD_POSITION_MISMATCH
+from .envelope_width_composite import COMPOSITE_WELD_CHANGED
 from .envelope_width_incremental import VERIFY_BACKGROUND
 
 #: Шаг перетаскивания не заказал такта: на экране нет образца точной записи (модель снята с названной причиной).
@@ -40,6 +42,12 @@ EVENTS_KEPT = 8192
 STRUCTURE_SAME = "STRUCTURE_SAME"
 STRUCTURE_CHANGED = "STRUCTURE_CHANGED"
 INCOMPARABLE = "INCOMPARABLE"
+#: Структура домена та же, но сварка группы такта разошлась с мешем на экране (`INCREMENTAL_COMPOSITE_WELD_CHANGED`): образец собран заново из всех доменов, домен - не «тот же».
+WELD_CHANGED = "WELD_CHANGED"
+#: Простой перестал заказывать такты сверки: потрачен бюджет одной остановки руки (DRAG_VERIFY_IDLE_BUDGET_V1).
+IDLE_BUDGET_SPENT = "DRAG_VERIFY_IDLE_BUDGET_SPENT"
+#: Сколько тактов сверки простой заказывает за одну остановку руки: дальше домены остаются `STRUCTURE_AS_OF` до следующего шага, полного такта или COMMIT.
+IDLE_TICKS_PER_PAUSE = 8
 #: Имя статуса обслуженного домена: структура его последнего точного счёта на названной ширине.
 STRUCTURE_AS_OF = "STRUCTURE_AS_OF"
 
@@ -71,6 +79,13 @@ class LiveDragLogV1:
     structure_changes: int = 0
     layout_changes: int = 0
     idle_ticks: int = 0
+    #: Такты простоя с последнего шага руки (бюджет `IDLE_TICKS_PER_PAUSE`) и сколько раз бюджет кончился, а несверенные остались (`IDLE_BUDGET_SPENT`).
+    idle_in_pause: int = 0
+    idle_budget_spent: int = 0
+    #: Такты, у которых сварка группы разошлась с мешем на экране (`INCREMENTAL_COMPOSITE_WELD_CHANGED`), и наибольшее число общих вершин с побитово разными позициями
+    #: (`ADAPTER_WELD_POSITION_MISMATCH` массивов такта): обслуженный домен равен точному лишь с точностью округления, и побитовая сварка может развести вершины.
+    weld_changes: int = 0
+    weld_position_mismatch: int = 0
     #: Сколько доменов не сверено на ширине курсора, когда простой заказал последний такт: простой, что не продвинулся, больше не заказывает.
     idle_left: int | None = None
     #: Срок сверки, не исполненный полным тактом: имя -> сколько тактов; полные такты по другим причинам: имя -> сколько.
@@ -102,6 +117,7 @@ def note_step(log: LiveDragLogV1, request, target) -> None:
     log.cursor = float(request.alpha)
     log.target = target
     log.idle_left = None
+    log.idle_in_pause = 0
     log.events.append((EVENT_STEP, int(request.sequence), float(request.alpha), float(request.requested_at)))
 
 
@@ -126,6 +142,8 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
             log.count(log.deferred, plan.deferred)
         computed = {int(item.patch_id) for item in live.run.results if item.placement != PLACEMENT_REBASED}
         checked = {patch for patch, name in (plan.held or {}).items() if name == VERIFY_BACKGROUND}
+        weld_changed = plan.fallback == COMPOSITE_WELD_CHANGED
+        log.weld_changes += int(weld_changed)
         if checked:
             old, new = _structures(before), _structures(live.sample)
             changed = 0
@@ -136,14 +154,16 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
                     changed += 1
                     log.count(log.verify_outcomes, STRUCTURE_CHANGED)  # посчитанный результат принят новой основой домена
                 else:
-                    log.count(log.verify_outcomes, STRUCTURE_SAME)
+                    log.count(log.verify_outcomes, WELD_CHANGED if weld_changed else STRUCTURE_SAME)
             log.verify_domains += len(checked)
             log.structure_changes += changed
-            log.layout_changes += int(bool(changed) and before is not None and before.layout_digest != live.sample.layout_digest)
     else:
         if plan is not None:
             log.count(log.full_ticks, plan.reason)
         computed = {item.patch_id for item in live.sample.domains}
+    log.layout_changes += int(before is not None and before.layout_digest != live.sample.layout_digest)  # раскладка меша сменилась - по чьей угодно причине, не только у партии сверки
+    counters = dict(getattr(getattr(live, "arrays", None), "weld_counters", ()) or ())
+    log.weld_position_mismatch = max(log.weld_position_mismatch, int(counters.get(OUTCOME_WELD_POSITION_MISMATCH, 0)))
     for patch in computed:
         log.verified[patch] = alpha
     started, finished, applying, applied = moments
@@ -153,6 +173,14 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
         return None
     log.exact_nearest += 1
     log.reframes += 1
+    return log.cursor
+
+
+def pointer_after(log: LiveDragLogV1 | None, request) -> float | None:
+    """Ширина курсора, к которой такт `request` надо сдвинуть кадром модели, когда он ляжет, либо `None` (журнала нет либо курсор на ширине такта); то же решение, что вернёт `note_applied`."""
+
+    if log is None or log.cursor is None or log.cursor == float(request.alpha):
+        return None
     return log.cursor
 
 
@@ -166,6 +194,8 @@ def idle_answer(log: LiveDragLogV1 | None, displayed, *, drag_active: bool) -> f
     """Ширина такта сверки в простое либо `None`: перетаскивание идёт, образец на экране есть, и не все его домены посчитаны точно на ширине курсора.
 
     Простой, что не продвинулся (число несверенных не уменьшилось с прошлого его такта: отказ, домены без интервала), больше не заказывает, пока курсор не сдвинется.
+    За одну остановку руки - не больше `IDLE_TICKS_PER_PAUSE` тактов (DRAG_VERIFY_IDLE_BUDGET_V1): полная сверка `cover.008` стоила бы ~175 тактов и 10-15 с пула после каждой паузы;
+    бюджет кончился, а несверенные остались - счётчик `idle_budget_spent` (`IDLE_BUDGET_SPENT`), домены показаны `STRUCTURE_AS_OF`.
     """
 
     if log is None or not drag_active or displayed is None or log.target is None or log.cursor is None:
@@ -173,8 +203,14 @@ def idle_answer(log: LiveDragLogV1 | None, displayed, *, drag_active: bool) -> f
     left = unverified_at(log, displayed, log.cursor)
     if left == 0 or (log.idle_left is not None and left >= log.idle_left):
         return None
+    if log.idle_in_pause >= IDLE_TICKS_PER_PAUSE:
+        if log.idle_in_pause == IDLE_TICKS_PER_PAUSE:
+            log.idle_budget_spent += 1
+            log.idle_in_pause += 1  # названо один раз за остановку
+        return None
     log.idle_left = left
     log.idle_ticks += 1
+    log.idle_in_pause += 1
     return log.cursor
 
 
@@ -195,6 +231,7 @@ def report(log: LiveDragLogV1, counters=None) -> dict:
         "structure_as_of": {"domains": count, "farthest_width": farthest}, "verify_outcomes": dict(log.verify_outcomes),
         "steps": log.steps, "exact_at_cursor": log.exact_at_cursor, "exact_nearest": log.exact_nearest, "reframes": log.reframes,
         "verify_domains": log.verify_domains, "structure_changes": log.structure_changes, "layout_changes": log.layout_changes, "idle_ticks": log.idle_ticks,
+        "idle_budget_spent": log.idle_budget_spent, "weld_changes": log.weld_changes, "weld_position_mismatch": log.weld_position_mismatch,
         "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused),
     }
     if counters is not None:
@@ -218,7 +255,9 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
     return (
         f"Live drag LIVE_DRAG_STREAM_V1: {log.steps} steps, exact {log.exact_at_cursor} at the pointer + {log.exact_nearest} at a nearer width (model moved to the pointer), "
         f"superseded {scheduler.get('superseded', 0)}, stale {scheduler.get('stale', 0)}; {VERIFY_BACKGROUND}: {log.verify_domains} domains verified in the ticks "
-        f"(+{log.idle_ticks} idle ticks), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected" + (f" ({outcomes})" if outcomes else "") + as_of
+        f"(+{log.idle_ticks} idle ticks" + (f", {IDLE_BUDGET_SPENT} {log.idle_budget_spent}" if log.idle_budget_spent else "") + f"), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected" + (f" ({outcomes})" if outcomes else "") + as_of
+        + (f"; weld diverged in {log.weld_changes} ticks" if log.weld_changes else "")
+        + (f"; {OUTCOME_WELD_POSITION_MISMATCH} up to {log.weld_position_mismatch}" if log.weld_position_mismatch else "")
         + f"; verification periods not run as full ticks {deferred}" + (f"; full ticks: {full}" if full else "") + (f"; refused: {refused}" if refused else "")
     )
 
@@ -227,6 +266,8 @@ __all__ = (
     "EVENTS_KEPT",
     "EVENT_EXACT",
     "EVENT_STEP",
+    "IDLE_BUDGET_SPENT",
+    "IDLE_TICKS_PER_PAUSE",
     "INCOMPARABLE",
     "LiveDragLogV1",
     "STRUCTURE_AS_OF",
@@ -237,8 +278,10 @@ __all__ = (
     "idle_answer",
     "note_applied",
     "note_step",
+    "pointer_after",
     "report",
     "seed_verified",
     "status_line",
     "unverified_at",
+    "WELD_CHANGED",
 )

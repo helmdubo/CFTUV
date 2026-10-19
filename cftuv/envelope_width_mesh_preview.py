@@ -100,6 +100,8 @@ DECAL_CHANGED_EXTERNALLY = "PREVIEW_DECAL_CHANGED_EXTERNALLY"
 HISTORY_STEP = "PREVIEW_HISTORY_STEP"
 #: Точный кадр во время перетаскивания (WIDTH_REFRESH_LEAN_V1, `lean_exact_now`) не лёг в меш: названа причина, меш не тронут, а модель (если меш не наш) снята.
 LEAN_NO_BASE = "WIDTH_REFRESH_LEAN_NO_DISPLAYED_SAMPLE"
+#: Потоковый такт перетаскивания снят концом перетаскивания (отмена, подтверждение): его результат не ляжет ни в это, ни в следующее перетаскивание.
+LEAN_DRAG_ENDED_BY_FINISH = "LIVE_DRAG_TICK_RETIRED_AT_DRAG_END"
 LEAN_KEY_MISMATCH = "WIDTH_REFRESH_LEAN_KEY_MISMATCH"
 #: Как часто кадр перечитывает отпечаток раскладки меша (сеть на случай пропущенного сигнала) и сколько кадров он вправе стоить в среднем:
 #: интервал не меньше `LAYOUT_RECHECK_COST_RATIO` длительностей самого чтения.
@@ -326,7 +328,8 @@ def plan_tick(grade, displayed, model, state, alpha: float, stream=None) -> Incr
         return full_plan(REASON_FEW_SERVED, domains)
     if stream is not None and stream.batch > 0:
         rows = {domain.patch_id: domain for domain in displayed.domains}
-        for patch_id in verify_batch(((patch, rows[patch].low, rows[patch].high) for patch in served), stream.verified, alpha, stream.batch):
+        candidates = ((patch, bool(rows[patch].approximate), int(rows[patch].vertices.shape[0])) for patch in served)
+        for patch_id in verify_batch(candidates, stream.verified, alpha, stream.batch):
             served.remove(patch_id)
             held[patch_id] = VERIFY_BACKGROUND
     return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started, deferred=deferred)
@@ -689,10 +692,11 @@ def _decal_of(controller):
     return None if source is None else find_decal_object(source)
 
 
-def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
+def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV1 | None:
     """Меш декали на ширине `width` из модели: кадр пишется сразу, на главном потоке. `None` — кадра нет (причина в статусе).
 
     Меш, который модель не вправе писать (подмена, правка, Edit, чужое поколение), снимает модель с именем причины и не получает записи.
+    `owners` - номера владельцев граней точного образца, чей кадр к курсору заменяет его собственную запись (LIVE_DRAG_ONE_WRITE_V1: такт ближайшей ширины пишет меш один раз).
     """
 
     if not ensure_model(controller):
@@ -708,7 +712,7 @@ def preview_mesh_now(controller, width: float) -> PreviewMeshStateV1 | None:
         return None
     frame = evaluate(model, width)
     try:
-        write_preview_geometry(decal.data, frame.positions, frame.uvs)
+        write_preview_geometry(decal.data, frame.positions, frame.uvs, owners)
     except ProductionWriteError as exc:
         drop_model(controller, exc.outcome)
         return None
@@ -756,18 +760,34 @@ def finish_drag(controller, *, restore: bool) -> bool:
     """
 
     controller.width_drag_active = False
+    scheduler = getattr(controller, "width_live", None)
+    if scheduler is not None and hasattr(scheduler, "retire_stream"):
+        # LIVE_DRAG_STREAM_V1: такт перетаскивания, что ещё в пути, больше не нужен ни отмене, ни подтверждению - снят с именем, иначе он лёг бы в СЛЕДУЮЩЕЕ перетаскивание (оно снова
+        # включает `width_drag_active`) на ширине прежнего.
+        scheduler.retire_stream(LEAN_DRAG_ENDED_BY_FINISH)
     try:
         return restore_base_mesh(controller) if restore else False
     finally:
         controller.width_drag_origin = None
 
 
-def _lay_down(decal, sample, *, same_layout: bool) -> int:
-    """Точный образец `sample` - в меш декали: позиции, UV и номера владельцев одной записью, если раскладка меша та же, иначе меш пересобран на месте. Число помеченных швов (0 - не пересобирали)."""
+def same_layout_of(base, sample) -> bool:
+    """Раскладка меша образца `sample` та же, что у образца на экране `base` (точный кадр ляжет одной записью чисел)."""
+
+    return base is not None and bool(base.layout_digest) and sample.layout_digest == base.layout_digest
+
+
+def _lay_down(decal, sample, *, same_layout: bool, write: bool = True) -> int:
+    """Точный образец `sample` - в меш декали: позиции, UV и номера владельцев одной записью, если раскладка меша та же, иначе меш пересобран на месте. Число помеченных швов (0 - не пересобирали).
+
+    `write=False` при той же раскладке - числа не пишутся: их тут же пишет кадр модели этого образца на ширине курсора вместе с номерами владельцев (LIVE_DRAG_ONE_WRITE_V1).
+    """
 
     from .envelope_production_mesh import record_decal_width, rebuild_mesh_from_image, write_preview_geometry
 
-    if same_layout:
+    if same_layout and not write:
+        marked = 0
+    elif same_layout:
         frame = base_frame(sample)
         write_preview_geometry(decal.data, frame.positions, frame.uvs, sample.image.face_owner)
         marked = 0
@@ -777,7 +797,29 @@ def _lay_down(decal, sample, *, same_layout: bool) -> int:
     return marked
 
 
-def lean_exact_now(controller, live) -> str:
+def lay_exact_now(controller, sample) -> str:
+    """Точный образец на экране - в меш его собственными числами (LIVE_DRAG_ONE_WRITE_V1: кадр к курсору не лёг, модели нет). Пусто - записано, иначе имя причины.
+
+    Та же проверка владения, что у кадра и lean-кадра (`_mesh_problem`): чужой меш не получает записи, модель снимается с названной причиной.
+    """
+
+    from .envelope_production_mesh import ProductionWriteError
+
+    decal = _decal_of(controller)
+    problem = _mesh_problem(controller, sample, decal)
+    if problem:
+        drop_model(controller, problem)
+        return problem
+    try:
+        _lay_down(decal, sample, same_layout=True)
+    except ProductionWriteError as exc:
+        drop_model(controller, exc.outcome)
+        return exc.outcome
+    capture_ownership(controller, decal, sample)
+    return ""
+
+
+def lean_exact_now(controller, live, *, reframe_to: float | None = None) -> str:
     """Точный lean-кадр (WIDTH_REFRESH_LEAN_V1) во время перетаскивания: точный прогон `live` ложится в меш и становится образцом на экране. Пусто - сделано, иначе - имя причины.
 
     Это то же, что делает применение зафиксированного ответа (`note_exact_display`: образец на экране, модель нового образца, сверка и журнал доверия,
@@ -785,6 +827,9 @@ def lean_exact_now(controller, live) -> str:
     раскладка та же (равный `layout_digest`) - позиции, UV и номера владельцев граней одной записью, ширина записи - ширина кадра; сменилась (домен сменил структуру) - меш пересобран
     на месте по образу (`rebuild_mesh_from_image`). Проверка владения (`_mesh_problem`) та же, что у кадра модели: чужой меш не получает записи, а модель снимается с названной
     причиной. Отмена инструмента возвращает то, что показывали перед первым кадром (`DragOriginV1`, `restore_base_mesh`), побитово.
+
+    `reframe_to` (LIVE_DRAG_ONE_WRITE_V1): курсор ушёл дальше ширины такта - при той же раскладке числа образца в меш не пишутся, их сразу пишет кадр модели этого образца на ширине
+    курсора (`envelope_width_live._apply_lean`): такт ближайшей ширины пишет меш один раз.
     """
 
     base, sample = controller.width_displayed, live.sample
@@ -803,13 +848,13 @@ def lean_exact_now(controller, live) -> str:
     if problem:
         drop_model(controller, problem)
         return problem
-    same_layout = bool(base.layout_digest) and sample.layout_digest == base.layout_digest
+    same_layout = same_layout_of(base, sample)
     if controller.width_drag_origin is None and controller.width_drag_active:
         controller.width_drag_origin = DragOriginV1(
             base, controller.width_model, controller.width_model_refusal, controller.width_trust, controller.width_incremental
         )
     try:
-        _lay_down(decal, sample, same_layout=same_layout)
+        _lay_down(decal, sample, same_layout=same_layout, write=reframe_to is None)
     except ProductionWriteError as exc:
         drop_model(controller, exc.outcome)
         return exc.outcome
@@ -992,13 +1037,16 @@ __all__ = (
     "build_sample",
     "capture_ownership",
     "LEAN_KEY_MISMATCH",
+    "LEAN_DRAG_ENDED_BY_FINISH",
     "LEAN_NO_BASE",
     "begin_drag",
     "drop_model",
     "ensure_model",
     "finish_drag",
     "finish_live_run",
+    "lay_exact_now",
     "lean_exact_now",
+    "same_layout_of",
     "log_of",
     "moving_now",
     "note_button_display",

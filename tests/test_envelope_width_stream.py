@@ -167,15 +167,21 @@ def _live_world(monkeypatch, *, enabled=True):
     world.mesh_settings.drag_exact_ticks = False
     world.mesh_settings.drag_live_mesh = enabled
     live.begin_live_drag(controller, world.mesh_settings)
-    world.calls, world.reframes = calls, []
+    world.calls, world.reframes, world.reframed_in_lay, world.owners = calls, [], [], []
 
-    def lay(session, run):
+    def lay(session, run, *, reframe_to=None):
         calls.append(run)
+        world.reframed_in_lay.append(reframe_to)
         preview.note_exact_display(session, run)
         return ""
 
+    def reframe(session, width, offset, owners=None):
+        world.reframes.append(width)
+        world.owners.append(owners)
+        return "frame"
+
     monkeypatch.setattr(live, "lean_exact_now", lay)
-    monkeypatch.setattr(live, "width_event_preview", lambda session, width, offset: world.reframes.append(width))
+    monkeypatch.setattr(live, "width_event_preview", reframe)
     return world, controller
 
 
@@ -237,11 +243,13 @@ def test_the_verification_runs_in_batches_inside_the_ticks_and_in_the_idle_and_n
 
 
 def test_the_verify_batch_takes_the_riskiest_domains_first():
-    candidates = [(0, 0.0, 1.0), (1, 0.0, 0.2508), (2, 0.0, 1.0), (3, 0.0, 1.0)]
-    verified = {0: 0.25, 1: 0.25, 2: 0.2505}
-    assert incremental.verify_batch(candidates, verified, 0.2505, 2) == [3, 1]  # ни разу не считанный, затем стоящий у конца интервала
+    """VERIFY_RISK_ORDER_V1: приближённые первыми, затем путь ширины (ни разу не считанный - первым), ничьи - по числу вершин; запас до конца интервала не входит."""
+
+    candidates = [(0, False, 10), (1, False, 40), (2, False, 10), (3, False, 10), (4, True, 5), (5, False, 99)]
+    verified = {0: 0.25, 1: 0.25, 2: 0.2505, 4: 0.2504, 5: 0.2504}
+    assert incremental.verify_batch(candidates, verified, 0.2505, 4) == [4, 3, 0, 1]  # приближённый, ни разу не считанный, затем путь 0.0005 - меньший (дешёвый) домен первым
     assert incremental.verify_batch(candidates, verified, 0.2505, 0) == []
-    assert 2 not in incremental.verify_batch(candidates, verified, 0.2505, 4)  # посчитан на этой ширине: не нужен
+    assert 2 not in incremental.verify_batch(candidates, verified, 0.2505, 6)  # посчитан на этой ширине: не нужен
 
 
 def test_a_verified_domain_whose_structure_changed_is_named_and_counted():
@@ -262,6 +270,14 @@ def test_a_verified_domain_whose_structure_changed_is_named_and_counted():
     assert stream.structure_as_of(log) == (0, None) and stream.STRUCTURE_CHANGED in stream.status_line(log)
     log.verified[0] = 0.25
     assert stream.structure_as_of(log) == (1, 0.25) and f"{stream.STRUCTURE_AS_OF}:0.25" in stream.status_line(log)
+
+    weld = incremental.IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset({0}), {1: incremental.VERIFY_BACKGROUND}, 3, fallback="INCREMENTAL_COMPOSITE_WELD_CHANGED")
+    arrays = SimpleNamespace(weld_counters=(("ADAPTER_WELD_POSITION_MISMATCH", 3),))
+    welded = SimpleNamespace(plan=weld, run=SimpleNamespace(results=results[:1]), sample=sample({0: "a", 1: "B", 2: "C"}, "newer"), arrays=arrays)
+    stream.note_applied(log, SimpleNamespace(alpha=0.26, sequence=8, requested_at=1.5), welded, live_run.sample, (1.5, 1.6, 1.7, 1.8))
+    assert log.verify_outcomes == {stream.STRUCTURE_CHANGED: 1, stream.WELD_CHANGED: 1}  # структура та же, но сварка разошлась: не «тот же»
+    assert (log.structure_changes, log.layout_changes, log.weld_changes, log.weld_position_mismatch) == (1, 2, 1, 3)  # раскладка сменилась без смены структуры - тоже счёт
+    assert "ADAPTER_WELD_POSITION_MISMATCH up to 3" in stream.status_line(log) and "weld diverged in 1 ticks" in stream.status_line(log)
 
     other = SimpleNamespace(plan=None, run=SimpleNamespace(results=[]), sample=SimpleNamespace(domains=[SimpleNamespace(patch_id=5, structure="x")], key=("other",), layout_digest="z"))
     log.key = ("first",)
@@ -312,6 +328,85 @@ def test_the_log_names_everything_in_the_panel_and_the_console(monkeypatch, caps
     assert any(item.startswith("Live drag LIVE_DRAG_STREAM_V1") for item in live.status_lines(controller))
     data = stream.report(controller.width_live_drag, controller.width_live.counters)
     assert data["steps"] == 2 and data["scheduler"]["requested"] >= 2
+
+
+def test_a_stream_tick_in_flight_at_the_cancel_never_lands_on_the_next_drag(monkeypatch):
+    """Отмена (Esc) либо подтверждение без перемены, пока такт считается, и сразу новое перетаскивание: такт прежнего перетаскивания снят концом перетаскивания с именем и не ложится в новое."""
+
+    world, controller = _live_world(monkeypatch)
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    scheduler = controller.width_live
+    scheduler.step()
+    assert scheduler.in_flight
+    preview.finish_drag(controller, restore=True)
+    live.end_live_drag(controller)
+    assert scheduler._job._cancel.is_set() and scheduler.counters.cancelled == 1 and preview.LEAN_DRAG_ENDED_BY_FINISH in scheduler.status_text
+    preview.begin_drag(controller)
+    live.begin_live_drag(controller, world.mesh_settings)
+    _finish(scheduler)
+    assert world.calls == [] and controller.width_live_drag.exact_at_cursor == 0
+    assert not scheduler.busy  # простой снятого такта не спрашивается
+
+
+def test_the_end_of_the_drag_retires_only_stream_work_and_a_plain_flight_still_lands():
+    h = Harness()
+    h.at(0.0).scheduler.request(0.30)
+    h.at(0.2).step()
+    h.at(0.21).scheduler.request(0.31, stream=True)
+    assert h.scheduler.retire_stream("drag ended")  # ждущий потоковый заказ снят
+    assert not h.jobs[0].cancelled and h.scheduler._pending is None
+    h.jobs[0].finished = True
+    h.at(0.22).step()
+    assert h.applied == [(0.30, ("scene", 0.30))] and h.scheduler.counters.cancelled == 1
+    assert h.scheduler.retire_stream("nothing") is False and h.scheduler.counters.cancelled == 1
+
+
+def test_a_nearest_tick_with_the_same_layout_writes_the_mesh_once_at_the_pointer(monkeypatch):
+    """LIVE_DRAG_ONE_WRITE_V1: такт ближайшей ширины при той же раскладке не пишет свои числа - меш пишет один раз кадр его модели на ширине курсора, вместе с номерами владельцев образца."""
+
+    world, controller = _live_world(monkeypatch)
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    controller.width_live.step()
+    assert live.request_drag_tick(world.context, controller, 0.252)
+    _finish(controller.width_live)
+    assert world.reframed_in_lay == [0.252] and world.reframes == [0.252]
+    assert world.owners[0] is world.calls[0].sample.image.face_owner
+
+
+def test_a_nearest_tick_whose_layout_changed_is_rebuilt_and_then_moved(monkeypatch):
+    world, controller = _live_world(monkeypatch)
+    monkeypatch.setattr(live, "same_layout_of", lambda base, sample: False)
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    controller.width_live.step()
+    assert live.request_drag_tick(world.context, controller, 0.252)
+    _finish(controller.width_live)
+    assert world.reframed_in_lay == [None] and world.reframes == [0.252] and world.owners == [None]
+
+
+def test_the_frame_that_cannot_be_written_falls_back_to_the_exact_numbers_of_the_tick(monkeypatch):
+    world, controller = _live_world(monkeypatch)
+    laid: list = []
+    monkeypatch.setattr(live, "width_event_preview", lambda session, width, offset, owners=None: None)
+    monkeypatch.setattr(live, "lay_exact_now", lambda session, sample: laid.append(sample.alpha) or "")
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    controller.width_live.step()
+    assert live.request_drag_tick(world.context, controller, 0.252)
+    _finish(controller.width_live)
+    assert laid == [0.2505]
+
+
+def test_the_idle_verification_has_a_budget_per_pause_and_names_where_it_stopped(monkeypatch):
+    monkeypatch.setattr(stream, "IDLE_TICKS_PER_PAUSE", 1)
+    world, controller = _live_world(monkeypatch)
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    live.settle_width_live(controller)
+    log = controller.width_live_drag
+    assert log.idle_ticks == 1 and log.idle_budget_spent == 1
+    assert stream.unverified_at(log, controller.width_displayed, 0.2505) > 0  # остались несверенными: показаны STRUCTURE_AS_OF
+    assert stream.IDLE_BUDGET_SPENT in stream.status_line(log) and stream.report(log)["idle_budget_spent"] == 1
+    assert live.request_drag_tick(world.context, controller, 0.251)  # новый шаг руки - новый бюджет
+    live.settle_width_live(controller)
+    assert log.idle_ticks == 2 and log.idle_budget_spent == 2
 
 
 def test_a_step_without_a_displayed_sample_is_named(monkeypatch):
