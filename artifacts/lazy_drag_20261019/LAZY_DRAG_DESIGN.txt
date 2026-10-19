@@ -1,0 +1,249 @@
+LAZY EXACT DRAG - PHASE D: DESIGN AND EVIDENCE (19.10.2026). Base origin/main f8f52ed7, native build a3efcde8 (wheel copied from the drag-profile run,
+build id checked by tools/blender_tree_ab.verify_native). No product code changed. Evidence input: artifacts/drag_profile_20261019 (rust/drag-profile a4e9451f).
+Headless Blender 4.5 only, frozen scenes testscene 750baefc / cover008 v2 a044b5aa (sha checked before and after every run: unchanged), nothing saved.
+Paths below: K = kernel/src/cftuv_envelope/materialize/, N = native/.
+
+GOAL. Inside a domain's certified width interval its exact tick is P0 + slope * dwidth with the SAME structure as a full materialization, because every
+decision that can change the structure as the width moves is a NAMED EVENT of the alpha-free event table (or a named refusal). Then the incremental tick
+needs no reconciliation (verification) ticks, and drag_exact_ticks can become the default.
+
+0. HOW (scripts/, all headless, scene never saved)
+- capture_focus.py: one cold press (workers 0) per scene; every materialized domain's preparation + step arguments pickled (cover 1046, building 122;
+  64 MB, kept in D:/lazydrag-scratch, not committed). Later probes load the pickles: no press, seconds per domain.
+- focus_probe.py: full materialize of one domain at named widths with the silhouette pass instrumented (input mesh, candidate order with float keys,
+  every merge / dissolve decision with its quantities and tally delta).
+- predict_event.py: the proposed event for the 1146c49e decision computed from exact affine data, the float predicate around it, kernel ground truth.
+- silhouette_scan.py + analyze_scan.py + noise_domains.py: every silhouette tolerance decision of every domain at alpha0 and alpha0*(1+-1 %),
+  margins, flips, linear crossing estimates, greedy-order key gaps (summaries: *_silhouette_scan_summary.json).
+
+1. DECISIONS THAT CAN CHANGE STRUCTURE AS WIDTH VARIES, NOT BOUNDED BY THE CURRENT EVENT TABLE
+   Current table (K/interval.py:56-64, 296-343): coverage vertex arrivals + clip node/source-line crossings (incl. the NODE_EDGE_SNAP band) + front
+   passing a source vertex. Everything else is listed in UNCERTIFIED (K/interval.py:58-64) and only compared a posteriori (K/step.py:387-397,
+   INTERVAL_STRUCTURE_SWITCH; K/structure.py).
+   Facts used for the formulas: inside an interval every chart point is p(w) = p0 + p1*w (coverage template A + alpha*B; clip nodes certified affine by
+   the exact zero second difference, K/parametric.py:14-16), every station fact (s, r) is affine, every lifted 3D position is affine, UV = (s, r)/lattice_alpha
+   with lattice_alpha = 65536 * w (both scenes). The parametric certificate (K/parametric.py ExactParametricV1: points0/point_slopes, positions0/position_slopes,
+   loops0/loop_slopes, keyed by vertex key) already carries p0 and p1 for every vertex key of the batch; tape entries (section 3a) name operands by vertex key.
+   "Exact" = SqrtSumV1/Fraction decision; "F" = binary64 or dyadic-enclosure decision (its switch is the zero of a real function widened by its rounding).
+
+   A. EXACT SIGN / ZERO PREDICATES (switch width = root of a polynomial in w with SqrtSum coefficients; computable exactly)
+   A1 COINCIDENCE (degree 1): point_key welding and dropped zero-length half-edges K/coalesce.py:454-457, 483-486, 513-546; vertex interning
+      K/mesh.py:157-158 (+ VERTEX_KEY_COLLISION refusal 168-173); rung / unify / conflict fact equalities K/mesh.py:213-221, 257-289, 340, 359-364
+      (STATION_VALUE_CONFLICT triggers the junction-withdraw loop K/domain.py:959-983 -> different stations/regions/chains); clip conflict K/clip.py:1631-1637;
+      continuous-interface fact equality K/assemble.py:403-411 (seam or not); edge_kind r==0 / r==alpha K/assemble.py:319-328 (identity on the front).
+      Formula: c0 + c1*w = 0 -> w* = -c0/c1 (in the SqrtSum field). Generic case: holds identically (c1 = c0 = 0, no event) or never; a coincidence that
+      holds at alpha0 but not identically is AT_EVENT (same rule as PARAM_IDENTITY_AT_POINT).
+   A2 ORIENTATION (degree 2): every orient/shoelace/segments_cross/strict-convexity/ear/diagonal/UV-fold test on affine points:
+      ears K/tessellate.py:58-133, apex fan 136-165 (choice K/mesh.py:660-667), convex quads 168-193, contour simplicity 237, _plane_ring K/mesh.py:577-613,
+      strictly convex K/mesh.py:675-695, convex partition K/mesh.py:774-856 + K/convex_partition.py:104-218, 249-270 (UV_FOLD K/mesh.py:840-845),
+      coalesce crossings K/coalesce.py:588, coverage area zero K/coalesce.py:320-325, clip polygon flip/convexity/ears/law split K/clip.py:776-795, 939-985,
+      1085, inert collinearity 1124-1141, silhouette exact tests (_removable/_shortcut_is_simple/_in_corner/_on_open_segment K/silhouette.py:305-312,
+      700-753, base triple 415-430). Native twins (W1 is NATIVE by default): N/cftuv-mesh/src/tessellate.rs:176-608, partition.rs:50-274, predicates.rs,
+      affine.rs; clip ears N/cftuv-clip/src/tessellate.rs:28.
+      Formula: orient(a,b,c)(w) = A + B*w + C*w^2 with A,B,C from (p0, p1) of the three keys: w* = (-B +- sqrt(B^2 - 4AC)) / 2C, a root in
+      Q(sqrt q...)(sqrt(disc)). Route used by the design: no closed form needed - exact sign of the polynomial at rational w (SqrtSumV1.sign) + bisection
+      gives a certified event interval of any width (same shape as EventTableV1 entries).
+      Greedy orders here (first ear by ring position, first minimal partition by index, HM merge by index pair, first containing triangle by name) have
+      ALPHA-FREE keys: they change only through predicate outcomes, so their events are the predicate events. No extra order event.
+   A3 AFFINE-UV IDENTITY (degree 3 zero test): uv_is_affine_in_chart K/tessellate.py:253-309, partition affine() K/mesh.py:791-816, silhouette
+      _affine_union/_on_map K/silhouette.py:299-302, 511-528. det*(f_q - f_0) - [...] = 0 is a cubic in w: identically zero (no event) or isolated roots.
+      True at alpha0 but not identically -> AT_EVENT; false at alpha0 -> its real roots inside the interval are events (the outcome flips only AT the root).
+   A4 SURFACE LOCATE (non-clipped lifts only): first containing triangle K/lift_surface.py:568-593 (degree 1), 2-cell extrapolation band 615-619 (degree 2),
+      nearest by exact comparison 623, 662-667 (degree 2); result feeds _split_reason / fan_out / POLYGON_NOT_PLANAR K/assemble.py:132-167.
+      GAP: K/domain.py:1084 passes triangles=() to the interval unless the law clips, so membership under SOURCE_TRIANGLES_V1 is not even in the current table.
+   A5 CONTACT SIGNS (names): resolver contact alpha vs requested alpha, reference/boundary 509-561 via wavefront/conveyor.py:1650-1694; already a named
+      window in K/step.py:126-226 (names_low/names_high, rational bounds) - becomes an event kind; SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN refusal at its edge.
+   A6 REACH CAP: alpha <= reach_cap wavefront/conveyor.py:1831-1850 -> REQUEST_ALPHA_EXCEEDS_CHART_REACH. Rational, w* = reach_cap.
+
+   B. BINARY64 / ENCLOSURE DECISIONS AGAINST FIXED TOLERANCES (switch = zero of a real algebraic function; the kernel decides in floating point,
+      so the event is a BAND {w : |margin(w)| <= rounding bound}; computable soundly by interval arithmetic over w, cross-checked by the polynomial)
+   B1 SILHOUETTE_UV_FIT (the 1146c49e class): edge merge accepted within tolerance when the least-squares UV fit residual <= silhouette_uv_slide
+      K/silhouette.py:459-468, _tolerated 530-549, uv_fit_residual 264-296 (binary64 normal equations on binary64 centres of the chart points).
+      margin(w) = tau^2 - max_i |r_i(w)|^2, r = (I - X (X^T X)^-1 X^T) uv; X affine in w, uv = A + B/w. Clearing det(X^T X) (quartic) and w:
+      one polynomial per vertex of degree <= 12; event = its root band. Here tau = 1/256 (request policy, envelope_dissolve_uv_slide).
+   B2 SILHOUETTE_MERGE_CHORD: max distance of the smaller face's vertices to the bigger face's Newell plane and of the union to its own plane <= 5 mm
+      (CLIP_DIAGONAL_CHORD_BUDGET) K/silhouette.py:455-458, 492-509; Newell normal degree 2, (p-c).n degree 3: ((p-c).n)^2 - tau^2 |n|^2 degree 6.
+      Also the bigger-face choice by float area K/silhouette.py:495 (area crossing = event, degree 4 after squaring).
+   B3 SILHOUETTE_VERTEX_CHORD: point-to-segment distance <= 5 mm K/silhouette.py:650-655 (with the projection clamp 253-261):
+      |e x p|^2 - tau^2 |e|^2 degree 4 (plus the clamp boundaries share = 0 / 1, degree 2).
+   B4 SILHOUETTE_UV_SLIDE: interpolated UV vs actual <= uv_slide K/silhouette.py:656-662, 685-698 (share = (p.e)/|e|^2 rational; UV = (s, r)/w):
+      degree <= 8 after clearing |e|^2 and w.
+   B5 SILHOUETTE_ORDER: the greedy edge order is a sort by FLOAT dihedral angle K/silhouette.py:398-406, 434-444; the vertex order by float sag 563-571.
+      Event: adjacent keys cross (difference of two algebraic functions). Measured hazard: coplanar faces give dihedral keys of pure noise (0, 5.4e-20 rad)
+      whose order permutes with width: building 4 / 121 domains, cover 51 / 1046 domains carry such ties; the order changed between alpha0 and +1 % in
+      3 building and 28 cover domains with the SAME structure (all tied edges vertex-disjoint). Noise has no root -> needs a witness or a named refusal.
+   B6 CELL_DIAGONAL_CHORD (named UNCERTIFIED today): hinge chord |k|^2 (ab/(a+b))^2 > (1/200)^2 decides the stage-2 diagonal re-cut K/clip.py:1189-1207,
+      1504-1509; a, b = max/min of the line value over piece vertices read from enclosure(64) K/clip_cells.py:375-386. Exact version per argmax vertex:
+      |k|^2 a^2 b^2 - B^2 (a+b)^2, degree 4, plus argmax switches (degree 1 crossings of the line values). The decision is on the dyadic upper bound ->
+      band of width 2^-64 relative around the root.
+   B7 HOST_POSITION_LAW: contour orientation kept after moving src: to host positions, binary64 dot of area vectors K/source_lift.py:260-270 (degree 4),
+      greedy settle K/source_lift.py:351-390 (index order, alpha-free) and ear split dot <= 0 K/source_lift.py:465-489 (degree 4).
+   B8 OFFSET NORMAL BITWISE EQUALITY (non-clipped): K/assemble.py:138 compares float normals bitwise; normals are alpha-free given the triangle -> follows A4.
+   B9 BUDGETS: EXACT_WORK_BUDGET_EXHAUSTED (materialize, K/domain.py:1121-1127), coverage budget (conveyor 1909-1919), clip memo replay price
+      K/clip_memo.py:274, silhouette SKIPPED_WORK_BUDGET K/silhouette.py:853-860. Price depends on coefficient sizes: NOT a function with roots. No event;
+      a named margin rule (section 3e).
+   C. NAMES (not geometry, but part of the answer): instance ids hash the effective alpha (reference/strip.py:23-46) -> Layout order of region:N / claim:N
+      K/assemble.py:95-98, chain ids K/assemble.py:418, 427 and the interface tie-break (region, index) < (other_region, other) K/assemble.py:402 (which side's
+      keys and direction form the interface chain). These permute at ~every width (hash order). Not an event: recomputed per width (cheap, section 3c).
+   D. NUMBERS ONLY (no structure): MAX_CHORD_NM / MAX_UV_* counters, NODE_EDGE_GAP_MAX, DIAGONAL_MAX_CHORD_*, audit facing / UV area / uv_reversed
+      K/audit.py:217-241, uv_affine_defect_milli, off_plane_distance: recomputed per width from the affine numbers.
+   E. ALPHA-FREE (excluded): stations table K/stations.py (except withdraw via A1), frames K/frames.py, chord_station plan, admit K/admit.py:212-266,
+      validate_geometry_batch (no thresholds), clip_cells construction, surface_lift_of preparation, offset_normal preparation, clip_snap law 1.
+
+2. THE 1146c49e CASE (cover008, host-v0:patch-domain:1146c49e3661ee2471ae903d, alpha0 0.04214220866560936, interval (2.3e-14, 0.0774144454))
+   Reproduced (focus_probe.py on the pickled preparation): 5 faces / 10 vertices at 0.048518914007, 4 / 9 at 0.048518914008; silhouette input identical
+   at both widths (6 faces, 12 vertices: tessellation, clip, host positions did not change).
+   WHAT FLIPPED: the second edge merge of the greedy silhouette pass, edge (node:4, src:...:2265), region-internal, union ring
+   [src:2265, src:1554, node:3, node:4, node:5, src:1261]: chord depth 2.1e-7 m (far inside 5 mm), UV not exactly affine, so the tolerance branch
+   K/silhouette.py:461-468: uv_fit_residual(union) <= silhouette_uv_slide = 1/256. Below the switch the residual is > 1/256 (KEPT_NOT_AFFINE), above it
+   0.0039062499999558 <= 1/256 (EDGES_WITHIN_UV_TOLERANCE, merged); node:4 then becomes a degree-2 vertex and dissolves (chord 1.34e-4 m, slide 2.2e-3
+   <= 1/256): 5 -> 4 faces, 10 -> 9 vertices. Kind: B1 SILHOUETTE_UV_FIT (one of the classes the interval names as SILHOUETTE_DISSOLVE_TOLERANCE).
+   PREDICTION (predict_event.py, cover008_1146c49e_predicted_event.json): exact chart points and (s, r) facts of the 6 union vertices at two widths inside
+   the interval give the exact slope (the certificate slope); the real-arithmetic residual of the same least-squares law, margin(w) = res(w)^2 - (1/256)^2,
+   changes sign once on (alpha0, high): predicted switch w* = 0.04851891400735791 m (+15.13 % of alpha0; m(alpha0) = +4.2e-6 > 0, ACCEPT_ABOVE).
+   The affine model reproduces the kernel's binary64 inputs at the second width to 2.9e-11 lattice units (chart) and 0 (UV).
+   GROUND TRUTH (kernel, decimal widths): 0.0485189140073579 rejected, 0.0485189140074579 accepted (and the earlier bisection bracket
+   0.048518914007 / 0.048518914008 of the drag profile). The kernel's own binary64 predicate on the predicted inputs flips between w*-1e-17 and w*+1e-14:
+   the float band is ~1e-14 m wide around the real root. => With B1 as an event the interval would end at w* (band rounded inward to ~0.0485189140073) and
+   the 0.048518914008 tick would have been a named recompute (LAZY_OUTSIDE_INTERVAL, limiting event SILHOUETTE_UV_FIT), not a silent change.
+   How often (silhouette_scan, linear crossing estimates of all 2 508 cover / 297 building tolerance decisions, statistics only): no silhouette tolerance
+   event within +-10 % of alpha0 on either scene (0 flips between alpha0 and +-1 %); within +-25 %: 3 cover domains (this one among them), 0 building.
+   The extended table therefore costs little interval width; the measured threat is B5 (noise order), not B1-B4.
+
+3. DESIGN
+   a) EVENT TABLE EXTENSION (law COVERAGE_CLIP_AND_DECISION_EVENTS_V2; EventTableV2 = per-kind sorted (lo, hi) arrays + running_hi, like EventTableV1)
+      Recording: the cold/miss run of a domain (the one that already records the step certificate and the exact parametric slopes) records a DECISION
+      TAPE: every predicate call of section 1 A/B as (kind, operand vertex keys or operand values, threshold, outcome). Operands are named by vertex key
+      wherever the code works on `points[key]` / `positions[key]` / `facts[(region, key)]` (tessellation, partition, silhouette, source_lift, assemble);
+      the Rust W1 stage emits its own tape (it owns tessellation/partition when NATIVE). Slopes come from the parametric certificate (keyed by vertex key).
+      Solving (alpha-free given the record, so it lives in the preparation memo next to EventTableV1):
+        A1/A3 identity-or-isolated-root, A2 quadratic: exact SqrtSum sign at rational w + bisection to a 2^-40 relative interval (outward), the same
+          EventTableV1 entry shape; closed forms only as cross-check.
+        B1-B4, B6, B7: interval arithmetic over w-subintervals of the SAME formula the kernel evaluates (outward rounding, as K/interval.py:88-140 does),
+          widened by an a-priori binary64 error bound of the routine; recursive bisection until each subinterval either excludes the threshold (decision
+          constant) or is narrower than 2^-30 relative (event band [lo, hi]). Polynomial roots (section 1 degrees) only as a test oracle.
+        B5 order: adjacent pairs of the sorted keys must stay separated on the interval (same band machinery on key differences). Exact ties and noise ties
+          (gap below the rounding bound) get the witness ORDER_TIES_INDEPENDENT_V1 when the tied candidates touch pairwise disjoint faces (merge decisions of
+          disjoint pairs commute, so the greedy result is order-free inside the tie group); otherwise the named refusal LAZY_ORDER_NOISE (domain recomputes).
+          Optional law change (owner decision, answer-changing, needs its own DECISIONS line): SILHOUETTE_TOPOLOGY_V2 with an exact dihedral class
+          (same source plane -> exact 0) instead of float noise.
+        A5 contact window, A6 reach cap: rational bounds copied in.
+        C names: no event. D numbers: no event.
+      Named event kinds (EventKindV1): COVERAGE_ARRIVAL, CLIP_LINE_CROSSING, CLIP_SOURCE_VERTEX (existing), COINCIDENCE, ORIENTATION, AFFINE_UV_IDENTITY,
+        SURFACE_LOCATE, CONTACT_SIGN, REACH_CAP, SILHOUETTE_UV_FIT, SILHOUETTE_MERGE_CHORD, SILHOUETTE_VERTEX_CHORD, SILHOUETTE_UV_SLIDE, SILHOUETTE_ORDER,
+        CELL_DIAGONAL_CHORD, HOST_POSITION_FLIP. AlphaIntervalV2 records low/high AND the kind + tape index that limits each side (rule 4: the end of an interval
+        is a named event). UNCERTIFIED becomes empty for the product law (SOURCE_FACES_CLIPPED_V1 + SILHOUETTE_TOPOLOGY_V1); any law/stage without a tape
+        keeps a non-empty UNCERTIFIED and is never served lazily.
+      Refusals of the table (interval collapses to a point, named): TAPE_INCOMPLETE (a predicate site ran without recording), SLOPE_MISSING (operand key
+        without certificate slope), BAND_UNRESOLVED (bisection budget), PAIR_LIMIT (existing), plus the existing PARTITION/FACE/LINES reasons.
+      AT_EVENT at alpha0 (building e4d13373 at 0.2239): ONE_SIDED records - the miss run at alpha0 is answered in full, and a second record is taken at the
+        first recompute inside the open interval on the side the drag moves to (LAZY_AT_EVENT_ONE_SIDED), so the domain stops recomputing every tick.
+      Files: K/interval.py (V2 table, AlphaIntervalV2, kinds), new K/decision_tape.py (tape + solver, Python reference), call sites in K/silhouette.py,
+        K/tessellate.py, K/convex_partition.py, K/mesh.py, K/coalesce.py, K/clip.py, K/clip_cells.py, K/source_lift.py, K/lift_surface.py, K/assemble.py,
+        K/domain.py (_step_facts, fix of the triangles=() gap at 1084), K/step.py; N/cftuv-mesh/src (tessellate.rs, partition.rs, predicates.rs: tape out),
+        N/cftuv-clip (ears), N/cftuv-python/src/materialize_w1.rs (tape in the result); kernel/tests (new test_decision_events.py), tests/test_architecture.py.
+      Effort: tape + call sites (Python) 3 d; exact solver A1-A3 1.5 d; band solver B 3 d; order + tie witness 1 d; V2 interval/records/kinds 1.5 d;
+        native W1/clip tape 3 d; tests 1.5 d.  ~14.5 d.
+
+   b) WORKER-RESIDENT MATERIALIZATION CACHE (key (preparation, interval, structure))
+      LazyRecordV1 in the preparation memo (K/memo.py), key ("lazy", lift law, topology law), CERTIFICATE_LIMIT = 3 records like the step certificates
+      (K/step.py:58-59, 299-328): {alpha0, AlphaIntervalV2 (exact Fraction bounds), structure digest, the batch skeleton at alpha0 (faces, rings, chains,
+      provenance with region labels by content), per vertex exact (position0, slope) and per loop/fact exact (s0, r0, slopes) - the ExactParametricV1 data -
+      the name inputs (spec ids, contact window) for the relabel, the recipe of width-dependent counters (which vertex pairs/rings each MAX_* counter is
+      measured on), the price of the full run at alpha0 (budget articles)}. Written by the miss run (same place as the step certificate); evicted with the
+      preparation (32 MB LRU) - eviction is LAZY_RECORD_EVICTED, not silent. Stored only for MATERIALIZED results whose V2 interval is CERTIFIED.
+      Composes with rust/drag-quick: its PARAMETRIC memo per (preparation, interval, structure) is the same key; LazyRecordV1 holds that certificate, so the
+      quick-win memo becomes a field of the record (merge: record owns it), and the parent scan reuse is untouched (served domains are not scanned anyway).
+      Files: K/memo.py, K/step.py, new K/lazy.py. Effort 1.5 d.
+
+   c) AFFINE EVALUATION PATH
+      Kernel: evaluate_lazy(record, alpha_text) -> MaterializationV1 (path LAZY_HIT): exact P0 + S * dw for every position/fact (dw rational from the decimal
+      text), rounded with the same binary64 conversions the batch uses (sqrt_sum_binary64, enclosure midpoints) -> batch numbers bitwise equal to a full run;
+      names recomputed at the new width (strip_envelope_instance_id -> Layout order -> region:N / claim:N / chain ids / the K/assemble.py:402 tie-break) by the
+      same functions the full path calls; numeric counters recomputed by their recipe; diagnostics text with numbers recomputed by the same formatters.
+      Budget articles are NOT recomputed: the lazy result is a lean result (WIDTH_REFRESH_LAZY_V1) whose counters carry PRICE_AT_RECORD_WIDTH named, and it is
+      never a committed answer in phase D.
+      Rust-first: the evaluation is a Rust stage (N/cftuv-mesh or a new N/cftuv-lazy crate, pinned via cftuv_native/pin.py), Python evaluate_lazy is the frozen
+      reference; until the Rust stage lands the Python path is the named fallback.
+      Host tier (the realtime part): the parent already has the float certificate slopes (host model, envelope_width_preview_model). A domain inside its V2
+      interval is moved by the model frame (0.6 / 3.2 ms per frame building / cover, DRAG_PROFILE section 6) and is STRUCTURE-EXACT; positions within the
+      recorded float bound (7e-15 m / 2.3e-13 UV measured). Only domains outside their interval (0-5 of 1046 per +-5 %) go to the workers (full step, new record).
+      Files: new K/lazy.py, K/step.py (LAZY_HIT path), cftuv/envelope_production_task.py (lean lazy result), native crate + binding. Effort: Python reference
+      2 d, Rust stage 3-4 d.
+
+   d) HOST SIDE
+      - cftuv/envelope_width_incremental.py: "served" = the domain's AlphaIntervalV2 contains the width (exact Fraction test) - not "has a certificate".
+        verification_reason() keeps INCREMENTAL_VERIFY_PERIOD_TICKS/_DISTANCE ONLY for served domains whose interval is V1 (UNCERTIFIED non-empty); a tick
+        whose served domains are all V2-certified needs no verification tick. INCREMENTAL_SMALL_SELECTION / FEW_SERVED stay (cost rules, not trust rules).
+      - cftuv/envelope_width_composite.py / envelope_width_rebase.py / envelope_width_mesh_preview.py: the trust ledger and quarantine stay for V1 domains;
+        a V2-served domain that a verification ever refutes is a hard failure (LAZY_VERIFY_MISMATCH, quarantined, and reported as a kernel bug, not tolerated).
+      - cftuv/envelope_width_live.py / envelope_production_operator.py: drag_exact_ticks default.
+        WHEN it can become the default (all must hold, measured by the sweep of section 4): (1) V2 table live with UNCERTIFIED empty for the product law;
+        (2) the cross-check sweep 0 mismatches on >= 20 000 inside-interval samples per scene and on the field corpus; (3) all mutants of section 4 killed;
+        (4) tree_ab IDENTICAL for commit and cold; (5) incremental tick wall median <= 60 ms building and <= 150 ms cover over a +-10 % drag, p95 <= 2x median;
+        (6) the share of domains recomputed per tick (LAZY_RECOMPUTED_*) <= 2 % median on both scenes.
+      - COMMIT on release stays the full path in phase D (identity by construction). Phase D2 (optional, after IDENTICAL on lazy-vs-full batches over the
+        sweep): commit from the worker records via evaluate_lazy (cover commit 1.9 s -> pool-bound evaluate), only if the owner accepts the counters policy
+        (EXACT_WORK_* price of the record width) or the commit identity excludes the price articles.
+      Files: the five host modules above + cftuv/envelope_production_result.py (refresh class WIDTH_REFRESH_LAZY_V1), cftuv/envelope_production_export.py.
+      Effort 2 d.
+
+   e) FALLBACK AND REFUSAL NAMES (every non-served domain is named; no silent path)
+      LAZY_DISABLED (CFTUV_LAZY=0), LAZY_NO_RECORD, LAZY_RECORD_EVICTED, LAZY_OUTSIDE_INTERVAL_BELOW / _ABOVE (with the limiting EventKindV1),
+      LAZY_AT_EVENT:<kind>, LAZY_AT_EVENT_ONE_SIDED, LAZY_EVENT_TABLE_REFUSED:<TAPE_INCOMPLETE|SLOPE_MISSING|BAND_UNRESOLVED|PAIR_LIMIT|PARTITION|...>,
+      LAZY_ORDER_NOISE, LAZY_V1_UNCERTIFIED (law/stage without a tape), LAZY_BUDGET_MARGIN (the recorded price at alpha0 above 1/2 of any cap: the budget
+      refusal B9 cannot be predicted, so near-cap domains are always recomputed), LAZY_VERIFY_MISMATCH:<parts> (shadow verify), LAZY_RUST_UNAVAILABLE
+      (Python reference used). Host side: WIDTH_REFRESH_LAZY_V1 class; LAZY_DEVELOPABLE_HOST_OFFSET (see 4d).
+
+   f) TELEMETRY
+      Per tick (status line + run profile counters): LAZY_SERVED, LAZY_RECOMPUTED_<reason>, histogram of the limiting event kinds of the intervals crossed,
+      interval headroom quantiles (V1 vs V2, how much the new kinds narrow intervals), tape size and solve seconds per record, LazyRecord memory per worker,
+      host model frame seconds. Shadow mode CFTUV_LAZY_VERIFY=1: every LAZY_HIT also runs the full path and compares answer_differences + structure parts
+      (as K/step.py:388-394 does today) -> LAZY_VERIFY_MISMATCH counter; the field sweep runs with it on. Files: K/step.py, cftuv/envelope_production_export.py,
+      tools/blender_drag_ticks.py. Effort 0.5 d (inside the items above).
+
+   TOTAL: about 25 working days (kernel reference 14.5, cache 1.5, evaluation 5-6, host 2, proof tooling and runs 2-3). Order: (1) Python tape + solver for
+   the silhouette kinds B1-B5 only + V2 interval in record-only mode (no behaviour change) and the cross-check sweep -> measures interval loss and validates
+   the B machinery on real data (5 d); (2) A kinds + native W1 tape; (3) host served = V2; (4) Rust evaluation; (5) default switch.
+
+4. PROOF STRATEGY
+   a) Exact cross-checks: for every domain of both frozen scenes and the field corpus (E:/cftuv_native_corpus read-only inputs + the pickled preparations of
+      capture_focus.py), K random rational widths inside each V2 interval (uniform + 1e-9-relative neighbourhoods of each recorded event end, both sides) ->
+      full materialize vs evaluate_lazy: answer_differences() empty (batch canonical bytes equal, except the named price articles), structure signature
+      equal, AFFINE_DRAG_CERTIFICATE_V1 theorem by exact SqrtSum equality (kernel/tests/parametric_theorem.py). Plus SOUNDNESS-OUTSIDE: one width just past
+      each recorded event end must either change structure or be explained by the tape (event was conservative) - counts both, so over-conservative bands
+      are measured, not hidden. The 1146c49e case is a fixed regression test (interval V2 high == SILHOUETTE_UV_FIT at 0.04851891400735791 +- band).
+   b) Mutants (each must be killed by the sweep or by kernel tests): drop one tape site per kind; flip a predicate outcome on the tape; shift a recorded slope by
+      one ulp; widen/narrow the silhouette tolerance by 1 ulp without re-solving; reorder tied silhouette candidates; disable the tie witness; drop the relabel
+      step; reuse a record of another (preparation, interval); swap lo/hi rounding direction of a band; skip TAPE_INCOMPLETE detection. A test in
+      tests/test_architecture.py enforces that every predicate function of K/ (orientation, shoelace_sign, segments_cross, uv_fit_residual, _within, ...)
+      called by materialize is reached through the tape or listed alpha-free (the executable form of "no uncertified decision").
+   c) tree_ab IDENTICAL: commit and cold presses of tools/blender_tree_ab.py (base = main, branch = phase D) IDENTICAL on both scenes after every stage
+      (lazy path never feeds COMMIT in phase D); for phase D2 additionally lazy-commit vs cold IDENTICAL.
+   d) Domains that stay approximate: developable / unfold domains (PARAM_NON_AFFINE_DEVELOPABLE_OFFSET, K/parametric.py:27-30): the BATCH is exactly affine
+      and is served by the kernel path like any other; the host offset along angle-weighted normals and the weld miter are not affine. Host rule: such a
+      served domain recomputes its offset with the host's own code from the lazily evaluated batch (same function as the commit) - then it is exact too, and
+      only the model-frame tier (float slopes) is approximate: those domains are drawn by the model between ticks and named LAZY_DEVELOPABLE_HOST_OFFSET
+      in telemetry; the tick itself is exact. Domains whose tape refuses (TAPE_INCOMPLETE, ORDER_NOISE, BUDGET_MARGIN) recompute every tick, named.
+
+5. RISKS AND STOP RULES
+   Risks:
+   R1 Missed decision site (a predicate not on the tape) -> a wrong "exact" tick. Mitigation: architecture test of 4b, shadow verify in the field sweep,
+      commit stays full. STOP if the sweep finds any LAZY_VERIFY_MISMATCH that is not traced to a missing tape site within one day.
+   R2 Float bands unsound (error bound of a binary64 routine underestimated). Mitigation: bound derived per routine and tested against exhaustive bisection
+      on the corpus; bands are outward. STOP if any band test needs a hand-tuned factor.
+   R3 Order noise (B5) makes many domains LAZY_ORDER_NOISE (cover: 51 / 1046 have ties today). STOP-AND-ASK if the witness leaves > 5 % of domains
+      unserved: then the owner decides on SILHOUETTE_TOPOLOGY_V2 (exact dihedral class), an answer change.
+   R4 Interval loss: new kinds shrink intervals so much that recomputes dominate. Evidence says small for silhouette (0 events within +-10 %); unknown for
+      A2 on fans/caps. STOP if the median V2 headroom above alpha0 falls below 2 % on either scene (the incremental tick would no longer beat lean).
+   R5 Tape cost on miss runs (Python tape on every predicate of a cold run). Budget: <= 15 % on the cold button; STOP and move the tape to Rust first if more.
+   R6 Memory: LazyRecord with exact numbers per domain x 3. STOP if a worker exceeds the 32 MB store with the records (then 1 record per preparation).
+   R7 Budget refusals (B9) are not predictable: a lazy tick may show a domain the full path would refuse. Mitigated by LAZY_BUDGET_MARGIN and full COMMIT.
+   R8 Names: a hash relabel bug silently renumbers regions; covered by batch byte equality in 4a (structure signature alone would not see it).
+   R9 Collision with rust/drag-quick: the record key equals its PARAMETRIC memo key; rebase phase D on it, never edit that branch.
+   Global stop rule: phase D does not ship any default change before the six conditions of 3d hold; each stage lands behind CFTUV_LAZY (default off) and
+   with tree_ab IDENTICAL.
+
+FILES: LAZY_DRAG_DESIGN.txt (this), cover008_1146c49e_predicted_event.json (prediction, float band, kernel truth), cover008_1146c49e_merge_decisions.txt
+(the two silhouette merges at alpha0 / last same / first changed), building_ / cover008_silhouette_scan_summary.json, scripts/ (capture, probes, scan,
+analysis, runners). Pickles and raw scan JSON stay in D:/lazydrag-scratch (not committed).

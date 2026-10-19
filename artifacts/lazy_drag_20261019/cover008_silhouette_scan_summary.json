@@ -1,0 +1,30 @@
+{
+ "counts": {
+  "DOMAINS": 1046,
+  "DECISIONS_MERGE_CHORD": 648,
+  "DECISIONS_MERGE_UV_FIT": 116,
+  "DECISIONS_VERTEX_CHORD": 1150,
+  "DECISIONS_VERTEX_UV_SLIDE": 594,
+  "EDGE_ORDER_CHANGED_AT_DELTA": 28
+ },
+ "noise": {
+  "EDGE_KEY_GAP_BELOW_1e-12_RAD": 51,
+  "EDGE_KEY_EXACT_TIE": 55
+ },
+ "flips_between_the_two_widths": [],
+ "n_flips": 0,
+ "domains_with_silhouette_crossing_estimate_within": {
+  "2%": 0,
+  "5%": 0,
+  "10%": 0,
+  "25%": 3
+ },
+ "nearest_crossing_share_quantiles": [
+  0.13275110466557713,
+  0.13275110466557713,
+  0.13275110466557713,
+  0.13275110466557713,
+  0.7028320231148212
+ ],
+ "domains_with_any_tolerance_decision": 9
+}
