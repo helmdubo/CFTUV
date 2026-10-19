@@ -11,7 +11,14 @@
 (`envelope_width_incremental.verify_batch`: путь ширины от их последнего точного счёта к запасу интервала), и они ложатся в образец точными - их структура становится новой основой. Обслуженный домен показывает
 структуру своего последнего точного счёта (журнал `verified`), каждый домен такта обслужен либо придержан с именем (`DRAG_VERIFY_BACKGROUND_V1` - ради сверки). Сверку рука не отменяет и не ждёт: партия
 идёт внутри такта, который рука и так ждёт. Когда рука стоит, простой заказывает такты на ширине курсора, пока все домены не сверены на ней (`idle_answer`); новое движение просто становится
-следующим тактом. Что сверка исправила, названо: домены, чья структура разошлась с показанной (`structure_changes`), и смена раскладки меша (`layout_changes`).
+следующим тактом. Исход сверки домена назван (`verify_outcomes`): `STRUCTURE_SAME`; `STRUCTURE_CHANGED` - структура разошлась с показанной, и посчитанный результат ПРИНЯТ новой основой домена
+(он ложится в образец и его сертификат двигает домен дальше), число таких отдельно (`structure_changes`), смена раскладки меша - `layout_changes`; `INCOMPARABLE` - домена нет в одном из образцов.
+Сверка - на ширине своего такта: такт ближайшей ширины сверяет домены на СВОЕЙ ширине, а не на ширине курсора; журнал сверки привязан к ключу образца (другой ключ - журнал заведён заново).
+
+ЧЕГО ЭТО НЕ ОБЕЩАЕТ. Обслуженный домен показывает структуру своего последнего точного счёта: `STRUCTURE_AS_OF:<ширина>` (строка панели называет, сколько доменов показаны по другой ширине и самую
+старую из них). Решения с допуском (силуэт, хорды) на другой ширине могли бы выйти за свой порог: граница ошибки сверкой не заверена, она лишь находит и называет такие домены. Порядок риска -
+путь ширины к запасу интервала (запас решений с допуском хост не читает дёшево). Сварка швов между доменами (`envelope_width_composite`) проверяется только в группе посчитанных тактом доменов: швы
+между обслуженными остаются такими, как в последнем точном счёте, до полного такта либо подтверждения (COMMIT полный).
 
 НИЧЕГО НЕ ПРОПАДАЕТ МОЛЧА. Шаги, точные такты на ширине курсора и на ближайшей ширине, замещённые заказы, отложенные сроки, сверенные домены и их находки -
 счётчики журнала, строка панели и строка консоли в конце перетаскивания; события (шаг, точный такт с моментами старта, конца счёта и применения) хранит ограниченный журнал для замеров.
@@ -29,6 +36,12 @@ from .envelope_width_incremental import VERIFY_BACKGROUND
 STEP_NO_SAMPLE = "LIVE_DRAG_STEP_WITHOUT_DISPLAYED_SAMPLE"
 #: Сколько событий хранит журнал для замеров.
 EVENTS_KEPT = 8192
+#: Исходы сверки домена (DRAG_VERIFY_BACKGROUND_V1).
+STRUCTURE_SAME = "STRUCTURE_SAME"
+STRUCTURE_CHANGED = "STRUCTURE_CHANGED"
+INCOMPARABLE = "INCOMPARABLE"
+#: Имя статуса обслуженного домена: структура его последнего точного счёта на названной ширине.
+STRUCTURE_AS_OF = "STRUCTURE_AS_OF"
 
 EVENT_STEP = "step"
 EVENT_EXACT = "exact"
@@ -51,6 +64,9 @@ class LiveDragLogV1:
     reframes: int = 0
     #: `{патч: ширина последнего точного счёта домена}` (DRAG_VERIFY_BACKGROUND_V1).
     verified: dict = field(default_factory=dict)
+    #: Ключ образца, к которому относится журнал сверки (`PreviewSampleV1.key`).
+    key: object = None
+    verify_outcomes: dict = field(default_factory=dict)
     verify_domains: int = 0
     structure_changes: int = 0
     layout_changes: int = 0
@@ -76,6 +92,7 @@ def seed_verified(log: LiveDragLogV1, displayed, state) -> None:
         return
     alpha = float(state.verified_alpha) if state is not None and state.ticks > 0 else float(displayed.alpha)
     log.verified = {item.patch_id: alpha for item in displayed.domains}
+    log.key = displayed.key
 
 
 def note_step(log: LiveDragLogV1, request, target) -> None:
@@ -101,6 +118,9 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
 
     alpha = float(request.alpha)
     plan = live.plan
+    key = getattr(live.sample, "key", None)
+    if log.key is not None and key != log.key:  # другой образец (ключ): прежний журнал сверки не про него
+        log.verified, log.key = {}, key
     if plan is not None and plan.incremental:
         if plan.deferred:
             log.count(log.deferred, plan.deferred)
@@ -108,7 +128,15 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
         checked = {patch for patch, name in (plan.held or {}).items() if name == VERIFY_BACKGROUND}
         if checked:
             old, new = _structures(before), _structures(live.sample)
-            changed = sum(1 for patch in checked if old.get(patch) != new.get(patch))
+            changed = 0
+            for patch in checked:
+                if patch not in old or patch not in new:
+                    log.count(log.verify_outcomes, INCOMPARABLE)
+                elif old[patch] != new[patch]:
+                    changed += 1
+                    log.count(log.verify_outcomes, STRUCTURE_CHANGED)  # посчитанный результат принят новой основой домена
+                else:
+                    log.count(log.verify_outcomes, STRUCTURE_SAME)
             log.verify_domains += len(checked)
             log.structure_changes += changed
             log.layout_changes += int(bool(changed) and before is not None and before.layout_digest != live.sample.layout_digest)
@@ -150,10 +178,21 @@ def idle_answer(log: LiveDragLogV1 | None, displayed, *, drag_active: bool) -> f
     return log.cursor
 
 
+def structure_as_of(log: LiveDragLogV1) -> tuple:
+    """`(сколько доменов показаны по структуре другой ширины, чем курсор, самая далёкая от курсора такая ширина либо None)` - статус `STRUCTURE_AS_OF:<ширина>`."""
+
+    if log.cursor is None:
+        return (0, None)
+    others = [width for width in log.verified.values() if width != log.cursor]
+    return (len(others), None if not others else max(others, key=lambda width: abs(width - log.cursor)))
+
+
 def report(log: LiveDragLogV1, counters=None) -> dict:
     """Счётчики журнала (и приращение счётчиков планировщика, `PreviewCountersV1`) словарём для строки консоли и инструментов замера."""
 
+    count, farthest = structure_as_of(log)
     data = {
+        "structure_as_of": {"domains": count, "farthest_width": farthest}, "verify_outcomes": dict(log.verify_outcomes),
         "steps": log.steps, "exact_at_cursor": log.exact_at_cursor, "exact_nearest": log.exact_nearest, "reframes": log.reframes,
         "verify_domains": log.verify_domains, "structure_changes": log.structure_changes, "layout_changes": log.layout_changes, "idle_ticks": log.idle_ticks,
         "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused),
@@ -173,11 +212,14 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
     deferred = sum(log.deferred.values())
     full = ", ".join(f"{name} {count}" for name, count in sorted(log.full_ticks.items()))
     refused = ", ".join(f"{name} {count}" for name, count in sorted(log.refused.items()))
+    outcomes = ", ".join(f"{name} {count}" for name, count in sorted(log.verify_outcomes.items()))
+    stale, farthest = structure_as_of(log)
+    as_of = f"; {stale} domains shown {STRUCTURE_AS_OF}:<other width>" + ("" if farthest is None else f" (farthest {STRUCTURE_AS_OF}:{farthest:.4g})")
     return (
         f"Live drag LIVE_DRAG_STREAM_V1: {log.steps} steps, exact {log.exact_at_cursor} at the pointer + {log.exact_nearest} at a nearer width (model moved to the pointer), "
         f"superseded {scheduler.get('superseded', 0)}, stale {scheduler.get('stale', 0)}; {VERIFY_BACKGROUND}: {log.verify_domains} domains verified in the ticks "
-        f"(+{log.idle_ticks} idle ticks), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected; verification periods not run as full ticks {deferred}"
-        + (f"; full ticks: {full}" if full else "") + (f"; refused: {refused}" if refused else "")
+        f"(+{log.idle_ticks} idle ticks), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected" + (f" ({outcomes})" if outcomes else "") + as_of
+        + f"; verification periods not run as full ticks {deferred}" + (f"; full ticks: {full}" if full else "") + (f"; refused: {refused}" if refused else "")
     )
 
 
@@ -185,7 +227,12 @@ __all__ = (
     "EVENTS_KEPT",
     "EVENT_EXACT",
     "EVENT_STEP",
+    "INCOMPARABLE",
     "LiveDragLogV1",
+    "STRUCTURE_AS_OF",
+    "STRUCTURE_CHANGED",
+    "STRUCTURE_SAME",
+    "structure_as_of",
     "STEP_NO_SAMPLE",
     "idle_answer",
     "note_applied",

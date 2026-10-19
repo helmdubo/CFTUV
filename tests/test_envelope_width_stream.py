@@ -258,7 +258,15 @@ def test_a_verified_domain_whose_structure_changed_is_named_and_counted():
 
     assert stream.note_applied(log, request, live_run, sample({0: "a", 1: "b", 2: "c"}, "old"), (1.1, 1.2, 1.3, 1.4)) is None
     assert (log.verify_domains, log.structure_changes, log.layout_changes) == (1, 1, 1)  # домен 2 сменил структуру на событии интервала - это не находка сверки
-    assert log.verified == {1: 0.26, 2: 0.26}
+    assert log.verified == {1: 0.26, 2: 0.26} and log.verify_outcomes == {stream.STRUCTURE_CHANGED: 1}  # принят новой основой, назван
+    assert stream.structure_as_of(log) == (0, None) and stream.STRUCTURE_CHANGED in stream.status_line(log)
+    log.verified[0] = 0.25
+    assert stream.structure_as_of(log) == (1, 0.25) and f"{stream.STRUCTURE_AS_OF}:0.25" in stream.status_line(log)
+
+    other = SimpleNamespace(plan=None, run=SimpleNamespace(results=[]), sample=SimpleNamespace(domains=[SimpleNamespace(patch_id=5, structure="x")], key=("other",), layout_digest="z"))
+    log.key = ("first",)
+    stream.note_applied(log, SimpleNamespace(alpha=0.27, sequence=8, requested_at=2.0), other, None, (2.1, 2.2, 2.3, 2.4))
+    assert log.verified == {5: 0.27} and log.key == ("other",)  # журнал сверки другого образца не переносится
 
 def test_the_confirm_is_the_commit_of_the_direct_run_and_of_the_confirm_without_the_switch(monkeypatch):
     digests = []
