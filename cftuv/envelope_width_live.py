@@ -1042,9 +1042,8 @@ def draw_decal_width_rows(layout) -> None:
     if mesh_settings is not None:
         layout.prop(mesh_settings, "drag_exact_ticks")
         layout.prop(mesh_settings, "drag_live_mesh")
-        row = layout.row()
-        row.enabled = bool(getattr(mesh_settings, "drag_live_mesh", False))
-        row.prop(mesh_settings, "drag_settle_on_pause")
+        if getattr(mesh_settings, "drag_live_mesh", False):
+            layout.prop(mesh_settings, "drag_settle_on_pause")  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: только при живом точном меше
     if problem:
         layout.label(text=problem, icon="INFO")
         return
