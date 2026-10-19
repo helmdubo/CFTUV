@@ -1,0 +1,142 @@
+DRAG-TICK PROFILE - 19.10.2026. Base f8f52ed7 (rust/r3plus: main 61e46e89 + S2 chain_station NATIVE + S1 density bind-once), native build a3efcde8 (wheel of
+D:/r3plus-scratch/wheel-s3, copied; tools/native_build_id.py: tree id == installed id, rust 9fbd6249, shim 215e50a9). Measurement only: no product code changed.
+Headless Blender 4.5, frozen scenes testscene 750baefc / cover008 v2 a044b5aa (sha checked before and after every run: unchanged), pool 12, NATIVE, density 2,
+building alpha 0.2239 stretch 42 (seam selection), cover.008 alpha 0.04214220866560936 stretch 20 (stored selection). Machine CPU load at run starts 5-16 %
+(background processes); compare numbers only within one run.
+
+HOW (scripts/)
+- dragprof_runner.py: the LIVE width path call for call (tools/blender_drag_ticks.Session.step = envelope_width_live._begin -> thread compute
+  (run_production + finish_live_run) -> _validity -> _apply), after the real button (bpy.ops.hotspotuv.build_envelope_decal_mesh). Per rep one refresh of each
+  kind at a new width (+0.5 % of alpha0 each): lean = WIDTH_REFRESH_LEAN_V1 (the exact tick, also the verification tick of the incremental policy), incr =
+  WIDTH_REFRESH_INCREMENTAL_V1 as the tool orders it (policy of the tree decides), commit = full path (confirm / slider step). building 7 reps, cover 6 reps.
+  Parent laps: blender_drag_ticks.LAPS + run_production/_apply. Worker laps: draglaps.py (coldlaps of R3+ phase A with per-task lap deltas) patched into the
+  pool bootstrap of THIS process; tasks attributed to a refresh by their perf_counter window. view_layer.update() after each apply = host.depsgraph.
+- analyze.py: per refresh split (worker-seconds by stage, busiest worker, heaviest task, pool span) and medians -> *_r1_summary.json.
+- tools/blender_tree_ab.py (unchanged harness, base = branch = this tree): cold + 5 x (tick, incr, step) on one controller, both sessions: IDENTICAL, scenes
+  unchanged -> treeab_presses.py -> treeab_presses_summary.json (cross-check of the walls with the tool's own presses).
+- field_linearity.py: one cold press in-process (workers 0) recording every step_domain and every event table; per domain exact steps (parametric_exact)
+  at 3 widths above and 3 below alpha0 INSIDE its certified interval (capped at +-25 %) and one at +5 %; theorem of AFFINE_DRAG_CERTIFICATE_V1 by exact
+  SqrtSumV1 equality (kernel/tests/parametric_theorem.py), structure signature parts, float slopes, float error. building: all 122 domains; cover: every 2nd.
+  --focus bisects the first width of a structure change inside an interval.
+- tick_cprofile.py: in-process lean ticks under cProfile, tottime by package (sympy / mpmath / fractions / kernel subpackages / host / native).
+
+1. TICK TABLE (medians, seconds; dragprof_runner, pool 12)              building (122 dom)          cover008 (1053 dom, 1046 mat.)
+                                                                     lean    incr    commit      lean    incr    commit
+   wall (begin on main + thread + apply on main)                     0.212   0.057   0.267       1.439   0.041   1.911
+   main thread: _begin                                                0.016   0.003   0.012       0.012   0.010   0.010
+   thread: run_production                                             0.173   0.051   0.193       1.158   0.015   1.313
+     scan (parent, every patch, request rebuilt with new alpha)       0.014   0.001   0.015       0.112   0.004   0.113
+     order_by_cost + retry                                            0.003   -       0.004       0.051   -       0.054
+     dispatch = pool wall                                             0.153   0.050   0.172       1.005   0.004   1.162
+       pool span (first task start -> last task end)                  0.142   0.045   0.159       0.976   0.001   1.126
+       busiest worker (critical path in the pool)                     0.134   0.045   0.150       0.852   0.000   0.995
+       heaviest single task                                           0.086   0.045   0.099       0.118   0.000   0.136
+       worker-seconds (sum of 12 workers)                             1.463   0.045   1.676       9.912   0.001  11.646
+       tasks                                                          122     1       122         1053    2       1053
+   thread: tail (finish_live_run: arrays, sample, model, deviation)   0.023   0.004   0.045       0.174   0.011   0.364
+     arrays (weld, cross seams; + digest/off_plane/seam reports on commit) 0.016 -     0.038       0.115   -       0.305
+   main thread: _apply (mesh write)                                   0.003   0.001   0.022       0.031   0.007   0.155
+     lean frame write (foreach_set + mesh.update)                     0.001   0.001   -           0.019   0.006   -
+     commit rewrite_decal_mesh / mesh_content_digest                  -       -       0.016/0.010 -       -       0.113/0.073
+   host.depsgraph (view_layer.update after the write, headless)       0.0005  0.0005  0.0005      0.0010  0.0007  0.0011
+   cross-check tree_ab real presses (run + arrays, 2 sessions x 5):  tick 0.186/0.200, incr 0.048/0.052, step 0.227/0.239 (building);
+                                                                     tick 1.410/1.377, incr 0.059/0.060, step 1.784/1.745, cold 9.06/8.92 (cover).
+   cold button (the operator, prewarmed pool) in the runner: building 1.69 s, cover 9.57 s.
+
+   Worker-seconds by stage in one refresh (lean; commit adds PRODUCE.pack = pickle+zlib of the batch: building 0.25, cover 1.87):
+                                                                     building    cover008
+   EXPORT (snapshot build + snapshot_check)                           0           0          (0 tasks of 1053/122 ran EXPORT on any tick, step or confirm)
+   PREPARE (PLAN_COMPILE, DOMAIN_BUILD, ARRIVAL, BRIDGE, SKELETON, FACES) 0       0          (0 tasks ran PREPARE: the preparation is the worker store blob)
+   PRODUCE.coverage                                                   0.136       0.937
+     EFFECTIVE_ALPHA (instance ids, resolve_component_alphas)         0.017       0.093
+     COVERAGE_CLIP (template instantiate = native covered_at)         0.114       0.806
+   PRODUCE.materialize                                                1.207       8.167
+     SILHOUETTE                                                       0.532       3.671
+     PARAMETRIC (S6a slope certificate)                               0.176       1.277
+     ASSEMBLE (lift to source, chains)                                0.168       1.185
+     STATIONS_UV                                                      0.088       0.574
+     W1 native (exact mesh + canonical triangles)                     0.119       0.776
+     COALESCE / CHORD_STATIONS / FRAMES / STATIONS / ADMIT            0.120       0.557
+     VALIDATE / AUDIT / CERTIFY / DIGEST                              0.105       0.788
+   PRODUCE.pack + REPLY                                               0.032       0.247
+   Interval FAST_HIT (coverage from the worker's step certificate): tree_ab ticks 103-120 of 122 (building), 957-1037 of 1046 (cover).
+
+2. WIDTH DEPENDENCE OF THE STAGES (what a tick recomputes)
+   - EXPORT, PLAN_COMPILE, DOMAIN_BUILD, ARRIVAL, BRIDGE, SKELETON, FACES: width-independent and ALREADY NOT RECOMPUTED. Proof by execution count: 0 of
+     2 x 7 x 122 + 2 x 6 x 1053 task records on lean/commit refreshes ran task_inputs or prepare_for_production (dragprof_runner worker laps); the content key
+     excludes alpha (envelope_content_key.EXCLUDED_FIELDS) and the worker store key is the hash of the preparation bytes. Exception (not hit in these ranges,
+     up to +10.5 % building / +9 % cover): a tightened band chart whose reach alpha*(1+b) changes evicts the domain's preparation (envelope_debug_session._note_band_chart).
+   - PRODUCE (coverage + materialize) is the whole worker cost of a tick. Inside a domain's certified interval its outputs were compared at 3 + 3 widths:
+       structure signature (vertex keys, face rings = tessellation/fans/caps, chains = seams/interfaces, station facts, regions, diagnostics):
+         building 846/846 samples IDENTICAL, cover 3656/3657 IDENTICAL (1 change, see 4);
+       exact slopes (map points, lifted positions, (s, r) UV facts): equal at every inside width (theorem 0 failures, 846 + 3656 judged);
+       binary64 slopes (bytes): equal in 844/846 and 3656/3656 (the 2 building cases differ in float order only; the exact slopes are equal).
+     So inside an interval the TOPOLOGY decisions (SILHOUETTE, tessellation, ASSEMBLE chains, regions) and the PARAMETRIC slopes give the same output at
+     every width, and positions/UV are an exact affine function of width. Width-independent recompute in a lean tick:
+       strictly identical output: PARAMETRIC 0.176 / 1.277 worker-s (about 0.012 s / 0.11 s of wall at 12 workers);
+       structure-determined + exactly affine: all of PRODUCE.materialize + coverage, 1.34 / 9.10 worker-s = the pool part of the tick
+       (0.15 s / 1.0 s wall) - this is what WIDTH_REFRESH_INCREMENTAL_V1 already skips (incr tick 0.057 / 0.041 s), WITHOUT certifying the structure;
+       parent bookkeeping that does not depend on alpha: scan (request rebuilt per patch, memo hits) 0.014 / 0.112 s, order_by_cost 0.003 / 0.025 s.
+   - CACHE POTENTIAL (seconds of the exact lean tick): building 0.212 -> ~0.05 (-0.16 s), cover 1.44 -> ~0.06-0.15 (-1.3 s) if the structure inside the
+     interval is certified (plan A below); without certifying it, -0.012 / -0.24 s (PARAMETRIC memo + scan) (plan B).
+
+3. WHAT IS CACHED BETWEEN TICKS TODAY (verified in code and by the laps)
+   parent: analysis bundle, topology export (but with_chart_band makes a new export object per alpha), stage inputs memo, scan memo (no alpha in its key;
+   request_at swaps requested_alpha), patch metric cache, domain geometry, conveyor preparation cache (no alpha), snapshot issues, preparation blobs,
+   source fingerprint, width model / displayed sample / trust ledger / incremental state.
+   workers (resident, keyed by preparation bytes): the preparation (32 MB LRU store) with MaterializeMemoV1 (station table, surface lift, alpha EVENT TABLE),
+   up to 3 interval step certificates per preparation (FAST_HIT = coverage from the template A + alpha*B), the clip memo (exact-input hash), warm pool (prewarmed
+   at the button). INVALIDATED per tick: the result cache (key has alpha_text; lean results are never stored), content-store result slots (alpha in slot),
+   everything materialize computes (no materialization or certificate is reused across widths), the scan output (re-run every tick).
+
+4. EVENT INTERVALS AND LINEARITY (field_linearity.py; *_linearity.json, cover008_focus_change_inside_interval.json)
+   VERDICT: inside a certified interval positions and UV are EXACTLY affine in width (exact SqrtSumV1 equality of value + slope * delta with the exact run,
+   0 failures in 846 building + 3656 cover samples; float error of the affine frame 7e-15 m, UV 2.3e-13). Fan rays, seams, caps and tessellation did not
+   change inside an interval on building (0/846). On cover ONE domain changed structure INSIDE its kernel interval without a kernel event:
+   host-v0:patch-domain:1146c49e3661ee2471ae903d, interval (2.3e-14, 0.07741), first change at alpha 0.048518914008 (+15.13 % of alpha0): 5 -> 4 faces,
+   10 -> 9 vertices, parts boundary_chains/faces/facts/regions/vertices, same diagnostics, certificate markers empty. This is one of the classes the
+   interval names as NOT certified (TESSELLATION_AND_PARTITION_DECISIONS, SILHOUETTE_DISSOLVE_TOLERANCE, HOST_POSITION_LAW, STATION_PLAN_AND_UV,
+   CELL_DIAGONAL_CHORD_VERDICT) - named as a class, not as an event with a width; today it is caught only a posteriori by the verification tick.
+   EVENTS in a drag range (EventTableV1.lo: front arrivals at skeleton vertices + clip crossings; per domain, union = distinct event widths of the mesh):
+                       building (122 dom)                        cover008 (1046 dom)
+     range       domains w/ event  distinct widths          domains w/ event  distinct widths
+     +0.5 %       0                 0                         0                 0
+     +2 %         1                 3                         3                12
+     +5 %         1                 3                         5                21
+     +10 %        1                 6                         5                21
+     +25 %       75               121                        86                93
+     -2 %         2                85                         0                 0
+     -10 %        7               118                        12                39
+   median events per domain in +-10 %: 0 (both). Interval headroom above alpha0: building min 0.7 %, p10 11.7 %; cover min 1.7 %, p10 40 %. One building
+   domain (e4d13373, 391 events) sits exactly ON an event at 0.2239 (AT_EVENT): it is the domain every incremental tick recomputes (0.045 s = its whole cost).
+
+5. SYMPY AND PLAN_COMPILE ON THE TICK PATH
+   PLAN_COMPILE: not on the tick path (0 PREPARE tasks on ticks). sympy: tick_cprofile tottime 0.007 s of 9.3 s profiled (building, 3 ticks), 0.000 of
+   47.8 s (cover, 2 ticks); the only per-tick sympy entry is EFFECTIVE_ALPHA resolve_component_alphas (0.005 / 0.006 worker-s per tick, skipped on FAST_HIT
+   names windows). The tick CPU is exact rational arithmetic of MATERIALIZE in Python: fractions 22 % + exact_sqrt_sum 13 % + materialize 29 % + builtins
+   15 % of tottime (cover). => S5 (removing sympy) does not matter for drag; it matters only for the cold button.
+
+6. HOST SIDE PER TICK
+   lean frame write 0.001 / 0.019 s, _apply total 0.003 / 0.031 s; commit: rewrite_decal_mesh 0.016 / 0.113 s + mesh_content_digest 0.010 / 0.073 s,
+   _apply 0.022 / 0.155 s; arrays in the thread 0.016 / 0.115 (lean), 0.038 / 0.305 (commit: digest, off-plane, seam reports). depsgraph evaluation after
+   the write (view_layer.update, headless) 0.5 / 1.0 ms; the GUI draw cache rebuild is not measurable headless. The preview model frame per mouse event
+   (no kernel) is 0.63 / 3.2 ms (DECISIONS PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1). By default (drag_exact_ticks = False) a drag runs no exact tick at all:
+   model frames while dragging, one COMMIT on release (1.9 s cover).
+
+7. RECOMMENDED NEXT STEP (cache plan)
+   A (strategic, makes the exact tick ~incr cost): certify the structure inside the interval. Add the uncertified decisions as named EVENTS of the alpha-free
+   event table (silhouette dissolve tolerance crossings, tessellation/partition and cell diagonal chord verdict changes), so a domain inside its interval is
+   EXACT by construction: its tick = P0 + slope * delta (already exact-affine, proven above) and no verification lean tick is needed. The worker keeps the
+   last materialization per (preparation, interval, structure digest). Expected: exact tick building 0.21 -> ~0.05 s, cover 1.44 -> ~0.05-0.15 s
+   (only domains crossing an event recompute: 0-5 of 1046 per +-5 %). Risks: the new event bounds must be sound (a missed silhouette crossing = a wrong exact
+   answer; the cover case above at +15.13 % is the test), and rule 4 (no silent change) requires each new event to be named; the developable offset
+   (PARAM_NON_AFFINE_DEVELOPABLE_OFFSET) stays approximate - such domains still recompute.
+   B (quick, no semantic change, -0.24 s cover lean tick / commit): memo the PARAMETRIC certificate in the worker per (preparation, interval, structure)
+   (-1.28 worker-s = -0.11 s), parent scan without per-patch request rebuild when only alpha changed (-0.1 s), order_by_cost reuse (-0.025 s).
+   C (Rust-first, independent of A/B): MATERIALIZE silhouette + assemble/lift exact arithmetic in Rust (fractions + SqrtSum ~35 % of tick CPU); expected cover
+   lean tick 1.44 -> ~0.5 s, commit 1.9 -> ~0.9 s (pack 1.87 worker-s stays).
+   Not worth it for drag: S5 sympy removal, PLAN_COMPILE work, EXPORT, cold-path caches (none of them run on a tick).
+
+FILES: building_r1.json / cover008_r1.json (runner reports, per refresh), *_r1_summary.json (analyze.py), treeab_presses_summary.json, *_linearity.json
+(reduced: counts, events, flagged samples), cover008_focus_change_inside_interval.json, *_tickprof.json (cProfile buckets and tops). Raw worker task dumps and
+tree_ab run files stay in D:/dragprof-scratch (not committed: 200 MB).

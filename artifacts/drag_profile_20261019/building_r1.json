@@ -1,0 +1,2283 @@
+{
+ "argv": [
+  "--root",
+  "D:/CFTUV-dragprof",
+  "--native-path",
+  "D:/dragprof-scratch/site",
+  "--case",
+  "building",
+  "--workers",
+  "12",
+  "--out",
+  "D:/dragprof-scratch/out/building_r1.json",
+  "--reps",
+  "7"
+ ],
+ "base_alpha": 0.22390000522136688,
+ "cold_press_s": 1.6917197000002488,
+ "cold_window": null,
+ "decal_cold": {
+  "loops": 3559,
+  "polygons": 907,
+  "vertices": 1191
+ },
+ "failure": null,
+ "native_build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+ "parent_laps_found": [
+  "apply.lean_frame",
+  "apply.mesh_digest",
+  "apply.rewrite",
+  "arrays",
+  "arrays.cross_seams",
+  "arrays.digest",
+  "arrays.half_edge",
+  "arrays.off_plane",
+  "arrays.seam_report",
+  "arrays.weld",
+  "begin.source_digest",
+  "dispatch",
+  "plan",
+  "plan.rebase",
+  "pool.order_by_cost",
+  "retry",
+  "scan",
+  "tail",
+  "tail.compose",
+  "tail.compose.refindex",
+  "tail.compose.rows",
+  "tail.compose.weld",
+  "tail.deviation",
+  "tail.model",
+  "tail.origins",
+  "tail.sample"
+ ],
+ "parent_laps_missing": [
+  "cftuv.envelope_production_export._collect"
+ ],
+ "pid": 5656,
+ "steps": [
+  {
+   "alpha": 0.2250195052474737,
+   "apply_main": 0.0027104000037070364,
+   "apply_outcome": "applied",
+   "begin_main": 0.016540399999939837,
+   "decal": [
+    1191,
+    907,
+    3559
+   ],
+   "domains": 122,
+   "finished_at": 91565.9629963,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0029240000003483146,
+   "gc_slow": [],
+   "host_depsgraph": 0.0006902000022819266,
+   "join_wait": 0.19292349999886937,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.002705
+    ],
+    "P.run_production": [
+     1,
+     0.175986
+    ],
+    "apply.lean_frame": [
+     1,
+     0.001008
+    ],
+    "arrays": [
+     1,
+     0.014902
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002164
+    ],
+    "arrays.weld": [
+     1,
+     0.007919
+    ],
+    "begin.source_digest": [
+     1,
+     0.004364
+    ],
+    "dispatch": [
+     1,
+     0.156436
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.005525
+    ],
+    "retry": [
+     1,
+     3.5e-05
+    ],
+    "scan": [
+     1,
+     0.014652
+    ],
+    "tail": [
+     1,
+     0.022576
+    ],
+    "tail.deviation": [
+     1,
+     0.002193
+    ],
+    "tail.model": [
+     2,
+     0.002706
+    ],
+    "tail.sample": [
+     1,
+     0.004141
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 0,
+   "rss_after_mb": 392.7,
+   "run_production": 0.17559800000162795,
+   "shadow": null,
+   "started_at": 91565.7507085,
+   "thread": 0.2015211999969324,
+   "wall": 0.21228780000819825
+  },
+  {
+   "alpha": 0.22613900527358055,
+   "apply_main": 0.0046359000116353855,
+   "apply_outcome": "applied",
+   "begin_main": 0.0028710999904433265,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91566.0631296,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0008825999975670129,
+   "gc_slow": [],
+   "host_depsgraph": 0.00046629999997094274,
+   "join_wait": 0.09064930000749882,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.00463
+    ],
+    "P.run_production": [
+     1,
+     0.06559
+    ],
+    "apply.lean_frame": [
+     1,
+     0.002795
+    ],
+    "arrays": [
+     1,
+     0.01412
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.00213
+    ],
+    "arrays.weld": [
+     1,
+     0.007717
+    ],
+    "dispatch": [
+     1,
+     0.063129
+    ],
+    "plan": [
+     1,
+     0.000107
+    ],
+    "plan.rebase": [
+     120,
+     0.006447
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.000138
+    ],
+    "retry": [
+     1,
+     1e-05
+    ],
+    "scan": [
+     1,
+     0.000662
+    ],
+    "tail": [
+     1,
+     0.025849
+    ],
+    "tail.compose": [
+     1,
+     5.1e-05
+    ],
+    "tail.model": [
+     1,
+     0.001296
+    ],
+    "tail.origins": [
+     1,
+     3.6e-05
+    ],
+    "tail.sample": [
+     1,
+     0.003667
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": {
+    "composite": false,
+    "fallback": "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED",
+    "held": 2,
+    "held_reasons": {
+     "PARAM_INTERVAL_END": 1,
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 8.6e-05,
+    "served": 120
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 0,
+   "rss_after_mb": 394.7,
+   "run_production": 0.06543750000128057,
+   "shadow": null,
+   "started_at": 91565.9648656,
+   "thread": 0.09247049999248702,
+   "wall": 0.0982640000001993
+  },
+  {
+   "alpha": 0.22725850529968736,
+   "apply_main": 0.02153879999241326,
+   "apply_outcome": "applied",
+   "begin_main": 0.011143600000650622,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91566.3377544,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.002348500012885779,
+   "gc_slow": [],
+   "host_depsgraph": 0.00047759999870322645,
+   "join_wait": 0.2385733999981312,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.021533
+    ],
+    "P.run_production": [
+     1,
+     0.203969
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.009614
+    ],
+    "apply.rewrite": [
+     1,
+     0.01533
+    ],
+    "arrays": [
+     1,
+     0.035379
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002204
+    ],
+    "arrays.digest": [
+     1,
+     0.007833
+    ],
+    "arrays.half_edge": [
+     1,
+     0.000941
+    ],
+    "arrays.off_plane": [
+     1,
+     0.007594
+    ],
+    "arrays.seam_report": [
+     1,
+     0.004668
+    ],
+    "arrays.weld": [
+     1,
+     0.007599
+    ],
+    "dispatch": [
+     1,
+     0.184476
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.00332
+    ],
+    "retry": [
+     1,
+     3.3e-05
+    ],
+    "scan": [
+     1,
+     0.014877
+    ],
+    "tail": [
+     1,
+     0.042568
+    ],
+    "tail.deviation": [
+     1,
+     0.002037
+    ],
+    "tail.model": [
+     1,
+     0.001598
+    ],
+    "tail.sample": [
+     1,
+     0.003521
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 0,
+   "rss_after_mb": 403.6,
+   "run_production": 0.20353339999564923,
+   "shadow": null,
+   "started_at": 91566.0663875,
+   "thread": 0.24892710000858642,
+   "wall": 0.2713668999931542
+  },
+  {
+   "alpha": 0.22837800532579422,
+   "apply_main": 0.0027621000044746324,
+   "apply_outcome": "applied",
+   "begin_main": 0.019355099997483194,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91566.5331291,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.003033900007721968,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004771999956574291,
+   "join_wait": 0.17184110000380315,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.002758
+    ],
+    "P.run_production": [
+     1,
+     0.16534
+    ],
+    "apply.lean_frame": [
+     1,
+     0.001207
+    ],
+    "arrays": [
+     1,
+     0.014795
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002162
+    ],
+    "arrays.weld": [
+     1,
+     0.007753
+    ],
+    "dispatch": [
+     1,
+     0.146397
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003317
+    ],
+    "retry": [
+     1,
+     3.3e-05
+    ],
+    "scan": [
+     1,
+     0.014157
+    ],
+    "tail": [
+     1,
+     0.021711
+    ],
+    "tail.deviation": [
+     1,
+     0.002028
+    ],
+    "tail.model": [
+     1,
+     0.001242
+    ],
+    "tail.sample": [
+     1,
+     0.003616
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 1,
+   "rss_after_mb": 404.0,
+   "run_production": 0.16497769999841694,
+   "shadow": null,
+   "started_at": 91566.3390624,
+   "thread": 0.1901242000021739,
+   "wall": 0.1940667000017129
+  },
+  {
+   "alpha": 0.22949750535190103,
+   "apply_main": 0.0010900000052060932,
+   "apply_outcome": "applied",
+   "begin_main": 0.0025265000003855675,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 1,
+   "finished_at": 91566.5869239,
+   "gc_collections": 0,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004115000047022477,
+   "join_wait": 0.04863350000232458,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.001088
+    ],
+    "P.run_production": [
+     1,
+     0.046949
+    ],
+    "apply.lean_frame": [
+     1,
+     0.000819
+    ],
+    "dispatch": [
+     1,
+     0.045032
+    ],
+    "plan": [
+     1,
+     9.2e-05
+    ],
+    "pool.order_by_cost": [
+     1,
+     7.5e-05
+    ],
+    "retry": [
+     1,
+     7e-06
+    ],
+    "scan": [
+     1,
+     0.000477
+    ],
+    "tail": [
+     1,
+     0.00307
+    ],
+    "tail.compose": [
+     1,
+     0.001843
+    ],
+    "tail.compose.refindex": [
+     1,
+     0.00056
+    ],
+    "tail.compose.rows": [
+     1,
+     7.1e-05
+    ],
+    "tail.compose.weld": [
+     1,
+     0.000909
+    ],
+    "tail.model": [
+     1,
+     0.001189
+    ]
+   },
+   "lean": true,
+   "lean_domains": 1,
+   "plan": {
+    "composite": true,
+    "fallback": "",
+    "held": 1,
+    "held_reasons": {
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 0.001908,
+    "served": 121
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 1,
+   "rss_after_mb": 404.6,
+   "run_production": 0.046837400004733354,
+   "shadow": null,
+   "started_at": 91566.5345756,
+   "thread": 0.05013810000673402,
+   "wall": 0.05234829999972135
+  },
+  {
+   "alpha": 0.2306170053780079,
+   "apply_main": 0.022238499994273297,
+   "apply_outcome": "applied",
+   "begin_main": 0.01886880000529345,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91566.8632409,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0025382000021636486,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004896000027656555,
+   "join_wait": 0.23427229998924304,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.022233
+    ],
+    "P.run_production": [
+     1,
+     0.196518
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.009393
+    ],
+    "apply.rewrite": [
+     1,
+     0.015709
+    ],
+    "arrays": [
+     1,
+     0.046211
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.003522
+    ],
+    "arrays.digest": [
+     1,
+     0.007519
+    ],
+    "arrays.half_edge": [
+     1,
+     0.001564
+    ],
+    "arrays.off_plane": [
+     1,
+     0.007713
+    ],
+    "arrays.seam_report": [
+     1,
+     0.006819
+    ],
+    "arrays.weld": [
+     1,
+     0.011961
+    ],
+    "dispatch": [
+     1,
+     0.175503
+    ],
+    "plan": [
+     1,
+     2e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.00432
+    ],
+    "retry": [
+     1,
+     5.1e-05
+    ],
+    "scan": [
+     1,
+     0.013768
+    ],
+    "tail": [
+     1,
+     0.053143
+    ],
+    "tail.deviation": [
+     1,
+     0.002076
+    ],
+    "tail.model": [
+     1,
+     0.001237
+    ],
+    "tail.sample": [
+     1,
+     0.003584
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 1,
+   "rss_after_mb": 409.2,
+   "run_production": 0.19601250000414439,
+   "shadow": null,
+   "started_at": 91566.5877571,
+   "thread": 0.2522478000028059,
+   "wall": 0.2754837999964366
+  },
+  {
+   "alpha": 0.2317365054041147,
+   "apply_main": 0.0027006000018445775,
+   "apply_outcome": "applied",
+   "begin_main": 0.006264799987548031,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91567.0822301,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.004217699999571778,
+   "gc_slow": [],
+   "host_depsgraph": 0.0005057999951532111,
+   "join_wait": 0.2084854999993695,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.002697
+    ],
+    "P.run_production": [
+     1,
+     0.173906
+    ],
+    "apply.lean_frame": [
+     1,
+     0.001162
+    ],
+    "arrays": [
+     1,
+     0.023842
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.003691
+    ],
+    "arrays.weld": [
+     1,
+     0.012372
+    ],
+    "dispatch": [
+     1,
+     0.153102
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003262
+    ],
+    "retry": [
+     1,
+     5.7e-05
+    ],
+    "scan": [
+     1,
+     0.013733
+    ],
+    "tail": [
+     1,
+     0.035468
+    ],
+    "tail.deviation": [
+     1,
+     0.003361
+    ],
+    "tail.model": [
+     1,
+     0.00196
+    ],
+    "tail.sample": [
+     1,
+     0.006263
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 2,
+   "rss_after_mb": 410.9,
+   "run_production": 0.17326979999779724,
+   "shadow": null,
+   "started_at": 91566.8646447,
+   "thread": 0.2136364999896614,
+   "wall": 0.2175853999942774
+  },
+  {
+   "alpha": 0.23285600543022156,
+   "apply_main": 0.0011340999917592853,
+   "apply_outcome": "applied",
+   "begin_main": 0.0025562999944668263,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 1,
+   "finished_at": 91567.1379716,
+   "gc_collections": 0,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004786999925272539,
+   "join_wait": 0.05042909999610856,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.001131
+    ],
+    "P.run_production": [
+     1,
+     0.047132
+    ],
+    "apply.lean_frame": [
+     1,
+     0.000846
+    ],
+    "dispatch": [
+     1,
+     0.045096
+    ],
+    "plan": [
+     1,
+     8.7e-05
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.000105
+    ],
+    "retry": [
+     1,
+     7e-06
+    ],
+    "scan": [
+     1,
+     0.000472
+    ],
+    "tail": [
+     1,
+     0.004643
+    ],
+    "tail.compose": [
+     1,
+     0.00275
+    ],
+    "tail.compose.refindex": [
+     1,
+     0.000841
+    ],
+    "tail.compose.rows": [
+     1,
+     7.7e-05
+    ],
+    "tail.compose.weld": [
+     1,
+     0.001417
+    ],
+    "tail.model": [
+     1,
+     0.001848
+    ]
+   },
+   "lean": true,
+   "lean_domains": 1,
+   "plan": {
+    "composite": true,
+    "fallback": "",
+    "held": 1,
+    "held_reasons": {
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 0.002811,
+    "served": 121
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 2,
+   "rss_after_mb": 411.5,
+   "run_production": 0.0469679000088945,
+   "shadow": null,
+   "started_at": 91567.083742,
+   "thread": 0.05189430000609718,
+   "wall": 0.054229599991231225
+  },
+  {
+   "alpha": 0.23397550545632836,
+   "apply_main": 0.021873300007428043,
+   "apply_outcome": "applied",
+   "begin_main": 0.011658400006126612,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91567.4003184,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0023201000003609806,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004944000102113932,
+   "join_wait": 0.22766129999945406,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.02187
+    ],
+    "P.run_production": [
+     1,
+     0.194422
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.009115
+    ],
+    "apply.rewrite": [
+     1,
+     0.014876
+    ],
+    "arrays": [
+     1,
+     0.034637
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002279
+    ],
+    "arrays.digest": [
+     1,
+     0.007344
+    ],
+    "arrays.half_edge": [
+     1,
+     0.000936
+    ],
+    "arrays.off_plane": [
+     1,
+     0.007662
+    ],
+    "arrays.seam_report": [
+     1,
+     0.004653
+    ],
+    "arrays.weld": [
+     1,
+     0.007391
+    ],
+    "dispatch": [
+     1,
+     0.16929
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003982
+    ],
+    "retry": [
+     1,
+     3.3e-05
+    ],
+    "scan": [
+     1,
+     0.020564
+    ],
+    "tail": [
+     1,
+     0.041648
+    ],
+    "tail.deviation": [
+     1,
+     0.002054
+    ],
+    "tail.model": [
+     1,
+     0.001228
+    ],
+    "tail.sample": [
+     1,
+     0.003696
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 2,
+   "rss_after_mb": 416.5,
+   "run_production": 0.19398670000373386,
+   "shadow": null,
+   "started_at": 91567.1390234,
+   "thread": 0.23842809999769088,
+   "wall": 0.2612950000038836
+  },
+  {
+   "alpha": 0.23509500548243523,
+   "apply_main": 0.0026520999963395298,
+   "apply_outcome": "applied",
+   "begin_main": 0.012816999995266087,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91567.5949079,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0033167999936267734,
+   "gc_slow": [],
+   "host_depsgraph": 0.00048040000547189265,
+   "join_wait": 0.1776910000044154,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.00265
+    ],
+    "P.run_production": [
+     1,
+     0.163226
+    ],
+    "apply.lean_frame": [
+     1,
+     0.0011
+    ],
+    "arrays": [
+     1,
+     0.015792
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002252
+    ],
+    "arrays.weld": [
+     1,
+     0.008108
+    ],
+    "dispatch": [
+     1,
+     0.144161
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.002938
+    ],
+    "retry": [
+     1,
+     3.5e-05
+    ],
+    "scan": [
+     1,
+     0.013858
+    ],
+    "tail": [
+     1,
+     0.022869
+    ],
+    "tail.deviation": [
+     1,
+     0.002113
+    ],
+    "tail.model": [
+     1,
+     0.001243
+    ],
+    "tail.sample": [
+     1,
+     0.003688
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 3,
+   "rss_after_mb": 416.8,
+   "run_production": 0.1628469999996014,
+   "shadow": null,
+   "started_at": 91567.4016375,
+   "thread": 0.18944979998923372,
+   "wall": 0.19327039999188855
+  },
+  {
+   "alpha": 0.23621450550854203,
+   "apply_main": 0.0012883000017609447,
+   "apply_outcome": "applied",
+   "begin_main": 0.0025861000031000003,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 1,
+   "finished_at": 91567.6535614,
+   "gc_collections": 0,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004885999951511621,
+   "join_wait": 0.05349259999638889,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.001286
+    ],
+    "P.run_production": [
+     1,
+     0.051345
+    ],
+    "apply.lean_frame": [
+     1,
+     0.000998
+    ],
+    "dispatch": [
+     1,
+     0.049542
+    ],
+    "plan": [
+     1,
+     7.4e-05
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.000109
+    ],
+    "retry": [
+     1,
+     7e-06
+    ],
+    "scan": [
+     1,
+     0.000472
+    ],
+    "tail": [
+     1,
+     0.003474
+    ],
+    "tail.compose": [
+     1,
+     0.002064
+    ],
+    "tail.compose.refindex": [
+     1,
+     0.000614
+    ],
+    "tail.compose.rows": [
+     1,
+     6e-05
+    ],
+    "tail.compose.weld": [
+     1,
+     0.001023
+    ],
+    "tail.model": [
+     1,
+     0.001379
+    ]
+   },
+   "lean": true,
+   "lean_domains": 1,
+   "plan": {
+    "composite": true,
+    "fallback": "",
+    "held": 1,
+    "held_reasons": {
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 0.002105,
+    "served": 121
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 3,
+   "rss_after_mb": 417.4,
+   "run_production": 0.05122009999467991,
+   "shadow": null,
+   "started_at": 91567.5960933,
+   "thread": 0.05492200001026504,
+   "wall": 0.05746809999982361
+  },
+  {
+   "alpha": 0.2373340055346489,
+   "apply_main": 0.02866760001052171,
+   "apply_outcome": "applied",
+   "begin_main": 0.008055500002228655,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91567.9261317,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0034155000030295923,
+   "gc_slow": [],
+   "host_depsgraph": 0.0005203000036999583,
+   "join_wait": 0.23471580000477843,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.028663
+    ],
+    "P.run_production": [
+     1,
+     0.190204
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.01141
+    ],
+    "apply.rewrite": [
+     1,
+     0.018464
+    ],
+    "arrays": [
+     1,
+     0.039523
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002429
+    ],
+    "arrays.digest": [
+     1,
+     0.008184
+    ],
+    "arrays.half_edge": [
+     1,
+     0.001016
+    ],
+    "arrays.off_plane": [
+     1,
+     0.008943
+    ],
+    "arrays.seam_report": [
+     1,
+     0.00572
+    ],
+    "arrays.weld": [
+     1,
+     0.008446
+    ],
+    "dispatch": [
+     1,
+     0.168275
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003647
+    ],
+    "retry": [
+     1,
+     3.4e-05
+    ],
+    "scan": [
+     1,
+     0.01672
+    ],
+    "tail": [
+     1,
+     0.048144
+    ],
+    "tail.deviation": [
+     1,
+     0.002834
+    ],
+    "tail.model": [
+     1,
+     0.001953
+    ],
+    "tail.sample": [
+     1,
+     0.003793
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 3,
+   "rss_after_mb": 421.7,
+   "run_production": 0.18980910000391304,
+   "shadow": null,
+   "started_at": 91567.6545469,
+   "thread": 0.24180499999783933,
+   "wall": 0.2715848000079859
+  },
+  {
+   "alpha": 0.23845350556075573,
+   "apply_main": 0.002798599991365336,
+   "apply_outcome": "applied",
+   "begin_main": 0.015940099998260848,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91568.1392083,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0036149000079603866,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004558000073302537,
+   "join_wait": 0.1927399999985937,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.002796
+    ],
+    "P.run_production": [
+     1,
+     0.178329
+    ],
+    "apply.lean_frame": [
+     1,
+     0.00116
+    ],
+    "arrays": [
+     1,
+     0.017392
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002453
+    ],
+    "arrays.weld": [
+     1,
+     0.009109
+    ],
+    "dispatch": [
+     1,
+     0.153965
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.00413
+    ],
+    "retry": [
+     1,
+     3.3e-05
+    ],
+    "scan": [
+     1,
+     0.019347
+    ],
+    "tail": [
+     1,
+     0.025522
+    ],
+    "tail.deviation": [
+     1,
+     0.002489
+    ],
+    "tail.model": [
+     1,
+     0.001526
+    ],
+    "tail.sample": [
+     1,
+     0.004085
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 4,
+   "rss_after_mb": 422.1,
+   "run_production": 0.17790779999631923,
+   "shadow": null,
+   "started_at": 91567.9276272,
+   "thread": 0.20750730000145268,
+   "wall": 0.2115810999966925
+  },
+  {
+   "alpha": 0.2395730055868626,
+   "apply_main": 0.0012027000047964975,
+   "apply_outcome": "applied",
+   "begin_main": 0.0028279999969527125,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 1,
+   "finished_at": 91568.1993241,
+   "gc_collections": 0,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0,
+   "gc_slow": [],
+   "host_depsgraph": 0.0004956999910064042,
+   "join_wait": 0.05483359999198001,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.0012
+    ],
+    "P.run_production": [
+     1,
+     0.052649
+    ],
+    "apply.lean_frame": [
+     1,
+     0.000874
+    ],
+    "dispatch": [
+     1,
+     0.050403
+    ],
+    "plan": [
+     1,
+     9.8e-05
+    ],
+    "pool.order_by_cost": [
+     1,
+     7.9e-05
+    ],
+    "retry": [
+     1,
+     8e-06
+    ],
+    "scan": [
+     1,
+     0.000581
+    ],
+    "tail": [
+     1,
+     0.003774
+    ],
+    "tail.compose": [
+     1,
+     0.00214
+    ],
+    "tail.compose.refindex": [
+     1,
+     0.000644
+    ],
+    "tail.compose.rows": [
+     1,
+     8.2e-05
+    ],
+    "tail.compose.weld": [
+     1,
+     0.001021
+    ],
+    "tail.model": [
+     1,
+     0.001591
+    ]
+   },
+   "lean": true,
+   "lean_domains": 1,
+   "plan": {
+    "composite": true,
+    "fallback": "",
+    "held": 1,
+    "held_reasons": {
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 0.002206,
+    "served": 121
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 4,
+   "rss_after_mb": 422.7,
+   "run_production": 0.05248300000675954,
+   "shadow": null,
+   "started_at": 91568.1403696,
+   "thread": 0.05655539999133907,
+   "wall": 0.058954499996616505
+  },
+  {
+   "alpha": 0.2406925056129694,
+   "apply_main": 0.021301399989170022,
+   "apply_outcome": "applied",
+   "begin_main": 0.008367000002181157,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91568.4529274,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.002410600005532615,
+   "gc_slow": [],
+   "host_depsgraph": 0.000494399995659478,
+   "join_wait": 0.2228534000023501,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.021298
+    ],
+    "P.run_production": [
+     1,
+     0.186134
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.00926
+    ],
+    "apply.rewrite": [
+     1,
+     0.014797
+    ],
+    "arrays": [
+     1,
+     0.034809
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002257
+    ],
+    "arrays.digest": [
+     1,
+     0.007763
+    ],
+    "arrays.half_edge": [
+     1,
+     0.000935
+    ],
+    "arrays.off_plane": [
+     1,
+     0.007548
+    ],
+    "arrays.seam_report": [
+     1,
+     0.004593
+    ],
+    "arrays.weld": [
+     1,
+     0.007343
+    ],
+    "dispatch": [
+     1,
+     0.165086
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003012
+    ],
+    "retry": [
+     1,
+     6.2e-05
+    ],
+    "scan": [
+     1,
+     0.016182
+    ],
+    "tail": [
+     1,
+     0.041716
+    ],
+    "tail.deviation": [
+     1,
+     0.002153
+    ],
+    "tail.model": [
+     1,
+     0.001259
+    ],
+    "tail.sample": [
+     1,
+     0.003465
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 4,
+   "rss_after_mb": 424.3,
+   "run_production": 0.1857633000036003,
+   "shadow": null,
+   "started_at": 91568.2003064,
+   "thread": 0.23029389999283012,
+   "wall": 0.25262099999235943
+  },
+  {
+   "alpha": 0.24181200563907626,
+   "apply_main": 0.0028519000043161213,
+   "apply_outcome": "applied",
+   "begin_main": 0.019012999997357838,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91568.6529466,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.009333200010587461,
+   "gc_slow": [],
+   "host_depsgraph": 0.00044240000715944916,
+   "join_wait": 0.17663659999379888,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.002849
+    ],
+    "P.run_production": [
+     1,
+     0.162144
+    ],
+    "apply.lean_frame": [
+     1,
+     0.001184
+    ],
+    "arrays": [
+     1,
+     0.016081
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002932
+    ],
+    "arrays.weld": [
+     1,
+     0.007657
+    ],
+    "dispatch": [
+     1,
+     0.142738
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003017
+    ],
+    "retry": [
+     1,
+     4.6e-05
+    ],
+    "scan": [
+     1,
+     0.013793
+    ],
+    "tail": [
+     1,
+     0.023078
+    ],
+    "tail.deviation": [
+     1,
+     0.002028
+    ],
+    "tail.model": [
+     1,
+     0.001258
+    ],
+    "tail.sample": [
+     1,
+     0.003679
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 5,
+   "rss_after_mb": 424.6,
+   "run_production": 0.16167079999286216,
+   "shadow": null,
+   "started_at": 91568.4543355,
+   "thread": 0.1945964000042295,
+   "wall": 0.19861110000056215
+  },
+  {
+   "alpha": 0.24293150566518307,
+   "apply_main": 0.0011497000086819753,
+   "apply_outcome": "applied",
+   "begin_main": 0.0026625000027706847,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 1,
+   "finished_at": 91568.7101471,
+   "gc_collections": 0,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0,
+   "gc_slow": [],
+   "host_depsgraph": 0.00044600000546779484,
+   "join_wait": 0.052085300005273893,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.001147
+    ],
+    "P.run_production": [
+     1,
+     0.050198
+    ],
+    "apply.lean_frame": [
+     1,
+     0.000803
+    ],
+    "dispatch": [
+     1,
+     0.04836
+    ],
+    "plan": [
+     1,
+     9.6e-05
+    ],
+    "pool.order_by_cost": [
+     1,
+     7.2e-05
+    ],
+    "retry": [
+     1,
+     5e-06
+    ],
+    "scan": [
+     1,
+     0.000478
+    ],
+    "tail": [
+     1,
+     0.003289
+    ],
+    "tail.compose": [
+     1,
+     0.002086
+    ],
+    "tail.compose.refindex": [
+     1,
+     0.000666
+    ],
+    "tail.compose.rows": [
+     1,
+     5.8e-05
+    ],
+    "tail.compose.weld": [
+     1,
+     0.001045
+    ],
+    "tail.model": [
+     1,
+     0.001174
+    ]
+   },
+   "lean": true,
+   "lean_domains": 1,
+   "plan": {
+    "composite": true,
+    "fallback": "",
+    "held": 1,
+    "held_reasons": {
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 0.002157,
+    "served": 121
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 5,
+   "rss_after_mb": 425.2,
+   "run_production": 0.050072300000465475,
+   "shadow": null,
+   "started_at": 91568.6541493,
+   "thread": 0.053614899996318854,
+   "wall": 0.05599780000920873
+  },
+  {
+   "alpha": 0.24405100569128993,
+   "apply_main": 0.023994500006665476,
+   "apply_outcome": "applied",
+   "begin_main": 0.014348800003062934,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91568.9780024,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.003372999999555759,
+   "gc_slow": [],
+   "host_depsgraph": 0.0006201999931363389,
+   "join_wait": 0.22843879999709316,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.02399
+    ],
+    "P.run_production": [
+     1,
+     0.192762
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.010773
+    ],
+    "apply.rewrite": [
+     1,
+     0.016621
+    ],
+    "arrays": [
+     1,
+     0.038124
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002424
+    ],
+    "arrays.digest": [
+     1,
+     0.008449
+    ],
+    "arrays.half_edge": [
+     1,
+     0.000942
+    ],
+    "arrays.off_plane": [
+     1,
+     0.008053
+    ],
+    "arrays.seam_report": [
+     1,
+     0.00532
+    ],
+    "arrays.weld": [
+     1,
+     0.007867
+    ],
+    "dispatch": [
+     1,
+     0.17237
+    ],
+    "plan": [
+     1,
+     2e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003151
+    ],
+    "retry": [
+     1,
+     7.1e-05
+    ],
+    "scan": [
+     1,
+     0.015015
+    ],
+    "tail": [
+     1,
+     0.045688
+    ],
+    "tail.deviation": [
+     1,
+     0.002215
+    ],
+    "tail.model": [
+     1,
+     0.001219
+    ],
+    "tail.sample": [
+     1,
+     0.004096
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 5,
+   "rss_after_mb": 425.2,
+   "run_production": 0.19236839999211952,
+   "shadow": null,
+   "started_at": 91568.7111201,
+   "thread": 0.24186809999810066,
+   "wall": 0.2668823000130942
+  },
+  {
+   "alpha": 0.24517050571739674,
+   "apply_main": 0.003895000001648441,
+   "apply_outcome": "applied",
+   "begin_main": 0.011032099995645694,
+   "decal": [
+    1193,
+    907,
+    3564
+   ],
+   "domains": 122,
+   "finished_at": 91569.212002,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.006641699990723282,
+   "gc_slow": [],
+   "host_depsgraph": 0.0005664999916916713,
+   "join_wait": 0.21713550000276882,
+   "kind": "lean",
+   "laps": {
+    "P.apply": [
+     1,
+     0.003892
+    ],
+    "P.run_production": [
+     1,
+     0.184868
+    ],
+    "apply.lean_frame": [
+     1,
+     0.001611
+    ],
+    "arrays": [
+     1,
+     0.023326
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.003845
+    ],
+    "arrays.weld": [
+     1,
+     0.011619
+    ],
+    "dispatch": [
+     1,
+     0.159477
+    ],
+    "plan": [
+     1,
+     2e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.004024
+    ],
+    "retry": [
+     1,
+     6.9e-05
+    ],
+    "scan": [
+     1,
+     0.018789
+    ],
+    "tail": [
+     1,
+     0.03527
+    ],
+    "tail.deviation": [
+     1,
+     0.003311
+    ],
+    "tail.model": [
+     1,
+     0.001974
+    ],
+    "tail.sample": [
+     1,
+     0.006617
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": null,
+   "refresh": "WIDTH_REFRESH_LEAN_V1",
+   "rep": 6,
+   "rss_after_mb": 425.5,
+   "run_production": 0.18424879999656696,
+   "shadow": null,
+   "started_at": 91568.979821,
+   "thread": 0.22683410000172444,
+   "wall": 0.23218099999940023
+  },
+  {
+   "alpha": 0.2462900057435036,
+   "apply_main": 0.004482099990127608,
+   "apply_outcome": "applied",
+   "begin_main": 0.0033655000006547198,
+   "decal": [
+    1193,
+    907,
+    3565
+   ],
+   "domains": 122,
+   "finished_at": 91569.32899,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0010565999982645735,
+   "gc_slow": [],
+   "host_depsgraph": 0.00047899999481160194,
+   "join_wait": 0.10720690000744071,
+   "kind": "incr",
+   "laps": {
+    "P.apply": [
+     1,
+     0.004473
+    ],
+    "P.run_production": [
+     1,
+     0.075806
+    ],
+    "apply.lean_frame": [
+     1,
+     0.002819
+    ],
+    "arrays": [
+     1,
+     0.017052
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.002147
+    ],
+    "arrays.weld": [
+     1,
+     0.009531
+    ],
+    "dispatch": [
+     1,
+     0.072953
+    ],
+    "plan": [
+     1,
+     0.000122
+    ],
+    "plan.rebase": [
+     120,
+     0.010334
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.000133
+    ],
+    "retry": [
+     1,
+     8e-06
+    ],
+    "scan": [
+     1,
+     0.000773
+    ],
+    "tail": [
+     1,
+     0.032372
+    ],
+    "tail.compose": [
+     1,
+     4.4e-05
+    ],
+    "tail.model": [
+     1,
+     0.001242
+    ],
+    "tail.origins": [
+     1,
+     2.7e-05
+    ],
+    "tail.sample": [
+     1,
+     0.003379
+    ]
+   },
+   "lean": true,
+   "lean_domains": 122,
+   "plan": {
+    "composite": false,
+    "fallback": "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED",
+    "held": 2,
+    "held_reasons": {
+     "PARAM_INTERVAL_END": 1,
+     "PREVIEW_DOMAIN_INTERVAL_NOT_CERTIFIED": 1
+    },
+    "mode": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "reason": "",
+    "seconds": 9.5e-05,
+    "served": 120
+   },
+   "refresh": "WIDTH_REFRESH_INCREMENTAL_V1",
+   "rep": 6,
+   "rss_after_mb": 426.4,
+   "run_production": 0.07561179999902379,
+   "shadow": null,
+   "started_at": 91569.2137345,
+   "thread": 0.10939969999890309,
+   "wall": 0.1152555000007851
+  },
+  {
+   "alpha": 0.2474095057696104,
+   "apply_main": 0.02289760000712704,
+   "apply_outcome": "applied",
+   "begin_main": 0.020061300005181693,
+   "decal": [
+    1193,
+    907,
+    3569
+   ],
+   "domains": 122,
+   "finished_at": 91569.596187,
+   "gc_collections": 1,
+   "gc_enabled_after_step": true,
+   "gc_gen2": 0,
+   "gc_seconds": 0.0032934000046225265,
+   "gc_slow": [],
+   "host_depsgraph": 0.00045310000132303685,
+   "join_wait": 0.22200489998795092,
+   "kind": "commit",
+   "laps": {
+    "P.apply": [
+     1,
+     0.022894
+    ],
+    "P.run_production": [
+     1,
+     0.193052
+    ],
+    "apply.mesh_digest": [
+     1,
+     0.009662
+    ],
+    "apply.rewrite": [
+     1,
+     0.016234
+    ],
+    "arrays": [
+     1,
+     0.0378
+    ],
+    "arrays.cross_seams": [
+     1,
+     0.003015
+    ],
+    "arrays.digest": [
+     1,
+     0.007739
+    ],
+    "arrays.half_edge": [
+     1,
+     0.000941
+    ],
+    "arrays.off_plane": [
+     1,
+     0.008385
+    ],
+    "arrays.seam_report": [
+     1,
+     0.004854
+    ],
+    "arrays.weld": [
+     1,
+     0.007813
+    ],
+    "dispatch": [
+     1,
+     0.173138
+    ],
+    "plan": [
+     1,
+     1e-06
+    ],
+    "pool.order_by_cost": [
+     1,
+     0.003649
+    ],
+    "retry": [
+     1,
+     6.8e-05
+    ],
+    "scan": [
+     1,
+     0.01497
+    ],
+    "tail": [
+     1,
+     0.04472
+    ],
+    "tail.deviation": [
+     1,
+     0.002014
+    ],
+    "tail.model": [
+     1,
+     0.001258
+    ],
+    "tail.sample": [
+     1,
+     0.003618
+    ]
+   },
+   "lean": false,
+   "lean_domains": 0,
+   "plan": null,
+   "refresh": "COMMIT",
+   "rep": 6,
+   "rss_after_mb": 425.8,
+   "run_production": 0.19269749999511987,
+   "shadow": null,
+   "started_at": 91569.3311256,
+   "thread": 0.2411009999923408,
+   "wall": 0.26506140000128653
+  }
+ ],
+ "summary": {
+  "commit": {
+   "apply_main": 0.022238499994273297,
+   "begin_main": 0.011658400006126612,
+   "host_depsgraph": 0.000494399995659478,
+   "n": 7,
+   "run_production": 0.19269749999511987,
+   "thread": 0.24180499999783933,
+   "wall": 0.2668823000130942
+  },
+  "incr": {
+   "apply_main": 0.0012027000047964975,
+   "begin_main": 0.0026625000027706847,
+   "host_depsgraph": 0.0004786999925272539,
+   "n": 7,
+   "run_production": 0.05122009999467991,
+   "thread": 0.05492200001026504,
+   "wall": 0.05746809999982361
+  },
+  "lean": {
+   "apply_main": 0.0027621000044746324,
+   "begin_main": 0.015940099998260848,
+   "host_depsgraph": 0.00048040000547189265,
+   "n": 7,
+   "run_production": 0.17326979999779724,
+   "thread": 0.2015211999969324,
+   "wall": 0.2115810999966925
+  }
+ },
+ "worker_dump_dir": "D:\\dragprof-scratch\\out\\building_r1_workers"
+}

@@ -1,0 +1,2150 @@
+{
+ "building_w12_base_r1_a1": {
+  "native": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "pool_prewarm_seconds": 2.946681900008116,
+  "kinds": {
+   "cold": {
+    "n": 1,
+    "run_median": 1.6152045999915572,
+    "arrays_median": 0.0749299000017345,
+    "exact_median": 1.6901344999932917,
+    "run_all": [
+     1.6152
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "incr": {
+    "n": 5,
+    "run_median": 0.047287000008509494,
+    "arrays_median": 0.0005720000044675544,
+    "exact_median": 0.04785900001297705,
+    "run_all": [
+     0.0473,
+     0.0458,
+     0.047,
+     0.0634,
+     0.0637
+    ],
+    "plans": [
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      121
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      121
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      121
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      118
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      120
+     ]
+    ],
+    "fast_hits": [
+     1,
+     1,
+     1,
+     1,
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "step": {
+    "n": 5,
+    "run_median": 0.19213580001087394,
+    "arrays_median": 0.03432460001204163,
+    "exact_median": 0.22646040002291556,
+    "run_all": [
+     0.2084,
+     0.1921,
+     0.1889,
+     0.1969,
+     0.1785
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     113,
+     117,
+     118,
+     50,
+     114
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "tick": {
+    "n": 5,
+    "run_median": 0.1724437999946531,
+    "arrays_median": 0.014472800001385622,
+    "exact_median": 0.18576399999437854,
+    "run_all": [
+     0.2017,
+     0.1724,
+     0.2115,
+     0.1688,
+     0.1653
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     103,
+     116,
+     116,
+     118,
+     113
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  },
+  "rows": [
+   {
+    "label": "cold",
+    "kind": "cold",
+    "run": 1.6152045999915572,
+    "arrays": 0.0749299000017345,
+    "exact": 1.6901344999932917,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "ANGULAR_RELATIONS": 0.739728,
+     "BUNDLE_SLICE": 0.000106,
+     "DOMAIN_GEOMETRY_EXPORT": 0.000311,
+     "FRAME_ADMISSION": 0.158921,
+     "HOST_CHAIN_COLLECTION": 0.005268,
+     "PATCH_METRIC_EXPORT": 1.251235,
+     "PRODUCTION_DOMAINS_WALL": 1.57107,
+     "QUEUE_POOL_WALL": 1.292784,
+     "QUEUE_PREPARE": 8.567128,
+     "SEAM_PARTITION_NORMALIZATION": 0.014615,
+     "SELECTION_SCOPE": 0.001722,
+     "SNAPSHOT_VALIDATION": 0.055358,
+     "SOURCE_CONTACT_PREFLIGHT": 0.044831,
+     "TOPOLOGY_EXPORT": 0.021072,
+     "TOPOLOGY_SCENE": 0.00838
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr1",
+    "kind": "incr",
+    "run": 0.047287000008509494,
+    "arrays": 0.0005720000044675544,
+    "exact": 0.04785900001297705,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 121,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.0452,
+     "QUEUE_POOL_WALL": 0.044995
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr2",
+    "kind": "incr",
+    "run": 0.04580220000934787,
+    "arrays": 0.0005223000043770298,
+    "exact": 0.0463245000137249,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 121,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.043657,
+     "QUEUE_POOL_WALL": 0.04344
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr3",
+    "kind": "incr",
+    "run": 0.04703420000441838,
+    "arrays": 0.0005340000061551109,
+    "exact": 0.04756820001057349,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 121,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.045045,
+     "QUEUE_POOL_WALL": 0.044848
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr4",
+    "kind": "incr",
+    "run": 0.06336269999155775,
+    "arrays": 0.0009557000012136996,
+    "exact": 0.06431839999277145,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 118,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.060981,
+     "QUEUE_POOL_WALL": 0.06071
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 3,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr5",
+    "kind": "incr",
+    "run": 0.06367730000056326,
+    "arrays": 0.0007156999927246943,
+    "exact": 0.06439299999328796,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 120,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.061523,
+     "QUEUE_POOL_WALL": 0.061305
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step1",
+    "kind": "step",
+    "run": 0.20837209999444894,
+    "arrays": 0.03510130000358913,
+    "exact": 0.24347339999803808,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.185936,
+     "QUEUE_POOL_WALL": 0.180563
+    },
+    "fast_hits": 113,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step2",
+    "kind": "step",
+    "run": 0.19213580001087394,
+    "arrays": 0.03432460001204163,
+    "exact": 0.22646040002291556,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.170274,
+     "QUEUE_POOL_WALL": 0.164918
+    },
+    "fast_hits": 117,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step3",
+    "kind": "step",
+    "run": 0.18893199999001808,
+    "arrays": 0.03384669999650214,
+    "exact": 0.22277869998652022,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.165096,
+     "QUEUE_POOL_WALL": 0.159806
+    },
+    "fast_hits": 118,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step4",
+    "kind": "step",
+    "run": 0.1969322000077227,
+    "arrays": 0.054185999993933365,
+    "exact": 0.2511182000016561,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.170675,
+     "QUEUE_POOL_WALL": 0.163368
+    },
+    "fast_hits": 50,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step5",
+    "kind": "step",
+    "run": 0.17851709999376908,
+    "arrays": 0.03410799999255687,
+    "exact": 0.21262509998632595,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.156167,
+     "QUEUE_POOL_WALL": 0.147567
+    },
+    "fast_hits": 114,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick1",
+    "kind": "tick",
+    "run": 0.20173820000491105,
+    "arrays": 0.02464210000471212,
+    "exact": 0.22638030000962317,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.168031,
+     "QUEUE_POOL_WALL": 0.16238
+    },
+    "fast_hits": 103,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick2",
+    "kind": "tick",
+    "run": 0.1724437999946531,
+    "arrays": 0.013320199999725446,
+    "exact": 0.18576399999437854,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.150621,
+     "QUEUE_POOL_WALL": 0.146738
+    },
+    "fast_hits": 116,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick3",
+    "kind": "tick",
+    "run": 0.21146939999016467,
+    "arrays": 0.01932309998665005,
+    "exact": 0.23079249997681472,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.174764,
+     "QUEUE_POOL_WALL": 0.168606
+    },
+    "fast_hits": 116,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick4",
+    "kind": "tick",
+    "run": 0.1687538999976823,
+    "arrays": 0.014472800001385622,
+    "exact": 0.18322669999906793,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.144598,
+     "QUEUE_POOL_WALL": 0.140875
+    },
+    "fast_hits": 118,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick5",
+    "kind": "tick",
+    "run": 0.16525439999531955,
+    "arrays": 0.014254499998060055,
+    "exact": 0.1795088999933796,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.140213,
+     "QUEUE_POOL_WALL": 0.135961
+    },
+    "fast_hits": 113,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  ]
+ },
+ "building_w12_branch_r1_a1": {
+  "native": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "pool_prewarm_seconds": 3.1475730999954976,
+  "kinds": {
+   "cold": {
+    "n": 1,
+    "run_median": 1.686765699996613,
+    "arrays_median": 0.06807379999372642,
+    "exact_median": 1.7548394999903394,
+    "run_all": [
+     1.6868
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "incr": {
+    "n": 5,
+    "run_median": 0.051421200012555346,
+    "arrays_median": 0.0007356999994954094,
+    "exact_median": 0.051963400008389726,
+    "run_all": [
+     0.0458,
+     0.0514,
+     0.0477,
+     0.0692,
+     0.0973
+    ],
+    "plans": [
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      121
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      121
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      121
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      118
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      120
+     ]
+    ],
+    "fast_hits": [
+     1,
+     1,
+     1,
+     1,
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "step": {
+    "n": 5,
+    "run_median": 0.20185260000289418,
+    "arrays_median": 0.03492479999840725,
+    "exact_median": 0.23861780000152066,
+    "run_all": [
+     0.2046,
+     0.1931,
+     0.2189,
+     0.1834,
+     0.2019
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     112,
+     117,
+     118,
+     49,
+     117
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "tick": {
+    "n": 5,
+    "run_median": 0.18539919999602716,
+    "arrays_median": 0.014427199988858774,
+    "exact_median": 0.19982639998488594,
+    "run_all": [
+     0.2112,
+     0.1854,
+     0.2102,
+     0.1736,
+     0.155
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     103,
+     115,
+     118,
+     120,
+     116
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  },
+  "rows": [
+   {
+    "label": "cold",
+    "kind": "cold",
+    "run": 1.686765699996613,
+    "arrays": 0.06807379999372642,
+    "exact": 1.7548394999903394,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "ANGULAR_RELATIONS": 0.698746,
+     "BUNDLE_SLICE": 0.000105,
+     "DOMAIN_GEOMETRY_EXPORT": 0.000428,
+     "FRAME_ADMISSION": 0.190894,
+     "HOST_CHAIN_COLLECTION": 0.004757,
+     "PATCH_METRIC_EXPORT": 1.212744,
+     "PRODUCTION_DOMAINS_WALL": 1.645655,
+     "QUEUE_POOL_WALL": 1.324646,
+     "QUEUE_PREPARE": 7.882885,
+     "SEAM_PARTITION_NORMALIZATION": 0.013081,
+     "SELECTION_SCOPE": 0.001731,
+     "SNAPSHOT_VALIDATION": 0.051643,
+     "SOURCE_CONTACT_PREFLIGHT": 0.040803,
+     "TOPOLOGY_EXPORT": 0.018934,
+     "TOPOLOGY_SCENE": 0.008082
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr1",
+    "kind": "incr",
+    "run": 0.04582010000012815,
+    "arrays": 0.0005462999979499727,
+    "exact": 0.04636639999807812,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 121,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.043796,
+     "QUEUE_POOL_WALL": 0.043602
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr2",
+    "kind": "incr",
+    "run": 0.051421200012555346,
+    "arrays": 0.0005421999958343804,
+    "exact": 0.051963400008389726,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 121,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.04918,
+     "QUEUE_POOL_WALL": 0.04893
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr3",
+    "kind": "incr",
+    "run": 0.04767800000263378,
+    "arrays": 0.0007356999994954094,
+    "exact": 0.04841370000212919,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 121,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.045371,
+     "QUEUE_POOL_WALL": 0.045171
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr4",
+    "kind": "incr",
+    "run": 0.06916569999884814,
+    "arrays": 0.0010694999946281314,
+    "exact": 0.07023519999347627,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 118,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.066631,
+     "QUEUE_POOL_WALL": 0.066343
+    },
+    "fast_hits": 1,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 3,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr5",
+    "kind": "incr",
+    "run": 0.09725409999373369,
+    "arrays": 0.0010894999868469313,
+    "exact": 0.09834359998058062,
+    "domains": 122,
+    "materialized": 122,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 120,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.09499,
+     "QUEUE_POOL_WALL": 0.094758
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step1",
+    "kind": "step",
+    "run": 0.20462509999924805,
+    "arrays": 0.03399270000227261,
+    "exact": 0.23861780000152066,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.18148,
+     "QUEUE_POOL_WALL": 0.176146
+    },
+    "fast_hits": 112,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step2",
+    "kind": "step",
+    "run": 0.19314300001133233,
+    "arrays": 0.03492479999840725,
+    "exact": 0.22806780000973959,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.168306,
+     "QUEUE_POOL_WALL": 0.162802
+    },
+    "fast_hits": 117,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step3",
+    "kind": "step",
+    "run": 0.21885469999688212,
+    "arrays": 0.04116720000456553,
+    "exact": 0.26002190000144765,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.189208,
+     "QUEUE_POOL_WALL": 0.181911
+    },
+    "fast_hits": 118,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step4",
+    "kind": "step",
+    "run": 0.18342389998724684,
+    "arrays": 0.03386229999887291,
+    "exact": 0.21728619998611975,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.161244,
+     "QUEUE_POOL_WALL": 0.153711
+    },
+    "fast_hits": 49,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step5",
+    "kind": "step",
+    "run": 0.20185260000289418,
+    "arrays": 0.057609099996625446,
+    "exact": 0.2594616999995196,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.16665,
+     "QUEUE_POOL_WALL": 0.155045
+    },
+    "fast_hits": 117,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick1",
+    "kind": "tick",
+    "run": 0.21116479999909643,
+    "arrays": 0.014184200001182035,
+    "exact": 0.22534900000027847,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.189222,
+     "QUEUE_POOL_WALL": 0.185213
+    },
+    "fast_hits": 103,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick2",
+    "kind": "tick",
+    "run": 0.18539919999602716,
+    "arrays": 0.014427199988858774,
+    "exact": 0.19982639998488594,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.162477,
+     "QUEUE_POOL_WALL": 0.158648
+    },
+    "fast_hits": 115,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick3",
+    "kind": "tick",
+    "run": 0.21019300000625663,
+    "arrays": 0.016570699997828342,
+    "exact": 0.22676370000408497,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.18293,
+     "QUEUE_POOL_WALL": 0.178897
+    },
+    "fast_hits": 118,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick4",
+    "kind": "tick",
+    "run": 0.1735744000034174,
+    "arrays": 0.01426999999966938,
+    "exact": 0.18784440000308678,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.150441,
+     "QUEUE_POOL_WALL": 0.146083
+    },
+    "fast_hits": 120,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick5",
+    "kind": "tick",
+    "run": 0.15504499999224208,
+    "arrays": 0.015370000008260831,
+    "exact": 0.17041500000050291,
+    "domains": 122,
+    "materialized": 122,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.131707,
+     "QUEUE_POOL_WALL": 0.127983
+    },
+    "fast_hits": 116,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 1,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 121,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  ]
+ },
+ "cover008_w12_base_r1_a1": {
+  "native": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "pool_prewarm_seconds": 3.119306200009305,
+  "kinds": {
+   "cold": {
+    "n": 1,
+    "run_median": 8.554120500004501,
+    "arrays_median": 0.5013971000007587,
+    "exact_median": 9.05551760000526,
+    "run_all": [
+     8.5541
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "incr": {
+    "n": 5,
+    "run_median": 0.05505730000732001,
+    "arrays_median": 0.003174800003762357,
+    "exact_median": 0.05898260002140887,
+    "run_all": [
+     0.0166,
+     0.1526,
+     0.0551,
+     0.0153,
+     0.0599
+    ],
+    "plans": [
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1046
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1044
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1034
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1046
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1043
+     ]
+    ],
+    "fast_hits": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 3,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "step": {
+    "n": 5,
+    "run_median": 1.446223299994017,
+    "arrays_median": 0.32528680001269095,
+    "exact_median": 1.783971199998632,
+    "run_all": [
+     1.6234,
+     1.4659,
+     1.4188,
+     1.4462,
+     1.4033
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     1020,
+     1037,
+     1023,
+     1033,
+     1038
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "tick": {
+    "n": 5,
+    "run_median": 1.2788885000045411,
+    "arrays_median": 0.13096940000832547,
+    "exact_median": 1.4098579000128666,
+    "run_all": [
+     1.2789,
+     1.3058,
+     1.2977,
+     1.2428,
+     1.2417
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     989,
+     957,
+     1029,
+     1036,
+     966
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  },
+  "rows": [
+   {
+    "label": "cold",
+    "kind": "cold",
+    "run": 8.554120500004501,
+    "arrays": 0.5013971000007587,
+    "exact": 9.05551760000526,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "ANGULAR_RELATIONS": 3.815982,
+     "BUNDLE_SLICE": 0.000924,
+     "DOMAIN_GEOMETRY_EXPORT": 0.002413,
+     "FRAME_ADMISSION": 0.853255,
+     "HOST_CHAIN_COLLECTION": 0.039703,
+     "PATCH_METRIC_EXPORT": 7.206899,
+     "PRODUCTION_DOMAINS_WALL": 7.982742,
+     "QUEUE_POOL_WALL": 6.708344,
+     "QUEUE_PREPARE": 38.293084,
+     "SEAM_PARTITION_NORMALIZATION": 0.109799,
+     "SELECTION_SCOPE": 0.017558,
+     "SNAPSHOT_VALIDATION": 0.366638,
+     "SOURCE_CONTACT_PREFLIGHT": 0.341607,
+     "TOPOLOGY_EXPORT": 0.158462,
+     "TOPOLOGY_SCENE": 0.085009
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr1",
+    "kind": "incr",
+    "run": 0.016557599999941885,
+    "arrays": 0.003174800003762357,
+    "exact": 0.019732400003704242,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1046,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.004676,
+     "QUEUE_POOL_WALL": 0.004365
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr2",
+    "kind": "incr",
+    "run": 0.15259009999863338,
+    "arrays": 0.0023929000017233193,
+    "exact": 0.1549830000003567,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1044,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.024492,
+     "QUEUE_POOL_WALL": 0.024137
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 2,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr3",
+    "kind": "incr",
+    "run": 0.05505730000732001,
+    "arrays": 0.003925300014088862,
+    "exact": 0.05898260002140887,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1034,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.042007,
+     "QUEUE_POOL_WALL": 0.041389
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 12,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr4",
+    "kind": "incr",
+    "run": 0.015259600011631846,
+    "arrays": 0.0027585000061662868,
+    "exact": 0.018018100017798133,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1046,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.00423,
+     "QUEUE_POOL_WALL": 0.003894
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr5",
+    "kind": "incr",
+    "run": 0.05985639999562409,
+    "arrays": 0.0031890999962342903,
+    "exact": 0.06304549999185838,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1043,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.048176,
+     "QUEUE_POOL_WALL": 0.047817
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 3,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step1",
+    "kind": "step",
+    "run": 1.6233735999994678,
+    "arrays": 0.3749591999949189,
+    "exact": 1.9983327999943867,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.277271,
+     "QUEUE_POOL_WALL": 1.249766
+    },
+    "fast_hits": 1020,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step2",
+    "kind": "step",
+    "run": 1.4658830999978818,
+    "arrays": 0.3180881000007503,
+    "exact": 1.783971199998632,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.171291,
+     "QUEUE_POOL_WALL": 1.145359
+    },
+    "fast_hits": 1037,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step3",
+    "kind": "step",
+    "run": 1.4187551000068197,
+    "arrays": 0.3224006999953417,
+    "exact": 1.7411558000021614,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.147379,
+     "QUEUE_POOL_WALL": 1.124738
+    },
+    "fast_hits": 1023,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step4",
+    "kind": "step",
+    "run": 1.446223299994017,
+    "arrays": 0.32528680001269095,
+    "exact": 1.771510100006708,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.1649,
+     "QUEUE_POOL_WALL": 1.138325
+    },
+    "fast_hits": 1033,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step5",
+    "kind": "step",
+    "run": 1.4032990999985486,
+    "arrays": 0.39805179998802487,
+    "exact": 1.8013508999865735,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.138406,
+     "QUEUE_POOL_WALL": 1.121851
+    },
+    "fast_hits": 1038,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick1",
+    "kind": "tick",
+    "run": 1.2788885000045411,
+    "arrays": 0.13096940000832547,
+    "exact": 1.4098579000128666,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.076775,
+     "QUEUE_POOL_WALL": 1.063251
+    },
+    "fast_hits": 989,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick2",
+    "kind": "tick",
+    "run": 1.3057738000061363,
+    "arrays": 0.123776699998416,
+    "exact": 1.4295505000045523,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.057238,
+     "QUEUE_POOL_WALL": 1.056348
+    },
+    "fast_hits": 957,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick3",
+    "kind": "tick",
+    "run": 1.2976606999873184,
+    "arrays": 0.12718090000271332,
+    "exact": 1.4248415999900317,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.046499,
+     "QUEUE_POOL_WALL": 1.032261
+    },
+    "fast_hits": 1029,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick4",
+    "kind": "tick",
+    "run": 1.2427937000029488,
+    "arrays": 0.13504470000043511,
+    "exact": 1.3778384000033839,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.992734,
+     "QUEUE_POOL_WALL": 0.990992
+    },
+    "fast_hits": 1036,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick5",
+    "kind": "tick",
+    "run": 1.2416935999935959,
+    "arrays": 0.13768120000895578,
+    "exact": 1.3793748000025516,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.987086,
+     "QUEUE_POOL_WALL": 0.992073
+    },
+    "fast_hits": 966,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  ]
+ },
+ "cover008_w12_branch_r1_a1": {
+  "native": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "pool_prewarm_seconds": 2.882875299997977,
+  "kinds": {
+   "cold": {
+    "n": 1,
+    "run_median": 8.430089100002078,
+    "arrays_median": 0.4901121000002604,
+    "exact_median": 8.920201200002339,
+    "run_all": [
+     8.4301
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "incr": {
+    "n": 5,
+    "run_median": 0.05602319999889005,
+    "arrays_median": 0.003061900002649054,
+    "exact_median": 0.05955350000294857,
+    "run_all": [
+     0.0219,
+     0.1418,
+     0.056,
+     0.0152,
+     0.0728
+    ],
+    "plans": [
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1046
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1044
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1034
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1046
+     ],
+     [
+      "WIDTH_REFRESH_INCREMENTAL_V1",
+      1043
+     ]
+    ],
+    "fast_hits": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 3,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "step": {
+    "n": 5,
+    "run_median": 1.4092541999998502,
+    "arrays_median": 0.3294666000001598,
+    "exact_median": 1.7453499999974156,
+    "run_all": [
+     1.3851,
+     1.4041,
+     1.4093,
+     1.4193,
+     1.4159
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     1031,
+     1030,
+     1027,
+     1032,
+     1037
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   "tick": {
+    "n": 5,
+    "run_median": 1.2533206999942195,
+    "arrays_median": 0.12353650000295602,
+    "exact_median": 1.3774395999935223,
+    "run_all": [
+     1.2723,
+     1.2643,
+     1.1966,
+     1.2533,
+     1.2448
+    ],
+    "plans": [
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      null,
+      null
+     ]
+    ],
+    "fast_hits": [
+     1000,
+     963,
+     1034,
+     1037,
+     960
+    ],
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  },
+  "rows": [
+   {
+    "label": "cold",
+    "kind": "cold",
+    "run": 8.430089100002078,
+    "arrays": 0.4901121000002604,
+    "exact": 8.920201200002339,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "ANGULAR_RELATIONS": 3.7177,
+     "BUNDLE_SLICE": 0.000823,
+     "DOMAIN_GEOMETRY_EXPORT": 0.002546,
+     "FRAME_ADMISSION": 0.810002,
+     "HOST_CHAIN_COLLECTION": 0.066246,
+     "PATCH_METRIC_EXPORT": 7.009873,
+     "PRODUCTION_DOMAINS_WALL": 7.846122,
+     "QUEUE_POOL_WALL": 6.522803,
+     "QUEUE_PREPARE": 37.515439,
+     "SEAM_PARTITION_NORMALIZATION": 0.122384,
+     "SELECTION_SCOPE": 0.018336,
+     "SNAPSHOT_VALIDATION": 0.344156,
+     "SOURCE_CONTACT_PREFLIGHT": 0.338346,
+     "TOPOLOGY_EXPORT": 0.197747,
+     "TOPOLOGY_SCENE": 0.078492
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr1",
+    "kind": "incr",
+    "run": 0.021885499998461455,
+    "arrays": 0.004150599997956306,
+    "exact": 0.02603609999641776,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1046,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.004852,
+     "QUEUE_POOL_WALL": 0.004459
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr2",
+    "kind": "incr",
+    "run": 0.14178099999844562,
+    "arrays": 0.0023808999976608902,
+    "exact": 0.1441618999961065,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1044,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.022438,
+     "QUEUE_POOL_WALL": 0.022103
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 2,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr3",
+    "kind": "incr",
+    "run": 0.05602319999889005,
+    "arrays": 0.0035303000040585175,
+    "exact": 0.05955350000294857,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1034,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.042652,
+     "QUEUE_POOL_WALL": 0.042026
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 12,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr4",
+    "kind": "incr",
+    "run": 0.015220899993437342,
+    "arrays": 0.002989000000525266,
+    "exact": 0.01820989999396261,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1046,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.004058,
+     "QUEUE_POOL_WALL": 0.003797
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 0,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "incr5",
+    "kind": "incr",
+    "run": 0.07282049999048468,
+    "arrays": 0.003061900002649054,
+    "exact": 0.07588239999313373,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": "WIDTH_REFRESH_INCREMENTAL_V1",
+    "served": 1043,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.055588,
+     "QUEUE_POOL_WALL": 0.055128
+    },
+    "fast_hits": 0,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 3,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step1",
+    "kind": "step",
+    "run": 1.3851254000037443,
+    "arrays": 0.29254609999770764,
+    "exact": 1.677671500001452,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.136467,
+     "QUEUE_POOL_WALL": 1.113874
+    },
+    "fast_hits": 1031,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step2",
+    "kind": "step",
+    "run": 1.4040956999961054,
+    "arrays": 0.37879220000468194,
+    "exact": 1.7828879000007873,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.140051,
+     "QUEUE_POOL_WALL": 1.130622
+    },
+    "fast_hits": 1030,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step3",
+    "kind": "step",
+    "run": 1.4092541999998502,
+    "arrays": 0.3010396000026958,
+    "exact": 1.710293800002546,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.163674,
+     "QUEUE_POOL_WALL": 1.138742
+    },
+    "fast_hits": 1027,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step4",
+    "kind": "step",
+    "run": 1.419324600006803,
+    "arrays": 0.3669324999937089,
+    "exact": 1.7862571000005119,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.171556,
+     "QUEUE_POOL_WALL": 1.143248
+    },
+    "fast_hits": 1032,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "step5",
+    "kind": "step",
+    "run": 1.4158833999972558,
+    "arrays": 0.3294666000001598,
+    "exact": 1.7453499999974156,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.147048,
+     "QUEUE_POOL_WALL": 1.132043
+    },
+    "fast_hits": 1037,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick1",
+    "kind": "tick",
+    "run": 1.2723224999936065,
+    "arrays": 0.12353650000295602,
+    "exact": 1.3958589999965625,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.047991,
+     "QUEUE_POOL_WALL": 1.04901
+    },
+    "fast_hits": 1000,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick2",
+    "kind": "tick",
+    "run": 1.264272999993409,
+    "arrays": 0.11316660000011325,
+    "exact": 1.3774395999935223,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 1.035771,
+     "QUEUE_POOL_WALL": 1.004493
+    },
+    "fast_hits": 963,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick3",
+    "kind": "tick",
+    "run": 1.196605199991609,
+    "arrays": 0.12315549999766517,
+    "exact": 1.3197606999892741,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.972325,
+     "QUEUE_POOL_WALL": 0.960774
+    },
+    "fast_hits": 1034,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick4",
+    "kind": "tick",
+    "run": 1.2533206999942195,
+    "arrays": 0.12647000000288244,
+    "exact": 1.379790699997102,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.991342,
+     "QUEUE_POOL_WALL": 0.98954
+    },
+    "fast_hits": 1037,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   },
+   {
+    "label": "tick5",
+    "kind": "tick",
+    "run": 1.2447544000024209,
+    "arrays": 0.1275069999974221,
+    "exact": 1.372261399999843,
+    "domains": 1051,
+    "materialized": 1046,
+    "plan": null,
+    "served": null,
+    "stage_seconds": {
+     "PRODUCTION_DOMAINS_WALL": 0.978461,
+     "QUEUE_POOL_WALL": 0.978757
+    },
+    "fast_hits": 960,
+    "result_cache_hits": null,
+    "alpha_intervals": {
+     "PRODUCTION_ALPHA_INTERVALS_AT_EVENT": 0,
+     "PRODUCTION_ALPHA_INTERVALS_CERTIFIED": 1046,
+     "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED": 0
+    }
+   }
+  ]
+ }
+}

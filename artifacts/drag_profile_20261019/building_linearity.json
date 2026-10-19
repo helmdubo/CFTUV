@@ -1,0 +1,1055 @@
+{
+ "alpha0": 0.2239,
+ "blend": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_field_parity_20261008\\frozen\\testscene.blend",
+ "captured": 122,
+ "case": "building",
+ "counts": {
+  "BASE_NOT_USABLE": 1,
+  "FLOAT_SLOPES_DIFFER_INSIDE": 2,
+  "FLOAT_SLOPES_DIFFER_OUTSIDE": 1,
+  "FLOAT_SLOPES_EQUAL_INSIDE": 844,
+  "JUDGED_INSIDE": 846,
+  "SKIPPED_STRUCTURE_OUTSIDE": 1,
+  "STRUCTURE_CHANGED_OUTSIDE": 1,
+  "STRUCTURE_SAME_INSIDE": 846,
+  "THEOREM_HOLDS_INSIDE": 846
+ },
+ "domains": 122,
+ "events": {
+  "0.5%": {
+   "distinct_event_widths_down": 0,
+   "distinct_event_widths_up": 0,
+   "domains": 122,
+   "domains_with_event_down": 0,
+   "domains_with_event_up": 0,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 0,
+   "per_domain_up_median": 0
+  },
+  "1.0%": {
+   "distinct_event_widths_down": 0,
+   "distinct_event_widths_up": 3,
+   "domains": 122,
+   "domains_with_event_down": 0,
+   "domains_with_event_up": 1,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 3,
+   "per_domain_up_median": 0
+  },
+  "10.0%": {
+   "distinct_event_widths_down": 118,
+   "distinct_event_widths_up": 6,
+   "domains": 122,
+   "domains_with_event_down": 7,
+   "domains_with_event_up": 1,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 6,
+   "per_domain_up_median": 0
+  },
+  "2.0%": {
+   "distinct_event_widths_down": 85,
+   "distinct_event_widths_up": 3,
+   "domains": 122,
+   "domains_with_event_down": 2,
+   "domains_with_event_up": 1,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 3,
+   "per_domain_up_median": 0
+  },
+  "25.0%": {
+   "distinct_event_widths_down": 148,
+   "distinct_event_widths_up": 121,
+   "domains": 122,
+   "domains_with_event_down": 12,
+   "domains_with_event_up": 75,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 21,
+   "per_domain_up_median": 6
+  },
+  "5.0%": {
+   "distinct_event_widths_down": 116,
+   "distinct_event_widths_up": 3,
+   "domains": 122,
+   "domains_with_event_down": 6,
+   "domains_with_event_up": 1,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 3,
+   "per_domain_up_median": 0
+  }
+ },
+ "failure": null,
+ "float_worst_position_m": 7.105427357601002e-15,
+ "float_worst_uv": 1.4210854715202004e-14,
+ "native": {
+  "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "host_native_status": {
+   "angular": "available",
+   "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+   "chain_station": "available",
+   "clip": "available",
+   "coverage": "available",
+   "density": "available",
+   "detail": "",
+   "effective_alpha": "available",
+   "frame": "available",
+   "materialize_w1": "available",
+   "skeleton": "available",
+   "snap_embedding": "available",
+   "snapshot_check": "available",
+   "version": "0.1.0"
+  },
+  "module": "D:\\dragprof-scratch/site\\cftuv_native\\__init__.py"
+ },
+ "press_seconds": 14.213969600008568,
+ "step_seconds_with_certificate": 2.024632200045744,
+ "step_seconds_without_certificate": 1.7345265000039944,
+ "structure_part_changes": {
+  "OUTSIDE:boundary_chains": 1,
+  "OUTSIDE:faces": 1,
+  "OUTSIDE:facts": 1,
+  "OUTSIDE:interface_chains": 1,
+  "OUTSIDE:regions": 1,
+  "OUTSIDE:vertices": 1
+ },
+ "theorem_failure_count": 0,
+ "theorem_failures": [],
+ "per_domain_reduced": [
+  {
+   "approximate": [],
+   "events_total": 116,
+   "markers": [],
+   "patch": "host-v0:patch-domain:e65addfe68ee2520d2f8025d",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 294,
+   "markers": [],
+   "patch": "host-v0:patch-domain:1a2857799915f7d485c521c5",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 22,
+   "markers": [],
+   "patch": "host-v0:patch-domain:89d1e26e534f6620cb929869",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 54,
+   "markers": [],
+   "patch": "host-v0:patch-domain:02740e90904e90f274ce157a",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 29,
+   "markers": [],
+   "patch": "host-v0:patch-domain:e1195142060f6575db93af98",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9269343ffaec6708fe5f2998",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 345,
+   "interval": {
+    "alpha": 0.2239,
+    "clip_events": 0,
+    "events": 345,
+    "high": 0.3120694143171799,
+    "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+    "low": 0.22070396366952466,
+    "reason": "",
+    "scope": [
+     "COVERAGE_NODE_ARRIVALS",
+     "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+     "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+    ],
+    "status": "CERTIFIED",
+    "uncertified": [
+     "TESSELLATION_AND_PARTITION_DECISIONS",
+     "SILHOUETTE_DISSOLVE_TOLERANCE",
+     "HOST_POSITION_LAW",
+     "STATION_PLAN_AND_UV",
+     "CELL_DIAGONAL_CHORD_VERDICT"
+    ]
+   },
+   "markers": [],
+   "patch": "host-v0:patch-domain:5fe2fd17a3d94034e46e64da",
+   "samples_judged": 7,
+   "samples_flagged": [
+    {
+     "alpha": 0.222301981835,
+     "differences": 0,
+     "float_slopes_equal": false,
+     "inside": true,
+     "outcome": "JUDGED",
+     "structure_parts_changed": []
+    },
+    {
+     "alpha": 0.221502972752,
+     "differences": 0,
+     "float_slopes_equal": false,
+     "inside": true,
+     "outcome": "JUDGED",
+     "structure_parts_changed": []
+    }
+   ]
+  },
+  {
+   "approximate": [],
+   "events_total": 316,
+   "markers": [],
+   "patch": "host-v0:patch-domain:a076bd7e0916ece58b2b765d",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:2ded0cbbe8edab5046dd2269",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:0db63ede41d76ab6028910db",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 79,
+   "markers": [],
+   "patch": "host-v0:patch-domain:a04cb4107c2c9815432e3c44",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 299,
+   "markers": [],
+   "patch": "host-v0:patch-domain:46033905eeec0e606564b0ab",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:e7618545b705be793ba82688",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:ff52b9ac0ba9199e5dae9d24",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:d75f0bf0961b4f771680dbb5",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 268,
+   "markers": [],
+   "patch": "host-v0:patch-domain:a641d3d7c1894cfc0cb78417",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:c2d2bca99a2475a34e8314e2",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 141,
+   "interval": {
+    "alpha": 0.2239,
+    "clip_events": 0,
+    "events": 141,
+    "high": 0.22546608942199226,
+    "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+    "low": 0.17853940970972215,
+    "reason": "",
+    "scope": [
+     "COVERAGE_NODE_ARRIVALS",
+     "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+     "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+    ],
+    "status": "CERTIFIED",
+    "uncertified": [
+     "TESSELLATION_AND_PARTITION_DECISIONS",
+     "SILHOUETTE_DISSOLVE_TOLERANCE",
+     "HOST_POSITION_LAW",
+     "STATION_PLAN_AND_UV",
+     "CELL_DIAGONAL_CHORD_VERDICT"
+    ]
+   },
+   "markers": [],
+   "patch": "host-v0:patch-domain:77e0b8c76791034d905695e3",
+   "samples_judged": 7,
+   "samples_flagged": [
+    {
+     "alpha": 0.235095,
+     "differences": 0,
+     "float_slopes_equal": false,
+     "inside": false,
+     "outcome": "SKIPPED_STRUCTURE",
+     "structure_parts_changed": [
+      "boundary_chains",
+      "faces",
+      "facts",
+      "interface_chains",
+      "regions",
+      "vertices"
+     ]
+    }
+   ]
+  },
+  {
+   "approximate": [],
+   "events_total": 19,
+   "markers": [],
+   "patch": "host-v0:patch-domain:c4430149de0cc40279de4874",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 289,
+   "markers": [],
+   "patch": "host-v0:patch-domain:dd364f739e560bd76555a5b0",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 116,
+   "markers": [],
+   "patch": "host-v0:patch-domain:6e6625cf1ac9cd018e5b2e5d",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:fb424d4eb90b474ef938f569",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:d7b1ec512a1bc35117631a07",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9cd5b3609e901aa0f779471f",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:380456478f37610eed610bdc",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9c1fd4d5530bb89ec5ce0cea",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 11,
+   "markers": [],
+   "patch": "host-v0:patch-domain:341032294987b1b34ebfc960",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:49c2ca2cd4541001108bbde9",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b2462f3b7595629d56544e4e",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b812c47b70f8e403cab07e1d",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9f25884434dc331d04ff9779",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:1bc2b6c5cebd6c8705c9a92c",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:c273d52064f878792952afc8",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:3501a02392da7287e168a109",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:98fb78491ec6cc1b22dc9ae0",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9a35ee17f9618d48c979a8d9",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b27e7255678f019268c7fbfc",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:89557d81cec67686367623b3",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:6a228fd78c5ed16751864a77",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:8dcb8e468c831923a48ea0e9",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:2ed7269d62c2bdfa2d5a19f0",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:1a8ed5c8d84f620879844a0d",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:209ec9f6a3d493586f2b84a5",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:72ca74a21fa9229f10b82af3",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:bf9d7eb4be5b12c021bdf43e",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:d11729673e546266bbb2c1a0",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:bd721b7faa804ea0cbf06e4b",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:cb678f7916bd72ca9a6ad934",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b9f738875c699725f9eb8279",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:a1fb618bb94849a9bb67d634",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:491161c478d266deef1a3d20",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:3af0a18cfdeb51531a629f55",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:06d677a834d034675fa598cd",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:0f6adbb5df92da1ead296119",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:f7a4f274eb0c025bea86d574",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:cd55aefc45a5ad8b93e49b1c",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:dbd651ec277ca1e88995085a",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:94c47ca696a10cea8d997824",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:93a3587ccbfde031ade4bed6",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:cd6280a8c3a224b7f0c9d3bc",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b569fa755dde5b3378b2d635",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:981398b8d680d8724750efe0",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:03fb2bf3dbc10ffca3f14d3a",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b02be4eda603968004ffff54",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:5cccc7cdb54b8d3205cc61f8",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b07f566e94d6f23e410f96a8",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:72b56308a6356a543e30149c",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:cace6ad0fcbcf266dc518e64",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:d8cd40da44dbb4fecd730ca5",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:f5074f3d8e6f859a39b21cdf",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9f458c605ad184dbe3717b2f",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:cf2c9cdb727db958b35e2f50",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:fb1b5ac06f12337a7fae410c",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:7404a23198b333bfe8cfe498",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:2ef3a5606b4b0a4a82adf309",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:2f696d63f88b9f2f5c7f5df4",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:337910968b005bc34de9a6cc",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:d57035234c0cce8087534514",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:79a2806806536ae975febac7",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:e5ac811e211d75e4612a0f9e",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:d2ff78df9e8207fb45ee3f01",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:bc29dd5a8409a036f5c6ba78",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:c8c4cd4edc68213f5d5537c2",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:f7cb9ffa19fd68c9938db107",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b1ce62543a651b5fd45ad6a4",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:176d62545c7c4e28e51a5f50",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:7112eadc35d8f697f10de8f7",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:b3d87656555f08d27cb00797",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:87c9f97444f5d7bb1bf18ff3",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [
+    "PARAM_NON_AFFINE_DEVELOPABLE_OFFSET"
+   ],
+   "events_total": 686,
+   "markers": [],
+   "patch": "host-v0:patch-domain:2a7adbbc7bb2225fe14832f6",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:efb1fb7ee7325b32509629b4",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:c688d7794c0b8566b53aa5c3",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 24,
+   "markers": [],
+   "patch": "host-v0:patch-domain:7c0c0dcc252472467438cb23",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:997a7eda33894e3683f88661",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:2fd78b5525ac23c4df8f9d0f",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:0c723fc05b7498fafc70dd3f",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:07036dbf6306cf026d41d8c9",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:3912ca7493667d343a1b2c39",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:297ea6b226333b06ae898cac",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 44,
+   "markers": [],
+   "patch": "host-v0:patch-domain:a4cccf4c2dfc575d101a726a",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:9bdd407fa84df75332d7205b",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:a8f0d6ae55bdec7d601385dd",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:8e4033bdaec9909c5b1680a6",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:fb65371e908afbda92db416d",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:4002c4589a955dbf2f938f96",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 39,
+   "markers": [],
+   "patch": "host-v0:patch-domain:7b6b846d35a6643812948b02",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 391,
+   "markers": [],
+   "patch": "host-v0:patch-domain:37e51ec575aca1a7410e28a1",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:3ed6834eb943e37faa0539d1",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:763d579fe068b8e4227f499f",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 391,
+   "markers": [
+    "PARAM_WINDOW_NOT_CERTIFIED"
+   ],
+   "patch": "host-v0:patch-domain:869ee218a62daf55e4d13373",
+   "samples_judged": 0
+  },
+  {
+   "approximate": [],
+   "events_total": 59,
+   "markers": [],
+   "patch": "host-v0:patch-domain:ee75ae6dec18cdf9026a5e72",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:0ae24beba58e1744a2fb62aa",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:ca29603bfd6761fe18b3266f",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:459de48194e803836a5dd609",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 54,
+   "markers": [],
+   "patch": "host-v0:patch-domain:784c8f43b7e426da15fb70cc",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 54,
+   "markers": [],
+   "patch": "host-v0:patch-domain:cf760bf5dd09d9c54e48b75a",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:4dfdf0a0448ade5405c4f6d3",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 14,
+   "markers": [],
+   "patch": "host-v0:patch-domain:43b99f03d6b685a740cc36e6",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 19,
+   "markers": [],
+   "patch": "host-v0:patch-domain:f9f79c57235164f431d9d7e7",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 19,
+   "markers": [],
+   "patch": "host-v0:patch-domain:e7949f2fdbf42147d7dd5f82",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 92,
+   "markers": [],
+   "patch": "host-v0:patch-domain:60e91baf5f37f729ccca08f0",
+   "samples_judged": 7
+  },
+  {
+   "approximate": [],
+   "events_total": 92,
+   "markers": [],
+   "patch": "host-v0:patch-domain:f8326e7e6bb9f7b909af6804",
+   "samples_judged": 7
+  }
+ ]
+}

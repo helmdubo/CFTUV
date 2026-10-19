@@ -1,0 +1,70 @@
+{
+ "case": "cover008",
+ "failure": null,
+ "native": {
+  "module": "D:\\dragprof-scratch/site\\cftuv_native\\__init__.py",
+  "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "host_native_status": {
+   "angular": "available",
+   "chain_station": "available",
+   "density": "available",
+   "snap_embedding": "available",
+   "effective_alpha": "available",
+   "materialize_w1": "available",
+   "snapshot_check": "available",
+   "frame": "available",
+   "coverage": "available",
+   "clip": "available",
+   "skeleton": "available",
+   "version": "0.1.0",
+   "detail": "",
+   "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2"
+  }
+ },
+ "cold_seconds_w0": 86.47731070000737,
+ "tick_walls_w0_profiled": [
+  26.030420900002355,
+  25.05405370000517
+ ],
+ "tottime_total": 47.838299800000065,
+ "tottime_by_bucket": {
+  "kernel.materialize": 14.012172999999992,
+  "fractions": 10.063884100000003,
+  "builtin:other": 7.308048100000001,
+  "kernel.exact_sqrt_sum.py": 6.285826699999999,
+  "kernel.float_filter.py": 1.8333871000000002,
+  "builtin:native_ext": 1.3947219000000002,
+  "other": 1.3439008,
+  "host": 1.2062798000000001,
+  "kernel.wavefront": 0.7320348999999999,
+  "kernel.validation.py": 0.6734676999999999,
+  "native.shim": 0.6580716000000001,
+  "kernel.ids.py": 0.4625435,
+  "kernel.backend.py": 0.4239776000000001,
+  "kernel._radicand_products.py": 0.28024930000000003,
+  "kernel.exact_sqrt_sum_fused.py": 0.26553360000000004,
+  "kernel.numeric.py": 0.25705180000000005,
+  "kernel.validation_issues.py": 0.22110980000000002,
+  "kernel.reference": 0.21924169999999998,
+  "kernel.contracts": 0.0816511,
+  "kernel.__init__.py": 0.051808400000000004,
+  "kernel._cpython311.py": 0.0294289,
+  "kernel.planar_metric.py": 0.0258331,
+  "kernel._chain_station.py": 0.0074334000000000015,
+  "kernel._width_distortion.py": 0.00036740000000000004,
+  "sympy": 0.000209,
+  "kernel.robust": 3.430000000000001e-05,
+  "kernel._stretch.py": 3.12e-05
+ },
+ "sympy_entries_cumulative": {
+  "reference/boundary.py:resolve_component_alphas -> wrapper": 0.00010020000000000001,
+  "reference/planar_types.py:_expr -> wrapper": 7.460000000000001e-05,
+  "wavefront/conveyor.py:_instance_ids_by_spec -> __eq__": 7.15e-05,
+  "reference/native_exact.py:_coerce -> __hash__": 1.02e-05,
+  "reference/planar_types.py:_parse_expr_uncached -> wrapper": 2.5e-06,
+  "wavefront/conveyor.py:_instance_ids_by_spec -> wrapper": 2.4000000000000003e-06,
+  "~:<built-in method builtins.getattr> -> __sympy__": 1.9e-06
+ },
+ "top_cumulative": "         68796233 function calls (67856675 primitive calls) in 47.838 seconds\n\n   Ordered by: cumulative time\n   List reduced from 1348 to 45 due to restriction <45>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n        2    0.006    0.003   51.046   25.523 D:\\CFTUV-dragprof\\artifacts\\drag_profile_20261019\\scripts\\tick_cprofile.py:89(press)\n        2    0.001    0.001   50.883   25.442 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:793(run_production)\n        2    0.000    0.000   50.467   25.234 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:779(_scan_and_dispatch)\n        4    0.000    0.000   50.228   12.557 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:497(_dispatch)\n        4    0.000    0.000   50.228   12.557 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:534(settle_dispatch)\n        4    0.017    0.004   50.227   12.557 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:430(_complete_ready)\n     2106    0.021    0.000   50.162    0.024 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:407(_produced_by_parent)\n     2106    0.102    0.000   50.136    0.024 D:\\CFTUV-dragprof\\cftuv\\envelope_kernel_backend.py:408(scoped)\n        2    0.000    0.000   49.980   24.990 D:\\CFTUV-dragprof\\cftuv\\envelope_production_export.py:772(_dispatch_work)\n     2106    0.131    0.000   49.595    0.024 D:\\CFTUV-dragprof\\cftuv\\envelope_production_task.py:75(produce_domain)\n     2094    0.028    0.000   48.256    0.023 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\step.py:331(step_domain)\n     2094    0.052    0.000   48.228    0.023 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\step.py:348(_step_domain)\n     2094    0.012    0.000   43.347    0.021 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\step.py:243(_materialize)\n     2094    0.054    0.000   43.333    0.021 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:1013(materialize_domain)\n     2094    0.089    0.000   43.230    0.021 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:1090(_materialize_domain)\n     2094    0.041    0.000   32.059    0.015 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:957(_build)\n     2094    0.087    0.000   29.785    0.014 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:811(_assemble)\n     2092    0.020    0.000    8.945    0.004 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:792(_shaped)\n     2092    0.012    0.000    8.893    0.004 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\silhouette.py:1071(apply_silhouette)\n  1197958    0.935    0.000    7.208    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:357(forward)\n     2092    0.023    0.000    7.043    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\parametric.py:573(certificate_of)\n     2092    0.252    0.000    7.019    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\parametric.py:587(_certificate)\n     2092    0.025    0.000    6.766    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\silhouette.py:843(dissolve_silhouette)\n     2092    0.114    0.000    6.267    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\assemble.py:528(assemble_batch)\n     2092    0.028    0.000    5.995    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:723(_at_host_positions)\n     2092    0.004    0.000    5.697    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\domain.py:709(_lifted)\n     2092    0.009    0.000    5.693    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\assemble.py:259(lift_vertices)\n     2092    0.024    0.000    5.668    0.003 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\assemble.py:270(<dictcomp>)\n    26268    0.025    0.000    5.286    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\lift.py:113(lift_named)\n    26268    0.076    0.000    5.260    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\lift.py:107(lift)\n  2560218    3.493    0.000    5.042    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:62(__new__)\n   419276    0.958    0.000    4.679    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1482(scaled)\n    26268    0.084    0.000    4.627    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\lift.py:96(lift_exact)\n     2094    0.006    0.000    4.601    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\step.py:289(_coverage)\n     2094    0.055    0.000    4.595    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\wavefront\\conveyor.py:1853(conveyor_coverage)\n   105072    0.327    0.000    4.511    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\lift.py:100(<genexpr>)\n     4188    0.005    0.000    4.053    0.001 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\wavefront\\conveyor.py:1905(<genexpr>)\n     2094    0.031    0.000    4.048    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\wavefront\\conveyor.py:1697(_region_coverage)\n     2094    0.018    0.000    3.908    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\backend.py:1152(covered_at)\n     2092    0.005    0.000    3.864    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\step.py:180(coverage)\n     2092    0.101    0.000    3.856    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\wavefront\\coverage_template.py:162(instantiate)\n   361986    0.673    0.000    3.790    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1452(__add__)\n     2092    0.432    0.000    3.686    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\parametric.py:315(_fact_slopes)\n   279327    0.494    0.000    3.205    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1467(__sub__)\n     2092    0.061    0.000    2.844    0.001 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\silhouette.py:553(dissolve_vertices)\n\n\n",
+ "top_tottime": "         68796233 function calls (67856675 primitive calls) in 47.838 seconds\n\n   Ordered by: internal time\n   List reduced from 1348 to 30 due to restriction <30>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n  2560218    3.493    0.000    5.042    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:62(__new__)\n   382102    1.187    0.000    1.505    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\lift.py:37(enclosure_midpoint)\n   134224    1.158    0.000    1.522    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\float_filter.py:101(orientation_sign)\n   361108    1.022    0.000    1.798    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:484(_mul)\n   641313    0.994    0.000    2.703    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1441(_from_map)\n   419276    0.958    0.000    4.679    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1482(scaled)\n   319242    0.949    0.000    1.628    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:468(_sub)\n  1197958    0.935    0.000    7.208    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:357(forward)\n1108340/1069492    0.913    0.000    2.096    0.000 {built-in method builtins.sorted}\n     2094    0.892    0.000    0.902    0.000 {method 'w1_exact_mesh' of 'cftuv_native._core.Session' objects}\n   275353    0.847    0.000    1.466    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:452(_add)\n  3314988    0.736    0.000    1.306    0.000 {built-in method builtins.isinstance}\n   245243    0.691    0.000    1.187    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:500(_div)\n   361986    0.673    0.000    3.790    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1452(__add__)\n     2092    0.659    0.000    1.838    0.001 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\validation.py:898(validate_geometry_batch)\n  4868364    0.582    0.000    0.582    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:261(denominator)\n  1315790    0.580    0.000    0.803    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1444(<genexpr>)\n  4228787    0.565    0.000    0.565    0.000 C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\Lib\\fractions.py:257(numerator)\n  2545206    0.543    0.000    0.543    0.000 {built-in method math.gcd}\n2483536/1870016    0.537    0.000    0.764    0.000 {built-in method builtins.hash}\n   279327    0.494    0.000    3.205    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1467(__sub__)\n  3014324    0.473    0.000    0.630    0.000 {method 'get' of 'dict' objects}\n     2388    0.461    0.000    2.354    0.001 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\assemble.py:389(_chains_from)\n   277202    0.459    0.000    0.982    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\exact_sqrt_sum.py:1186(_integer_form)\n   684570    0.441    0.000    0.563    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\ids.py:14(__post_init__)\n  2575214    0.437    0.000    0.437    0.000 {built-in method __new__ of type object at 0x00007FFFB6C7C4C0}\n     2092    0.432    0.000    3.686    0.002 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\parametric.py:315(_fact_slopes)\n     2092    0.362    0.000    0.362    0.000 {method 'w1_canonical' of 'cftuv_native._core.Session' objects}\n   102356    0.353    0.000    1.025    0.000 D:\\CFTUV-dragprof\\kernel\\src\\cftuv_envelope\\materialize\\mesh.py:89(decimal_of)\n    30938    0.353    0.000    0.353    0.000 {built-in method _hashlib.openssl_sha256}\n\n\n"
+}

@@ -1,0 +1,176 @@
+{
+ "alpha0": 0.04214220866560936,
+ "blend": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_cover008_frozen_v2\\buildings2_2.blend",
+ "captured": 1047,
+ "case": "cover008",
+ "counts": {
+  "FLOAT_SLOPES_EQUAL_INSIDE": 7,
+  "JUDGED_INSIDE": 7,
+  "STRUCTURE_SAME_INSIDE": 7,
+  "THEOREM_HOLDS_INSIDE": 7
+ },
+ "domains": 1051,
+ "events": {
+  "0.5%": {
+   "distinct_event_widths_down": 0,
+   "distinct_event_widths_up": 0,
+   "domains": 1046,
+   "domains_with_event_down": 0,
+   "domains_with_event_up": 0,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 0,
+   "per_domain_up_median": 0
+  },
+  "1.0%": {
+   "distinct_event_widths_down": 0,
+   "distinct_event_widths_up": 0,
+   "domains": 1046,
+   "domains_with_event_down": 0,
+   "domains_with_event_up": 0,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 0,
+   "per_domain_up_median": 0
+  },
+  "10.0%": {
+   "distinct_event_widths_down": 39,
+   "distinct_event_widths_up": 21,
+   "domains": 1046,
+   "domains_with_event_down": 12,
+   "domains_with_event_up": 5,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 7,
+   "per_domain_up_median": 0
+  },
+  "2.0%": {
+   "distinct_event_widths_down": 0,
+   "distinct_event_widths_up": 12,
+   "domains": 1046,
+   "domains_with_event_down": 0,
+   "domains_with_event_up": 3,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 6,
+   "per_domain_up_median": 0
+  },
+  "25.0%": {
+   "distinct_event_widths_down": 122,
+   "distinct_event_widths_up": 93,
+   "domains": 1046,
+   "domains_with_event_down": 21,
+   "domains_with_event_up": 86,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 9,
+   "per_domain_up_median": 0
+  },
+  "5.0%": {
+   "distinct_event_widths_down": 10,
+   "distinct_event_widths_up": 21,
+   "domains": 1046,
+   "domains_with_event_down": 6,
+   "domains_with_event_up": 5,
+   "per_domain_down_median": 0,
+   "per_domain_up_max": 7,
+   "per_domain_up_median": 0
+  }
+ },
+ "failure": null,
+ "float_worst_position_m": 1.7763568394002505e-15,
+ "float_worst_uv": 1.1368683772161603e-13,
+ "focus": {
+  "alpha0": 0.04214220866560936,
+  "diagnostics_after": [
+   "GeometryDiagnosticV1(diagnostic_id=GeometryDiagnosticId(value='diagnostic:CORNER_JOIN_SAME_PCHAIN_V1:domain'), severity=<GeometryDiagnosticSeverity.INFO: 'INFO'>, outcome=<NamedOutcome.CORNER_JOIN_SAME_PCHAIN_V1: 'CORNER_JOIN_SAME_PCHAIN_V1'>, provenance=frozenset())",
+   "GeometryDiagnosticV1(diagnostic_id=GeometryDiagnosticId(value='diagnostic:SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1:domain'), severity=<GeometryDiagnosticSeverity.INFO: 'INFO'>, outcome=<NamedOutcome.SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1: 'SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1'>, provenance=frozenset())"
+  ],
+  "diagnostics_before": [
+   "GeometryDiagnosticV1(diagnostic_id=GeometryDiagnosticId(value='diagnostic:CORNER_JOIN_SAME_PCHAIN_V1:domain'), severity=<GeometryDiagnosticSeverity.INFO: 'INFO'>, outcome=<NamedOutcome.CORNER_JOIN_SAME_PCHAIN_V1: 'CORNER_JOIN_SAME_PCHAIN_V1'>, provenance=frozenset())",
+   "GeometryDiagnosticV1(diagnostic_id=GeometryDiagnosticId(value='diagnostic:SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1:domain'), severity=<GeometryDiagnosticSeverity.INFO: 'INFO'>, outcome=<NamedOutcome.SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1: 'SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1'>, provenance=frozenset())"
+  ],
+  "faces_after": 4,
+  "faces_before": 5,
+  "first_changed": 0.048518914008,
+  "interval": {
+   "alpha": 0.04214220866560936,
+   "clip_events": 0,
+   "events": 24,
+   "high": 0.07741444544365941,
+   "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+   "low": 2.321522358767365e-14,
+   "reason": "",
+   "scope": [
+    "COVERAGE_NODE_ARRIVALS",
+    "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+    "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+   ],
+   "status": "CERTIFIED",
+   "uncertified": [
+    "TESSELLATION_AND_PARTITION_DECISIONS",
+    "SILHOUETTE_DISSOLVE_TOLERANCE",
+    "HOST_POSITION_LAW",
+    "STATION_PLAN_AND_UV",
+    "CELL_DIAGONAL_CHORD_VERDICT"
+   ]
+  },
+  "interval_after": {
+   "alpha": 0.048518914008,
+   "clip_events": 0,
+   "events": 24,
+   "high": 0.07741444544365941,
+   "law": "COVERAGE_AND_CLIP_CROSSINGS_V1",
+   "low": 2.321522358767365e-14,
+   "reason": "",
+   "scope": [
+    "COVERAGE_NODE_ARRIVALS",
+    "CLIP_NODE_SOURCE_LINE_CROSSINGS",
+    "CLIP_FRONT_SOURCE_VERTEX_CROSSINGS"
+   ],
+   "status": "CERTIFIED",
+   "uncertified": [
+    "TESSELLATION_AND_PARTITION_DECISIONS",
+    "SILHOUETTE_DISSOLVE_TOLERANCE",
+    "HOST_POSITION_LAW",
+    "STATION_PLAN_AND_UV",
+    "CELL_DIAGONAL_CHORD_VERDICT"
+   ]
+  },
+  "last_same": 0.048518914007,
+  "markers_after": [],
+  "parts": [
+   "boundary_chains",
+   "faces",
+   "facts",
+   "regions",
+   "vertices"
+  ],
+  "patch": "host-v0:patch-domain:1146c49e3661ee2471ae903d",
+  "share_of_alpha0": 0.15131398055067827,
+  "vertices_after": 9,
+  "vertices_before": 10
+ },
+ "native": {
+  "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+  "host_native_status": {
+   "angular": "available",
+   "build_id": "a3efcde8f57299e1c6f7913ce0ccb2bc14be1ac043736caa544c2e7b96da7ce2",
+   "chain_station": "available",
+   "clip": "available",
+   "coverage": "available",
+   "density": "available",
+   "detail": "",
+   "effective_alpha": "available",
+   "frame": "available",
+   "materialize_w1": "available",
+   "skeleton": "available",
+   "snap_embedding": "available",
+   "snapshot_check": "available",
+   "version": "0.1.0"
+  },
+  "module": "D:\\dragprof-scratch/site\\cftuv_native\\__init__.py"
+ },
+ "press_seconds": 86.26556120000896,
+ "step_seconds_with_certificate": 0.19066079999902286,
+ "step_seconds_without_certificate": 0.1745593999949051,
+ "structure_part_changes": {},
+ "theorem_failure_count": 0,
+ "theorem_failures": [],
+ "per_domain_reduced": []
+}
