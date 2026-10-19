@@ -1,0 +1,862 @@
+CFTUV: НЕЗАВИСИМЫЙ ДИЗАЙН И ПРОВЕРКА REALTIME DRAG
+Дата: 19.10.2026. Фаза: design and evidence only.
+Исследованный продуктовый код: f8f52ed75dce0ecb650d8f1f45dcb586597b1de0.
+Профиль: rust/drag-profile, a4e9451f, artifacts/drag_profile_20261019/.
+Существующий дизайн: 1d89542a9fcf62007d23c6335b986e112a1ed20b,
+artifacts/lazy_drag_20261019/LAZY_DRAG_DESIGN.txt.
+При финальной проверке ветки найдено и учтено дополнение другого запуска:
+10ee3726c70f1f48251087853228243d54a8198f, INDEPENDENT_DESIGN_RU.txt,
+exact_event.json, independent_focus.json, float_switch_observations.json.
+Этот отчёт дополняет существующий дизайн; его файлы не переписываются.
+
+0. РЕШЕНИЕ И ГРАНИЦЫ ДОКАЗАТЕЛЬСТВ
+
+Рекомендую гибрид: локальные сертификаты интервалов ширины + проверка
+вычислительной трассы на запрошенной ширине + заранее скомпилированный вывод
+координат. Таблица явных событий остаётся полезной, но реализация не должна
+зависеть от предварительного нахождения всех будущих порогов материализатора.
+
+Идея владельца «считать только ближайшие ширины» правильная. Её прямое
+представление — одномерный набор интервалов w, обычно текущий и два соседних.
+Octree индексирует пространство XYZ; оно может отсеивать далёкие поверхности,
+но не доказывает неизменность UV, порядка слияний и структуры при изменении w.
+Для существующих плоских доменов пространственный grid/BVH — дополнительный
+ускоритель поиска кандидатов. В interval.py уже есть пространственная сетка.
+
+Принципиальные уточнения:
+  1) Аффинны позиции и ненормированные station facts (s,r) при доказанном законе
+     движения. Нормализованные UV имеют вид (A+B*w)/w, в общем не аффинны.
+  2) Конечный меш и равенство его structure digest недостаточны для доказательства:
+     нужны промежуточные конструкции, отвергнутые кандидаты, сравнения порядка,
+     правила host lift/weld и все исходы, способные изменить ответ.
+  3) Точное событие не всегда выражается рациональным числом или SqrtSumV1.
+     Для трудных случаев выгодно точно проверить guard на конкретной ширине,
+     сохранив существующую арифметику, вместо обязательного решения корня.
+  4) Реальный Blender mesh уже обновляется через foreach_set. Ускорить ядро
+     недостаточно: есть планировщик с debounce, пересборка общих массивов,
+     сварка, текущие нормали и обновление Blender.
+
+Независимо выполнено: аудит кода, 6 групп небольших проверок/контрпримеров,
+50 025 сравнений нового способа вывода чисел с существующим converter,
+восстановление и проверка идеального LSQ-корня 1146c49e точными дробями.
+Подробные результаты — independent_evidence.json; scripts/independent_*.py.
+Никакой продуктовый код не изменён; Blender не запускался; .blend не сохранялись.
+
+Ограничение среды: здесь Linux, нет D:/CFTUV-lazydrag, Windows Blender, двух
+замороженных сцен и E:/cftuv_native_corpus. Исследование выполнено в отдельном
+Linux worktree закреплённого кода. Нельзя заявить собственное повторение поля
+или проверку SHA сцен. Диагноз 1146c49e ниже опирается на опубликованные
+первичные логи другого запуска и независимую проверку его кода/формул.
+Именованные незакрытые пункты: FIELD_REPLAY_INPUT_UNAVAILABLE,
+FROZEN_SCENE_HASH_CHECK_NOT_RUN, ACTUAL_FP_SWITCH_SET_NOT_CERTIFIED.
+Новое дополнение содержит точные operands и сертификат идеального корня;
+его нельзя смешивать с полной сертификацией фактических binary64 switches.
+Задание на независимый дизайн выполнено; полную полевую приёмку фазы D
+считать закрытой по этому отчёту нельзя.
+
+AGENTS.md прочитан первым документом проекта. Соблюдены единица вычисления
+(DecalRequestId, PatchDomainId), совместный расчёт всех источников домена,
+отсутствие cross-Patch collisions и именование каждого изменения/отказа.
+Запрошенный владельцем .txt-дизайн — явное разрешение на этот артефакт;
+продуктовых изменений и новых .md нет. Ветка rust/drag-quick не менялась.
+
+1. ЧТО ДЕЙСТВИТЕЛЬНО СТОИТ ВРЕМЕНИ
+
+Источник цифр — DRAG_PROFILE.txt указанного коммита; это не новые замеры.
+При 12 workers: exact lean tick building 0.212 с, cover008 1.439 с.
+На тиках EXPORT и PREPARE не выполняются. В cover008 materialize занимает
+8.167 worker-seconds, из них SILHOUETTE 3.671, PARAMETRIC 1.277,
+ASSEMBLE 1.185, W1 0.776. Поэтому ещё один кэш подготовки или удаление SymPy
+не решают основную проблему drag. Уже подготовленную структуру строят заново.
+
+На хосте cover008: создание массивов около 0.115 с, _apply около 0.031 с,
+из него stable frame write около 0.019 с. Model frame 3.2 мс — другая операция,
+его нельзя выдавать за замер полноценного exact mesh tick. Даже с мгновенным
+ядром нынешняя сборка массивов останется заметной. 50–150 мс = примерно
+20–6.7 обновлений/с, а не гарантия 30 или 60 FPS.
+
+Предварительный выбор вариантов:
+  - Sparse octree/BVH: только доказательно полное отсеивание пространственных
+    кандидатов. Не основной трек, пока поиск кандидатов не доминирует в профиле.
+  - Много заранее выбранных ширин + интерполяция: годится лишь после доказательства
+    закона и структуры между ними; одинаковые концы не исключают событий внутри.
+  - Полная таблица всех materialize events: математически содержательный путь,
+    но float-программы, меняющиеся кандидаты и алгебраические расширения делают
+    его существенно шире задачи «добавить несколько событий».
+  - Локальные интервалы + guarded replay: основной выбор. Стоимость подготовки
+    относится к посещённым состояниям; сложные guards можно оставить точечными.
+  - Более плотный фиксированный меш: возможен как отдельный topology law.
+    Неактивные/вырожденные faces меняют настоящий mesh, UV, normals и modifiers;
+    их нельзя незаметно подставлять под текущую приёмку IDENTICAL.
+  - GPU deformation: ускоряет отображение, но само по себе не обновляет mesh
+    для экспорта/модификаторов. Сначала использовать существующий CPU mesh writer.
+  - Rust: переносить компактную программу guards и вывода массивов. Полный перенос
+    повторной материализации оставляет ненужные структурные операции на каждом тике.
+
+2. ПРЕДЛАГАЕМАЯ АРХИТЕКТУРА
+
+2.1 Три пути одного запроса ширины
+
+A. INTERVAL_CERTIFIED_EXACT.
+Есть запись с доказанным открытым интервалом. Все структурные условия и закон
+вывода в нём подтверждены. Тик вычисляет числа из коэффициентов и обновляет
+меш. Обычный полный materialize или периодическая reconciliation не нужны.
+
+B. POINT_GUARDED_EXACT.
+Полное окно для части guards пока не доказано. На запрошенном w выполняется
+компактная программа этих условий, включая необходимые промежуточные числа
+и точный порядок операций. Если все исходы совпали с записанной трассой,
+повторно используется её структура. Это проверка условий, а не сравнение
+с заново собранным мешем. Неизвестный/изменившийся guard отправляет домен в C.
+
+Успех B подтверждает только данную ширину. Нельзя по двум успешным точкам
+расширять A: между ними могли быть два события или касательное равенство.
+Переходы между coverage-интервалами сохраняют существующий семантический
+event/replay механизм; точечный guard не заменяет историю событий ядра.
+
+C. FULL_EXACT.
+Домен считается нынешним полным путём, причина названа. Успешный результат
+может породить новую трассу и соседнее окно. Неудача сохраняет исходное
+имя отказа. Если результата ещё нет, публикуется PENDING_EXACT_EVALUATION
+с requested_width и applied_width, а последний полный меш остаётся видимым.
+Нельзя показывать частичный меш разных ширин под пометкой «точный».
+
+Это не три независимых решателя. A и B — специализация того же materializer,
+с теми же входными законами и проверяемым контрактом равенства C.
+
+2.2 Что записывается при cold/miss
+
+Нужен construction DAG: устойчивый ID каждого вычисленного операнда и его
+происхождение. Хранить удалённые точки, промежуточные кольца, отвергнутые ears
+и unions, accumulated runs, ветви JOIN withdrawal, source lift/follower/revert.
+Существующий ExactParametricV1 сохраняет в основном конечные вершины/петли;
+его недостаточно, но его коэффициенты и quick-win PARAMETRIC memo полезны.
+
+Для каждой операции записать:
+  construction_id, opcode, operand_ids, output_ids;
+  guard_site_id, predicate/threshold, actual outcome, read/write dependencies;
+  candidate-generation/ordering/tie-break/loop-exit dependencies;
+  motion law AFFINE / RATIONAL / STATIC / FAITHFUL_FP / UNSUPPORTED;
+  exact coefficients, denominator obligations, numeric and resource obligations.
+
+Не нужен runtime, который трассирует произвольный Python. Нужен небольшой
+реестр geometry/ordering/host opcodes и явная инструментированность ограниченных
+семейств из раздела 4, включая Rust W1/clip. Неизвестный opcode => TRACE_INCOMPLETE.
+AST-тест известных call sites помогает, но сам по себе полноту не доказывает.
+
+Для p(w)=A+B*w affine law выводится из конструкции. Если промежуточная точка
+получена как N(w)/D(w), требуется тождество N-(A+B*w)D=0 и D!=0 во всём окне.
+Неаффинные промежуточные выражения разрешены в guards; финальный scalar без
+доказанной affine law не получает affine fast path. Его можно исполнять как
+отдельную exact recipe или отправлять на полный путь по имени.
+
+Три совпадающих образца достаточны только при доказанных deg(N)<=2,
+deg(D)<=1, D!=0 и одной ветви: у N-LD степень <=2 и три разных нуля.
+Такая теорема полезна для части пересечений. Для произвольного DAG она неверна.
+
+2.3 Локальные окна и события
+
+Сначала пересечь coverage interval, effective-alpha names window, область
+допустимых width и reach/preparation validity. Затем доказать каждый guard
+на небольшом соседстве текущей ширины. Использовать простые точные корни,
+интервальные оценки без нуля и алгебраические тождества. Неудача расширения
+окна не означает физическое событие: это CERTIFICATE_FRONTIER:<guard>.
+
+Event/guard запись:
+  kind, site_id, operand_ids, scope=request/domain/interface,
+  proof_type=IDENTITY | EXACT_ROOT | ROOT_ISOLATION | INTERVAL_SIGN |
+             FP_ENCLOSURE | POINT_REPLAY | UNRESOLVED,
+  lo,hi (точные рациональные границы), endpoint semantics,
+  optional polynomial+coefficient_field+root_index,
+  trace_hash, policy_hash, limiting_outcome.
+
+Различать реальное изменение структуры, возможное изменение внутри доказанной
+полосы неопределённости и границу возможностей сертификатора. У всех есть имена.
+Не выдавать консервативную границу за вычисленную точную ширину физического события.
+
+Регистр семейств: COVERAGE_ARRIVAL, EFFECTIVE_ALPHA_CONTACT, CHART_REACH,
+POINT_COINCIDENCE, ORIENTATION_ZERO, UV_AFFINE_IDENTITY, STATION_CONFLICT,
+CLIP_SNAP, CLIP_BRANCH, CELL_DIAGONAL_CHORD, BOUNDARY_KIND, UV_SEAM,
+SURFACE_LOCATE, SOURCE_LIFT_BRANCH, SILHOUETTE_MERGE_CHORD,
+SILHOUETTE_UV_FIT, SILHOUETTE_VERTEX_CHORD, SILHOUETTE_UV_SLIDE,
+SILHOUETTE_ORDER, NUMERIC_BRANCH, HOST_WELD_PARTITION, HOST_MITER_BRANCH,
+HOST_UV_SEAM. Имена opcodes и конкретных predicate sites уточняются реализацией.
+
+Время события не обязано жить в SqrtSumV1. Можно хранить полином и изолирующий
+рациональный интервал, как в algebraic kernels, либо оставить guard точечным.
+Бискекция уточняет уже изолированный корень; она не доказывает отсутствие
+других корней. Нужны кратные корни, identically-zero и отдельные poles.
+
+AT_EVENT e4d13373 на 0.2239: нынешний статус означает попадание в event band,
+а не обязательно exact equality корню. Сохранить обработку этой полосы полным
+путём, а после выхода построить одностороннюю запись. Не привязывать каждый
+следующий тик к старой базе AT_EVENT. Равные точные события — одна atomic batch;
+для backward drag хранить соседние записи/детерминированный replay.
+
+2.4 Кэш и поиск
+
+Полный ключ записи:
+  preparation digest + request/domain + все policies + backend/native build +
+  scalar/codec/conversion bits + source/selection revision + cell/trace id +
+  stable structure digest.
+Некоторые поля уже входят в preparation; в коде должно быть проверяемо,
+какие именно. Sample-key с неполным перечнем флагов не заменяет этот контракт.
+
+Поиск идёт сначала по preparation/policies, затем по w, и возвращает запись
+с её structure id. Нельзя требовать новый structure digest для поиска кэша:
+его вычисление само потребовало бы материализации. Region:N и loop ordinal
+хранить через устойчивые lineage slots; текущие имена/порядок восстанавливать.
+
+В worker хранить exact DAG, coefficients, guards, topology/metadata recipes,
+доказательства и host dependencies. В parent — неизменяемый manifest доменов,
+границы окон, текущий handle и при необходимости compact emission program.
+При трёх записях/домен достаточно упорядоченного массива; interval tree имеет
+смысл при росте истории. Для всех доменов — очереди ближайших границ в обе
+стороны, чтобы не запускать materializer для тысячи доменов из-за одного события.
+
+Первый лимит: текущая, предыдущая и одна соседняя запись. LRU считать по
+фактическим массивам/big integers/DAG, а не по размеру pickle подготовки.
+Нынешний 32 MiB worker store считает сериализованный вес; распакованные данные
+больше. In-flight запись не удалять. Eviction и повторная загрузка имеют
+именованную telemetry, но не меняют геометрию.
+
+Prefetch соседнего окна по направлению/скорости мыши допустим: эта эвристика
+выбирает работу заранее, а не ответ. Ограничить spare workers, CPU time и память.
+Не создавать pool task и pickle полного GeometryBatch на каждый cache hit.
+При слишком дорогом IPC тот же native emission program исполнять в parent,
+а worker оставляет владение exact preparation/proofs; bpy только на main thread.
+
+2.5 Дополнительная оптимизация: вывод чисел без повторной алгебры корней
+
+В K/lift.py:37-84 действует фиксированный midpoint encoder:
+  M64(sum c_q*sqrt(q)) = sum c_q*rho_q,
+  rho_1=1; rho_q=(2*isqrt(q<<128)+1)/2^65 для q>1.
+На каноническом radical basis это Q-линейное отображение. Поэтому для
+ДОКАЗАННОГО X(w)=C+D*w один раз вычислить рациональные A=M64(C), B=M64(D).
+Положить A=a/L, B=b/L. При запрошенном w=p/q:
+  position = binary64((a*q+b*p)/(L*q));
+  UV       = binary64((a*q+b*p)/(L*p))
+во второй строке C,D — коэффициенты физической станции s(w) или r(w).
+Ширина p/q разбирается один раз из исходного alpha_text. На выходе не нужны
+новые sqrt, факторизация, расширение radical sums или gcd/reduction каждый тик.
+native/cftuv-core/src/pyfloat.rs:24-69 уже содержит CPython-compatible округление
+отношения целых; его нужно использовать и отдельно проверить в binding.
+
+Это совпадение с НЫНЕШНИМ midpoint converter, а не новое утверждение о correctly
+rounded идеальном алгебраическом числе. M64 НЕ мультипликативен и не заменяет
+точные знаки. Нельзя переносить его внутрь произведений/геометрических predicates.
+ENCLOSURE_BITS и канонический basis входят в cache identity. Source overrides,
+rounded follower here+(moved-there), нормали, miter и float32 publication остаются
+отдельными операциями прежней программы в прежнем порядке.
+
+Проверено независимо: 10 000 seeded synthetic scalars + 5 граничных случаев,
+50 025 сравнений, 0 расхождений; в том числе рациональная середина, binary64,
+UV, packed integer formulas, cancellation, ties-to-even и underflow.
+Это проверка скалярного вывода. Field batch parity и быстродействие native
+цикла на сценах пока НЕ измерены.
+
+2.6 Хост: настоящий mesh и непрерывный drag
+
+envelope_alpha_preview.py:48-55 задаёт debounce 150 мс и poll 30 мс;
+:259-275 каждый request сдвигает deadline и отменяет текущий job;
+:325-327 отвергает устаревший sequence. Для fast drag нужен отдельный режим
+без trailing debounce: брать последнее w на очередном UI frame.
+
+Разделить generation подготовки/построения cell и sequence публикации width.
+Движение мыши отменяет устаревшую публикацию, но не полезную сборку соседнего
+cell с той же preparation. После её завершения применить сертификат к самому
+новому w. При изменении source/selection/policy отменяются обе generation.
+
+Внутри устойчивой раскладки повторно использовать index/weld/loop plan,
+обновлять позиции, UV, актуальные owners и при необходимости seam flags.
+Использовать существующий production_mesh.py:891-924 writer.
+При изменении топологии собрать корректные arrays из cached domain chunks
+и переписать существующий mesh через текущий helper. Даже одно локальное
+изменение может требовать общей записи Blender Mesh; это отдельная стоимость.
+Нельзя обещать O(число dirty domains) для публикации: при глобальном изменении
+ширины обычно меняются все V позиций и все L UV loops, минимум O(V+L).
+
+Host guard план должен включать rounded position equality при weld,
+rounded UV equality для швов, wall-neighbour selection, miter и его отказы.
+Кандидаты зависимостей берутся из ПОТЕНЦИАЛЬНЫХ PhysicalChain/JunctionRelation
+связей, не только текущих видимых partners. При событии пройти worklist
+изменившихся interface signatures, учитывая объединение старых и новых связей.
+Не пересчитывать автоматически весь связный объект; передавать dirty дальше,
+только если изменился вход соседа. Не менять единицу solver на pChain.
+
+Все domain/interface buffers относятся к одному w и preparation epoch.
+Перед записью повторно проверить source revision, ownership и sequence.
+Публикация на main thread атомарна. Сохранить текущие cancel/DragOrigin,
+undo/redo, материалы и полное восстановление при отказе записи.
+
+2.7 Developable/unfold
+
+Точный batch до offset может иметь аффинные позиции, а итоговый host mesh — нет.
+K/lift_surface.py:721-729 интерполирует нормали по ТЕКУЩИМ barycentric weights.
+Нужно обновлять этот normal payload, затем host offset и miter с текущими
+нормалями соседей. Замороженные нормали базового кадра не дают exact tick.
+Planar-домен рядом с developable может зависеть от этих же нелинейных нормалей.
+
+Первый выпуск: unsupported/non-affine recipe => именованный полный путь для
+домена и нужных интерфейсов. Возможный следующий срез — faithful numeric recipe
+нормалей/offset без пересборки topology. Допущенный approximate preview может
+существовать отдельно с явной пометкой; он не входит в число exact served.
+Локальная оценка derivative*safety не является доказанной погрешностью на окне.
+
+Tightened chart bands дополнительно зависят от reach=w*(1+b):
+envelope_chart_band.py:1-12,213-230; production_export.py:870-875.
+При смене preparation/reach старый cell недействителен независимо от topology.
+
+3. СЛУЧАЙ 1146C49E: ДИАГНОЗ И ПРЕДЕЛ ТОЧНОСТИ
+
+Домен host-v0:patch-domain:1146c49e3661ee2471ae903d, cover.008.
+Профиль даёт исходное w0=0.04214220866560936 и старое окно
+(примерно 2.321522358767365e-14, 0.07741444544365941).
+В логах при w=0.048518914007: 5 faces / 10 vertices;
+на w=0.048518914008: 4 faces / 9 vertices, при том же coverage interval.
+
+Опубликованный последующий probe локализовал изменение до второго merge
+силуэта: edge (node:4, src:...:2265), union
+[src:2265, src:1554, node:3, node:4, node:5, src:1261].
+Трасса перед силуэтом: 6 faces / 12 vertices с обеих сторон (по существующему
+LAZY_DRAG_DESIGN.txt:94-108). Chord depth около 2.10e-7 м проходит бюджет 5 мм.
+Точная affine UV не проходит, поэтому код идёт в _tolerated:
+K/silhouette.py:459-468,530-549 -> uv_fit_residual:264-296.
+Порог silhouette_uv_slide=1/256. На первой указанной ширине merge получает
+KEPT_NOT_AFFINE; на второй residual=0.003906249999955837 <= 1/256, получает
+EDGES_WITHIN_UV_TOLERANCE и EDGES_DISSOLVED. После merge node:4 становится
+удаляемой вершиной степени 2. Это SILHOUETTE_UV_FIT с последующим dissolve.
+
+Идеальный закон порога выводится явно. Пусть chart-координаты x_i,y_i
+и raw station f_i=(s_i,r_i) аффинны. Центрировать x,y,f; C — матрица
+центрированных chart-координат, D=det(C^T C), deg D<=4. Для компоненты k:
+  R_ik = D*(f_ik-fbar_k) - C_i*adj(C^T C)*C^T*(f_k-fbar_k).
+deg R<=5; UV нормализуется на S*w. Условие допуска для каждого union vertex:
+  H_i(w)=R_iu^2+R_iv^2-tau^2*S^2*w^2*D^2 <= 0,
+при w>0, D>0. Степень <=10; отдельно guards невырожденности и ветвей max.
+Идеальный threshold определяется выходом одного H_i к нулю, но фактический
+cold predicate — binary64-программа с центрированием, scale, summation и hypot.
+
+В cover008_1146c49e_predicted_event.json из 1d89542 численная оценка:
+0.04851891400735791 м.
+В его kernel_truth последняя приведённая rejected ширина
+0.0485189140073579; следующая accepted 0.0485189140074579.
+Эти два наблюдения согласуются с диагнозом и лежат внутри прежнего окна.
+Они не доказывают единственность/монотонность всех промежуточных float решений.
+
+Почему старый расчёт 1d89542 сам по себе не даёт сертификата exact root:
+  - predict_event.py:82-103 заменяет исходные exact значения серединами оболочек
+    и строит slope из двух таких образцов;
+  - :139-152 ищет смены знака на сетке 400 отрезков и уточняет их бискекцией;
+  - :152 переводит обе границы обратно в float, поэтому строка
+    '0.048518914007357909..0.048518914007357909' не сохраняет exact bracket;
+  - полный preparation pickle, точные коэффициенты union и исходный focus dump
+    не приложены к этому публичному артефакту; они остались в D:/lazydrag-scratch.
+Это полезная численная диагностика, но не exact-root certificate. Замечание
+относится именно к старому predict_event.py, не к новому exact_event.py ниже.
+
+Дополнение 10ee372 закрывает часть этих пробелов. independent_focus.json
+содержит точные intercept/slope шести вершин union и их raw facts; SHA256
+6301b26cf4693add217eb623d58fecd6811f2d521e2b166ad0f746998e9185b7.
+Новый exact_event.json даёт полином степени 10 над полем степени 4,
+Q(sqrt(107895191192066),sqrt(196326880594514)), активная вершина src:1554.
+Идеальный real-arithmetic корень изолирован двумя точными рационалами:
+  644926988236610316286516578659826025116860239087 /
+  13292279957849158729038070602803445760000000000000;
+  40307936764788144767907286166239126569803764943 /
+  830767497365572420564879412675215360000000000000.
+Его десятичное приближение:
+  0.0485189140073579069392242035104757203040163726 м.
+Сертификат проверяет +/− на концах, отрицательную производную на изоляторе,
+D>0 и отрицательные margins прочих вершин. Это точный локально единственный
+корень ПРИ УСЛОВИИ записанных affine operands; третья проверенная ширина не
+доказывает эти законы во всём прежнем coverage interval.
+У исходного H есть множитель w^2; для положительного корня его можно убрать,
+получив степень 8 над тем же K. Ни 10, ни 8 не заявляются минимальной степенью
+корня. Его принадлежность более простому полю отдельно не исследована.
+
+В данном аудите сертификат независимо перепроверен без SymPy и Blender:
+scripts/independent_verify_ideal_lsq_event.py восстанавливает все шесть H из
+исходных operands в собственном четырёхкомпонентном Fraction field. Полином
+активной вершины совпал с опубликованным коэффициент-в-коэффициент; rational
+interval Horner с 320-bit sqrt bounds подтвердил все знаки, D и производную.
+Опубликованные bool-флаги сертификата не использовались как посылки проверки.
+Результат: VERIFIED_CONDITIONAL_IDEAL_LSQ_ROOT в independent_evidence.json.
+
+Ещё существеннее float_switch_observations.json из того же дополнения:
+81 sampled width, 24 наблюдённых переключения accepted/topology; 87 отдельных
+full materializations без hooks дали те же face/vertex counts. Например,
+0.0485189140073543 -> 0.0485189140073544 -> 0.0485189140073545 даёт
+reject -> accept -> reject. Численные значения width проходят host str(float)
+roundtrip (trailing zeros текста несущественны).
+Поэтому один идеальный корень НЕ описывает текущий cold materializer.
+24 наблюдения — нижняя граница числа обнаруженных переключений, не доказанный
+полный набор и не certified enclosure всей FP-полосы. Сохранённые логи и скрипты
+прочитаны; их 7 hashes из INDEPENDENT_RECEIPT.json совпали. Это проверка
+опубликованного свидетельства; Blender-запуск данного аудита по-прежнему отсутствует.
+Clean replay относится к одному saved-preparation domain и сравнивает status/
+counts, а не все batch bytes или host mesh; исходный fine dump не опубликован.
+Шаг fine samples 1e-16 примерно равен 14–15 binary64 ULP, поэтому он может
+пропускать дополнительные переключения между соседними образцами.
+
+Как новый дизайн обнаруживает случай:
+  - сохранить guard SILHOUETTE_UV_FIT для этого union ДО удаления node:4;
+  - в варианте A доказать допустимое окно faithful FP predicate, завершить его
+    до неопределённой полосы с именем SILHOUETTE_UV_FIT;
+  - в варианте B повторить именно этот predicate на новом w: изменившийся исход
+    немедленно инвалидирует trace, вызывает named full materialize и новую запись.
+В B для предотвращения ошибки не требуется предварительно знать w*.
+
+Для полного самостоятельного field replay всё ещё нужен portable preparation
+fixture этого домена (pickle остался на Windows) и retained construction DAG.
+Теперь scalar coefficients/operand keys/native build и полные SHA сцен доступны
+в 10ee372. Остаются доказательство operand laws и отдельная полная сертификация
+фактической float-программы; accepted/rejected samples её не заменяют.
+Не сериализовать новые доказательства через float. Идеальный полином можно
+перепроверять из опубликованных coefficients без Blender.
+
+В этом аудите независимо воспроизведён МЕХАНИЗМ на синтетическом квадрате:
+raw U=[0,0,k,0], V=0, k=1/1024; residual=k/(4*w), tau=1/256.
+Идеальное точное событие w=1/16; текущая uv_fit_residual даёт reject/accept/accept
+на 1/32,1/16,1/8. Это не выдаётся за повторение самого полевого домена.
+
+4. РЕЕСТР РЕШЕНИЙ, НЕ ЗАКРЫТЫХ ТЕКУЩЕЙ MATERIALIZE EVENT TABLE
+
+K = kernel/src/cftuv_envelope/materialize/;
+E = kernel/src/cftuv_envelope/; N = native/; H = cftuv/.
+Все file:line относятся к закреплённому продуктовому коммиту.
+Для w в метрах и S=scale: a=S*w; p=P+V*w; X=A+B*w; f=(s,r).
+Оценки степеней ниже УСЛОВНЫ: affine motion operands должны быть доказаны.
+Rational intermediates могут повышать степень; знаменатели проверяются отдельно.
+K означает multiquadratic coefficient field там, где речь идёт об алгебре.
+Наличие исходных скаляров в preparation не означает наличие их symbolic DAG.
+
+01. Coverage arrivals — уже частично покрыты.
+E/wavefront/coverage.py:116-185; K/interval.py:56-64,296-343.
+Для статической partition vertex: L(p)-S*w*sqrt(q)=0,
+w*=L(p)/(S*sqrt(q)), корень в имеющемся поле. Сохранить multiplicity,
+same-alpha и endpoint semantics; текущая table хранит enclosures.
+
+02. Effective alpha/contact/mixed-alpha.
+E/wavefront/conveyor.py:1650-1694,1887-1897; K/step.py:126-226.
+Requested w сравнивается с per-component contact alpha; корни взять из resolver
+и names window, а не искать заново. SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN —
+именованный результат. Материализационное окно обязано учитывать этот контракт.
+
+03. Reach, нулевая ширина, допустимость запроса.
+E/wavefront/conveyor.py:1831-1849; K/uv_law.py:43-51; K/admit.py:201-266.
+w=reach_cap — рациональное событие; w=0 — отдельная семантика, деление UV
+недопустимо. Surface/lift/topology policy admission обычно alpha-free, включить
+в key. Tightened preparation invalidation не заменяется старым interval hit.
+
+04. Coalesce, пустые куски и склейка контуров.
+K/coalesce.py:279-342,420-458,493-620; K/domain.py:559-606.
+Point equality, pairing half-edges, один цикл, crossings, area closure.
+Равенство affine координат — линейные корни; orientation/area — степень <=2.
+Не только выбранные merges: rejected contour checks тоже guards. Static group
+keys доказать отдельно, effective instance participation унаследовать из 02.
+
+05. Interning, совпадения и source identity.
+K/mesh.py:103-192; N/cftuv-mesh/src/intern.rs:48-135;
+K/clip.py:764-771,875-893.
+p_i=p_j, совпадение с именованной src точкой, duplicate/end collapse и collision.
+Linear coordinate equalities для affine points. Нужны latent candidates,
+provenance и отказ VERTEX_KEY_COLLISION; конечные vertex keys этого не заменяют.
+
+06. Ears, winding, convexity, simplicity, apex visibility.
+K/tessellate.py:58-249; N/cftuv-mesh/src/predicates.rs:15-108;
+N/cftuv-clip/src/tessellate.rs.
+D=det(p_j-p_i,p_k-p_i), deg<=2; signed area аналогично. Root D=0 может быть
+касательным или изолированным equality-event. Guards нужны на отвергнутых ears
+перед выбранным, содержащихся точках и промежуточных кольцах.
+
+07. W1 polygon/quad/fan/cap-пути.
+K/mesh.py:424-497,577-724,859-979;
+N/cftuv-mesh/src/tessellate.rs:428-518,562-606.
+Выбор зависит от простоты, convexity, UV-affinity, apex membership и rungs.
+Apex coincidence linear; orientation quadratic; UV identity см.08.
+Настоящие terminal/cap role, fan frame, profile k, topology law обычно
+compile-static при фиксированном frame. Не выдумывать новый width-selector k
+или cap policy; события нужны для membership/visibility/eligibility.
+
+08. Точная аффинность UV по карте.
+K/tessellate.py:253-308; N/cftuv-mesh/src/affine.rs:28-89;
+K/mesh.py:577-613,790-827; K/silhouette.py:299-302,415-430,511-528.
+G=D(0,1,2)*(f_i-f_0)-D(0,i,2)*(f_1-f_0)-D(0,1,i)*(f_2-f_0)=0.
+deg G<=3. Часто тождественный нуль выводится из station law; иначе cubic root
+не обязан быть SqrtSum. Выбор неколлинеарного base имеет собственные D!=0 guards.
+Не путать affine-in-chart, affine raw facts-in-width и конечный UV.
+
+09. Convex partition, допустимость диагонали, UV folds.
+K/convex_partition.py:104-246; K/mesh.py:774-855;
+N/cftuv-mesh/src/partition.rs:50-173,193-270.
+Diagonal inside/crossing/touch: D и endpoint dot, deg<=2; affine map G<=3;
+UV shoelace<=2. DP/greedy выбор числа pieces зависит от этих исходов.
+Порядок по фиксированным indices alpha-free только после доказательства
+upstream key order. Записывать все использованные проверки допустимости.
+
+10. Конфликт station facts и снятие JOIN.
+K/mesh.py:203-221,257-377; N/cftuv-mesh/src/stations.rs:87-223;
+K/domain.py:957-984.
+r_A=r_B, s_A+s_B=2*s_join, единственность отвечающего run: linear equalities
+при affine facts. STATION_VALUE_CONFLICT может запустить JOIN withdrawal
+и повторную материализацию всего домена. Нужен guard на этот путь, даже
+когда число конечных faces/verts не изменилось.
+
+11. Интерполяция станций по хорде.
+K/mesh.py:224-254,343-354; K/chord_station.py:177-299.
+Выбор оси, ненулевой span, коллинеарность, t=(p_axis-u_axis)/(v_axis-u_axis),
+0<=t<=1. Корни denominator/range и очищенных determinant equations.
+f=(1-t)f_u+t*f_v в общем rational, не автоматически affine.
+Статический station plan отдельно; current coverage participation отдельно.
+
+12. Corner snap и node-edge tolerance.
+K/clip_snap.py:163-229; K/clip.py:479-510,533-576;
+N/cftuv-clip/src/snap.rs:148-250,stage.rs:519-594.
+|p-c|^2=B^2 (degree<=2), уникальность ближайшего допустимого named corner,
+target occupancy; для static edge L(p)=0,+/-tau*|edge| (linear).
+Текущие line events закрывают часть coverage-node bands, но не все
+производные corner/chord/clip identity decisions. Broad phase без false negatives.
+
+13. Ветвления clipping вне простого пересечения source lines.
+K/clip.py:629-853,904-1011,1052-1089,1124-1171.
+Convex/ears, sign/zero area, prune duplicates, node ordering, glue cycle,
+inert collinear removal, area/boundary mismatch и fallback к исходным ears.
+Affine endpoints + static line дают p+(q-p)L(p)/(L(p)-L(q)): generally degree2/1.
+Повторные конструкции требуют DAG/denominator proof. Нужны sorting-axis/order
+и отрицательные guards; named fallback также может менять структуру.
+
+14. Подавление clip у шва или off-corner.
+K/clip.py:1263-1295,1442-1467.
+SOURCE/WALL против RIM, пересечение внутренних source edges, наличие src на
+угле source triangle. Route: boundary-kind equalities + crossing/membership
+предикаты. Это меняет accepted pieces/ear fallback и surviving nodes.
+
+15. Cell diagonal/chord verdict.
+K/clip_cells.py:375-403; K/clip.py:1173-1206,1489-1513;
+N/cftuv-clip/src/cells.rs:501-547,cut.rs:400+.
+Для hinge J=|k|^2 static, a=max(0,-min l_i), b=max(0,max l_i):
+ideal depth^2=J*(a*b/(a+b))^2; threshold J*a^2*b^2-B^2*(a+b)^2=0, deg<=4.
+Нужны extrema swaps, a,b positivity и denominator guards.
+ФАКТИЧЕСКИ код читает lo/hi enclosure(64), не ideal l_i. При фиксированном
+canonical basis и знаках affine rational coefficients эти lo/hi кусочно
+рационально-аффинны (E/exact_sqrt_sum.py:1186-1227,1623-1634).
+Добавить рациональные события coefficient=0 и active extrema; подставить
+actual a_hat,b_hat. Actual threshold тогда выводится точно как rational quartic
+или quadratic над Q(sqrt J); корень всё ещё не обязательно SqrtSum.
+Это полезный exact route, а не произвольная float uncertainty band.
+Для групп >=3 triangles bound 4*rho^2 preparation-static; динамично участие pieces.
+Один over-budget piece re-cuts всю cell: aggregate guard обязателен.
+
+16. SOURCE/RIM/WALL и точные внутренние UV seams.
+K/assemble.py:319-328,389-430; K/silhouette.py:575-619.
+r_A=r_B=0 -> SOURCE; r_A=r_B=S*w -> RIM; иначе WALL.
+Интерфейс убирается при точном равенстве station pairs на обоих концах.
+Linear equalities для affine facts, многие — тождества. Это влияет на FREE
+eligibility, station chains и seam flags без обязательного изменения counts.
+
+17. Source triangle, экстраполяция и lift tag.
+K/lift_surface.py:552-675,709-729; K/clip.py:904-915;
+K/assemble.py:132-169,199-251; K/domain.py:1084.
+Static triangle membership L(p)=0 linear; extrapolation L(p)^2=B^2*|e|^2
+quadratic; nearest max violation/ties — pairwise polynomial comparisons.
+Нужны max-winner/order guards. Неприклипованный SOURCE_TRIANGLES_V1 не получает
+в нынешнюю table все эти source triangles. Смена triangle меняет slope даже
+при неизменной connectivity; normal payload может быть нелинейным.
+
+18. Source-position correction, follower/revert и split.
+K/source_lift.py:260-390,429-500.
+|X-host|^2=B^2 deg<=2; dot(before_area_vector,after_area_vector)=0 deg<=4
+при affine positions. Actual code — rounded 3D arithmetic. Записывать each
+follower/revert iteration, драйверы, старые/новые позиции и последующий ear split.
+Их нельзя получить из final position_slopes, которые исключают эти операции.
+
+19. Silhouette plane/chord merge.
+K/silhouette.py:228-245,446-509.
+Newell N degree<=2; larger face определяется |N1|>=|N2|, boundary degree<=4.
+Plane-distance boundary ((X-C).N)^2-B^2*(N.N)=0, degree<=6.
+N.N=0 и finite — отдельные guards. Actual center/normal/hypot — binary64.
+Нужны все union vertices и промежуточные merged rings.
+
+20. Silhouette порядок merge-кандидатов.
+K/silhouette.py:398-406,434-444.
+Sort по atan2(|n1 cross n2|,n1.n2), затем vertex keys. После сортировки
+слияния читают уже изменённые faces/half-edges. Ideal ordering можно выразить
+сравнениями знаков/dot/norm (generic cleared degree до16), но current float
+atan2 и equality ties требуют faithful replay либо доказанной FP enclosure.
+Только исходная независимость face пар/vertex-disjoint edges недостаточна:
+ранний merge может сделать пары зависимыми. Проверять CURRENT read/write sets.
+
+21. Silhouette exact/approximate UV merge.
+K/silhouette.py:264-296,415-430,511-549.
+Exact branch см.08; ideal least-squares threshold degree<=10, формула раздел3.
+Scale>0, determinant>0, finite, max/abs winners, summation и hypot — части
+нынешнего FP oracle. Единственный ideal root не гарантирует один float switch.
+Доступны scalars; не хватает retained candidate DAG и доказательств округления.
+
+22. Silhouette vertex chord и UV slide.
+K/silhouette.py:253-261,640-698.
+E=end-start, Q=point-start, d=E.E, n=Q.E; t=clamp(n/d,0,1).
+Сначала d=0,n=0,n=d. Interior distance: (Q.Q)*d-n^2-B^2*d=0, deg<=4.
+UV residual numerator R=(f_i-f_start)*d-(f_end-f_start)*n, deg<=3;
+threshold |R|^2-tau^2*S^2*w^2*d^2=0, deg<=6; endpoint cases <=2.
+Фактический код rounded. Проверять ВСЮ накопленную цепочку удалённых точек.
+FREE boundary plan сознательно обходит UV tolerance, но сохраняет другие guards.
+
+23. Silhouette vertex order/protection/shortcut.
+K/silhouette.py:553-638,700-753.
+Sort по sag, затем key; generic squared-sag comparator после очистки denom
+degree<=6 для interior projections. Protected status зависит от degree/twins,
+FREE plan и boundary kind. Shortcut crossings, foreign point on segment/in
+triangle — orientations/dot, degree<=2. Нужны rejected removals и latent points.
+
+24. Numeric/refusal/resource branches.
+K/silhouette.py:243,275,283,296,318,540-549,843-860;
+K/domain.py:1106-1129; E/wavefront/conveyor.py:1900-1919.
+None/nonfinite, scale/normal=0, unsupported scalar и budget exhaustion меняют
+ответ. SKIPPED_WORK_BUDGET оставляет исходную несхлопнутую сетку.
+Budget — не geometric root. Прошлая цена<cap/2 НЕ доказательство будущей цены;
+настоящий counterexample pinned arithmetic входит в independent_evidence.json.
+Нужна доказанная цена полного пути на admissible width domain, полная проверка
+resource/refusal условий на target, или named full fallback. Нельзя молча
+квантовать width/ограничить denominator, чтобы упростить доказательство.
+
+25. Post-audit/validation и числовые diagnostics.
+K/domain.py:1130-1164; K/audit.py:87-99,182-259;
+K/silhouette.py:866-1082.
+Graph validity, seam consistency, rounded UV range [0,1] могут отказать.
+Soft counts/max residual/UV orientation меняются и без topology event.
+Нужны recipes пересчёта текущих чисел; старые counters не равны новому full answer.
+Не все telemetry changes — события геометрии, но различие должно быть объявлено.
+
+26. Имена/порядок записей.
+K/assemble.py:94-98,491-525; K/structure.py:11-14,61-88.
+Instance IDs зависят от effective alpha; их SHA-сортировка перенумеровывает
+region:N/claim:N и меняет raw ordering почти произвольно относительно w.
+Это не полезный algebraic event. Хранить stable lineage slots и восстанавливать
+текущие labels/loop order. Structure digest намеренно нормализует эти различия.
+
+27. Host weld и UV seam по округлённым значениям.
+H/envelope_production_weld.py:201-240,377-380,650-659.
+_hex(position) equality, equality UV tuples после конвертации. Switch может
+быть на rounding boundary, а не при точном algebraic equality координат.
+Проверять current emitted values или доказать stable rounding classes.
+HOST_WELD_PARTITION_CHANGED / HOST_UV_SEAM_CHANGED меняют layout/seam flags.
+
+28. Host wall partner, miter, offset.
+H/envelope_production_weld.py:141-194,310-398.
+Heading/partner selection, share=min(1,dot/reach^2), normalization, twin,
+MITER_LIMIT и residual/refusal. Scalar expressions + текущие normals соседей.
+Общего affine/Qsqrt switch promise нет. Применять точечный faithful host program
+или full host assembly; potential-interface closure входит в correctness.
+
+29. Alpha-free или наследуемые решения, не требующие отдельных корней.
+K/stations.py,frames.py; K/admit.py:201-266; construction clip_cells.py:222-358;
+source station plan/chord preparation; compile profile/cap/junction policies.
+При неизменной preparation эти facts статичны. Равенства/количество выбранных
+pieces на их основе наследуют guards предыдущих пунктов. Классификация
+STATIC должна иметь registry obligation, а не быть предположением по имени файла.
+
+Этот реестр охватывает найденные по коду семейства; он НЕ является заявлением,
+что все ветви уже инструментированы и доказаны. Исполняемый registry,
+construction proof и coverage mutants — обязательная работа реализации.
+
+5. FALLBACK, БЮДЖЕТЫ, TELEMETRY
+
+Имена fast-path отказов (геометрия при этом может считаться полным путём):
+LAZY_NO_RECORD, LAZY_OUTSIDE_CELL, LAZY_AT_EVENT, TRACE_INCOMPLETE,
+GUARD_CHANGED:<site>, GUARD_UNRESOLVED:<site>, OPERAND_LAW_UNPROVEN,
+NON_AFFINE_OUTPUT, DENOMINATOR_UNPROVEN, ALGEBRAIC_ROOT_UNSUPPORTED,
+FLOAT_GUARD_UNRESOLVED, PREPARATION_REACH_CHANGED, HOST_GUARD_CHANGED,
+LAZY_COLD_BUDGET_UNPROVEN, LAZY_RECORD_EVICTED, BACKEND_POLICY_MISMATCH.
+Это names proposed for implementation, не якобы уже существующие enum values.
+
+Неподтверждённый guard никогда не превращается в true. Семантический отказ
+full solver сохраняет своё исходное имя. Missing домен не исчезает из отчёта.
+PRICE_AT_RECORD_WIDTH может быть отдельной telemetry, но не оправдывает
+утверждение одинакового cold outcome при бюджетно-зависимой геометрии.
+Если хотят новый закон учёта цены ускоренного решателя, это отдельное именованное
+изменение контракта с явной приёмкой; текущий дизайн такого изменения не делает.
+
+На запрос логировать requested/applied width+sequence, preparation/cell/trace,
+путь A/B/C, failed guard/event kind, число исполняемых guards, rebuild domains,
+interface closure, emitted V/loops, topology writes, pending duration;
+раздельно guard/emit/IPC/assembly/mesh-write/depsgraph wall time,
+P50/P95/P99 input-to-mesh latency, cache bytes, max bigint bits, evictions,
+used/discarded prefetch. Делить certified/point-guarded/full/approximate/held.
+Покрытие по числу доменов недостаточно: один тяжёлый fallback может дать весь lag.
+
+6. ДОКАЗАТЕЛЬСТВО И ПРИЁМКА
+
+6.1 Неизменность структуры — индукция по typed trace. Одинаковые входные
+construction laws и guard outcomes дают ту же следующую операцию/состояние.
+Включить candidate generation, negative branches, loop exits, order/ties,
+lookup identities, numerical/exception/resource paths. Final mesh counts/hash
+и две-три точки не заменяют этого доказательства.
+
+6.2 Численные законы — exact coefficients / polynomial identity, denominator
+separation, правильная UV normalization. M64 tests отдельно от geometry guards;
+native packed emitter отдельно сравнить с прежним Python converter и float32
+host output. Сохранять staged source/normal/miter операции.
+
+6.3 События — root count/isolation, even/tangent roots, equality singletons,
+identically-zero, poles, overlapping bands и simultaneous batches. На rational
+target width exact sign доступен без вычисления алгебраического event time.
+Certified local window допустимо доказать без нахождения всех внешних корней.
+
+6.4 Field cross-check — full materialize с отключённым новым trace/cache против
+A/B на том же exact alpha_text. На всём доступном field corpus и обеих frozen
+scenes проверять exact points/facts/laws, emitted bytes, connectivity, owner/
+provenance/stations/seams, refusals и финальный host mesh с current normals/weld.
+Все исходы и skips учитывать. SKIPPED_STRUCTURE/KEYS внутри принятого окна —
+ошибка, а не исключённый sample (нынешний parametric_theorem.py:41-48 пропускает их).
+
+Ширины: seeded random rational interiors, близко к каждой границе и по обе
+стороны, representable exact roots, small positive width, длинные denominators,
+прыжки через несколько событий, reversal, AT_EVENT, новая base внутри старого
+cell, смена source revision/policy/backend, worker restart/eviction.
+Начальный практический объём: минимум 20 000 принятых проверок на сцену плюс
+каждый вид guard/отказа/граничного случая; это нагрузка теста, не доказательство
+по числу образцов. Не считать совпавшие итоговые counts полноценным сравнением.
+
+6.5 Mutants — по одному на каждый guard site/family и на опасные механизмы:
+пропуск rejected ear; greedy order swap; stale initial disjoint ties;
+удалённый operand; wrong UV denominator; three-point inference без degree proof;
+even root/pole omission; inward rounding; замена actual enclosure ideal law;
+source follower/revert omission; stale region/loop mapping; старые developable
+normals; неверные converter bits; половина cap как сертификат; missing native
+guard; stale async reply; missing potential seam partner; reuse другой preparation.
+Каждый мутант обязан вызвать mismatch или именованный отказ допуска fast path.
+
+6.6 tree_ab — cold и commit сравнить base f8f52ed с implementation branch:
+IDENTICAL на обеих сценах. В первом выпуске commit остаётся full path.
+Это регрессионный gate, он не доказывает A/B, когда они не вызываются на commit.
+Для будущего lazy commit нужен дополнительный batch/metadata/accounting gate.
+
+6.7 Безопасное поле — запуск только указанным Windows Blender -b scene
+--python-exit-code 1 --python script, без --factory-startup и без save.
+Перед/после сверить ПОЛНЫЙ SHA256 из frozen manifest; полные hashes опубликованы
+в INDEPENDENT_RECEIPT.json коммита 10ee372. Их наличие в чужом receipt не равно
+проверке локальной сцены. Только две разрешённые frozen scenes, corpus E:
+read-only. Scratch D:/lazydrag-scratch; свободно >=1.5 GB на участвующих дисках.
+Записывать PID своего процесса; другие процессы/Temp blends/quit/autosave не трогать.
+Heavy timing отдать параллельному quick-win треку, не конкурировать с ним.
+
+6.8 Когда drag_exact_ticks становится default.
+После нуля расхождений на принятых A/B paths, убитых mutants, доказанного
+fail-closed coverage, cold/commit IDENTICAL, bounded memory и проверки
+настоящего host writer в непрерывном drag. Для полевой приёмки согласовать
+целевую частоту; разумный первый target: P95 input-to-mesh <=33.3 мс (30 Hz)
+на устойчивых участках. 60 Hz требует <=16.7 мс и отдельного прохождения gate.
+Crossing latency и pending time мерить отдельно и включать в общую трассу;
+предлагаемый initial event target P95<=100 мс, не выдавать его за 30 FPS
+во время события. Эти значения — проектные критерии, не результаты этого аудита.
+Не включать default по одному условию «пересчитывается <2% доменов».
+
+7. ФАЙЛЫ РЕАЛИЗАЦИИ И ГРУБАЯ ОЦЕНКА
+
+Это инженерные рабочие дни одного сильного исполнителя, не прогноз скорости
+LLM. Сумма для строгой поставки с host parity: примерно 28–47 человеко-дней.
+Параллельная работа сокращает календарный срок, но proof/interface зависимости
+не исчезают. Оптимизация всех nonlinear developable recipes в эту сумму не входит.
+
+1) Construction DAG, trace registry, Python/native instrumentation: 8–12 д.
+   K/domain.py,mesh.py,coalesce.py,clip.py,source_lift.py,lift_surface.py,
+   silhouette.py,tessellate.py,convex_partition.py,assemble.py;
+   new K/drag_program.py,drag_guards.py;
+   N/cftuv-mesh/src/{intern,stations,tessellate,partition,affine}.rs,
+   N/cftuv-clip/src/{stage,cut,snap,cells,tessellate}.rs,
+   N/cftuv-python/src/materialize_w1.rs и clip binding.
+
+2) Local intervals/event types/point replay contract: 4–7 д.
+   K/interval.py,step.py,parametric.py,clip_cells.py;
+   new K/drag_intervals.py, tests on root/identity/FP guards.
+   Сначала simple exact families и faithful point replay; универсальный solver
+   всех algebraic/FP switches не является входным условием этого варианта.
+
+3) Worker records, 1D index, memory and compact protocol: 2–4 д.
+   K/memo.py,step.py; H/envelope_worker_store.py,envelope_domain_pool.py,
+   envelope_production_task.py,envelope_production_result.py.
+   Новый bounded substore, явные generation/eviction, byte accounting.
+
+4) Exact output projector/native packed numeric loop: 2–4 д.
+   K/parametric.py,lift.py,uv_law.py; N/cftuv-core/src/pyfloat.rs,
+   new native emitter/binding. Existing converter не переписывать без parity gate.
+
+5) Continuous scheduler, cached host plans/guards, atomic real mesh: 5–8 д.
+   H/envelope_alpha_preview.py,envelope_width_live.py,envelope_width_session.py,
+   envelope_width_incremental.py,envelope_width_composite.py,
+   envelope_width_mesh_preview.py,envelope_production_weld.py,
+   envelope_production_mesh.py. Если удобнее, отдельный drag scheduler;
+   исходный general preview debounce менять только в соответствующем режиме.
+
+6) Named fallback/resources/developable exclusion/telemetry: 2–4 д.
+   K/step.py,admit.py; H/envelope_production_export.py,
+   envelope_width_live.py,envelope_width_composite.py; tools/blender_drag_ticks.py.
+   Сложные nonlinear recipes сначала full, без ложного статуса exact.
+
+7) Full-vs-fast proof harness, mutants, field/host gates: 5–8 д.
+   kernel/tests/parametric_theorem.py, new kernel/tests/test_drag_*;
+   tests/test_architecture.py, existing host width tests;
+   tools/blender_tree_ab.py,tools/blender_drag_ticks.py и отдельные малые probes.
+   Не считать ручное наблюдение/количество random samples доказательством полноты.
+
+Предлагаемый первый spike на 3–5 дней ВНУТРИ общей оценки:
+сохранить portable preparation fixture 1146c49e; сделать retained inputs+faithful UV-fit
+guard без влияния на продукт; проверить M64 emitter на реальных outputs;
+измерить размер guard program и стоимость replay/host write. После этого
+зафиксировать scope первого exact subset и обновить estimate. Не начинать
+с полной реализации Sparse Octree или общего algebraic root solver.
+
+Сочетание с rust/drag-quick:
+PARAMETRIC memo остаётся источником коэффициентов/экономии на cold и misses;
+он не становится структурным сертификатом автоматически. Parent scan reuse
+даёт immutable manifest для fast scheduler и полезен на invalidations.
+Новый cache ссылается на memo, не дублирует его payload. Интеграция выполняется
+в implementation branch после quick wins; исходный quick branch не меняется.
+
+8. РИСКИ И ПРАВИЛА ОСТАНОВКИ
+
+Немедленно снять fast capability с затронутого пути при ложном accepted guard,
+незарегистрированном structure/host law switch, ошибке numeric bound или
+пропущенной зависимости. Не ждать «ещё день», продолжая выдавать exact.
+Работа продолжается с именованным full path, пока причина не устранена.
+
+Не принимать универсальность affine law по samples. Не подменять binary64
+oracle ideal algebraic threshold. Не утверждать Qsqrt representation всех
+event times. Не принимать past half-budget как доказательство. Эти ошибки
+могут давать очень редкие, но именно молчаливые изменения ответа.
+
+Stop/re-scope performance track, если residual guard program выполняет почти
+весь старый materializer; если cold compilation/proofs добавляют >15% без
+окупаемости на типичном drag; если event/host rewrite доминирует над frame
+budget; если bounded cache thrashes или память не учитывает exact DAG.
+15% — предложенный performance budget, не эвристика изменения геометрии.
+
+Не менять product law ради удобного порядка ties или fixed topology без
+отдельного имени, review и приёмки. Сам факт разрешённых именованных эвристик
+не делает новый ответ эквивалентным cold. У текущего memo/trace source code,
+policies и numeric versions должны быть проверяемые fingerprints.
+
+Решение по дизайну: начать с гибрида A/B/C и compiled output, расширять
+интервальную сертификацию измеряемыми семействами. Это сохраняет цель настоящего
+меша и правило «не исчезать молча», одновременно убирая необходимость заранее
+решить каждое возможное будущее procedural/float событие всего материализатора.
+
+ИСТОЧНИКИ
+
+[S1] https://github.com/helmdubo/CFTUV/blob/f8f52ed75dce0ecb650d8f1f45dcb586597b1de0/AGENTS.md
+[S2] https://github.com/helmdubo/CFTUV/blob/a4e9451f/artifacts/drag_profile_20261019/DRAG_PROFILE.txt
+[S3] https://github.com/helmdubo/CFTUV/blob/a4e9451f/artifacts/drag_profile_20261019/cover008_focus_change_inside_interval.json
+[S4] https://github.com/helmdubo/CFTUV/tree/1d89542a9fcf62007d23c6335b986e112a1ed20b/artifacts/lazy_drag_20261019
+[S5] Все file:line выше: https://github.com/helmdubo/CFTUV/tree/f8f52ed75dce0ecb650d8f1f45dcb586597b1de0
+[S6] Basch et al., Kinetic Data Structures: Animating Proofs Through Time,
+     https://graphics.stanford.edu/~comba/papers/socg.pdf
+     Принцип certificates и событий их нарушения; здесь параметром служит width.
+[S7] CGAL Algebraic Kernel manual,
+     https://doc.cgal.org/6.1/Algebraic_kernel_d/index.html
+     Представление polynomial+isolating interval, root multiplicity/sign queries.
+     Это референс дизайна, не рекомендация немедленно подключать CGAL к CFTUV.
+[S8] Новое дополнение, прочитанное при финальной сверке ветки:
+     https://github.com/helmdubo/CFTUV/tree/10ee3726c70f1f48251087853228243d54a8198f/artifacts/lazy_drag_20261019
+     Точный идеальный корень, исходные exact operands и наблюдения FP oscillation.
