@@ -223,11 +223,15 @@ class AlphaPreviewScheduler:
         hold: Callable[[], bool] | None = None,
         idle: Callable[[], tuple | None] | None = None,
         settle: Callable[[PreviewRequestV1, float], bool] | None = None,
+        defer: Callable[[PreviewRequestV1, object], bool] | None = None,
     ) -> None:
         self._label = label
         self._idle = idle
         #: LIVE_DRAG_SETTLE_ON_PAUSE_V1: `settle(заказ, сейчас) -> True` - готовый потоковый результат ждёт (рука движется); ждущий - `_settling`.
         self._settle = settle
+        #: LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: рука остановилась, а в полёте потоковый заказ НОВЕЕ и другой ширины - `defer(заказ, результат) -> True` оставляет ждавший
+        #: ждать новейшего (он заменит ждавший, когда ляжет); `False` - ждавший ложится сейчас.
+        self._defer = defer
         self._settling = None
         #: Номер последнего НЕпотокового заказа (и снятия): результат с номером не ниже применяется, если после него шли только потоковые.
         self._last_plain = 0
@@ -390,21 +394,52 @@ class AlphaPreviewScheduler:
                 self._discard_as_stale(self._settling[0])
             self._settling = (request, job, value)
             return
+        if request.stream and self._settling is not None and self._settling[0].sequence < request.sequence:
+            # LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: ждавший (старше) не ляжет после новейшего - выброшен как устаревший.
+            self._discard_as_stale(self._settling[0])
+            self._settling = None
         self._apply_value(request, job, value)
 
     def _release_settled(self) -> None:
-        """LIVE_DRAG_SETTLE_ON_PAUSE_V1: ждавший результат применяется, как только `settle` его отпустил (рука остановилась)."""
+        """LIVE_DRAG_SETTLE_ON_PAUSE_V1: ждавший результат применяется, как только `settle` его отпустил (рука остановилась).
+
+        LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: в полёте потоковый заказ новее и другой ширины - `defer` решает, ждать ли его (иначе на остановке легли бы два такта подряд).
+        """
 
         if self._settling is None:
             return
         request, job, value = self._settling
         if self._settle is not None and self._settle(request, self._clock()):
             return
+        newer = self._job_request
+        if (
+            self._defer is not None
+            and self._job is not None
+            and newer is not None
+            and newer.stream
+            and newer.sequence > request.sequence
+            and newer.alpha != request.alpha
+            and self._defer(request, value)
+        ):
+            return
         self._settling = None
         if request.sequence <= self._retired_through or (request.sequence != self._sequence and request.sequence < self._last_plain):
             self._discard_as_stale(request)
             return
         self._apply_value(request, job, value)
+
+    def release_settled_now(self) -> bool:
+        """LIVE_DRAG_SETTLE_AT_CONFIRM_V1: ждавший остановки руки результат ложится СЕЙЧАС (подтверждение: рука отпустила, и посчитанный такт свежее кадра на экране). `True` - он был и не устарел."""
+
+        if self._settling is None:
+            return False
+        request, job, value = self._settling
+        self._settling = None
+        if request.sequence <= self._retired_through or (request.sequence != self._sequence and request.sequence < self._last_plain):
+            self._discard_as_stale(request)
+            return False
+        self._apply_value(request, job, value)
+        return True
 
     @property
     def settling(self):

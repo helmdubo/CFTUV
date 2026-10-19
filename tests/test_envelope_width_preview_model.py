@@ -973,12 +973,30 @@ def test_a_geometry_update_of_the_decal_that_we_did_not_cause_drops_the_model_at
     assert preview.note_decal_updates(controller, [_update(mesh_uid)]) == ""
 
 
+def test_our_write_reported_by_two_depsgraphs_is_ours_twice_and_only_a_second_report_of_one_is_external(monkeypatch):
+    """OWN_WRITE_GENERATION_V1: два окна или два слоя вида докладывают об одной нашей записи дважды - оба доклада наши (булева метка второй читала как внешний: модель снята, линии)."""
+
+    world = _owned(monkeypatch)
+    controller, owner = world.controller, world.controller.width_mesh_owner
+    mesh_uid = world.mesh.session_uid
+    assert preview.preview_mesh_now(controller, 0.27) is not None
+    for _write in range(2):
+        assert preview.note_decal_updates(controller, [_update(mesh_uid)], "window A") == ""
+        assert preview.note_decal_updates(controller, [_update(mesh_uid)], "window B") == ""
+        assert controller.width_model is not None and not owner.pending_own_update
+        assert preview.preview_mesh_now(controller, 0.28) is not None and owner.pending_own_update
+    assert preview.note_decal_updates(controller, [_update(mesh_uid)], "window A") == ""
+    # Второй доклад того же depsgraph без нашей записи между ними - внешний.
+    assert preview.note_decal_updates(controller, [_update(mesh_uid)], "window A") == preview.DECAL_CHANGED_EXTERNALLY
+    assert _is_dropped_clean(controller, preview.DECAL_CHANGED_EXTERNALLY)
+
+
 def test_a_depsgraph_update_carries_an_evaluated_copy_and_the_original_is_what_is_compared(monkeypatch):
     """`DepsgraphUpdate.id` в Blender — вычисленная копия с нулевым `session_uid`; тождество берётся у `id.original` (найдено смоком, не угадано)."""
 
     world = _owned(monkeypatch)
     controller, owner = world.controller, world.controller.width_mesh_owner
-    owner.pending_own_update = False
+    assert owner.claim_update(None)  # наша запись доложена: дальше обновления этого depsgraph - внешние
 
     def evaluated(uid, original):
         return SimpleNamespace(id=SimpleNamespace(session_uid=0, original=original), is_updated_geometry=True)

@@ -312,6 +312,10 @@ class EnvelopeDebugSessionController:
         self.width_drag_origin = None
         #: `LiveDragLogV1` (LIVE_DRAG_STREAM_V1, `envelope_width_stream`): журнал последнего перетаскивания с живым точным мешем либо `None` (настройка выключена).
         self.width_live_drag = None
+        #: Идёт запись ширины подтверждения живого перетаскивания (LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1): её калбэк пишет меш без линий.
+        self.width_confirm_live = False
+        #: `(ширина, сдвиг)` кадра события руки, который ещё не записан (LIVE_DRAG_WRITE_COALESCED_V1: пишет таймер, один раз на такт главного цикла) либо `None`.
+        self.width_frame_pending = None
         #: `SourceCheckV1`: отпечаток массивов меша источника и отпечаток ревизии, что полный путь дал для него (`envelope_source_check`): шаг ширины не обходит bmesh, пока байты те же.
         self.width_source_check = None
         self.reset_width_mesh_preview()
@@ -573,6 +577,8 @@ class EnvelopeDebugSessionController:
         self.width_drag_active = False
         self.width_drag_origin = None
         self.width_live_drag = None
+        self.width_confirm_live = False
+        self.width_frame_pending = None
         self.width_source_check = None
         self.reset_width_mesh_preview()
         self._invalidation_count += 1

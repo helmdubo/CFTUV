@@ -87,7 +87,7 @@ from .envelope_alpha_preview import (
 from .envelope_gc_pause import gc_paused, gc_paused_function
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
 from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
-from .envelope_width_stream import SETTLE_PENDING
+from .envelope_width_stream import SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
@@ -386,25 +386,99 @@ def width_event_preview(controller, width: float, offset: float, owners=None):
     в журнале перетаскивания (`LIVE_DRAG_LINES_FALLBACK_NO_MESH_FRAME`).
     """
 
+    pending = getattr(controller, "width_frame_pending", None)
+    if pending is not None and pending[0] == width:
+        controller.width_frame_pending = None  # LIVE_DRAG_WRITE_COALESCED_V1: кадр ждавшей ширины пишется сейчас - второй записи таймером не будет
     state = preview_mesh_now(controller, width, owners)
     if live_drag_mesh_only(controller):
+        log = controller.width_live_drag
         if state is not None:
+            if getattr(controller, "width_confirm_live", False):
+                log.count(log.outcomes, NO_LINES_AFTER_CONFIRM)  # LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: меш остаётся, линий нет, пока COMMIT не перепишет его
             if controller.width_preview is not None:
                 set_preview(controller, None)
             return state
-        controller.width_live_drag.count(controller.width_live_drag.refused, LINES_FALLBACK_NO_MESH_FRAME)
+        log.count(log.refused, LINES_FALLBACK_NO_MESH_FRAME)
     preview_now(controller, width, offset, frozenset() if state is None else state.moving)
     return state
 
 
 #: LIVE_DRAG_MESH_ONLY_V1: кадр меша не записан при живом точном меше - линии превью показаны как откат (назван в журнале).
 LINES_FALLBACK_NO_MESH_FRAME = "LIVE_DRAG_LINES_FALLBACK_NO_MESH_FRAME"
+#: LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: подтверждение живого перетаскивания - калбэк ширины пишет кадр меша и НЕ считает линий (иначе линии придержанных патчей вспыхивали на отпускании
+#: и стояли до применения COMMIT - секунды на `cover.008`, а при отказе COMMIT - дольше).
+NO_LINES_AFTER_CONFIRM = "LIVE_DRAG_NO_LINES_AFTER_CONFIRM"
 
 
 def live_drag_mesh_only(controller) -> bool:
-    """LIVE_DRAG_MESH_ONLY_V1: идёт перетаскивание с живым точным мешем - линии превью (оверлей) не показываются, виден только настоящий меш."""
+    """LIVE_DRAG_MESH_ONLY_V1: идёт перетаскивание с живым точным мешем - линии превью (оверлей) не показываются, виден только настоящий меш.
 
-    return bool(getattr(controller, "width_drag_active", False)) and getattr(controller, "width_live_drag", None) is not None
+    То же на подтверждении такого перетаскивания (`width_confirm_live`, LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1): запись ширины и её калбэк идут уже после конца перетаскивания.
+    """
+
+    if getattr(controller, "width_live_drag", None) is None:
+        return False
+    return bool(getattr(controller, "width_drag_active", False)) or bool(getattr(controller, "width_confirm_live", False))
+
+
+# --------------------------------------------------------------------------
+# Кадр меша события руки (LIVE_DRAG_WRITE_COALESCED_V1)
+# --------------------------------------------------------------------------
+
+
+class _FrameTimers:
+    """`bpy.app.timers` для слива кадра события (лениво; инструмент замера подменяет его и сливает сам)."""
+
+    def register(self, function, first_interval):
+        import bpy
+
+        bpy.app.timers.register(function, first_interval=first_interval)
+
+
+FRAME_TIMERS = _FrameTimers()
+
+
+def queue_event_frame(controller, width: float, offset: float) -> bool:
+    """LIVE_DRAG_WRITE_COALESCED_V1: событие руки при живом точном меше не пишет меш само - ширина запомнена, кадр пишет таймер (`flush_event_frame`) на следующем такте главного
+    цикла, ОДИН раз на сколько угодно событий между тактами и по самой поздней ширине. В GUI каждая запись меша (`mesh.update()`) - копия COW, нормали и пересборка батча GPU за O(вершин)
+    на главном потоке; мышь с частым опросом присылает несколько событий на такт. `True` - кадр отложен (иначе событие пишет само, как прежде)."""
+
+    if not live_drag_mesh_only(controller) or getattr(controller, "width_confirm_live", False):
+        return False
+    log = controller.width_live_drag
+    log.frame_events += 1
+    pending = getattr(controller, "width_frame_pending", None)
+    controller.width_frame_pending = (float(width), float(offset))
+    if pending is not None:
+        log.frames_coalesced += 1  # кадр прежней ширины не писался: его заменила эта
+        return True
+    FRAME_TIMERS.register(lambda: flush_event_frame(controller), 0.0)
+    return True
+
+
+def flush_event_frame(controller):
+    """Таймер LIVE_DRAG_WRITE_COALESCED_V1: кадр самой поздней ширины событий - в меш (одна запись). Перетаскивание кончилось - ничего. `None` (таймер не повторяется)."""
+
+    pending = getattr(controller, "width_frame_pending", None)
+    controller.width_frame_pending = None
+    if pending is None or not getattr(controller, "width_drag_active", False) or controller.width_live_drag is None:
+        return None
+    controller.width_live_drag.frame_writes += 1
+    width_event_preview(controller, *pending)
+    return None
+
+
+def settle_at_confirm(controller) -> bool:
+    """LIVE_DRAG_SETTLE_AT_CONFIRM_V1: подтверждение, а точный такт уже посчитан и ждёт остановки руки - он ложится СЕЙЧАС (пока перетаскивание ещё идёт: тем же применением,
+    сдвинутый кадром модели к ширине отпускания), а не выбрасывается: иначе до COMMIT экран держал бы кадр модели старой структуры. Отмена так не делает (возврат). `True` - лёг."""
+
+    scheduler, log = getattr(controller, "width_live", None), getattr(controller, "width_live_drag", None)
+    if scheduler is None or log is None or getattr(scheduler, "settling", None) is None:
+        return False
+    applied = scheduler.release_settled_now()
+    if applied:
+        log.count(log.outcomes, SETTLE_APPLIED_AT_CONFIRM)
+    return applied
 
 
 # --------------------------------------------------------------------------
@@ -561,7 +635,17 @@ def note_depsgraph(context, depsgraph) -> str:
     controller = _controller_of(context)
     if controller is None or controller.width_mesh_owner is None or depsgraph is None:
         return ""
-    return note_decal_updates(controller, depsgraph.updates)
+    return note_decal_updates(controller, depsgraph.updates, _depsgraph_key(depsgraph))
+
+
+def _depsgraph_key(depsgraph):
+    """Ключ depsgraph для поколения своей записи (OWN_WRITE_GENERATION_V1): адрес - у каждого слоя вида свой и постоянный."""
+
+    pointer = getattr(depsgraph, "as_pointer", None)
+    try:
+        return pointer() if pointer is not None else id(depsgraph)
+    except (ReferenceError, RuntimeError):
+        return id(depsgraph)
 
 
 def sync_width_field(context=None) -> bool:
@@ -867,6 +951,7 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             hold=lambda: _in_flight(controller.alpha_preview),
             idle=lambda: _live_drag_idle(controller),
             settle=lambda request, now: settle_hold(controller.width_live_drag, request, now, drag_active=controller.width_drag_active),
+            defer=lambda request, live: settle_defer(controller.width_live_drag, request, same_layout_of(controller.width_displayed, live.sample)),
         )
         controller.width_live = scheduler
     return scheduler
@@ -1124,7 +1209,9 @@ __all__ = (
     "follow_active_object",
     "has_preview_runs",
     "note_depsgraph",
+    "flush_event_frame",
     "preview_now",
+    "queue_event_frame",
     "reconcile_after_history",
     "request_drag_tick",
     "remember_build",
@@ -1135,6 +1222,7 @@ __all__ = (
     "scheduler_of",
     "schedule_width_live",
     "set_preview",
+    "settle_at_confirm",
     "settle_width_live",
     "status_lines",
     "sync_width_field",
