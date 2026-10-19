@@ -332,7 +332,8 @@ def plan_tick(grade, displayed, model, state, alpha: float, stream=None) -> Incr
         for patch_id in verify_batch(candidates, stream.verified, alpha, stream.batch):
             served.remove(patch_id)
             held[patch_id] = VERIFY_BACKGROUND
-    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started, deferred=deferred)
+    splice = stream is not None and stream.splice
+    return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started, deferred=deferred, splice=splice)
 
 
 def rebase_served(plan: IncrementalPlanV1, displayed: PreviewSampleV1, alpha: float) -> dict:
@@ -377,12 +378,11 @@ def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None,
 
     incremental = plan is not None and plan.incremental
     if incremental:
-        composite = compose_sample(displayed, previous, run.results, alpha=alpha, offset=offset)
+        composite = compose_sample(displayed, previous, run.results, alpha=alpha, offset=offset, splice=plan.splice)
         if not isinstance(composite, str):
-            # Образец сложен из образца на экране (обслуженные двигает модель, посчитанные ложатся поверх): массивов меша у такта нет, их держит образец.
-            return LiveRunV1(
-                run, None, composite.sample, _model_or_refusal(composite.sample, trust), None, trust, (), replace(plan, composite=True, seconds=plan.seconds + composite.seconds)
-            )
+            # Образец сложен из образца на экране (обслуженные двигает модель, посчитанные ложатся поверх; COMPOSITE_SPLICE_V1 - раскладка группы переложена): массивов меша у такта нет, их держит образец.
+            done = replace(plan, composite=True, spliced=composite.spliced, seconds=plan.seconds + composite.seconds)
+            return LiveRunV1(run, None, composite.sample, _model_or_refusal(composite.sample, trust), None, trust, (), done)
         plan = replace(plan, fallback=composite)  # составить не вышло: путь этапа A (результаты ВСЕХ доменов: сдвинутые обслуженные и посчитанные), причина названа
         run = replace(run, results=(*run.results, *rebase_served(plan, displayed, alpha).values()))
     arrays = build_mesh_arrays(run.results, offset, reports=not lean)

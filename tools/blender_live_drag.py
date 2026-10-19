@@ -143,7 +143,7 @@ def run_drag(session, args, report: dict) -> None:
             ticks.append({  # per applied tick: its decision and the parent laps since the previous apply (the ticks are sequential: one flight)
                 "sequence": request.sequence, "alpha": request.alpha, "compute": float(getattr(job, "seconds", 0.0)), "laps": laps.snapshot(), "run_wall": float(getattr(value.run, "wall_seconds", 0.0)),
                 "plan": None if plan is None else {"mode": plan.mode, "reason": plan.reason, "served": len(plan.served or ()), "held": held, "composite": plan.composite,
-                                                   "fallback": plan.fallback, "deferred": getattr(plan, "deferred", "")},
+                                                   "fallback": plan.fallback, "deferred": getattr(plan, "deferred", ""), "spliced": getattr(plan, "spliced", "")},
             })
         laps.reset()
 
@@ -154,7 +154,7 @@ def run_drag(session, args, report: dict) -> None:
     runtime = begin_adjust(context, (0.0, 0.0), ViewScaleV1((0.0, 0.0), 1e-3))
     if isinstance(runtime, str):
         raise RuntimeError(f"the drag did not start: {runtime}")
-    costs, clock = [], time.perf_counter()
+    costs, samples, clock = [], [], time.perf_counter()
     for width, pause in path:
         clock += args.interval + (args.pause if pause else 0.0)
         drive_until(scheduler, clock)
@@ -165,6 +165,7 @@ def run_drag(session, args, report: dict) -> None:
         else:
             events.append(("step", -1, width, time.perf_counter()))
         costs.append(time.perf_counter() - started)
+        samples.append((clock, started, costs[-1]))  # when the event was due, when the main loop got to it (late: a step of the scheduler or waiting for the GIL), its cost
     drive_until(scheduler, time.perf_counter() + args.dwell)
     release_at = time.perf_counter()
     report["release_at"] = release_at
@@ -191,6 +192,8 @@ def run_drag(session, args, report: dict) -> None:
     rows = step_metrics([item for item in events if item[0] != "exact" or item[3] <= release_at], release_at)
     report["exact_events"] = [list(item) for item in events if item[0] == "exact"]
     report["steps"], report["event_cost"] = rows, drag_ticks.stats(costs)
+    report["event_samples"] = samples
+    report["event_late"] = drag_ticks.stats([started - due for due, started, _cost in samples])
     summarize(report, rows, log)
 
 

@@ -89,6 +89,9 @@ class IncrementalPlanV1:
     fallback: str = ""
     #: LIVE_DRAG_STREAM_V1: срок сверки (`INCREMENTAL_VERIFY_PERIOD_*`), отложенный потоковым тактом, пока рука движется (пусто - не откладывали).
     deferred: str = ""
+    #: COMPOSITE_SPLICE_V1 (потоковый такт): смена раскладки группы перекладывается в составном образце, а не откатом на весь меш; `spliced` - имя причины перекладки, если она была.
+    splice: bool = False
+    spliced: str = ""
 
     @property
     def incremental(self) -> bool:
@@ -105,11 +108,13 @@ class StreamPolicyV1:
 
     `defer` - срок сверки (`DEFERRABLE_REASONS`) не делает такт полным: сверка идёт фоном, партиями доменов внутри тактов (DRAG_VERIFY_BACKGROUND_V1).
     `verified` - `{патч: ширина последнего точного счёта домена}`; `batch` - сколько обслуживаемых доменов такт считает заново ради сверки (0 - ни одного).
+    `splice` - смена раскладки группы перекладывается в составном образце (COMPOSITE_SPLICE_V1), а не откатом на массивы всего меша.
     """
 
     defer: bool = True
     verified: object = None
     batch: int = 0
+    splice: bool = True
 
 
 #: Поводы полного такта, которые потоковый такт не исполняет полным тактом (сверка идёт фоном): это сроки, а не невозможность инкрементального такта.

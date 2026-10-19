@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -278,6 +279,11 @@ def test_a_verified_domain_whose_structure_changed_is_named_and_counted():
     assert log.verify_outcomes == {stream.STRUCTURE_CHANGED: 1, stream.WELD_CHANGED: 1}  # структура та же, но сварка разошлась: не «тот же»
     assert (log.structure_changes, log.layout_changes, log.weld_changes, log.weld_position_mismatch) == (1, 2, 1, 3)  # раскладка сменилась без смены структуры - тоже счёт
     assert "ADAPTER_WELD_POSITION_MISMATCH up to 3" in stream.status_line(log) and "weld diverged in 1 ticks" in stream.status_line(log)
+    assert log.fallbacks == {"INCREMENTAL_COMPOSITE_WELD_CHANGED": 1} and "whole-mesh rollbacks" in stream.status_line(log)
+    spliced_plan = dataclasses.replace(weld, fallback="", spliced="INCREMENTAL_COMPOSITE_LAYOUT_CHANGED", composite=True)
+    spliced = SimpleNamespace(plan=spliced_plan, run=welded.run, sample=sample({0: "a", 1: "B", 2: "C"}, "newest"))
+    stream.note_applied(log, SimpleNamespace(alpha=0.26, sequence=9, requested_at=1.9), spliced, welded.sample, (1.9, 2.0, 2.0, 2.0))
+    assert log.spliced == {"INCREMENTAL_COMPOSITE_LAYOUT_CHANGED": 1} and log.layout_changes == 3 and "COMPOSITE_SPLICE_V1" in stream.status_line(log)
 
     other = SimpleNamespace(plan=None, run=SimpleNamespace(results=[]), sample=SimpleNamespace(domains=[SimpleNamespace(patch_id=5, structure="x")], key=("other",), layout_digest="z"))
     log.key = ("first",)

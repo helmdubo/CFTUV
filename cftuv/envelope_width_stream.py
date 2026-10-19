@@ -86,6 +86,9 @@ class LiveDragLogV1:
     #: (`ADAPTER_WELD_POSITION_MISMATCH` массивов такта): обслуженный домен равен точному лишь с точностью округления, и побитовая сварка может развести вершины.
     weld_changes: int = 0
     weld_position_mismatch: int = 0
+    #: Такты, чья раскладка группы переложена (COMPOSITE_SPLICE_V1: имя причины -> сколько) и что откатились на массивы всего меша (имя отката -> сколько).
+    spliced: dict = field(default_factory=dict)
+    fallbacks: dict = field(default_factory=dict)
     #: Сколько доменов не сверено на ширине курсора, когда простой заказал последний такт: простой, что не продвинулся, больше не заказывает.
     idle_left: int | None = None
     #: Срок сверки, не исполненный полным тактом: имя -> сколько тактов; полные такты по другим причинам: имя -> сколько.
@@ -142,8 +145,12 @@ def note_applied(log: LiveDragLogV1, request, live, before, moments: tuple) -> f
             log.count(log.deferred, plan.deferred)
         computed = {int(item.patch_id) for item in live.run.results if item.placement != PLACEMENT_REBASED}
         checked = {patch for patch, name in (plan.held or {}).items() if name == VERIFY_BACKGROUND}
-        weld_changed = plan.fallback == COMPOSITE_WELD_CHANGED
+        weld_changed = COMPOSITE_WELD_CHANGED in (plan.fallback, getattr(plan, "spliced", ""))
         log.weld_changes += int(weld_changed)
+        if getattr(plan, "spliced", ""):
+            log.count(log.spliced, plan.spliced)  # COMPOSITE_SPLICE_V1: раскладка группы переложена, отката на весь меш не было
+        elif plan.fallback:
+            log.count(log.fallbacks, plan.fallback)
         if checked:
             old, new = _structures(before), _structures(live.sample)
             changed = 0
@@ -232,7 +239,7 @@ def report(log: LiveDragLogV1, counters=None) -> dict:
         "steps": log.steps, "exact_at_cursor": log.exact_at_cursor, "exact_nearest": log.exact_nearest, "reframes": log.reframes,
         "verify_domains": log.verify_domains, "structure_changes": log.structure_changes, "layout_changes": log.layout_changes, "idle_ticks": log.idle_ticks,
         "idle_budget_spent": log.idle_budget_spent, "weld_changes": log.weld_changes, "weld_position_mismatch": log.weld_position_mismatch,
-        "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused),
+        "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused), "spliced": dict(log.spliced), "fallbacks": dict(log.fallbacks),
     }
     if counters is not None:
         names = {"requested": "requested", "superseded": "coalesced", "started": "started", "applied": "applied", "nearest": "nearest",
@@ -256,6 +263,8 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
         f"Live drag LIVE_DRAG_STREAM_V1: {log.steps} steps, exact {log.exact_at_cursor} at the pointer + {log.exact_nearest} at a nearer width (model moved to the pointer), "
         f"superseded {scheduler.get('superseded', 0)}, stale {scheduler.get('stale', 0)}; {VERIFY_BACKGROUND}: {log.verify_domains} domains verified in the ticks "
         f"(+{log.idle_ticks} idle ticks" + (f", {IDLE_BUDGET_SPENT} {log.idle_budget_spent}" if log.idle_budget_spent else "") + f"), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected" + (f" ({outcomes})" if outcomes else "") + as_of
+        + (f"; layouts spliced (COMPOSITE_SPLICE_V1): " + ", ".join(f"{name} {count}" for name, count in sorted(log.spliced.items())) if log.spliced else "")
+        + (f"; whole-mesh rollbacks: " + ", ".join(f"{name} {count}" for name, count in sorted(log.fallbacks.items())) if log.fallbacks else "")
         + (f"; weld diverged in {log.weld_changes} ticks" if log.weld_changes else "")
         + (f"; {OUTCOME_WELD_POSITION_MISMATCH} up to {log.weld_position_mismatch}" if log.weld_position_mismatch else "")
         + f"; verification periods not run as full ticks {deferred}" + (f"; full ticks: {full}" if full else "") + (f"; refused: {refused}" if refused else "")
