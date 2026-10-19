@@ -1294,6 +1294,65 @@ def canonical_triangles_compute(oracle, frame_faces, cycles, budget, reverse):
     return answer if done else oracle(*arguments)
 
 
+def silhouette_compute(oracle, source, budget):
+    """`oracle(source, budget)` (`materialize.silhouette.apply_silhouette`), посчитанное заказанным бэкендом W1 (MATERIALIZE_HOT_UNDER_W1_SWITCH_V1): проход силуэта и его проверка.
+
+    Ответ эталона — `SilhouetteV1`; бюджет (внутренний отрезок прохода), память канонизации и `SIGN_COUNTS` нативный вызов оставляет так, как оставил бы эталон, нарушение закона —
+    `MaterializationRefusal` эталона с его текстом. Вход, который порт не несёт, откатывается на эталон по имени (`NATIVE_PORT_UNSUPPORTED`); состояние при этом как до вызова.
+    """
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(source, budget)
+
+    def call(module):
+        if not hasattr(module, "apply_silhouette"):
+            raise _OperationAbsent("this cftuv_native wheel has no `apply_silhouette` (it predates the materialize_hot operation)")
+        return module.apply_silhouette(source, budget)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call, lambda: _effects_snapshot(budget))
+    return answer if done else oracle(source, budget)
+
+
+def source_lift_compute(oracle, plane, positions, triangles, host_positions, step, polygons, points, budget, reverse):
+    """`oracle(...)` (`materialize.domain._sourced`: `source_lift.lift_source_vertices`, `rebind_offset_normals`, `settle_emitted_faces`), посчитанное заказанным бэкендом W1.
+
+    Ответ эталона — `(грани, SourceLiftV1, SourceFacesV1)`; нормали смещения переставляются так же (эталонной функцией), бюджет, память и `SIGN_COUNTS` — как у эталона, исход эталона
+    (исчерпание бюджета в точной триангуляции) уходит вызывающему как есть. Вход, который порт не несёт, откатывается на эталон по имени; состояние при этом как до вызова.
+    """
+
+    arguments = (plane, positions, triangles, host_positions, step, polygons, points, budget, reverse)
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(*arguments)
+
+    def call(module):
+        if not hasattr(module, "source_lift"):
+            raise _OperationAbsent("this cftuv_native wheel has no `source_lift` (it predates the materialize_hot operation)")
+        return module.source_lift(*arguments)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call, lambda: _effects_snapshot(budget, plane))
+    return answer if done else oracle(*arguments)
+
+
+def lift_vertices_compute(oracle, points, plane):
+    """`oracle(points, plane)` (`materialize.assemble.lift_vertices`), посчитанное заказанным бэкендом W1 на точной плоскости (`PlaneLiftV1`); иной подъём — эталон по имени."""
+
+    from .materialize.lift import PlaneLiftV1
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native or type(plane) is not PlaneLiftV1:
+        return oracle(points, plane)
+
+    def call(module):
+        if not hasattr(module, "lift_vertices"):
+            raise _OperationAbsent("this cftuv_native wheel has no `lift_vertices` (it predates the materialize_hot operation)")
+        return module.lift_vertices(points, plane)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(points, plane)
+
+
 def warm_snapshot_check() -> bool:
     """Привязывает нативное чтение снапшота к живому ядру ДО первого домена (разовая цена процесса: дайджесты зеркалируемых функций и таблица классов); `False` - расширения или операции нет, либо пин ушёл.
 
@@ -1441,6 +1500,19 @@ def warm_chain_station() -> bool:
         return False
 
 
+def warm_materialize_hot() -> bool:
+    """Привязывает нативный горячий путь материализации (силуэт, подъём к хосту, подъём на плоскость) к живому ядру ДО первого домена; `False` - расширения или операции нет,
+    пины не утверждены либо ушли. Воркер пула зовёт это в своём старте, когда W1 материализации заказан `NATIVE`; первый домен назовёт откат сам."""
+
+    module, _detail = _native()
+    if module is None or not hasattr(module, "warm_materialize_hot"):
+        return False
+    try:
+        return bool(module.warm_materialize_hot())
+    except module.NATIVE_REFUSALS:
+        return False
+
+
 def chain_station_compute(snapshot, patch_domain_id, oracle):
     """`oracle(snapshot, patch_domain_id)` (`_chain_station.chain_station_plans`), посчитанное заказанным бэкендом: те же планы (frozenset `ChainStationPlanV1`).
 
@@ -1544,6 +1616,10 @@ __all__ = (
     "skeleton_compute",
     "snapshot_check_compute",
     "warm_snapshot_check",
+    "lift_vertices_compute",
+    "silhouette_compute",
+    "source_lift_compute",
+    "warm_materialize_hot",
     "stage_identity",
     "use_backend",
 )

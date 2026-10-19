@@ -20,6 +20,7 @@ cftuv-frame = { path = "../cftuv-frame" }
 cftuv-mesh = { path = "../cftuv-mesh" }
 cftuv-canon = { path = "../cftuv-canon" }
 cftuv-radical = { path = "../cftuv-radical" }
+cftuv-silhouette = { path = "../cftuv-silhouette" }
 cftuv-skeleton = { path = "../cftuv-skeleton" }
 cftuv-snapshot = { path = "../cftuv-snapshot" }
 cftuv-station = { path = "../cftuv-station" }

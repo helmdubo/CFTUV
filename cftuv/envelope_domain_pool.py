@@ -784,6 +784,10 @@ def warm_worker_identities() -> dict:
             from cftuv_envelope.backend import warm_chain_station
 
             warm_chain_station()  # CHAIN_STATION_BIND_AT_WORKER_START_V1: дайджесты файлов закона и таблица классов один раз на процесс, не на первом домене
+        if stage_orders(DEFAULT_KERNEL_BACKEND).materialize_w1 == "NATIVE":
+            from cftuv_envelope.backend import warm_materialize_hot
+
+            warm_materialize_hot()  # MATERIALIZE_HOT_UNDER_W1_SWITCH_V1: дайджесты закреплённых файлов силуэта и подъёма один раз на процесс, не на первом домене
         if stage_orders(DEFAULT_KERNEL_BACKEND).angular == "NATIVE":
             from cftuv_envelope.backend import warm_angular
             from .envelope_angular_binding import build_binding_inputs, build_dependencies

@@ -51,7 +51,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, angular_op, buildid, chain_station_op, codec, cost, density_op, effective_alpha_op, embedding_op, frame_op, materialize_w1_op, pin, snapshot_check_op
+from . import _core, angular_op, buildid, chain_station_op, codec, cost, density_op, effective_alpha_op, embedding_op, frame_op, materialize_hot_op, materialize_w1_op, pin, snapshot_check_op
 
 __all__ = (
     "CostMirror",
@@ -60,6 +60,7 @@ __all__ = (
     "NativePortStale",
     "NativePortUnsupported",
     "NativeUnsupportedPython",
+    "apply_silhouette",
     "build_skeleton",
     "chain_station_plans",
     "clip_geometry",
@@ -84,6 +85,9 @@ __all__ = (
     "frame_raw_layouts",
     "canonical_triangles",
     "last_w1_timings",
+    "lift_vertices",
+    "source_lift",
+    "warm_materialize_hot",
     "last_snapshot_check_timings",
     "last_frame_timings",
     "int_round_trip",
@@ -221,6 +225,7 @@ def native_status() -> dict:
     found = pin.native_status()
     found["angular"] = angular_op.status()
     found["chain_station"] = chain_station_op.status()
+    found["materialize_hot"] = materialize_hot_op.status()
     if "density" not in found:
         found["density"] = "pending_validation" if hasattr(_core, "density_compute") else "unavailable"
     return found
@@ -426,6 +431,30 @@ def exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, latti
     """
 
     return default_mirror().exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+
+
+def apply_silhouette(source, budget):
+    """`materialize.silhouette.apply_silhouette(source, budget)`, native and whole (see `materialize_hot_op.py`): a refusal of the port leaves every Python-visible state as before the call."""
+
+    return materialize_hot_op.apply_silhouette(default_mirror(), source, budget)
+
+
+def lift_vertices(points, plane):
+    """`materialize.assemble.lift_vertices(points, plane)` on a `PlaneLiftV1`, native (see `materialize_hot_op.py`)."""
+
+    return materialize_hot_op.lift_vertices(default_mirror(), points, plane)
+
+
+def source_lift(plane, positions, triangles, host_positions, step, polygons, points, budget, reverse):
+    """`materialize.domain._sourced(...)` (the law `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` and the check of the emitted faces), native and whole (see `materialize_hot_op.py`)."""
+
+    return materialize_hot_op.source_lift(default_mirror(), plane, positions, triangles, host_positions, step, polygons, points, budget, reverse)
+
+
+def warm_materialize_hot() -> bool:
+    """Binds the native SILHOUETTE operations to the live kernel ahead of the first domain (`materialize_hot_op.warm`)."""
+
+    return materialize_hot_op.warm(default_mirror())
 
 
 def canonical_triangles(frame_faces, cycles, budget, reverse):

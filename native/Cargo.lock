@@ -125,6 +125,7 @@ dependencies = [
  "cftuv-frame",
  "cftuv-mesh",
  "cftuv-radical",
+ "cftuv-silhouette",
  "cftuv-skeleton",
  "cftuv-snapshot",
  "cftuv-station",
@@ -140,6 +141,17 @@ dependencies = [
  "dashu-base",
  "dashu-int",
  "mimalloc",
+]
+
+[[package]]
+name = "cftuv-silhouette"
+version = "0.1.0"
+dependencies = [
+ "cftuv-canon",
+ "cftuv-clip",
+ "cftuv-core",
+ "cftuv-mesh",
+ "dashu-int",
 ]
 
 [[package]]

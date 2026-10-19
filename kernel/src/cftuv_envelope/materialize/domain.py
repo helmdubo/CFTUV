@@ -713,7 +713,7 @@ def _lifted(plane, points, cut):
     у вершины ОДНА точка карты, и уши выпущенных кусков, положение вершин и сварка с соседом читают её же.
     """
 
-    positions, names = lift_vertices(points if cut is None else {**points, **cut.snapped}, plane)
+    positions, names = backend.lift_vertices_compute(lift_vertices, points if cut is None else {**points, **cut.snapped}, plane)
     if cut is not None:
         positions.update((key, lifted[0]) for key, lifted in cut.lifted.items())
         names.update((key, lifted[1]) for key, lifted in cut.lifted.items())
@@ -736,17 +736,27 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
         if law is DecalTopologyLawV1.TRIANGLES_V1 and cut is None
         else backend.canonical_triangles_compute(canonical_triangles, frame_faces, cycles, budget, chart_cw)
     )
-    sourced = lift_source_vertices(
+    return backend.source_lift_compute(
+        _sourced,
+        plane,
         positions,
         [triangle for face in canonical for triangle in face]
         + ([] if cut is None else piece_triangles(cut.polygons, points, budget)),
         host_positions_of(prepared.context.snapshot),
         source_step_of(prepared.context.frame),
+        polygons if cut is None else cut.polygons,
+        points,
+        budget,
+        chart_cw,
     )
+
+
+def _sourced(plane, positions, triangles, host_positions, step, polygons, points, budget, chart_cw):
+    """`(грани, итог, числа граней)`: закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1`, нормали смещения за переставленными вершинами, проверка выпущенных граней (эталон)."""
+
+    sourced = lift_source_vertices(positions, triangles, host_positions, step)
     rebind_offset_normals(plane, positions, sourced)
-    final, faces_after = settle_emitted_faces(
-        polygons if cut is None else cut.polygons, positions, sourced, points, budget, chart_cw
-    )
+    final, faces_after = settle_emitted_faces(polygons, positions, sourced, points, budget, chart_cw)
     return final, sourced, faces_after
 
 
@@ -801,8 +811,10 @@ def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse):
         return None
     slide = request.silhouette_uv_slide
     free = frozenset(f"src:{vertex}" for vertex in free_vertices(prepared.compilation.chain_station_plans))
-    shaped = apply_silhouette(
-        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse, free), budget
+    shaped = backend.silhouette_compute(
+        apply_silhouette,
+        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse, free),
+        budget,
     )
     clock.lap("SILHOUETTE")
     return shaped

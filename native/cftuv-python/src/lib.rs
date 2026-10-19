@@ -13,6 +13,7 @@ mod density;
 mod effective_alpha;
 mod embedding;
 mod frame;
+mod materialize_hot;
 mod materialize_w1;
 mod memlog;
 mod pyobj;
@@ -118,6 +119,8 @@ struct Session {
     slots: pyobj::SlotMode,
     /// W1 of the MATERIALIZE chain (`mesh.exact_mesh`, `mesh.canonical_triangles`).
     w1: materialize_w1::Host,
+    /// The hot part of the SILHOUETTE stage (`silhouette.apply_silhouette`, `PlaneLiftV1.lift`).
+    hot: materialize_hot::Host,
 }
 
 #[pymethods]
@@ -130,7 +133,7 @@ impl Session {
             Some(text) => pyobj::SlotMode::parse(text).map_err(|why| pyobj::refuse(format!("Session(slots=...): {why}")))?,
             None => pyobj::process_mode(),
         };
-        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default() })
+        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default() })
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -387,6 +390,73 @@ impl Session {
         outcome
     }
 
+    /// Hands the kernel classes to the SILHOUETTE entry points: `SqrtSumV1`, `Fraction`, `LocalPoint3V1`.
+    fn bind_hot(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, local_point: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.hot.bind(py, sqrt_sum, fraction, local_point, self.slots)
+    }
+
+    /// `silhouette.apply_silhouette` whole (see `materialize_hot.rs`): the answer of `w1_exact_mesh` with the structured result of the pass. `budget` is `(cap, six articles)` of the
+    /// budget the pass runs on (the shim makes the inner one), `tables` the real memory tables the memory log is replayed on. Any error resets the session, and so does a status that is a
+    /// refusal of the port.
+    #[allow(clippy::too_many_arguments)]
+    fn hot_silhouette<'py>(
+        &mut self,
+        py: Python<'py>,
+        polygons: &Bound<'py, PyAny>,
+        cycles: &Bound<'py, PyAny>,
+        positions: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        facts: &Bound<'py, PyAny>,
+        regions: &Bound<'py, PyAny>,
+        cut_pairs: &Bound<'py, PyAny>,
+        mark: &str,
+        lattice_alpha: &Bound<'py, PyAny>,
+        uv_slide: &Bound<'py, PyAny>,
+        chord: &Bound<'py, PyAny>,
+        reverse: bool,
+        free: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_hot::Answer<'py>> {
+        let args = materialize_hot::SilhouetteArgs { polygons, cycles, positions, points, facts, regions, cut_pairs, mark, lattice_alpha, uv_slide, chord, reverse, free };
+        let outcome = self.hot.silhouette(py, &mut self.inner, &args, sync, budget, &tables);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// `source_lift.lift_source_vertices` then `source_lift.settle_emitted_faces` (see `materialize_hot.rs`): the answer of `w1_exact_mesh` with `(lift, faces)` as the result.
+    #[allow(clippy::too_many_arguments)]
+    fn hot_source_lift<'py>(
+        &mut self,
+        py: Python<'py>,
+        positions: &Bound<'py, PyAny>,
+        triangles: &Bound<'py, PyAny>,
+        host_positions: &Bound<'py, PyAny>,
+        step: &Bound<'py, PyAny>,
+        mark: &str,
+        polygons: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        reverse: bool,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_hot::Answer<'py>> {
+        let args = materialize_hot::SourceLiftArgs { positions, triangles, host_positions, step, mark, polygons, points, reverse };
+        let outcome = self.hot.source_lift(py, &mut self.inner, &args, sync, budget, &tables);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// `{key: PlaneLiftV1(origin, basis_a, basis_b, scale).lift(point)}` of a dict of chart points; `None`: the port does not carry the input (the shim runs the oracle).
+    fn hot_plane_lift<'py>(&self, py: Python<'py>, points: &Bound<'py, PyAny>, origin: &Bound<'py, PyAny>, basis_a: &Bound<'py, PyAny>, basis_b: &Bound<'py, PyAny>, scale: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyDict>>> {
+        self.hot.plane_lift(py, points, origin, basis_a, basis_b, scale)
+    }
+
     /// Tables the W1 side keeps converted.
     fn w1_cache(&self) -> usize {
         self.w1.cache_size()
@@ -436,6 +506,7 @@ impl Session {
         self.clip.disable_raw();
         self.skeleton.disable_raw();
         self.w1.disable_raw();
+        self.hot.disable_raw();
     }
 
     /// `raw`, `attr` or `auto`: how this session reads and writes the slots of the bound classes.
