@@ -95,17 +95,48 @@ class IncrementalPlanV1:
         return self.mode == REFRESH_INCREMENTAL
 
 
+#: DRAG_VERIFY_BACKGROUND_V1: домен, который такт считает заново ради сверки структуры (а не потому, что сертификат его не обслуживает).
+VERIFY_BACKGROUND = "DRAG_VERIFY_BACKGROUND_V1"
+
+
 @dataclass(frozen=True, slots=True)
 class StreamPolicyV1:
-    """Потоковый такт живого точного меша (LIVE_DRAG_STREAM_V1): `defer` - срок сверки откладывается, пока рука движется (сверку делает простой);
-    `force` - имя причины, по которой такт полный безусловно (сверка в простое); пусто - нет."""
+    """Потоковый такт живого точного меша (LIVE_DRAG_STREAM_V1).
+
+    `defer` - срок сверки (`DEFERRABLE_REASONS`) не делает такт полным: сверка идёт фоном, партиями доменов внутри тактов (DRAG_VERIFY_BACKGROUND_V1).
+    `verified` - `{патч: ширина последнего точного счёта домена}`; `batch` - сколько обслуживаемых доменов такт считает заново ради сверки (0 - ни одного).
+    """
 
     defer: bool = True
-    force: str = ""
+    verified: object = None
+    batch: int = 0
 
 
-#: Поводы полного такта, которые потоковый такт откладывает до простоя: это сроки, а не невозможность инкрементального такта.
+#: Поводы полного такта, которые потоковый такт не исполняет полным тактом (сверка идёт фоном): это сроки, а не невозможность инкрементального такта.
 DEFERRABLE_REASONS = (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE)
+
+
+def verify_batch(candidates, verified, alpha: float, batch: int) -> list:
+    """DRAG_VERIFY_BACKGROUND_V1: какие из обслуживаемых доменов `candidates` (`(патч, низ интервала, верх интервала либо None)`) такт считает заново ради сверки.
+
+    Порядок риска: путь ширины от последнего точного счёта домена, делённый на запас до ближайшего конца его интервала (ни разу не считанный и стоящий у конца интервала - первыми);
+    домен, посчитанный точно на этой ширине, не нужен. Ничьи - по номеру патча. Чистая функция значений.
+    """
+
+    if batch <= 0:
+        return []
+    alpha = float(alpha)
+    ranked = []
+    for patch, low, high in candidates:
+        last = None if verified is None else verified.get(patch)
+        if last is not None and last == alpha:
+            continue
+        headroom = min(alpha - low, (float("inf") if high is None else high) - alpha)
+        drift = float("inf") if last is None else abs(alpha - last)
+        risk = float("inf") if not headroom > 0.0 else drift / headroom
+        ranked.append((-risk, patch))
+    ranked.sort()
+    return [patch for _risk, patch in ranked[:batch]]
 
 
 def full_plan(reason: str, domains: int = 0) -> IncrementalPlanV1:
@@ -176,10 +207,12 @@ __all__ = (
     "REASON_SMALL_SELECTION",
     "REASON_SWITCHED_OFF",
     "StreamPolicyV1",
+    "VERIFY_BACKGROUND",
     "full_plan",
     "incremental_enabled",
     "mark_attempt",
     "next_state",
     "selection_reason",
     "verification_reason",
+    "verify_batch",
 )

@@ -38,9 +38,8 @@
   промежуточные, замещённые до старта, не считаются вовсе (`coalesced`);
 - результат полёта, после которого приходили только потоковые заказы, ПРИМЕНЯЕТСЯ, хотя значение уже не последнее: это точный ответ
   ближайшей ширины (`nearest`); обычный заказ (подтверждение) после него делает его устаревшим, как прежде;
-- простой: когда полёт применён и ничего не ждёт, планировщик один раз спрашивает `idle()`; ответ `(значение, заказ)` — вытесняемый
-  заказ (сверка) со сроком `idle_delay`. Любое новое потоковое значение вытесняет его: ожидающий снимается, полёт отменяется
-  (`preempted`, не `stale`); вытесняемый полёт, что успел досчитаться, применяется как ближайший.
+- простой: когда потоковый полёт применён и ничего не ждёт, планировщик один раз спрашивает `idle()`; ответ `(значение, заказ)` — такой же
+  потоковый заказ (такт сверки в простое): рука его не отменяет, а следующий её шаг просто стартует после него.
 
 ОТМЕНА ПЕРЕД ТЯЖЁЛЫМ СИНХРОННЫМ ПУТЁМ. Кнопки считают на главном потоке на тех же
 подготовках (их память растёт от покрытий), поэтому `quiesce` останавливает полёт и
@@ -64,9 +63,8 @@ POLL_SECONDS = 0.03
 QUIESCE_TIMEOUT_SECONDS = 30.0
 #: Нижняя граница шага таймера (нулевой шаг крутил бы главный цикл вхолостую).
 MIN_DELAY_SECONDS = 0.005
-#: LIVE_DRAG_STREAM_V1: шаг опроса потокового полёта (такт перетаскивания стоит десятки миллисекунд: опрос 0.03 с добавлял бы к нему в среднем 15 мс) и пауза руки до сверки в простое.
+#: LIVE_DRAG_STREAM_V1: шаг опроса потокового полёта (такт перетаскивания стоит десятки миллисекунд: опрос 0.03 с добавлял бы к нему в среднем 15 мс).
 STREAM_POLL_SECONDS = 0.01
-IDLE_DELAY_SECONDS = 0.1
 
 STATUS_COMPUTING = "computing"
 STATUS_READY = "ready"
@@ -86,7 +84,6 @@ _COUNTER_NAMES = (
     "failed",
     "cancelled",
     "nearest",
-    "preempted",
 )
 
 
@@ -106,9 +103,8 @@ class PreviewRequestV1:
     alpha: float
     payload: object
     requested_at: float
-    #: LIVE_DRAG_STREAM_V1: потоковый заказ (без паузы, полёт не отменяет) и вытесняемый (сверка в простое).
+    #: LIVE_DRAG_STREAM_V1: потоковый заказ (без паузы, полёт не отменяет, результат ложится как ближайший).
     stream: bool = False
-    preemptible: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,8 +126,6 @@ class PreviewCountersV1:
     cancelled: int = 0
     #: LIVE_DRAG_STREAM_V1: из `applied` - применены, хотя за ними пришли потоковые значения (точный ответ ближайшей ширины).
     nearest: int = 0
-    #: Вытесняемый заказ (сверка в простое) снят новым потоковым значением до старта либо в полёте.
-    preempted: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +149,7 @@ class ThreadedPreviewJob:
     def __init__(self, compute: Callable[[threading.Event], object], *, context=None):
         self.context = context
         self.seconds = 0.0
+        self.started_at = self.finished_at = 0.0
         self._cancel = threading.Event()
         self._value = None
         self._error: BaseException | None = None
@@ -165,11 +160,13 @@ class ThreadedPreviewJob:
 
     def _run(self, compute) -> None:
         started = time.perf_counter()
+        self.started_at = time.perf_counter()  # моменты старта и конца счёта (`time.perf_counter`; инструмент замера ставит планировщику тот же счётчик): разбор задержки «рука -> меш»
         try:
             self._value = compute(self._cancel)
         except BaseException as exc:  # noqa: BLE001 - причина идёт в главный поток
             self._error = exc
         self.seconds = time.perf_counter() - started
+        self.finished_at = time.perf_counter()
 
     @property
     def finished(self) -> bool:
@@ -223,11 +220,9 @@ class AlphaPreviewScheduler:
         label: str = "alpha",
         hold: Callable[[], bool] | None = None,
         idle: Callable[[], tuple | None] | None = None,
-        idle_delay: float = IDLE_DELAY_SECONDS,
     ) -> None:
         self._label = label
         self._idle = idle
-        self._idle_delay = float(idle_delay)
         #: Номер последнего НЕпотокового заказа (и снятия): результат с номером не ниже применяется, если после него шли только потоковые.
         self._last_plain = 0
         #: Потоковый полёт применён или снят, а простой ещё не спрашивали.
@@ -287,26 +282,22 @@ class AlphaPreviewScheduler:
     # Заказ
     # ------------------------------------------------------------------
 
-    def request(self, alpha: float, payload=None, *, stream: bool = False, preemptible: bool = False) -> PreviewRequestV1:
+    def request(self, alpha: float, payload=None, *, stream: bool = False) -> PreviewRequestV1:
         """Новое значение: запись и сдвиг срока. Микросекунды, ничего не считает.
 
-        `stream` (LIVE_DRAG_STREAM_V1): без паузы, полёт не отменяется (кроме вытесняемого), его результат применится как ближайший.
-        `preemptible` (только вместе с `stream`): заказ простоя (сверка) со сроком `idle_delay`, его вытесняет любое новое потоковое значение.
+        `stream` (LIVE_DRAG_STREAM_V1): без паузы, полёт не отменяется, его результат применится как ближайший.
         """
 
         now = self._clock()
         if not self.busy:
             self._burst_dropped = 0
         self._sequence += 1
-        stream = bool(stream or preemptible)
-        request = PreviewRequestV1(self._sequence, float(alpha), payload, now, stream, bool(preemptible))
+        stream = bool(stream)
+        request = PreviewRequestV1(self._sequence, float(alpha), payload, now, stream)
         self._counts["requested"] += 1
         if self._pending is not None:
-            if self._pending.preemptible:
-                self._counts["preempted"] += 1
-            else:
-                self._counts["coalesced"] += 1
-                self._burst_dropped += 1
+            self._counts["coalesced"] += 1
+            self._burst_dropped += 1
         self._pending = request
         if not stream:
             self._last_plain = self._sequence
@@ -316,13 +307,9 @@ class AlphaPreviewScheduler:
             self._set_phase(STATUS_COMPUTING)
             self._arm()
             return request
-        delay = self._idle_delay if preemptible else 0.0
-        self._deadline = now + delay
-        flying = self._job_request
-        if self._job is not None and flying is not None and flying.preemptible and not preemptible:
-            self._job.cancel()  # сверка в простое уступает руке: её отмену счёт назовёт `preempted`
+        self._deadline = now
         self._set_phase(STATUS_COMPUTING)
-        self._arm(max(MIN_DELAY_SECONDS, delay))
+        self._arm(MIN_DELAY_SECONDS)
         return request
 
     def note_unavailable(self, reason: str) -> None:
@@ -348,22 +335,25 @@ class AlphaPreviewScheduler:
         try:
             self._collect()
             self._start_if_due()
-            self._ask_idle()
+            if self._ask_idle():
+                self._start_if_due()  # такт простоя стартует тем же шагом: без лишнего захода таймера
         except Exception as exc:  # noqa: BLE001 - таймер не должен умирать молча
             self._counts["failed"] += 1
             self._report_failure("scheduler step", exc)
         return self._next_delay()
 
-    def _ask_idle(self) -> None:
-        """LIVE_DRAG_STREAM_V1: потоковый полёт кончился и ничего не ждёт - один вопрос `idle()`; ответ `(значение, заказ)` становится вытесняемым заказом."""
+    def _ask_idle(self) -> bool:
+        """LIVE_DRAG_STREAM_V1: потоковый полёт кончился и ничего не ждёт - один вопрос `idle()`; ответ `(значение, заказ)` становится потоковым заказом (`True`)."""
 
         if not self._stream_open or self.busy:
-            return
+            return False
         self._stream_open = False
         answer = None if self._idle is None else self._idle()
-        if answer is not None:
-            alpha, payload = answer
-            self.request(alpha, payload, stream=True, preemptible=True)
+        if answer is None:
+            return False
+        alpha, payload = answer
+        self.request(alpha, payload, stream=True)
+        return True
 
     def _collect(self) -> None:
         job = self._job
@@ -378,9 +368,6 @@ class AlphaPreviewScheduler:
         try:
             value = job.result()
         except PreviewCancelled:
-            if request.preemptible:
-                self._counts["preempted"] += 1
-                return
             self._discard_as_stale(request)
             return
         except Exception as exc:  # noqa: BLE001 - причина идёт в статус и консоль
@@ -557,7 +544,6 @@ class AlphaPreviewScheduler:
 __all__ = (
     "AlphaPreviewScheduler",
     "DEBOUNCE_SECONDS",
-    "IDLE_DELAY_SECONDS",
     "MIN_DELAY_SECONDS",
     "POLL_SECONDS",
     "PreviewAppliedV1",

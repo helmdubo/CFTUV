@@ -126,7 +126,8 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         description=(
             "While Adjust Decal Width is dragged, stream exact refreshes (LIVE_DRAG_STREAM_V1): every mouse step orders one, a running refresh is never cancelled, "
             "the latest width wins and superseded widths are dropped; the mesh shows the exact result of the nearest width and the model moves it to the pointer. "
-            "The full verification runs only when the hand pauses. Confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. "
+            "The structure is verified in the background, a batch of domains inside each tick and more ticks while the hand rests (DRAG_VERIFY_BACKGROUND_V1); the hand never waits for a full verification. "
+            "Confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. "
             "Off by default: field test"
         ),
     )

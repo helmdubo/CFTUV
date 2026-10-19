@@ -52,12 +52,14 @@ from .envelope_width_incremental import (
     REASON_MODEL_FOREIGN,
     REASON_NO_MODEL,
     REASON_NO_ORIGINS,
+    VERIFY_BACKGROUND,
     IncrementalPlanV1,
     IncrementalStateV1,
     full_plan,
     next_state,
     selection_reason,
     verification_reason,
+    verify_batch,
 )
 from .envelope_width_composite import compose_sample
 from .envelope_width_rebase import rebase_result
@@ -285,14 +287,12 @@ def plan_tick(grade, displayed, model, state, alpha: float, stream=None) -> Incr
     `INCREMENTAL_MIN_SERVED_SHARE` его доменов. Обслуживает ровно те домены, что двигает кадр модели на этой ширине (`served_mask`: интервал ядра, досягаемость, не в карантине), поэтому обслуженное
     равно кадру модели; остальные домены назывной причиной попадают в `held` и считаются заново. Чистая функция значений (её зовёт поток счёта): ни `bpy`, ни записи в сессию.
 
-    `stream` (`StreamPolicyV1`, LIVE_DRAG_STREAM_V1): `force` делает такт полным под своим именем (сверка в простое), `defer` откладывает срок сверки (`DEFERRABLE_REASONS`), пока рука движется:
-    отложенный срок назван в `IncrementalPlanV1.deferred`. `None` - прежнее решение побитово.
+    `stream` (`StreamPolicyV1`, LIVE_DRAG_STREAM_V1): `defer` - срок сверки (`DEFERRABLE_REASONS`) не делает такт полным (назван в `IncrementalPlanV1.deferred`), а `batch` обслуживаемых доменов в порядке риска
+    такт считает заново ради сверки (DRAG_VERIFY_BACKGROUND_V1: в `held` под именем `VERIFY_BACKGROUND`). `None` - прежнее решение побитово.
     """
 
     if grade != REFRESH_INCREMENTAL:
         return None
-    if stream is not None and stream.force:
-        return full_plan(stream.force, 0 if displayed is None else len(displayed.domains))
     reason = verification_reason(state, float(alpha))
     deferred = ""
     if reason in DEFERRABLE_REASONS and stream is not None and stream.defer:
@@ -324,6 +324,11 @@ def plan_tick(grade, displayed, model, state, alpha: float, stream=None) -> Incr
     domains = len(displayed.domains)
     if len(served) < INCREMENTAL_MIN_SERVED_SHARE * domains:
         return full_plan(REASON_FEW_SERVED, domains)
+    if stream is not None and stream.batch > 0:
+        rows = {domain.patch_id: domain for domain in displayed.domains}
+        for patch_id in verify_batch(((patch, rows[patch].low, rows[patch].high) for patch in served), stream.verified, alpha, stream.batch):
+            served.remove(patch_id)
+            held[patch_id] = VERIFY_BACKGROUND
     return IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset(served), held, domains, time.perf_counter() - started, deferred=deferred)
 
 

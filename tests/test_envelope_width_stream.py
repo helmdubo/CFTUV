@@ -3,10 +3,11 @@
 Что держат тесты:
 1. ПЛАНИРОВЩИК (фальшивки). Потоковый заказ стартует без паузы; новое значение НЕ отменяет полёт; промежуточные значения, замещённые до старта, не считаются
    (`coalesced`); результат полёта применяется как ближайший (`nearest`), и следующим стартует последнее значение; обычный заказ (подтверждение) отменяет полёт и делает
-   его результат устаревшим, как прежде; полёт обычного заказа потоковое значение не отменяет. Простой спрашивается один раз после потокового полёта; вытесняемый заказ
-   снимается новым потоковым значением до старта и в полёте (`preempted`, не `stale`). Ни один заказ не теряется: сумма исходов равна числу заказов.
+   его результат устаревшим, как прежде; полёт обычного заказа потоковое значение не отменяет. Простой спрашивается один раз после потокового полёта, его заказ -
+   такой же потоковый, и рука его не отменяет. Ни один заказ не теряется: сумма исходов равна числу заказов.
 2. ХОСТ (подмена Blender). Шаги перетаскивания - потоковые заказы инкрементального такта; такт ближайшей ширины ложится и меш сдвигается к курсору; последнее побеждает;
-   срок сверки отложен и назван, сверка - в простое полным lean-тактом `LIVE_DRAG_RECONCILE_IDLE`, рука её вытесняет; подтверждение - COMMIT побитово равный прямому
+   срок сверки не делает такт полным (назван), сверка идёт партиями в порядке риска внутри тактов и тактами простоя (DRAG_VERIFY_BACKGROUND_V1), разошедшаяся структура
+   названа; подтверждение - COMMIT побитово равный прямому
    прогону и подтверждению без настройки; такт после конца перетаскивания отброшен названно; журнал называет всё в строке панели и консоли.
 3. ВЫКЛЮЧЕНО - как прежде: без настройки шаги заказываются прежним заказом (пауза, отмена полёта) либо не заказываются вовсе, журнала нет.
 """
@@ -36,7 +37,7 @@ from test_envelope_width_incremental import _after_the_button  # noqa: E402
 
 
 def _outcomes(counters) -> int:
-    return counters.applied + counters.coalesced + counters.stale + counters.preempted + counters.invalid + counters.unavailable + counters.failed + counters.cancelled
+    return counters.applied + counters.coalesced + counters.stale + counters.invalid + counters.unavailable + counters.failed + counters.cancelled
 
 
 # ==========================================================================
@@ -102,40 +103,43 @@ def test_a_stream_value_never_cancels_a_plain_flight_and_the_plain_result_still_
     assert h.applied[0] == (0.30, ("scene", 0.30)) and h.scheduler.counters.nearest == 1
 
 
-def test_the_idle_is_asked_once_after_a_stream_flight_and_its_order_is_preempted_by_the_hand():
+def test_the_idle_is_asked_once_after_a_stream_flight_and_its_order_is_never_cancelled_by_the_hand():
+    answers = [(0.33, "verify"), None]
     asked: list = []
 
     def idle():
         asked.append(True)
-        return (0.33, "reconcile")
+        return answers.pop(0) if answers else None
 
-    h = Harness(idle=idle, idle_delay=0.1)
+    h = Harness(idle=idle)
     h.at(0.0).scheduler.request(0.33, stream=True)
     h.at(0.01).step()
     h.jobs[0].finished = True
-    h.at(0.05).step()
+    h.at(0.05).step()  # такт применён, ничего не ждёт: простой спрошен и его такт стартовал тем же шагом
     assert asked == [True]
-    pending = h.scheduler._pending
-    assert pending.preemptible and pending.payload == "reconcile" and h.scheduler._deadline == pytest.approx(0.15)
-
-    h.at(0.06).scheduler.request(0.34, stream=True)  # рука снова движется: ожидающая сверка снята
-    assert h.scheduler.counters.preempted == 1 and not h.scheduler._pending.preemptible
-    h.at(0.07).step()
+    h.at(0.06).step()
+    assert h.begun[-1].stream and h.begun[-1].payload == "verify"
+    h.at(0.07).scheduler.request(0.34, stream=True)  # рука снова движется: такт сверки в полёте не отменён
+    assert not h.jobs[1].cancelled
     h.jobs[1].finished = True
-    h.at(0.08).step()  # такт применён, простой спрошен снова: сверка ждёт
-    assert asked == [True, True] and h.scheduler._pending.preemptible
-    h.at(0.2).step()  # сверка стартовала
-    assert h.begun[-1].preemptible
-    h.at(0.21).scheduler.request(0.35, stream=True)  # рука вытесняет сверку в полёте
-    assert h.jobs[2].cancelled
-    h.jobs[2].error = PreviewCancelled("stopped between domains")
+    h.at(0.08).step()  # такт сверки лёг как ближайший, следом стартует шаг руки
+    assert [item[0] for item in h.applied] == [0.33, 0.33] and h.begun[-1].alpha == 0.34
     h.jobs[2].finished = True
-    h.at(0.22).step()
+    h.at(0.09).step()
+    assert asked == [True, True] and not h.scheduler.busy
     counters = h.scheduler.counters
-    assert counters.preempted == 2 and counters.stale == 0
-    h.jobs[3].finished = True
-    h.at(0.25).step()
-    assert _outcomes(h.scheduler.counters) + (1 if h.scheduler.busy else 0) == h.scheduler.counters.requested
+    assert (counters.applied, counters.nearest, counters.stale) == (3, 1, 0) and _outcomes(counters) == counters.requested
+
+
+def test_a_cancelled_stream_flight_is_stale_by_name():
+    h = Harness()
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.01).step()
+    h.scheduler.supersede("Build Decal Mesh")
+    h.jobs[0].error = PreviewCancelled("stopped between domains")
+    h.jobs[0].finished = True
+    h.at(0.02).step()
+    assert h.applied == [] and h.scheduler.counters.cancelled == 1
 
 
 def test_without_stream_orders_the_idle_is_never_asked():
@@ -200,56 +204,61 @@ def test_the_steps_stream_incremental_ticks_latest_wins_and_the_nearest_tick_is_
     assert [item.sample.alpha for item in world.calls] == [0.2505, 0.252] and world.reframes == [0.252]
     assert all(item.plan.incremental for item in world.calls)
     counters = scheduler.counters
-    assert (counters.requested, counters.coalesced, counters.applied, counters.nearest) == (5, 2, 2, 1)  # пятый - сверка, заказанная простоем
-    assert scheduler._pending.preemptible and scheduler._pending.payload.reconcile
+    assert (counters.requested, counters.coalesced, counters.applied, counters.nearest) == (5, 2, 2, 1)  # пятый - такт сверки, заказанный простоем
+    assert scheduler._job_request.stream and scheduler._job_request.alpha == 0.252  # стартовал тем же шагом
+    scheduler._job.join()
     log = controller.width_live_drag
     assert (log.steps, log.exact_at_cursor, log.exact_nearest, log.reframes) == (4, 1, 1, 1)
     steps = [event for event in log.events if event[0] == stream.EVENT_STEP]
     exact = [event for event in log.events if event[0] == stream.EVENT_EXACT]
     assert [event[2] for event in steps] == [0.2505, 0.251, 0.2515, 0.252] and [event[2] for event in exact] == [0.2505, 0.252]
+    assert all(event[5] <= event[6] <= event[7] <= event[3] for event in exact)  # старт счёта <= конец счёта <= начало и конец применения (`perf_counter`): разбор задержки
 
 
-def test_the_verification_is_deferred_while_the_hand_moves_and_reconciled_by_name_when_the_pool_is_idle(monkeypatch):
+def test_the_verification_runs_in_batches_inside_the_ticks_and_in_the_idle_and_no_tick_is_full(monkeypatch):
     monkeypatch.setattr(incremental, "INCREMENTAL_VERIFY_AFTER_TICKS", 1)
     world, controller = _live_world(monkeypatch)
     for width in (0.2505, 0.251):
         assert live.request_drag_tick(world.context, controller, width)
         controller.width_live.step()
         _finish(controller.width_live)
-    scheduler = controller.width_live
-    assert world.calls[1].plan.incremental and world.calls[1].plan.deferred == incremental.REASON_PERIOD_TICKS  # срок назван, такт остался инкрементальным
-    pending = scheduler._pending
-    assert pending is not None and pending.preemptible and pending.payload.reconcile and pending.alpha == 0.251
+    second = world.calls[1].plan
+    assert second.incremental and second.deferred == incremental.REASON_PERIOD_TICKS  # срок назван, такт остался инкрементальным
+    assert list(second.held.values()).count(incremental.VERIFY_BACKGROUND) == 1  # партия: половина воркеров (в процессе - один домен)
 
-    live.settle_width_live(controller)
+    live.settle_width_live(controller)  # рука стоит: простой сверяет остальные домены на ширине курсора
 
-    reconcile = world.calls[-1]
-    assert not reconcile.plan.incremental and reconcile.plan.reason == stream.RECONCILE_IDLE and reconcile.sample.alpha == 0.251
-    assert controller.width_incremental == incremental.IncrementalStateV1(0, 0.251)
     log = controller.width_live_drag
-    # Простой после первого такта заказал сверку на 0.2505, второй шаг руки её вытеснил до старта; легла сверка на 0.251.
-    assert (log.reconcile_requested, log.reconcile_applied, scheduler.counters.preempted) == (2, 1, 1) and log.deferred == {incremental.REASON_PERIOD_TICKS: 1}
-    assert log.full_ticks == {stream.RECONCILE_IDLE: 1} and log.structure_changes == 0 and log.layout_changes == 0
-    assert not scheduler.busy  # сверено на ширине курсора: простой больше ничего не заказывает
+    assert all(item.plan.incremental for item in world.calls) and log.full_ticks == {}
+    assert all(log.verified[item.patch_id] == 0.251 for item in controller.width_displayed.domains)
+    assert log.idle_ticks >= 1 and log.verify_domains >= len(controller.width_displayed.domains) - 1
+    assert log.structure_changes == 0 and log.layout_changes == 0
+    assert not controller.width_live.busy  # всё сверено на ширине курсора: простой больше ничего не заказывает
 
 
-def test_the_hand_preempts_the_idle_reconcile(monkeypatch):
-    world, controller = _live_world(monkeypatch)
-    assert live.request_drag_tick(world.context, controller, 0.2505)
-    scheduler = controller.width_live
-    scheduler._idle_delay = 0.0
-    scheduler.step()
-    _finish(scheduler)  # такт лёг, простой заказал сверку
-    assert scheduler._pending.preemptible
-    scheduler.step()  # сверка в полёте
-    reconcile = scheduler._job
-    assert scheduler._job_request.preemptible
-    assert live.request_drag_tick(world.context, controller, 0.251)
-    assert reconcile._cancel.is_set()
-    _finish(scheduler)
-    counters = scheduler.counters
-    assert counters.preempted + counters.nearest == 1 and counters.stale == 0  # вытеснена (либо успела и легла как ближайшая) - названо
+def test_the_verify_batch_takes_the_riskiest_domains_first():
+    candidates = [(0, 0.0, 1.0), (1, 0.0, 0.2508), (2, 0.0, 1.0), (3, 0.0, 1.0)]
+    verified = {0: 0.25, 1: 0.25, 2: 0.2505}
+    assert incremental.verify_batch(candidates, verified, 0.2505, 2) == [3, 1]  # ни разу не считанный, затем стоящий у конца интервала
+    assert incremental.verify_batch(candidates, verified, 0.2505, 0) == []
+    assert 2 not in incremental.verify_batch(candidates, verified, 0.2505, 4)  # посчитан на этой ширине: не нужен
 
+
+def test_a_verified_domain_whose_structure_changed_is_named_and_counted():
+    from types import SimpleNamespace
+
+    def sample(structures, layout):
+        return SimpleNamespace(domains=[SimpleNamespace(patch_id=patch, structure=value) for patch, value in structures.items()], layout_digest=layout)
+
+    log = stream.LiveDragLogV1(cursor=0.26)
+    plan = incremental.IncrementalPlanV1(REFRESH_INCREMENTAL, "", frozenset({0}), {1: incremental.VERIFY_BACKGROUND, 2: "PARAM_OUTSIDE"}, 3)
+    results = [SimpleNamespace(patch_id=1, placement="worker"), SimpleNamespace(patch_id=2, placement="worker")]
+    live_run = SimpleNamespace(plan=plan, run=SimpleNamespace(results=results), sample=sample({0: "a", 1: "B", 2: "C"}, "new"))
+    request = SimpleNamespace(alpha=0.26, sequence=7, requested_at=1.0)
+
+    assert stream.note_applied(log, request, live_run, sample({0: "a", 1: "b", 2: "c"}, "old"), (1.1, 1.2, 1.3, 1.4)) is None
+    assert (log.verify_domains, log.structure_changes, log.layout_changes) == (1, 1, 1)  # домен 2 сменил структуру на событии интервала - это не находка сверки
+    assert log.verified == {1: 0.26, 2: 0.26}
 
 def test_the_confirm_is_the_commit_of_the_direct_run_and_of_the_confirm_without_the_switch(monkeypatch):
     digests = []
@@ -290,7 +299,7 @@ def test_the_log_names_everything_in_the_panel_and_the_console(monkeypatch, caps
         assert live.request_drag_tick(world.context, controller, width)
     live.settle_width_live(controller)
     line = live.end_live_drag(controller)
-    assert line.startswith("Live drag LIVE_DRAG_STREAM_V1: 2 steps") and "superseded" in line and "reconciled" in line and "deferred" in line
+    assert line.startswith("Live drag LIVE_DRAG_STREAM_V1: 2 steps") and "superseded" in line and incremental.VERIFY_BACKGROUND in line and "verification periods" in line
     assert line in capsys.readouterr().out
     assert any(item.startswith("Live drag LIVE_DRAG_STREAM_V1") for item in live.status_lines(controller))
     data = stream.report(controller.width_live_drag, controller.width_live.counters)
@@ -320,15 +329,14 @@ def test_switched_off_the_steps_are_the_old_orders_or_none_and_there_is_no_log(m
     assert live.end_live_drag(controller) == ""
 
 
-def test_the_stream_policy_of_the_plan_defers_or_forces_by_name_and_none_is_the_old_decision(monkeypatch):
+def test_the_stream_policy_of_the_plan_defers_and_verifies_by_name_and_none_is_the_old_decision(monkeypatch):
     world, controller = _live_world(monkeypatch)
     displayed, model = controller.width_displayed, controller.width_model
     due = incremental.IncrementalStateV1(incremental.INCREMENTAL_VERIFY_AFTER_TICKS, 0.25)
     old = preview.plan_tick(REFRESH_INCREMENTAL, displayed, model, due, 0.2505)
     assert not old.incremental and old.reason == incremental.REASON_PERIOD_TICKS
-    deferred = preview.plan_tick(REFRESH_INCREMENTAL, displayed, model, due, 0.2505, incremental.StreamPolicyV1())
+    deferred = preview.plan_tick(REFRESH_INCREMENTAL, displayed, model, due, 0.2505, incremental.StreamPolicyV1(verified={}, batch=2))
     assert deferred.incremental and deferred.deferred == incremental.REASON_PERIOD_TICKS
-    forced = preview.plan_tick(REFRESH_INCREMENTAL, displayed, model, incremental.IncrementalStateV1(0, 0.25), 0.2505, incremental.StreamPolicyV1(force=stream.RECONCILE_IDLE))
-    assert not forced.incremental and forced.reason == stream.RECONCILE_IDLE
+    assert list(deferred.held.values()).count(incremental.VERIFY_BACKGROUND) == 2 and len(deferred.served) == len(displayed.domains) - 2  # каждый домен обслужен либо придержан с именем
     no_base = preview.plan_tick(REFRESH_INCREMENTAL, displayed, model, None, 0.2505, incremental.StreamPolicyV1())
     assert not no_base.incremental and no_base.reason == incremental.REASON_NO_BASE  # без записи сверки отложить нечего: такт полный

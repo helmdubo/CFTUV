@@ -24,6 +24,7 @@ import json
 import sys
 import time
 import traceback
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,7 +39,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--native-path", default="")
     parser.add_argument("--case", default="building")
     parser.add_argument("--workers", type=int, default=12)
-    parser.add_argument("--live", default="on", choices=("on", "off"))
+    parser.add_argument("--live", default="on", choices=("on", "off", "ticks"))
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--interval", type=float, default=1.0 / 60.0, help="seconds between mouse steps (60 Hz)")
     parser.add_argument("--span", type=float, default=0.10, help="the drag reaches +-span of the cold width")
@@ -74,22 +75,22 @@ def drag_path(base: float, steps: int, span: float, release: float) -> list:
 def drive_until(scheduler, deadline: float) -> None:
     """The main loop between two events: the scheduler's step whenever it asks for one, sleep otherwise."""
 
-    due = time.monotonic()
+    due = time.perf_counter()
     while True:
-        now = time.monotonic()
+        now = time.perf_counter()
         if now >= deadline:
             return
         if scheduler is not None and now >= due:
             delay = scheduler.step()
             due = now + (delay if delay is not None else 0.005)
-        time.sleep(max(0.0005, min(deadline, due) - time.monotonic()))
+        time.sleep(max(0.0005, min(deadline, due) - time.perf_counter()))
 
 
 def step_metrics(events, release_at: float) -> list:
     """Per step: did its own exact tick land before the next step, its own latency, the catch-up latency (an exact tick of this or a later width)."""
 
     steps = [item for item in events if item[0] == "step"]
-    exact = sorted((item for item in events if item[0] in ("exact", "reconcile")), key=lambda item: item[3])
+    exact = sorted((item for item in events if item[0] == "exact"), key=lambda item: item[3])
     rows = []
     for number, (_kind, sequence, width, moment) in enumerate(steps):
         until = steps[number + 1][3] if number + 1 < len(steps) else release_at
@@ -121,28 +122,60 @@ def run_drag(session, args, report: dict) -> None:
         raise RuntimeError("this tree has no LIVE_DRAG_STREAM_V1 switch (drag_live_mesh)")
     if hasattr(session.mesh_settings, "drag_live_mesh"):
         session.mesh_settings.drag_live_mesh = args.live == "on"
-    session.mesh_settings.drag_exact_ticks = False
+    session.mesh_settings.drag_exact_ticks = args.live == "ticks"  # the previous switch "Exact ticks while dragging" (debounced, cancelled by the hand)
     scheduler = live.scheduler_of(controller)
     scheduler._timers = _NoTimers()
+    scheduler._clock = time.perf_counter  # Windows `time.monotonic` ticks in 15.6 ms: the orders, the job moments and the tool share the fine counter
+    events: list = []
+    original_apply = live._apply
+    laps = drag_ticks.Laps()
+    report["laps_found"] = drag_ticks.install_laps(laps)
+    ticks: list = []
+    report["ticks"] = ticks
+
+    def recorded_apply(session_controller, request, job, value):  # the scheduler looks `_apply` up by module global: every applied exact result is recorded here, whatever the mode
+        applying = time.perf_counter()
+        original_apply(session_controller, request, job, value)
+        if getattr(request.payload, "grade", "COMMIT") != "COMMIT":
+            events.append(("exact", request.sequence, request.alpha, time.perf_counter(), request.requested_at, getattr(job, "started_at", 0.0) or applying, getattr(job, "finished_at", 0.0) or applying, applying))
+            plan = getattr(value, "plan", None)
+            held = {} if plan is None else dict(Counter((plan.held or {}).values()))
+            ticks.append({  # per applied tick: its decision and the parent laps since the previous apply (the ticks are sequential: one flight)
+                "sequence": request.sequence, "alpha": request.alpha, "compute": float(getattr(job, "seconds", 0.0)), "laps": laps.snapshot(), "run_wall": float(getattr(value.run, "wall_seconds", 0.0)),
+                "plan": None if plan is None else {"mode": plan.mode, "reason": plan.reason, "served": len(plan.served or ()), "held": held, "composite": plan.composite,
+                                                   "fallback": plan.fallback, "deferred": getattr(plan, "deferred", "")},
+            })
+        laps.reset()
+
+    live._apply = recorded_apply
     base = float(session.settings.envelope_debug_alpha)
     report["cold_width"] = base
     path = drag_path(base, args.steps, args.span, args.release)
     runtime = begin_adjust(context, (0.0, 0.0), ViewScaleV1((0.0, 0.0), 1e-3))
     if isinstance(runtime, str):
         raise RuntimeError(f"the drag did not start: {runtime}")
-    costs, clock = [], time.monotonic()
+    costs, clock = [], time.perf_counter()
     for width, pause in path:
         clock += args.interval + (args.pause if pause else 0.0)
         drive_until(scheduler, clock)
         started = time.perf_counter()
         live.width_event_preview(controller, width, runtime.offset)
-        live.request_drag_tick(context, controller, width)
+        if live.request_drag_tick(context, controller, width):
+            events.append(("step", scheduler._sequence, width, time.perf_counter()))
+        else:
+            events.append(("step", -1, width, time.perf_counter()))
         costs.append(time.perf_counter() - started)
-    drive_until(scheduler, time.monotonic() + args.dwell)
-    release_at = time.monotonic()
+    drive_until(scheduler, time.perf_counter() + args.dwell)
+    release_at = time.perf_counter()
+    report["release_at"] = release_at
     log = getattr(controller, "width_live_drag", None)
+    if log is not None and controller.width_displayed is not None:
+        from cftuv.envelope_width_stream import unverified_at
+
+        report["unverified_at_release"] = unverified_at(log, controller.width_displayed, log.cursor)
     report["drag_log"] = None if log is None else stream_report(log, scheduler.counters)
-    events = [] if log is None else list(log.events)
+    report["scheduler_at_release"] = str(scheduler.counters)
+    events = sorted(events, key=lambda item: item[3])
     finished = SimpleNamespace(session=SimpleNamespace(width=path[-1][0], phase=PHASE_CONFIRMED), controller=controller, start_width=base, offset=runtime.offset)
     report["counters_at_release"] = str(scheduler.counters)
     assert finish_adjust(context, finished, confirmed=True) == "FINISHED"
@@ -152,9 +185,11 @@ def run_drag(session, args, report: dict) -> None:
     if scheduler.last_applied is None or scheduler.last_applied.sequence != commit_sequence:
         raise RuntimeError(f"the commit did not land: {scheduler.counters} {scheduler.last_applied}")
     # The width property is single precision: the committed width is the release width as the property holds it.
-    report["commit"] = {"width": scheduler.last_applied.alpha, "release_width": path[-1][0], "wall": time.monotonic() - release_at, "latency": scheduler.last_applied.latency_seconds, "compute": scheduler.last_applied.compute_seconds,
+    report["commit"] = {"width": scheduler.last_applied.alpha, "release_width": path[-1][0], "wall": time.perf_counter() - release_at, "latency": scheduler.last_applied.latency_seconds, "compute": scheduler.last_applied.compute_seconds,
                         "apply": scheduler.last_applied.apply_seconds}
-    rows = step_metrics(events, release_at)
+    live._apply = original_apply
+    rows = step_metrics([item for item in events if item[0] != "exact" or item[3] <= release_at], release_at)
+    report["exact_events"] = [list(item) for item in events if item[0] == "exact"]
     report["steps"], report["event_cost"] = rows, drag_ticks.stats(costs)
     summarize(report, rows, log)
 
@@ -164,15 +199,19 @@ def summarize(report: dict, rows: list, log) -> None:
     caught = [row["catch_up"] for row in rows if row["caught_before_release"]]
     base = float(report["cold_width"])
     gaps = [100.0 * row["exact_width_gap"] / base for row in rows if row["exact_width_gap"] is not None]
+    ticks = [item for item in report.get("exact_events", []) if item[3] <= report["release_at"]]
+    report["latency_parts"] = {  # order -> start (one flight: waiting for the tick in flight), start -> end (the tick itself), end -> apply (the poll), the apply on the main thread
+        "queue": drag_ticks.stats([item[5] - item[4] for item in ticks]), "compute": drag_ticks.stats([item[6] - item[5] for item in ticks]),
+        "poll": drag_ticks.stats([item[7] - item[6] for item in ticks]), "apply": drag_ticks.stats([item[3] - item[7] for item in ticks]),
+    }
     report["summary"] = {
         "exact_width_gap_percent": drag_ticks.stats(gaps),
-        "reconcile_preempted": None if log is None else report["drag_log"]["scheduler"]["preempted"],
+        "verify_domains": None if log is None else log.verify_domains, "idle_ticks": None if log is None else log.idle_ticks,
         "steps": len(rows) or report["args"]["steps"], "exact_steps": sum(1 for row in rows if row["exact"]), "model_steps": sum(1 for row in rows if not row["exact"]) if rows else report["args"]["steps"],
         "exact_share": round(sum(1 for row in rows if row["exact"]) / len(rows), 4) if rows else 0.0,
         "own_latency": drag_ticks.stats(own), "catch_up_latency": drag_ticks.stats(caught), "steps_with_own_tick": len(own), "steps_caught_up_before_release": len(caught),
-        "reconcile_applied": None if log is None else log.reconcile_applied, "reconcile_requested": None if log is None else log.reconcile_requested,
         "structure_changes_corrected": None if log is None else log.structure_changes, "layout_changes_corrected": None if log is None else log.layout_changes,
-        "refuted": None if log is None else log.refuted,
+        "full_ticks": None if log is None else dict(log.full_ticks), "unverified_at_release": report.get("unverified_at_release"),
     }
 
 
@@ -204,7 +243,7 @@ def main() -> int:
     if report["failure"] is None:
         summary = report["summary"]
         print(f"LIVE_DRAG exact share {summary['exact_share']} own p50 {summary['own_latency'].get('p50')} p90 {summary['own_latency'].get('p90')} "
-              f"reconciled {summary['reconcile_applied']} commit {report['commit']['wall']:.3f} s digest {report['final_mesh_digest'][:16]}")
+              f"verified {summary['verify_domains']} commit {report['commit']['wall']:.3f} s digest {report['final_mesh_digest'][:16]}")
     print("LIVE_DRAG_OK" if report["failure"] is None else "LIVE_DRAG_FAILED")
     return 0 if report["failure"] is None else 1
 
