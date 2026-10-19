@@ -267,8 +267,13 @@ fn along(first: &[f64; 3], second: &[f64; 3], point: &[f64; 3]) -> (f64, f64) {
     (share, (ex * ex + ey * ey + ez * ez).sqrt())
 }
 
-/// `uv_fit_residual(chart, uvs)`.
-pub fn uv_fit_residual(chart: &[(f64, f64)], uvs: &[(f64, f64)]) -> Option<f64> {
+/// `math.hypot` of the law, or the named decline of two subnormals (`pymath::hypot`).
+fn law_hypot(a: f64, b: f64) -> SilResult<f64> {
+    hypot(a, b).ok_or_else(|| SilError::Unsupported("math.hypot of a subnormal largest component (CPython 3.11 rounds it by its own path)".to_string()))
+}
+
+/// `uv_fit_residual(chart, uvs)`; a subnormal residual pair is declined (`law_hypot`).
+pub fn uv_fit_residual(chart: &[(f64, f64)], uvs: &[(f64, f64)]) -> SilResult<Option<f64>> {
     let count = chart.len() as f64;
     let mean_x = left_fold_sum(chart.iter().map(|point| point.0)) / count;
     let mean_y = left_fold_sum(chart.iter().map(|point| point.1)) / count;
@@ -280,9 +285,11 @@ pub fn uv_fit_residual(chart: &[(f64, f64)], uvs: &[(f64, f64)]) -> Option<f64> 
             Some(found) => py_max(found, item),
         });
     }
-    let scale = scale?;
+    let Some(scale) = scale else {
+        return Ok(None);
+    };
     if !(scale > 0.0) {
-        return None;
+        return Ok(None);
     }
     let xs: Vec<f64> = chart.iter().map(|point| (point.0 - mean_x) / scale).collect();
     let ys: Vec<f64> = chart.iter().map(|point| (point.1 - mean_y) / scale).collect();
@@ -291,7 +298,7 @@ pub fn uv_fit_residual(chart: &[(f64, f64)], uvs: &[(f64, f64)]) -> Option<f64> 
     let syy = left_fold_sum(ys.iter().map(|y| y * y));
     let determinant = sxx * syy - sxy * sxy;
     if !(determinant > 0.0) {
-        return None;
+        return Ok(None);
     }
     let mut residuals: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for component in 0..2 {
@@ -306,18 +313,16 @@ pub fn uv_fit_residual(chart: &[(f64, f64)], uvs: &[(f64, f64)]) -> Option<f64> 
     }
     let mut worst: Option<f64> = None;
     for (first, second) in residuals[0].iter().zip(&residuals[1]) {
-        let item = hypot(*first, *second);
+        let item = law_hypot(*first, *second)?;
         worst = Some(match worst {
             None => item,
             Some(found) => py_max(found, item),
         });
     }
-    let worst = worst?;
-    if worst.is_finite() {
-        Some(worst)
-    } else {
-        None
-    }
+    let Some(worst) = worst else {
+        return Ok(None);
+    };
+    Ok(if worst.is_finite() { Some(worst) } else { None })
 }
 
 /// The insertion-ordered `incident` dictionary of the oracle: `key -> set of face numbers`, with `pop`.
@@ -736,7 +741,7 @@ impl<'s> Mesh<'s> {
         for &key in union {
             uvs.push(self.uv(region, key)?);
         }
-        let residual = uv_fit_residual(&chart, &uvs);
+        let residual = uv_fit_residual(&chart, &uvs)?;
         Ok(residual.filter(|value| within(*value, &self.source.uv_slide)))
     }
 
@@ -949,7 +954,7 @@ impl<'s> Mesh<'s> {
             for &item in run {
                 let share = along(&start, &end, &self.xyz(item)?).0;
                 let (u, v) = self.uv(region, item)?;
-                worst = py_max(worst, hypot(u - (u0 + (u1 - u0) * share), v - (v0 + (v1 - v0) * share)));
+                worst = py_max(worst, law_hypot(u - (u0 + (u1 - u0) * share), v - (v0 + (v1 - v0) * share))?);
             }
         }
         Ok(Some(worst))
@@ -1439,6 +1444,12 @@ fn counter(output: &SilOutput, name: &str) -> u64 {
     output.counters.iter().find(|(found, _)| *found == name).map_or(0, |(_, value)| *value)
 }
 
+/// `verify_silhouette(source, result)` on a result handed over from outside (the comparison with the oracle on corrupted results): the names of the
+/// violations. The pass itself calls [`verify`] on its own result.
+pub fn verify_output(source: &SilInput, output: &SilOutput) -> SilResult<Vec<&'static str>> {
+    verify(source, output)
+}
+
 /// `verify_silhouette(source, result)`: the names of the violations (empty: the law held).
 fn verify(source: &SilInput, output: &SilOutput) -> SilResult<Vec<&'static str>> {
     let polygons = result_polygons(source, output);
@@ -1536,7 +1547,7 @@ fn verify_runs(source: &SilInput, output: &SilOutput, polygons: &[Vec<Vec<Key>>]
             for &item in run {
                 let share = along(&start, &end, &mesh.xyz(item)?).0;
                 let (u, v) = mesh.uv(region, item)?;
-                let slide = hypot(u - (u0 + (u1 - u0) * share), v - (v0 + (v1 - v0) * share));
+                let slide = law_hypot(u - (u0 + (u1 - u0) * share), v - (v0 + (v1 - v0) * share))?;
                 if planned {
                     plan_slide = py_max(plan_slide, slide);
                 } else {
@@ -1589,7 +1600,7 @@ fn verify_fits(source: &SilInput, output: &SilOutput) -> SilResult<Vec<&'static 
         for &key in ring {
             uvs.push(mesh.uv(*region, key)?);
         }
-        let Some(residual) = uv_fit_residual(&chart, &uvs) else {
+        let Some(residual) = uv_fit_residual(&chart, &uvs)? else {
             return Ok(vec!["UV_FIT_HAS_NO_AFFINE_MAP"]);
         };
         worst = py_max(worst, residual);

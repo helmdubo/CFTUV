@@ -452,6 +452,29 @@ impl Session {
         outcome
     }
 
+    /// `verify_silhouette` of the Rust law on a result in the native form (see `materialize_hot.rs`): a tuple of violation names, or `None` (not carried).
+    #[allow(clippy::too_many_arguments)]
+    fn hot_verify<'py>(
+        &mut self,
+        py: Python<'py>,
+        polygons: &Bound<'py, PyAny>,
+        cycles: &Bound<'py, PyAny>,
+        positions: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        facts: &Bound<'py, PyAny>,
+        regions: &Bound<'py, PyAny>,
+        cut_pairs: &Bound<'py, PyAny>,
+        mark: &str,
+        lattice_alpha: &Bound<'py, PyAny>,
+        uv_slide: &Bound<'py, PyAny>,
+        chord: &Bound<'py, PyAny>,
+        reverse: bool,
+        free: &Bound<'py, PyAny>,
+        result: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Vec<&'static str>>> {
+        let args = materialize_hot::SilhouetteArgs { polygons, cycles, positions, points, facts, regions, cut_pairs, mark, lattice_alpha, uv_slide, chord, reverse, free };
+        self.hot.verify(py, &args, result)
+    }
     /// `{key: PlaneLiftV1(origin, basis_a, basis_b, scale).lift(point)}` of a dict of chart points; `None`: the port does not carry the input (the shim runs the oracle).
     fn hot_plane_lift<'py>(&self, py: Python<'py>, points: &Bound<'py, PyAny>, origin: &Bound<'py, PyAny>, basis_a: &Bound<'py, PyAny>, basis_b: &Bound<'py, PyAny>, scale: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyDict>>> {
         self.hot.plane_lift(py, points, origin, basis_a, basis_b, scale)

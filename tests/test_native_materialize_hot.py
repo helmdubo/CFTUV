@@ -460,14 +460,164 @@ def test_source_lift_cuts_a_face_without_an_exact_triangulation(seed, approved):
     assert seen, "no record cut a face"
 
 @needs_native
-def test_silhouette_on_a_coarse_grid(seed, approved):
+def test_silhouette_on_a_coarse_grid(seed, approved, monkeypatch):
     """Positions snapped to a coarse grid (1/8 m to 1/65536 m): exactly equal areas and distances, so the ties of the law (the bigger face of a merge, the first maximum) decide as the oracle's."""
 
-    from cftuv_envelope.materialize.silhouette import apply_silhouette
+    from cftuv_envelope.materialize import silhouette
     from cftuv_envelope.numeric import LocalPoint3V1
 
+    mesh = next(value for value in vars(silhouette).values() if isinstance(value, type) and hasattr(value, "_merge_depth"))
+    original = mesh._merge_depth
+    ties = [0]
+
+    def counted(self, one, two, union):
+        first, second = self._twice_area(one), self._twice_area(two)
+        ties[0] += first == second != 0
+        return original(self, one, two, union)
+
+    monkeypatch.setattr(mesh, "_merge_depth", counted)
+    outcomes = []
     for index, row in enumerate(row for row in seed if row["kind"] == "silhouette"):
         for grid in (8.0, 64.0, 1024.0, 4096.0, 65536.0):
             snapped = {key: LocalPoint3V1(round(p.x * grid) / grid, round(p.y * grid) / grid, round(p.z * grid) / grid) for key, p in row["positions"].items()}
             source, budget = _silhouette_args(dict(row, positions=snapped))
-            assert same(f"silhouette grid {grid} #{index}", apply_silhouette, cftuv_native.apply_silhouette, budget, source, budget) in ("answered", "declined")
+            outcomes.append(same(f"silhouette grid {grid} #{index}", silhouette.apply_silhouette, cftuv_native.apply_silhouette, budget, source, budget))
+    assert outcomes.count("answered") == len(outcomes), outcomes.count("answered")
+    assert ties[0] >= 10, f"the grid made {ties[0]} merges of two faces of exactly equal non-zero area"
+
+def _native_result(result):
+    """A `SilhouetteV1` in the native form the Rust law answers (`(kind, faces, gone, counters, note, changed, runs, fits, chains)`)."""
+
+    faces = [(index, tuple(ring), tuple(result.merged_frames.get((index, tuple(ring)), ()))) for index, rings in enumerate(result.polygons) for ring in rings]
+    chains = None
+    if result.boundary_chains is not None:
+        chains = tuple(
+            tuple((getattr(chain, field).value, tuple(key.value for key in chain.ordered_vert_keys)) for chain in chains)
+            for chains, field in ((result.boundary_chains, "semantic_boundary_id"), (result.interface_chains, "semantic_interface_id"))
+        )
+    return (0, tuple(faces), tuple(result.dissolved), tuple(result.counters), result.note, bool(result.changed), tuple((a, b, tuple(run)) for a, b, run in result.runs), tuple(result.fits), chains)
+
+
+def _native_verify(source, result):
+    from cftuv_envelope.materialize import audit, silhouette
+
+    from cftuv_native import materialize_hot_op
+
+    materialize_hot_op.warm(cftuv_native.default_mirror())
+    layout, faces = source.layout, source.frame_faces
+    return cftuv_native.default_mirror()._session.hot_verify(
+        source.polygons, source.cycles, source.positions, source.points, source.facts, [layout.region_of(face) for face in faces], [tuple(pair) for pair in layout.cut_pairs(faces)],
+        audit.CUT_RIGHT_COPY_MARK, source.lattice_alpha, source.uv_slide, silhouette.CHORD_BUDGET, bool(source.reverse), source.free, _native_result(result),
+    )
+
+
+def _corruptions(source, result):
+    """Results the law must refuse, each with the oracle's own reading of it: a dissolved WALL vertex, a dropped run, a lowered recorded maximum, a duplicated half-edge, a chain on no edge."""
+
+    from cftuv_envelope.ids import SemanticBoundaryId
+    from cftuv_envelope.materialize.assemble import chains_of
+    from cftuv_envelope.materialize.silhouette import MAX_CHORD_NM
+
+    found = []
+    walls = [key.value for chain in chains_of(source.frame_faces, source.cycles, source.layout, source.facts, source.lattice_alpha)[0]
+             if chain.semantic_boundary_id.value.split(":")[1] in ("SOURCE", "WALL") for key in chain.ordered_vert_keys]
+    wall = next((key for key in sorted(walls) if key not in result.dissolved and key not in source.free), None)
+    if wall is not None and result.changed:
+        rings = [[tuple(key for key in ring if key != wall) for ring in face] for face in result.polygons]
+        if all(len(ring) >= 3 for face in rings for ring in face):
+            facts = {slot: value for slot, value in result.facts.items() if slot[1] != wall}
+            found.append(("wall", dataclasses.replace(result, polygons=rings, dissolved=result.dissolved | {wall}, facts=facts)))
+    if result.runs:
+        found.append(("run", dataclasses.replace(result, runs=tuple(result.runs[1:]))))
+    if any(name == MAX_CHORD_NM and value > 0 for name, value in result.counters):
+        found.append(("chord", dataclasses.replace(result, counters=tuple((name, value - 1 if name == MAX_CHORD_NM else value) for name, value in result.counters))))
+    index = next((index for index, rings in enumerate(result.polygons) if rings), None)
+    if index is not None:
+        polygons = [list(rings) for rings in result.polygons]
+        polygons[index].append(polygons[index][0])
+        found.append(("half-edge", dataclasses.replace(result, polygons=polygons)))
+    long = sorted((chain for chain in result.boundary_chains or () if len(chain.ordered_vert_keys) >= 3), key=lambda item: item.semantic_boundary_id.value)
+    if long:
+        chain = long[0]
+        # a chord of the chain: its first and third vertex, joined by no edge of the mesh
+        extra = type(chain)(SemanticBoundaryId(chain.semantic_boundary_id.value + "9"), (chain.ordered_vert_keys[0], chain.ordered_vert_keys[2]))
+        found.append(("chain", dataclasses.replace(result, boundary_chains=result.boundary_chains | {extra})))
+    return found
+
+
+@needs_native
+def test_the_rust_check_of_the_law_names_what_the_oracle_names_on_corrupted_results(seed, approved):
+    """`verify_silhouette` of the Rust law against the oracle's on results the law must refuse (and on the true ones: nothing to name)."""
+
+    from cftuv_envelope.materialize.silhouette import apply_silhouette, verify_silhouette
+
+    named = {}
+    for index, row in enumerate(row for row in seed if row["kind"] == "silhouette"):
+        source, budget = _silhouette_args(row)
+        result = apply_silhouette(source, budget)
+        assert _native_verify(source, result) == [] == list(verify_silhouette(source, result)), index
+        for label, corrupted in _corruptions(source, result):
+            # the facts of the result are the shim's (the source's minus the dissolved, by construction): the oracle's check of them has no Rust twin
+            wanted = [name for name in verify_silhouette(source, corrupted) if name != "KEPT_VERTEX_CHANGED_ITS_STATION_OR_UV"]
+            assert _native_verify(source, corrupted) == wanted, (index, label, wanted)
+            if wanted:
+                named[label] = named.get(label, 0) + 1
+    assert set(named) >= {"wall", "run", "chord", "half-edge", "chain"}, named
+
+@needs_native
+def test_source_lift_keeps_a_vertex_whose_host_flips_a_triangle(seed, approved):
+    """A host position mirrored across the opposite edge of a triangle of the vertex: the lift would flip it, so the law keeps the vertex at its lattice lift
+    (`MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION`) or names the flipped triangles; the port reads it as the oracle does."""
+
+    from cftuv_envelope.materialize.source_lift import ORIENTATION_KEPT, TRIANGLES_FLIPPED_BY_LIFT, source_vertex_key
+    from cftuv_envelope.numeric import LocalPoint3V1
+
+    seen = {ORIENTATION_KEPT: 0, TRIANGLES_FLIPPED_BY_LIFT: 0}
+    for index, row in enumerate(row for row in seed if row["kind"] == "source"):
+        positions = row["positions"]
+        found = None
+        for triangle in row["triangles"]:
+            for at, key in enumerate(triangle):
+                if key.startswith("src:") and source_vertex_key(key) in row["hosts"]:
+                    found = (key, [triangle[(at + 1) % 3], triangle[(at + 2) % 3]])
+                    break
+            if found:
+                break
+        if found is None:
+            continue
+        key, (a, b) = found
+        p, pa, pb = positions[key], positions[a], positions[b]
+        d = (pb.x - pa.x, pb.y - pa.y, pb.z - pa.z)
+        length = d[0] ** 2 + d[1] ** 2 + d[2] ** 2
+        if not length:
+            continue
+        share = ((p.x - pa.x) * d[0] + (p.y - pa.y) * d[1] + (p.z - pa.z) * d[2]) / length
+        foot = (pa.x + d[0] * share, pa.y + d[1] * share, pa.z + d[2] * share)
+        mirrored = LocalPoint3V1(2 * foot[0] - p.x, 2 * foot[1] - p.y, 2 * foot[2] - p.z)
+        hosts = dict(row["hosts"], **{source_vertex_key(key): mirrored})
+        args = _source_args(row, hosts=hosts, step=Fraction(10**6))
+        assert same(f"source mirrored #{index}", _sourced, cftuv_native.source_lift, args[7], *args) == "answered"
+        outcome = _run(_sourced, *_source_args(row, hosts=hosts, step=Fraction(10**6)))
+        if outcome[0] == "ok":
+            for name, value in (*outcome[1][1].counters(), *outcome[1][2].counters()):
+                if name in seen:
+                    seen[name] += value
+    assert seen[ORIENTATION_KEPT] > 0, seen
+
+@needs_native
+def test_silhouette_with_opened_ring_pairs(seed, approved):
+    """Pairs of regions of one opened flow ring (`layout.cut_pairs`, FLOW_CYCLE_OPENED: the edge between them is no seam where the facts are equal): the field seed has none,
+    so every pair of consecutive regions of a record is declared one; the chains and the counters are the oracle's."""
+
+    from cftuv_envelope.materialize.silhouette import apply_silhouette
+
+    tried = 0
+    for index, row in enumerate(row for row in seed if row["kind"] == "silhouette"):
+        regions = sorted(set(row["regions"]))
+        if len(regions) < 2:
+            continue
+        pairs = [(a, b) for a, b in zip(regions, regions[1:])]
+        source, budget = _silhouette_args(dict(row, cut=pairs))
+        assert same(f"silhouette cut pairs #{index}", apply_silhouette, cftuv_native.apply_silhouette, budget, source, budget) == "answered"
+        tried += 1
+    assert tried >= 10, tried

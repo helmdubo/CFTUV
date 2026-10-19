@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import importlib
 import inspect
 from fractions import Fraction
 from time import perf_counter_ns
@@ -37,7 +38,11 @@ OPERATION = "materialize_hot"
 APPROVED_PINS = MappingProxyType(_APPROVED)
 
 #: `(module, function, sha256 of its source)`: functions of files the pin does not hold whole that the Rust code mirrors.
-SHAPE_FUNCTIONS = (("materialize/audit.py", "location_key", "c0b3a2846c5b4fe542bd2de580281527a613f7ae5243e376312a18ece1c30fe5"),)
+SHAPE_FUNCTIONS = (
+    ("materialize/audit.py", "location_key", "c0b3a2846c5b4fe542bd2de580281527a613f7ae5243e376312a18ece1c30fe5"),
+    # the port replaces the whole body of the oracle `domain._sourced` (lift at the host, the rebinding of the normals, the settle of the faces)
+    ("materialize/domain.py", "_sourced", "d7065c4f855d2df5f687b47b77f18e57525071dcdcfc744c8677a3f0f528b811"),
+)
 
 SILHOUETTE_INPUT_FIELDS = ("polygons", "cycles", "vertex_cycles", "positions", "points", "facts", "frame_faces", "layout", "lattice_alpha", "uv_slide", "reverse", "free")
 SILHOUETTE_FIELDS = (
@@ -102,13 +107,21 @@ def source_digest(function) -> str:
     return hashlib.sha256(inspect.getsource(function).replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
 
+def _function(file: str, name: str):
+    """The function `name` (a dotted path inside the module) of the kernel module `file` (`materialize/audit.py` -> `cftuv_envelope.materialize.audit`)."""
+
+    found = importlib.import_module("cftuv_envelope." + file[: -len(".py")].replace("/", "."))
+    for part in name.split("."):
+        found = getattr(found, part)
+    return found
+
+
 def shape_digests() -> dict:
-    _silhouette, _assemble, audit, _lift, _exact, _point = _kernel()
     found = {}
     for file, name, _wanted in SHAPE_FUNCTIONS:
         try:
-            found[(file, name)] = source_digest(getattr(audit, name))
-        except (AttributeError, OSError, TypeError):
+            found[(file, name)] = source_digest(_function(file, name))
+        except (AttributeError, ImportError, OSError, TypeError):
             found[(file, name)] = None
     return found
 

@@ -720,6 +720,120 @@ impl Host {
         Ok((Some(built), status, detail, counts.as_array(), articles, changed, [0, arguments_ns, compute_ns, building_ns, log_ns, 0, 0, 0]))
     }
 
+    /// `verify_silhouette(source, result)` of the Rust law on a result in the native form (`(kind, faces, gone, counters, note, changed, runs, fits, chains)` as
+    /// `silhouette` answers it): the names of the violations, or `None` when the input is not carried. A check of the check: the tests compare it with the oracle's
+    /// `verify_silhouette` on corrupted results.
+    pub fn verify<'py>(&mut self, py: Python<'py>, args: &SilhouetteArgs<'_, 'py>, result: &Bound<'py, PyAny>) -> PyResult<Option<Vec<&'static str>>> {
+        let classes = self.classes()?;
+        let mut keys = Keys::new();
+        let read = (|| -> Read<(SilInput, SilOutput)> {
+            let input = read_silhouette(py, classes, args, &mut keys)?;
+            let items = sequence(result, "the result")?;
+            if items.len() != 9 {
+                return unsupported("the result is not nine items");
+            }
+            let mut faces = Vec::new();
+            for face in sequence(&items[1], "faces")? {
+                let parts = sequence(&face, "a face")?;
+                if parts.len() != 3 {
+                    return unsupported("a face is not (index, ring, others)");
+                }
+                let mut ring = Vec::new();
+                for key in sequence(&parts[1], "a ring")? {
+                    ring.push(keys.key(py, &key)?);
+                }
+                let others = sequence(&parts[2], "others")?.iter().map(|item| small_int(item, "a merged face")).collect::<Read<Vec<u32>>>()?;
+                faces.push(cftuv_silhouette::silhouette::FinalFace { index: small_int(&parts[0], "a face index")?, ring, others });
+            }
+            let mut gone = Vec::new();
+            for key in sequence(&items[2], "gone")? {
+                gone.push(keys.key(py, &key)?);
+            }
+            let mut counters = Vec::new();
+            for pair in sequence(&items[3], "counters")? {
+                let parts = sequence(&pair, "a counter")?;
+                let name: String = parts[0].extract()?;
+                let Some(known) = cftuv_silhouette::silhouette::COUNTER_NAMES.iter().find(|item| **item == name) else {
+                    return unsupported(format!("a counter the law does not write: {name}"));
+                };
+                let value: u64 = parts[1].extract()?;
+                counters.push((*known, value));
+            }
+            let mut runs = Vec::new();
+            for run in sequence(&items[6], "runs")? {
+                let parts = sequence(&run, "a run")?;
+                let mut inner = Vec::new();
+                for key in sequence(&parts[2], "a run")? {
+                    inner.push(keys.key(py, &key)?);
+                }
+                runs.push((keys.key(py, &parts[0])?, keys.key(py, &parts[1])?, inner));
+            }
+            let mut fits = Vec::new();
+            for fit in sequence(&items[7], "fits")? {
+                let parts = sequence(&fit, "a fit")?;
+                let mut ring = Vec::new();
+                for key in sequence(&parts[1], "a fit ring")? {
+                    ring.push(keys.key(py, &key)?);
+                }
+                fits.push((small_int(&parts[0], "a fit region")?, ring));
+            }
+            let chains = if items[8].is_none() {
+                None
+            } else {
+                let mut lists = Vec::new();
+                for side in sequence(&items[8], "chains")? {
+                    let mut chains = Vec::new();
+                    for chain in sequence(&side, "a side of the chains")? {
+                        let parts = sequence(&chain, "a chain")?;
+                        let mut path = Vec::new();
+                        for key in sequence(&parts[1], "a chain path")? {
+                            path.push(keys.key(py, &key)?);
+                        }
+                        chains.push((parts[0].extract::<String>()?, path));
+                    }
+                    lists.push(chains);
+                }
+                if lists.len() != 2 {
+                    return unsupported("chains is not (boundary, interface)");
+                }
+                let interface = lists.pop().unwrap_or_default();
+                let boundary = lists.pop().unwrap_or_default();
+                Some((boundary, interface))
+            };
+            // the keys first seen in the result: the input tables of the law grow to the same length
+            let mut input = input;
+            let count = keys.bytes.len();
+            input.rank = keys.ranks();
+            input.place = keys.places(args.mark.as_bytes());
+            input.positions.resize(count, None);
+            input.points.resize(count, None);
+            input.free.resize(count, false);
+            let output = SilOutput {
+                kind: small_int(&items[0], "the kind")? as u8,
+                faces,
+                gone,
+                counters,
+                note: items[4].extract()?,
+                changed: items[5].extract()?,
+                runs,
+                fits,
+                chains,
+                problems: Vec::new(),
+            };
+            Ok((input, output))
+        })();
+        let (input, output) = match read {
+            Ok(found) => found,
+            Err(Fail::Py(error)) => return Err(error),
+            Err(Fail::Unsupported(_)) => return Ok(None),
+        };
+        match catch_unwind(AssertUnwindSafe(|| cftuv_silhouette::silhouette::verify_output(&input, &output))) {
+            Ok(Ok(problems)) => Ok(Some(problems)),
+            Ok(Err(_)) => Ok(None),
+            Err(panic) => Err(PyRuntimeError::new_err(format!("Session.hot_verify: native panic: {}", crate::panic_message(&panic)))),
+        }
+    }
+
     /// `{key: PlaneLiftV1(origin, basis_a, basis_b, scale).lift(point)}` over a dict of points, in its order; `None` when the port does not carry it.
     #[allow(clippy::too_many_arguments)]
     pub fn plane_lift<'py>(&self, py: Python<'py>, points: &Bound<'py, PyAny>, origin: &Bound<'py, PyAny>, basis_a: &Bound<'py, PyAny>, basis_b: &Bound<'py, PyAny>, scale: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyDict>>> {

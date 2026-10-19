@@ -1,10 +1,11 @@
 //! The CPython 3.11 float semantics the silhouette law and the source lift read: `math.hypot` (the 3.11 `vector_norm`, not the C
-//! library's), `math.atan2` (CPython's special cases, then the C runtime's `atan2`), `float ** 2` (the C runtime's `pow`, never folded to a
-//! product), the builtin `min`/`max` of two floats (the first wins unless the second is strictly better), the left fold of `sum`, and the exact
-//! comparisons of a float with a `Fraction` (`Fraction(x) <= f`, `math.ceil(Fraction(x) * n)`).
+//! library's, for a largest component that is normal; two subnormals are DECLINED by name, see [`hypot`]), `math.atan2` (CPython's special
+//! cases, then the C runtime's `atan2`), `float ** 2` (`float_pow`: the C runtime's `pow` of the magnitude, never folded to a product), the
+//! builtin `min`/`max` of two floats (the first wins unless the second is strictly better), the left fold of `sum`, and the exact comparisons of
+//! a float with a `Fraction` (`Fraction(x) <= f`, `math.ceil(Fraction(x) * n)`).
 //!
-//! Proof of the three library functions: `tests/test_native_materialize_hot.py` replays vectors computed by the product interpreter (3.11, MSVC,
-//! the UCRT `atan2`/`pow` this module links as well) bit for bit.
+//! Proof: the unit vectors of this module were computed by the product interpreter (CPython 3.11.11 of Blender 4.5, MSVC, the UCRT `atan2`/`pow`
+//! this module links as well); the field parity of the whole law (`tests/test_native_materialize_hot.py`, the shadow runs) covers the rest.
 
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::rat::Rat;
@@ -49,12 +50,7 @@ fn vector_norm(vec: &mut [f64], max: f64, found_nan: bool) -> f64 {
         return max;
     }
     let max_e = frexp_exponent(max);
-    if max_e < -1023 {
-        for item in vec.iter_mut() {
-            *item /= f64::MIN_POSITIVE;
-        }
-        return f64::MIN_POSITIVE * vector_norm(vec, max / f64::MIN_POSITIVE, found_nan);
-    }
+    debug_assert!(max_e >= -1021, "hypot declines a subnormal largest component before vector_norm");
     let scale = power_of_two(-max_e);
     let mut csum = 1.0f64;
     let (mut frac1, mut frac2, mut frac3) = (0.0f64, 0.0f64, 0.0f64);
@@ -93,8 +89,10 @@ fn vector_norm(vec: &mut [f64], max: f64, found_nan: bool) -> f64 {
     (h + x / (2.0 * h)) / scale
 }
 
-/// `math.hypot(a, b)` of CPython 3.11.
-pub fn hypot(a: f64, b: f64) -> f64 {
+/// `math.hypot(a, b)` of CPython 3.11, or `None` when the largest component is a non-zero SUBNORMAL: there CPython 3.11.11 rounds by its own
+/// subnormal path, which differs by one ulp from both the DBL_MIN rescaling of 3.12+ and the division by the maximum (77 and 27 of 20000
+/// random subnormal pairs). The callers decline such an input by name; a mesh never carries such a UV residual.
+pub fn hypot(a: f64, b: f64) -> Option<f64> {
     let mut coordinates = [a.abs(), b.abs()];
     let mut max = 0.0f64;
     let mut found_nan = false;
@@ -104,7 +102,10 @@ pub fn hypot(a: f64, b: f64) -> f64 {
             max = x;
         }
     }
-    vector_norm(&mut coordinates, max, found_nan)
+    if !found_nan && max.is_finite() && max != 0.0 && max < f64::MIN_POSITIVE {
+        return None;
+    }
+    Some(vector_norm(&mut coordinates, max, found_nan))
 }
 
 /// `math.atan2(y, x)` of CPython 3.11 (`m_atan2`): the special cases, then the C runtime's `atan2`.
@@ -129,10 +130,11 @@ pub fn atan2(y: f64, x: f64) -> f64 {
     unsafe { c_atan2(y, x) }
 }
 
-/// `x ** 2` for a float `x`: CPython calls the C runtime's `pow` (finite `x`; an overflow is an `OverflowError` in Python, `None` here).
+/// `x ** 2` for a float `x`: CPython's `float_pow` takes the magnitude of a negative base (`iv = -iv`; the exponent 2 is even, so the sign is
+/// not restored) and calls the C runtime's `pow` (finite `x`; an overflow is an `OverflowError` in Python, `None` here).
 pub fn square(x: f64) -> Option<f64> {
     // SAFETY: a pure C runtime function of two doubles; the exponent goes through `black_box` so the call is never folded into `x * x`.
-    let value = unsafe { c_pow(x, std::hint::black_box(2.0)) };
+    let value = unsafe { c_pow(x.abs(), std::hint::black_box(2.0)) };
     if value.is_infinite() && x.is_finite() {
         return None;
     }
@@ -213,11 +215,17 @@ mod tests {
 
     #[test]
     fn hypot_matches_known_values() {
-        assert_eq!(hypot(3.0, 4.0), 5.0);
-        assert_eq!(hypot(0.0, 1e308), 1e308);
-        assert_eq!(hypot(-0.0, 0.0), 0.0);
-        assert!(hypot(f64::NAN, 1.0).is_nan());
-        assert_eq!(hypot(f64::INFINITY, f64::NAN), f64::INFINITY);
+        assert_eq!(hypot(3.0, 4.0), Some(5.0));
+        assert_eq!(hypot(0.0, 1e308), Some(1e308));
+        assert_eq!(hypot(-0.0, 0.0), Some(0.0));
+        assert!(hypot(f64::NAN, 1.0).unwrap().is_nan());
+        assert_eq!(hypot(f64::INFINITY, f64::NAN), Some(f64::INFINITY));
+        assert_eq!(hypot(f64::MIN_POSITIVE, 0.0), Some(f64::MIN_POSITIVE));
+        // two subnormals: CPython 3.11.11 gives (bits) 0x416bb9934e58b for the first pair, the 3.12+ rescaling ...58a; declined, never guessed
+        for (a, b) in [(0x37a8d0cb996d3u64, 0x2260ff290ae97u64), (0x37b0bb716dac0, 0x1a79044c46a4e), (0x356589a63021b, 0x35a74b1e1f9d3)] {
+            assert_eq!(hypot(f64::from_bits(a), f64::from_bits(b)), None);
+            assert_eq!(hypot(-f64::from_bits(a), f64::from_bits(b)), None);
+        }
         // `math.hypot` of CPython 3.11 where `sqrt(a*a + b*b)` rounds otherwise (taken from the interpreter).
         for (a, b, wanted) in [
             (0x4010fb13954ba954u64, 0x4020897b9de9e3efu64, 0x402296d965ca76ecu64),
@@ -225,8 +233,18 @@ mod tests {
             (0x3fe3128720c2a87c, 0x40007a08d0f6d232, 0x40012719886d45d7),
             (0x400f46a6612b0cae, 0x40216dae35bdc3a8, 0x40231a1dfcd5ecbe),
         ] {
-            assert_eq!(hypot(f64::from_bits(a), f64::from_bits(b)).to_bits(), wanted);
+            assert_eq!(hypot(f64::from_bits(a), f64::from_bits(b)).unwrap().to_bits(), wanted);
         }
+    }
+
+    #[test]
+    fn the_square_of_a_negative_base_is_the_square_of_its_magnitude() {
+        // `x ** 2` of CPython 3.11.11 (Blender 4.5), bits
+        for (x, wanted) in [(0xc06dbee477bd3073u64, 0x40eba670d873fa78u64), (0xc08101d66306f0cf, 0x411213e7c873bbf5), (0xc0771f4af15e4303, 0x4100b51a54daaa67), (0x9eb67e9c127b6e74, 0x00000000000007e8)] {
+            assert_eq!(square(f64::from_bits(x)).unwrap().to_bits(), wanted);
+            assert_eq!(square(-f64::from_bits(x)).unwrap().to_bits(), wanted);
+        }
+        assert_eq!(square(-1e200), None);
     }
 
     #[test]
