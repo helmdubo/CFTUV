@@ -51,6 +51,11 @@ IDLE_TICKS_PER_PAUSE = 8
 #: LIVE_DRAG_SETTLE_ON_PAUSE_V1: рука «остановилась», если ширина не менялась столько секунд; до того готовый точный такт ждёт под именем `SETTLE_PENDING`.
 SETTLE_PAUSE_SECONDS = 0.12
 SETTLE_PENDING = "LIVE_DRAG_SETTLE_PENDING"
+#: LIVE_DRAG_SETTLE_AT_CONFIRM_V1: на подтверждении ждавший такт лёг (свежее кадра на экране), а не выброшен.
+SETTLE_APPLIED_AT_CONFIRM = "LIVE_DRAG_SETTLE_APPLIED_AT_CONFIRM"
+#: LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: рука встала, в полёте такт новее и другой ширины: ждавший лёг одной записью чисел (раскладка та же) либо ждёт новейшего (раскладка другая).
+SETTLE_SAME_LAYOUT_BEFORE_NEWER = "LIVE_DRAG_SETTLE_SAME_LAYOUT_BEFORE_NEWER"
+SETTLE_WAITED_FOR_NEWER = "LIVE_DRAG_SETTLE_WAITED_FOR_NEWER"
 #: Имя статуса обслуженного домена: структура его последнего точного счёта на названной ширине.
 STRUCTURE_AS_OF = "STRUCTURE_AS_OF"
 
@@ -95,6 +100,13 @@ class LiveDragLogV1:
     last_step_at: float | None = None
     settle_held: int = 0
     settle_seen: int = -1
+    #: Исходы ждавшего такта по имени (LIVE_DRAG_SETTLE_AT_CONFIRM_V1, LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1) и номер последнего, чей исход «новейший в полёте» назван (каждый - один раз).
+    outcomes: dict = field(default_factory=dict)
+    settle_defer_seen: int = -1
+    #: LIVE_DRAG_WRITE_COALESCED_V1: события руки, кадры меша, записанные по ним (не больше одного на такт таймера), и события, чей кадр заменило более позднее.
+    frame_events: int = 0
+    frame_writes: int = 0
+    frames_coalesced: int = 0
     #: Такты, чья раскладка группы переложена (COMPOSITE_SPLICE_V1: имя причины -> сколько) и что откатились на массивы всего меша (имя отката -> сколько).
     spliced: dict = field(default_factory=dict)
     fallbacks: dict = field(default_factory=dict)
@@ -207,6 +219,18 @@ def settle_hold(log: LiveDragLogV1 | None, request, now: float, *, drag_active: 
     return True
 
 
+def settle_defer(log: LiveDragLogV1 | None, request, same_layout: bool) -> bool:
+    """LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: рука встала, а в полёте такт новее и другой ширины. Ждавший такт `request` ложится сейчас, если его раскладка та же, что на экране
+    (одна запись чисел, `same_layout`), иначе ждёт новейшего (`True`): две пересборки раскладки подряд за 0.2-0.3 с - тот самый двойной рывок. Исход назван один раз на такт."""
+
+    if log is None:
+        return False
+    if log.settle_defer_seen != int(request.sequence):
+        log.settle_defer_seen = int(request.sequence)
+        log.count(log.outcomes, SETTLE_SAME_LAYOUT_BEFORE_NEWER if same_layout else SETTLE_WAITED_FOR_NEWER)
+    return not same_layout
+
+
 def pointer_after(log: LiveDragLogV1 | None, request) -> float | None:
     """Ширина курсора, к которой такт `request` надо сдвинуть кадром модели, когда он ляжет, либо `None` (журнала нет либо курсор на ширине такта); то же решение, что вернёт `note_applied`."""
 
@@ -264,7 +288,8 @@ def report(log: LiveDragLogV1, counters=None) -> dict:
         "verify_domains": log.verify_domains, "structure_changes": log.structure_changes, "layout_changes": log.layout_changes, "idle_ticks": log.idle_ticks,
         "idle_budget_spent": log.idle_budget_spent, "weld_changes": log.weld_changes, "weld_position_mismatch": log.weld_position_mismatch,
         "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused), "spliced": dict(log.spliced), "fallbacks": dict(log.fallbacks),
-        "settle": log.settle, "settle_held": log.settle_held,
+        "settle": log.settle, "settle_held": log.settle_held, "outcomes": dict(log.outcomes),
+        "frame_events": log.frame_events, "frame_writes": log.frame_writes, "frames_coalesced": log.frames_coalesced,
     }
     if counters is not None:
         names = {"requested": "requested", "superseded": "coalesced", "started": "started", "applied": "applied", "nearest": "nearest",
@@ -291,6 +316,8 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
         + (f"; layouts spliced (COMPOSITE_SPLICE_V1): " + ", ".join(f"{name} {count}" for name, count in sorted(log.spliced.items())) if log.spliced else "")
         + (f"; whole-mesh rollbacks: " + ", ".join(f"{name} {count}" for name, count in sorted(log.fallbacks.items())) if log.fallbacks else "")
         + (f"; settle on pause: {log.settle_held} exact ticks waited ({SETTLE_PENDING}) for the hand to rest {SETTLE_PAUSE_SECONDS:g} s" if log.settle else "")
+        + ("; " + ", ".join(f"{name} {count}" for name, count in sorted(log.outcomes.items())) if log.outcomes else "")
+        + (f"; mesh frames {log.frame_writes} for {log.frame_events} events ({log.frames_coalesced} coalesced, LIVE_DRAG_WRITE_COALESCED_V1)" if log.frames_coalesced else "")
         + (f"; weld diverged in {log.weld_changes} ticks" if log.weld_changes else "")
         + (f"; {OUTCOME_WELD_POSITION_MISMATCH} up to {log.weld_position_mismatch}" if log.weld_position_mismatch else "")
         + f"; verification periods not run as full ticks {deferred}" + (f"; full ticks: {full}" if full else "") + (f"; refused: {refused}" if refused else "")
@@ -317,7 +344,11 @@ __all__ = (
     "report",
     "seed_verified",
     "SETTLE_PAUSE_SECONDS",
+    "SETTLE_APPLIED_AT_CONFIRM",
     "SETTLE_PENDING",
+    "SETTLE_SAME_LAYOUT_BEFORE_NEWER",
+    "SETTLE_WAITED_FOR_NEWER",
+    "settle_defer",
     "settle_hold",
     "status_line",
     "unverified_at",

@@ -468,6 +468,135 @@ def test_settle_on_pause_holds_the_exact_tick_while_the_hand_moves_and_swaps_it_
     assert "settle on pause: 1 exact ticks waited" in stream.status_line(controller.width_live_drag)
 
 
+def _settled_with_a_newer_flight(defer):
+    """Ждавший такт 0.30 готов, рука движется; в полёте новее - 0.31. Рука встаёт."""
+
+    holding = {"on": True}
+    h = Harness(settle=lambda request, now: holding["on"], defer=defer)
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.01).step()
+    h.at(0.02).scheduler.request(0.31, stream=True)
+    h.jobs[0].finished = True
+    h.at(0.03).step()
+    assert h.scheduler.settling.alpha == 0.30 and h.scheduler._job_request.alpha == 0.31
+    holding["on"] = False
+    h.at(0.2).step()
+    return h
+
+
+def test_at_rest_a_settled_tick_of_another_layout_waits_for_the_newer_flight_and_never_lands_after_it():
+    """LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: раскладка ждавшего другая - он ждёт новейшего, и на остановке ложится ОДИН такт (новейший), ждавший выброшен как устаревший."""
+
+    asked: list = []
+    h = _settled_with_a_newer_flight(lambda request, value: asked.append(request.alpha) or True)
+    assert h.applied == [] and h.scheduler.settling.alpha == 0.30 and asked
+    h.jobs[1].finished = True
+    h.at(0.25).step()
+    assert h.applied == [(0.31, ("scene", 0.31))] and h.scheduler.settling is None
+    h.at(0.3).step()
+    assert h.applied == [(0.31, ("scene", 0.31))]
+    counters = h.scheduler.counters
+    assert counters.stale == 1 and _outcomes(counters) == counters.requested
+
+
+def test_at_rest_a_settled_tick_of_the_same_layout_lands_at_once_and_a_failed_newer_flight_never_strands_it():
+    h = _settled_with_a_newer_flight(lambda request, value: False)
+    assert h.applied == [(0.30, ("scene", 0.30))]  # та же раскладка: одна запись чисел сейчас
+    waiting = _settled_with_a_newer_flight(lambda request, value: True)
+    waiting.jobs[1].error = RuntimeError("worker died")
+    waiting.jobs[1].finished = True
+    waiting.at(0.25).step()  # новейший не лёг - ждавший не застревает: ложится следующим шагом
+    waiting.at(0.3).step()
+    assert waiting.applied == [(0.30, ("scene", 0.30))] and waiting.scheduler.settling is None
+
+
+def test_the_defer_outcome_is_named_once_per_tick():
+    from types import SimpleNamespace
+
+    log = stream.LiveDragLogV1()
+    request = SimpleNamespace(sequence=4)
+    assert stream.settle_defer(log, request, same_layout=False) and stream.settle_defer(log, request, same_layout=False)
+    assert not stream.settle_defer(log, SimpleNamespace(sequence=5), same_layout=True)
+    assert log.outcomes == {stream.SETTLE_WAITED_FOR_NEWER: 1, stream.SETTLE_SAME_LAYOUT_BEFORE_NEWER: 1}
+    assert stream.SETTLE_WAITED_FOR_NEWER in stream.status_line(log) and stream.report(log)["outcomes"] == log.outcomes
+    assert stream.settle_defer(None, request, same_layout=False) is False
+
+
+def test_the_confirm_lays_the_settled_tick_before_the_commit_and_the_cancel_drops_it(monkeypatch):
+    """LIVE_DRAG_SETTLE_AT_CONFIRM_V1: подтверждение не выбрасывает посчитанный ждавший такт - он ложится (пока перетаскивание ещё идёт), а отмена его выбрасывает и возвращает меш."""
+
+    for confirm in (True, False):
+        world, controller = _live_world(monkeypatch, settle=True)
+        assert live.request_drag_tick(world.context, controller, 0.2505)
+        scheduler = controller.width_live
+        scheduler.step()
+        _finish(scheduler)
+        assert scheduler.settling is not None and world.calls == []
+        if confirm:
+            assert live.settle_at_confirm(controller)
+        preview.finish_drag(controller, restore=not confirm)
+        assert scheduler.settling is None
+        assert [item.sample.alpha for item in world.calls] == ([0.2505] if confirm else [])
+        assert controller.width_live_drag.outcomes == ({stream.SETTLE_APPLIED_AT_CONFIRM: 1} if confirm else {})
+        assert live.settle_at_confirm(controller) is False  # больше нечего
+
+
+def test_the_confirm_of_a_live_drag_writes_the_mesh_and_never_the_lines(monkeypatch):
+    """LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: калбэк записи ширины подтверждения (перетаскивание уже кончилось) пишет кадр меша без линий; кадра нет - линии, названно."""
+
+    world, controller = _live_world(monkeypatch)
+    lines: list = []
+    monkeypatch.setattr(live, "preview_now", lambda session, width, offset, skip=frozenset(): lines.append(width))
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: "frame")
+    controller.width_drag_active = False
+    controller.width_confirm_live = True
+    controller.width_preview = object()
+    assert world.event_preview(controller, 0.2505, OFFSET) == "frame"
+    assert lines == [] and controller.width_preview is None and controller.width_live_drag.outcomes == {live.NO_LINES_AFTER_CONFIRM: 1}
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: None)
+    world.event_preview(controller, 0.251, OFFSET)
+    assert lines == [0.251] and controller.width_live_drag.refused == {live.LINES_FALLBACK_NO_MESH_FRAME: 1}
+    controller.width_confirm_live = False  # подтверждение без живого меша (калбэк поля): линии, как прежде
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: SimpleNamespace(moving=frozenset()))
+    world.event_preview(controller, 0.252, OFFSET)
+    assert lines == [0.251, 0.252]
+
+
+def test_the_mesh_frames_of_the_hand_are_coalesced_to_one_write_per_main_loop_tick_at_the_latest_width(monkeypatch):
+    """LIVE_DRAG_WRITE_COALESCED_V1: события руки запоминают ширину; таймер пишет ОДИН кадр по самой поздней; конец перетаскивания ждавший кадр не пишет."""
+
+    world, controller = _live_world(monkeypatch)
+    timers: list = []
+    monkeypatch.setattr(live, "FRAME_TIMERS", type("T", (), {"register": lambda self, function, first_interval: timers.append(function)})())
+    for width in (0.2505, 0.251, 0.2515):
+        assert live.queue_event_frame(controller, width, OFFSET)
+    assert len(timers) == 1 and world.reframes == []
+    assert timers[0]() is None and world.reframes == [0.2515]
+    log = controller.width_live_drag
+    assert (log.frame_events, log.frame_writes, log.frames_coalesced) == (3, 1, 2) and "LIVE_DRAG_WRITE_COALESCED_V1" in stream.status_line(log)
+    assert timers[0]() is None and world.reframes == [0.2515]  # нечего писать
+    assert live.queue_event_frame(controller, 0.252, OFFSET) and len(timers) == 2
+    controller.width_drag_active = False
+    assert timers[1]() is None and world.reframes == [0.2515]  # перетаскивание кончилось: кадра нет
+    assert not live.queue_event_frame(controller, 0.253, OFFSET)  # не перетаскивание: событие пишет само, как прежде
+    controller.width_drag_active = True
+    controller.width_live_drag = None
+    assert not live.queue_event_frame(controller, 0.253, OFFSET)  # без живого меша - как прежде
+
+
+def test_a_frame_written_now_at_the_pending_width_cancels_the_pending_write(monkeypatch):
+    world, controller = _live_world(monkeypatch)
+    monkeypatch.setattr(live, "FRAME_TIMERS", type("T", (), {"register": lambda self, function, first_interval: None})())
+    monkeypatch.setattr(live, "preview_mesh_now", lambda session, width, owners=None: "frame")
+    assert live.queue_event_frame(controller, 0.2505, OFFSET)
+    world.event_preview(controller, 0.251, OFFSET)
+    assert controller.width_frame_pending == (0.2505, OFFSET)  # другая ширина: ждавший кадр остаётся
+    world.event_preview(controller, 0.2505, OFFSET)
+    assert controller.width_frame_pending is None
+
+
 def test_with_the_live_mesh_the_drag_shows_only_the_mesh_and_never_the_front_lines(monkeypatch):
     """LIVE_DRAG_MESH_ONLY_V1: событие перетаскивания при живом меше не считает и не показывает линии; линии - только откат, когда кадр меша не записан (назван)."""
 

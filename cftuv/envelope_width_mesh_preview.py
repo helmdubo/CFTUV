@@ -25,7 +25,7 @@
 раскладки перечитывается не чаще раза в `LAYOUT_RECHECK_SECONDS` (и не чаще, чем стоит `LAYOUT_RECHECK_COST_RATIO` его прочтений) — сеть на
 случай пропущенного сигнала (`PREVIEW_MESH_LAYOUT_CHANGED`). СТРОГАЯ ИНВАЛИДАЦИЯ: любое внешнее изменение снимает модель сразу, до следующего кадра, —
 Undo/Redo и загрузка файла (`PREVIEW_HISTORY_STEP`), обновление геометрии декали в depsgraph, которое сделали не мы
-(`note_decal_updates`, `PREVIEW_DECAL_CHANGED_EXTERNALLY`; свою запись обработчик узнаёт по метке `pending_own_update`), вход в Edit, подмена
+(`note_decal_updates`, `PREVIEW_DECAL_CHANGED_EXTERNALLY`; свою запись обработчик узнаёт по поколению записи на каждый depsgraph, OWN_WRITE_GENERATION_V1), вход в Edit, подмена
 объекта или датаблока. Модель снята с названной причиной (`PREVIEW_MODEL_DROPPED:<причина>`), записи в меш нет, превью молчит, линии остаются, а точный
 путь работает как прежде: следующий точный результат заводит образец и владение заново.
 
@@ -232,13 +232,33 @@ class MeshOwnershipV1:
     layout: bytes
     verified_at: float
     check_seconds: float
-    #: Запись сделана нами, и depsgraph ещё не доложил об обновлении геометрии: первое обновление — наше, не внешнее.
-    pending_own_update: bool = True
+    #: OWN_WRITE_GENERATION_V1: номер нашей последней записи (поколение). Запись при захвате владения — первая.
+    own_writes: int = 1
+    #: Какое поколение нашей записи уже доложил каждый depsgraph (ключ — depsgraph: окно, слой вида). Один depsgraph докладывает о нашей
+    #: записи один раз; второй слой вида или второе окно — свой ключ, и его доклад тоже наш, а не внешний.
+    seen_writes: dict = field(default_factory=dict)
     corner_scratch: object = None
     start_scratch: object = None
 
     def recheck_after(self) -> float:
         return max(LAYOUT_RECHECK_SECONDS, LAYOUT_RECHECK_COST_RATIO * self.check_seconds)
+
+    def note_own_write(self) -> None:
+        self.own_writes += 1
+
+    def claim_update(self, source) -> bool:
+        """`True` — обновление геометрии от `source` докладывает о нашей записи (поколение ещё не доложено этим depsgraph): оно наше."""
+
+        if self.seen_writes.get(source, 0) >= self.own_writes:
+            return False
+        self.seen_writes[source] = self.own_writes
+        return True
+
+    @property
+    def pending_own_update(self) -> bool:
+        """Есть ли наша запись, о которой ещё не доложил ни один depsgraph (для отчётов и тестов)."""
+
+        return not self.seen_writes or max(self.seen_writes.values()) < self.own_writes
 
 
 # --------------------------------------------------------------------------
@@ -601,11 +621,13 @@ def _original_uid(ident):
     return getattr(ident if original is None else original, "session_uid", None)
 
 
-def note_decal_updates(controller, updates) -> str:
+def note_decal_updates(controller, updates, source=None) -> str:
     """Обработчик depsgraph: обновление ГЕОМЕТРИИ нашего объекта или меша, которое сделали не мы, снимает модель. Пусто либо причина.
 
-    `updates` — `depsgraph.updates` (их `id` — вычисленные копии: тождество берётся у `id.original`). Свою запись (кадр, возврат базы, точный путь) отмечает `pending_own_update`: первое обновление после
-    неё — наше, и метка гаснет; следующее — внешнее. Если внешнее слилось с нашим в одном обновлении, сигнал его не увидит, но отпечаток
+    `updates` — `depsgraph.updates` (их `id` — вычисленные копии: тождество берётся у `id.original`); `source` — ключ depsgraph, который докладывает.
+    Свою запись (кадр, возврат базы, точный путь) отмечает поколение (OWN_WRITE_GENERATION_V1, `note_own_write`): первый доклад КАЖДОГО depsgraph
+    после неё — наш; следующий доклад того же depsgraph — внешний. Два окна или два слоя вида докладывают о нашей записи дважды, и оба доклада
+    наши (булева метка второй из них читала как внешний). Если внешнее слилось с нашим в одном обновлении, сигнал его не увидит, но отпечаток
     раскладки в кадре увидит изменение раскладки (`PREVIEW_MESH_LAYOUT_CHANGED`).
     """
 
@@ -618,8 +640,7 @@ def note_decal_updates(controller, updates) -> str:
             break
     else:
         return ""
-    if owner.pending_own_update:
-        owner.pending_own_update = False
+    if owner.claim_update(source):
         return ""
     drop_model(controller, DECAL_CHANGED_EXTERNALLY)
     return DECAL_CHANGED_EXTERNALLY
@@ -716,7 +737,7 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
     except ProductionWriteError as exc:
         drop_model(controller, exc.outcome)
         return None
-    controller.width_mesh_owner.pending_own_update = True
+    controller.width_mesh_owner.note_own_write()
     previous = controller.width_mesh_preview
     moving = frozenset() if frame.refusal else moving_patches(model, frame.held)
     seconds = time.perf_counter() - started
@@ -943,7 +964,7 @@ def restore_base_mesh(controller) -> bool:
         write_preview_geometry(decal.data, frame.positions, frame.uvs)
     except ProductionWriteError:
         return False
-    controller.width_mesh_owner.pending_own_update = True
+    controller.width_mesh_owner.note_own_write()
     return True
 
 

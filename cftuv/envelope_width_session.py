@@ -28,9 +28,11 @@ from .envelope_width_live import (
     begin_live_drag,
     end_live_drag,
     preview_now,
+    queue_event_frame,
     request_drag_tick,
     resolved_preview_inputs,
     set_preview,
+    settle_at_confirm,
     width_event_preview,
     width_problem,
 )
@@ -154,7 +156,9 @@ def apply_step(context, runtime: AdjustRuntimeV1, step: WidthStepV1) -> None:
 
     runtime.last_step = step
     if step.changed:
-        width_event_preview(runtime.controller, step.width, runtime.offset)
+        # LIVE_DRAG_WRITE_COALESCED_V1: при живом точном меше кадр пишет таймер, один раз на такт главного цикла по самой поздней ширине; иначе - событие, как прежде.
+        if not queue_event_frame(runtime.controller, step.width, runtime.offset):
+            width_event_preview(runtime.controller, step.width, runtime.offset)
         request_drag_tick(context, runtime.controller, step.width)
     set_header(context, step.header)
 
@@ -174,11 +178,20 @@ def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
     set_header(context, None)
     width = runtime.session.width
     commit = confirmed and runtime.session.phase == PHASE_CONFIRMED and width != runtime.start_width
-    # До записи ширины: lean-заказ, что ещё в пути, подтверждением снимается, а его результат отбрасывается. Отмена возвращает меш на то, что показывали к началу перетаскивания, побитово.
-    finish_drag(runtime.controller, restore=not commit)
-    end_live_drag(runtime.controller)  # LIVE_DRAG_STREAM_V1: строка журнала перетаскивания в консоль (настройка выключена - ничего)
+    controller = runtime.controller
     if commit:
-        context.scene.hotspotuv_settings.envelope_debug_alpha = width
+        settle_at_confirm(controller)  # LIVE_DRAG_SETTLE_AT_CONFIRM_V1: посчитанный и ждавший остановки руки такт ложится до COMMIT, пока перетаскивание ещё идёт
+    controller.width_frame_pending = None  # LIVE_DRAG_WRITE_COALESCED_V1: ждавший кадр события не пишется после конца перетаскивания (подтверждение пишет кадр ширины отпускания само)
+    # До записи ширины: lean-заказ, что ещё в пути, подтверждением снимается, а его результат отбрасывается. Отмена возвращает меш на то, что показывали к началу перетаскивания, побитово.
+    finish_drag(controller, restore=not commit)
+    end_live_drag(controller)  # LIVE_DRAG_STREAM_V1: строка журнала перетаскивания в консоль (настройка выключена - ничего)
+    if commit:
+        # LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: калбэк этой записи пишет кадр меша на ширине отпускания и линий не считает, если перетаскивание шло с живым точным мешем.
+        controller.width_confirm_live = getattr(controller, "width_live_drag", None) is not None
+        try:
+            context.scene.hotspotuv_settings.envelope_debug_alpha = width
+        finally:
+            controller.width_confirm_live = False
         return "FINISHED"
     set_preview(runtime.controller, None)
     return "CANCELLED"

@@ -8,7 +8,8 @@ per mouse step the two calls of `apply_step` (`width_event_preview`: the model f
 width, the COMMIT order) and the drain of the scheduler. There is no event loop in a headless Blender, so the tool is the main loop: between the mouse steps it calls the scheduler's
 `step` whenever its timer would fire, and sleeps otherwise (the compute thread runs meanwhile, as it does behind the Blender UI). The path: `--steps` mouse steps at `--interval`
 seconds, from the cold width up by `--span`, down to minus `--span`, back to `+--release` (a share of the cold width, the release width), with a pause of `--pause` seconds at each turn
-(the hand stops: the idle reconcile has its chance). `--live off` is the product default (and the only mode a tree without the switch has).
+(the hand stops: the idle reconcile has its chance). `--live off` is the product default (and the only mode a tree without the switch has). `--burst N` sends N mouse events per step back to back
+(a high-poll mouse); `--coalesce on` queues their mesh frame as `apply_step` does and the loop turn writes one (LIVE_DRAG_WRITE_COALESCED_V1, `frame_write_cost`), `off` writes per event.
 
 WHAT IT REPORTS (one JSON; last line LIVE_DRAG_OK). Per step: the width, the main-thread cost of the event (model frame + order), whether the step's own exact tick landed before the next
 step (the drawn mesh was EXACT at that width) or not (MODEL), the latency of its own exact tick when it landed at all, and the catch-up latency (until an exact tick of this or a later width
@@ -47,6 +48,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--release", type=float, default=0.03, help="the release width, as a share of the cold width above it")
     parser.add_argument("--pause", type=float, default=0.4, help="seconds the hand rests at each turn of the path")
     parser.add_argument("--dwell", type=float, default=0.05, help="seconds between the last step and the release")
+    parser.add_argument("--coalesce", default="on", choices=("on", "off"), help="LIVE_DRAG_WRITE_COALESCED_V1: on - the events queue the frame and the main loop writes one (as apply_step); off - every event writes")
+    parser.add_argument("--burst", type=int, default=1, help="mouse events per step, back to back before the main loop turns (a high-poll mouse sends several per redraw)")
     parser.add_argument("--kernel-backend", default="NATIVE")
     parser.add_argument("--out", required=True)
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
@@ -73,11 +76,13 @@ def drag_path(base: float, steps: int, span: float, release: float) -> list:
     return path
 
 
-def drive_until(scheduler, deadline: float) -> None:
-    """The main loop between two events: the scheduler's step whenever it asks for one, sleep otherwise."""
+def drive_until(scheduler, deadline: float, turn=None) -> None:
+    """The main loop between two events: `turn` (the timers that fire on every turn of the loop: the coalesced mesh frame) first, then the scheduler's step whenever it asks for one, sleep otherwise."""
 
     due = time.perf_counter()
     while True:
+        if turn is not None:
+            turn()
         now = time.perf_counter()
         if now >= deadline:
             return
@@ -157,19 +162,38 @@ def run_drag(session, args, report: dict) -> None:
     runtime = begin_adjust(context, (0.0, 0.0), ViewScaleV1((0.0, 0.0), 1e-3))
     if isinstance(runtime, str):
         raise RuntimeError(f"the drag did not start: {runtime}")
-    costs, samples, clock = [], [], time.perf_counter()
+    # LIVE_DRAG_WRITE_COALESCED_V1: the frame timer of the events fires on the next turn of the main loop - the tool is that loop.
+    frame_timers, frame_costs = [], []
+    coalesce = args.coalesce == "on" and hasattr(live, "queue_event_frame")
+    if coalesce:
+        live.FRAME_TIMERS = SimpleNamespace(register=lambda function, first_interval: frame_timers.append(function))
+
+    def turn():
+        while frame_timers:
+            started = time.perf_counter()
+            frame_timers.pop(0)()
+            frame_costs.append(time.perf_counter() - started)
+
+    costs, samples, clock, previous = [], [], time.perf_counter(), base
     for width, pause in path:
         clock += args.interval + (args.pause if pause else 0.0)
-        drive_until(scheduler, clock)
+        drive_until(scheduler, clock, turn)
         started = time.perf_counter()
-        live.width_event_preview(controller, width, runtime.offset)
-        if live.request_drag_tick(context, controller, width):
-            events.append(("step", scheduler._sequence, width, time.perf_counter()))
-        else:
-            events.append(("step", -1, width, time.perf_counter()))
+        burst = max(1, int(args.burst))
+        for index in range(burst):  # a high-poll mouse: several events before the loop turns, the last at the step width
+            event_width = width if index + 1 == burst else previous + (width - previous) * (index + 1) / burst
+            if not (coalesce and live.queue_event_frame(controller, event_width, runtime.offset)):
+                live.width_event_preview(controller, event_width, runtime.offset)
+            if live.request_drag_tick(context, controller, event_width):
+                events.append(("step", scheduler._sequence, event_width, time.perf_counter()))
+            else:
+                events.append(("step", -1, event_width, time.perf_counter()))
+        previous = width
         costs.append(time.perf_counter() - started)
         samples.append((clock, started, costs[-1]))  # when the event was due, when the main loop got to it (late: a step of the scheduler or waiting for the GIL), its cost
-    drive_until(scheduler, time.perf_counter() + args.dwell)
+    drive_until(scheduler, time.perf_counter() + args.dwell, turn)
+    report["frame_write_cost"] = drag_ticks.stats(frame_costs)  # the coalesced frame writes on the loop turns (on: the events above cost the order only)
+    report["frame_writes"] = len(frame_costs)
     release_at = time.perf_counter()
     report["release_at"] = release_at
     log = getattr(controller, "width_live_drag", None)
