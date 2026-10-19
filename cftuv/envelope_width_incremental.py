@@ -87,10 +87,61 @@ class IncrementalPlanV1:
     seconds: float = 0.0
     composite: bool = False
     fallback: str = ""
+    #: LIVE_DRAG_STREAM_V1: срок сверки (`INCREMENTAL_VERIFY_PERIOD_*`), отложенный потоковым тактом, пока рука движется (пусто - не откладывали).
+    deferred: str = ""
+    #: COMPOSITE_SPLICE_V1 (потоковый такт): смена раскладки группы перекладывается в составном образце, а не откатом на весь меш; `spliced` - имя причины перекладки, если она была.
+    splice: bool = False
+    spliced: str = ""
 
     @property
     def incremental(self) -> bool:
         return self.mode == REFRESH_INCREMENTAL
+
+
+#: DRAG_VERIFY_BACKGROUND_V1: домен, который такт считает заново ради сверки структуры (а не потому, что сертификат его не обслуживает).
+VERIFY_BACKGROUND = "DRAG_VERIFY_BACKGROUND_V1"
+
+
+@dataclass(frozen=True, slots=True)
+class StreamPolicyV1:
+    """Потоковый такт живого точного меша (LIVE_DRAG_STREAM_V1).
+
+    `defer` - срок сверки (`DEFERRABLE_REASONS`) не делает такт полным: сверка идёт фоном, партиями доменов внутри тактов (DRAG_VERIFY_BACKGROUND_V1).
+    `verified` - `{патч: ширина последнего точного счёта домена}`; `batch` - сколько обслуживаемых доменов такт считает заново ради сверки (0 - ни одного).
+    `splice` - смена раскладки группы перекладывается в составном образце (COMPOSITE_SPLICE_V1), а не откатом на массивы всего меша.
+    """
+
+    defer: bool = True
+    verified: object = None
+    batch: int = 0
+    splice: bool = True
+
+
+#: Поводы полного такта, которые потоковый такт не исполняет полным тактом (сверка идёт фоном): это сроки, а не невозможность инкрементального такта.
+DEFERRABLE_REASONS = (REASON_PERIOD_TICKS, REASON_PERIOD_DISTANCE)
+
+
+def verify_batch(candidates, verified, alpha: float, batch: int) -> list:
+    """DRAG_VERIFY_BACKGROUND_V1: какие из обслуживаемых доменов `candidates` (`(патч, домен приближённый, число вершин)`) такт считает заново ради сверки.
+
+    Порядок риска (VERIFY_RISK_ORDER_V1): приближённые домены (развёртка, `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`) - первыми, затем путь ширины от последнего точного счёта домена (ни разу не
+    считанный - первым), ничьи - по числу вершин (МЕНЬШЕ - первым: партия дешевле, и за секунду пула сверено больше доменов; на `cover.008` партия крупнейших доменов подняла счёт такта
+    0.02 -> 0.10-0.17 с, а «рука -> меш» p50 0.55 -> 1.07 с), затем по номеру патча. Запас до конца интервала ядра в порядок не входит: решения с допуском (силуэт, хорды) он не
+    описывает. Домен, посчитанный точно на этой ширине, не нужен. Чистая функция значений.
+    """
+
+    if batch <= 0:
+        return []
+    alpha = float(alpha)
+    ranked = []
+    for patch, approximate, vertices in candidates:
+        last = None if verified is None else verified.get(patch)
+        if last is not None and last == alpha:
+            continue
+        drift = float("inf") if last is None else abs(alpha - last)
+        ranked.append((not approximate, -drift, int(vertices), patch))
+    ranked.sort()
+    return [item[3] for item in ranked[:batch]]
 
 
 def full_plan(reason: str, domains: int = 0) -> IncrementalPlanV1:
@@ -141,6 +192,7 @@ def next_state(state: IncrementalStateV1 | None, plan: IncrementalPlanV1 | None,
 
 
 __all__ = (
+    "DEFERRABLE_REASONS",
     "ENVIRONMENT_SWITCH",
     "HELD_NOT_IN_BASE",
     "INCREMENTAL_MIN_DOMAINS",
@@ -159,10 +211,13 @@ __all__ = (
     "REASON_PERIOD_TICKS",
     "REASON_SMALL_SELECTION",
     "REASON_SWITCHED_OFF",
+    "StreamPolicyV1",
+    "VERIFY_BACKGROUND",
     "full_plan",
     "incremental_enabled",
     "mark_attempt",
     "next_state",
     "selection_reason",
     "verification_reason",
+    "verify_batch",
 )

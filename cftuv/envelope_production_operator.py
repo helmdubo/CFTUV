@@ -120,6 +120,25 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
             "no checks or reports of a commit. Confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. Off by default: the worker pool is busy while it runs"
         ),
     )
+    drag_live_mesh: BoolProperty(
+        name="Live exact mesh while dragging",
+        default=False,
+        description=(
+            "While Adjust Decal Width is dragged, stream exact refreshes (LIVE_DRAG_STREAM_V1): every mouse step orders one, a running refresh is never cancelled, "
+            "the latest width wins and superseded widths are dropped; the mesh shows the exact result of the nearest width and the model moves it to the pointer. "
+            "The structure is verified in the background, a batch of domains inside each tick and more ticks while the hand rests (DRAG_VERIFY_BACKGROUND_V1); the hand never waits for a full verification. "
+            "Confirming still recomputes and writes the committed result, cancelling restores the mesh bit for bit. "
+            "Off by default: field test"
+        ),
+    )
+    drag_settle_on_pause: BoolProperty(
+        name="Settle topology on pause",
+        default=True,
+        description=(
+            "With the live exact mesh (LIVE_DRAG_SETTLE_ON_PAUSE_V1): while the hand moves, only model frames move the mesh (its structure stays the one of the last exact refresh); "
+            "exact refreshes still compute in the background, and the newest one is swapped in only when the hand rests (LIVE_DRAG_SETTLE_PENDING until then) or on release"
+        ),
+    )
     status: StringProperty(name="Decal Mesh Status", default="")
     timing: StringProperty(name="Decal Mesh Timing", default="")
 

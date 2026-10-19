@@ -31,6 +31,18 @@
 - НИЧЕГО НЕ ПРОПАДАЕТ МОЛЧА: каждая отброшенная работа — счётчик, каждая причина —
   строка статуса панели (`status_text`), а ошибка потока — строка консоли и статус.
 
+ПОТОК ЗАКАЗОВ (LIVE_DRAG_STREAM_V1, `request(stream=True)`; только когда его заказывают: без потоковых заказов всё выше прежнее побитово).
+Перетаскивание с живым точным мешем заказывает каждое событие мыши потоковым заказом:
+- без паузы: срок — сейчас; опрос полёта чаще (`STREAM_POLL_SECONDS`);
+- полёт НЕ отменяется новым значением: он доходит до конца, а следующим стартует ПОСЛЕДНЕЕ значение (последнее побеждает);
+  промежуточные, замещённые до старта, не считаются вовсе (`coalesced`);
+- результат полёта, после которого приходили только потоковые заказы, ПРИМЕНЯЕТСЯ, хотя значение уже не последнее: это точный ответ
+  ближайшей ширины (`nearest`); обычный заказ (подтверждение) после него делает его устаревшим, как прежде;
+- простой: когда потоковый полёт применён и ничего не ждёт, планировщик один раз спрашивает `idle()`; ответ `(значение, заказ)` — такой же
+  потоковый заказ (такт сверки в простое): рука его не отменяет, а следующий её шаг просто стартует после него;
+- оседание (LIVE_DRAG_SETTLE_ON_PAUSE_V1, `settle`): готовый потоковый результат, который `settle(заказ, сейчас)` держит (рука движется), ждёт в `settling`
+  и применяется на первом шаге, где `settle` его отпустил; более новый результат заменяет ждавший (`stale`), снятие (`supersede`, `retire_stream`) его выбрасывает.
+
 ОТМЕНА ПЕРЕД ТЯЖЁЛЫМ СИНХРОННЫМ ПУТЁМ. Кнопки считают на главном потоке на тех же
 подготовках (их память растёт от покрытий), поэтому `quiesce` останавливает полёт и
 ЖДЁТ его конца ДО их работы; `supersede` — то же без ожидания (калбэки свойств).
@@ -53,6 +65,8 @@ POLL_SECONDS = 0.03
 QUIESCE_TIMEOUT_SECONDS = 30.0
 #: Нижняя граница шага таймера (нулевой шаг крутил бы главный цикл вхолостую).
 MIN_DELAY_SECONDS = 0.005
+#: LIVE_DRAG_STREAM_V1: шаг опроса потокового полёта (такт перетаскивания стоит десятки миллисекунд: опрос 0.03 с добавлял бы к нему в среднем 15 мс).
+STREAM_POLL_SECONDS = 0.01
 
 STATUS_COMPUTING = "computing"
 STATUS_READY = "ready"
@@ -71,6 +85,7 @@ _COUNTER_NAMES = (
     "unavailable",
     "failed",
     "cancelled",
+    "nearest",
 )
 
 
@@ -90,6 +105,8 @@ class PreviewRequestV1:
     alpha: float
     payload: object
     requested_at: float
+    #: LIVE_DRAG_STREAM_V1: потоковый заказ (без паузы, полёт не отменяет, результат ложится как ближайший).
+    stream: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +126,8 @@ class PreviewCountersV1:
     failed: int = 0
     #: Остановлено `quiesce`/`supersede` (кнопка, сброс сессии).
     cancelled: int = 0
+    #: LIVE_DRAG_STREAM_V1: из `applied` - применены, хотя за ними пришли потоковые значения (точный ответ ближайшей ширины).
+    nearest: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +151,7 @@ class ThreadedPreviewJob:
     def __init__(self, compute: Callable[[threading.Event], object], *, context=None):
         self.context = context
         self.seconds = 0.0
+        self.started_at = self.finished_at = 0.0
         self._cancel = threading.Event()
         self._value = None
         self._error: BaseException | None = None
@@ -142,11 +162,13 @@ class ThreadedPreviewJob:
 
     def _run(self, compute) -> None:
         started = time.perf_counter()
+        self.started_at = time.perf_counter()  # моменты старта и конца счёта (`time.perf_counter`; инструмент замера ставит планировщику тот же счётчик): разбор задержки «рука -> меш»
         try:
             self._value = compute(self._cancel)
         except BaseException as exc:  # noqa: BLE001 - причина идёт в главный поток
             self._error = exc
         self.seconds = time.perf_counter() - started
+        self.finished_at = time.perf_counter()
 
     @property
     def finished(self) -> bool:
@@ -199,8 +221,18 @@ class AlphaPreviewScheduler:
         quiesce_timeout: float = QUIESCE_TIMEOUT_SECONDS,
         label: str = "alpha",
         hold: Callable[[], bool] | None = None,
+        idle: Callable[[], tuple | None] | None = None,
+        settle: Callable[[PreviewRequestV1, float], bool] | None = None,
     ) -> None:
         self._label = label
+        self._idle = idle
+        #: LIVE_DRAG_SETTLE_ON_PAUSE_V1: `settle(заказ, сейчас) -> True` - готовый потоковый результат ждёт (рука движется); ждущий - `_settling`.
+        self._settle = settle
+        self._settling = None
+        #: Номер последнего НЕпотокового заказа (и снятия): результат с номером не ниже применяется, если после него шли только потоковые.
+        self._last_plain = 0
+        #: Потоковый полёт применён или снят, а простой ещё не спрашивали.
+        self._stream_open = False
         self._hold = hold
         self._begin = begin
         self._apply = apply
@@ -242,7 +274,7 @@ class AlphaPreviewScheduler:
     def busy(self) -> bool:
         """Есть заказ, который ещё не дошёл до применения или названного исхода."""
 
-        return self._pending is not None or self._job is not None
+        return self._pending is not None or self._job is not None or self._settling is not None
 
     @property
     def in_flight(self) -> bool:
@@ -256,24 +288,34 @@ class AlphaPreviewScheduler:
     # Заказ
     # ------------------------------------------------------------------
 
-    def request(self, alpha: float, payload=None) -> PreviewRequestV1:
-        """Новое значение: запись и сдвиг срока. Микросекунды, ничего не считает."""
+    def request(self, alpha: float, payload=None, *, stream: bool = False) -> PreviewRequestV1:
+        """Новое значение: запись и сдвиг срока. Микросекунды, ничего не считает.
+
+        `stream` (LIVE_DRAG_STREAM_V1): без паузы, полёт не отменяется, его результат применится как ближайший.
+        """
 
         now = self._clock()
         if not self.busy:
             self._burst_dropped = 0
         self._sequence += 1
-        request = PreviewRequestV1(self._sequence, float(alpha), payload, now)
+        stream = bool(stream)
+        request = PreviewRequestV1(self._sequence, float(alpha), payload, now, stream)
         self._counts["requested"] += 1
         if self._pending is not None:
             self._counts["coalesced"] += 1
             self._burst_dropped += 1
         self._pending = request
-        self._deadline = now + self._debounce
-        if self._job is not None:
-            self._job.cancel()
+        if not stream:
+            self._last_plain = self._sequence
+            self._deadline = now + self._debounce
+            if self._job is not None:
+                self._job.cancel()
+            self._set_phase(STATUS_COMPUTING)
+            self._arm()
+            return request
+        self._deadline = now
         self._set_phase(STATUS_COMPUTING)
-        self._arm()
+        self._arm(MIN_DELAY_SECONDS)
         return request
 
     def note_unavailable(self, reason: str) -> None:
@@ -282,9 +324,9 @@ class AlphaPreviewScheduler:
         self._counts["unavailable"] += 1
         self._set_phase(STATUS_UNAVAILABLE, reason)
 
-    def _arm(self) -> None:
+    def _arm(self, first_interval: float | None = None) -> None:
         if not self._timers.is_registered(self._callback):
-            self._timers.register(self._callback, first_interval=self._debounce)
+            self._timers.register(self._callback, first_interval=self._debounce if first_interval is None else first_interval)
 
     # ------------------------------------------------------------------
     # Шаг таймера
@@ -298,11 +340,27 @@ class AlphaPreviewScheduler:
 
         try:
             self._collect()
+            self._release_settled()
             self._start_if_due()
+            if self._ask_idle():
+                self._start_if_due()  # такт простоя стартует тем же шагом: без лишнего захода таймера
         except Exception as exc:  # noqa: BLE001 - таймер не должен умирать молча
             self._counts["failed"] += 1
             self._report_failure("scheduler step", exc)
         return self._next_delay()
+
+    def _ask_idle(self) -> bool:
+        """LIVE_DRAG_STREAM_V1: потоковый полёт кончился и ничего не ждёт - один вопрос `idle()`; ответ `(значение, заказ)` становится потоковым заказом (`True`)."""
+
+        if not self._stream_open or self.busy:
+            return False
+        self._stream_open = False
+        answer = None if self._idle is None else self._idle()
+        if answer is None:
+            return False
+        alpha, payload = answer
+        self.request(alpha, payload, stream=True)
+        return True
 
     def _collect(self) -> None:
         job = self._job
@@ -313,6 +371,7 @@ class AlphaPreviewScheduler:
         self._job_request = None
         if request.sequence <= self._retired_through:
             return
+        self._stream_open = self._stream_open or request.stream
         try:
             value = job.result()
         except PreviewCancelled:
@@ -322,9 +381,39 @@ class AlphaPreviewScheduler:
             self._counts["failed"] += 1
             self._report_failure(f"{self._label}={request.alpha:.4g} compute", exc)
             return
-        if request.sequence != self._sequence:
+        if request.sequence != self._sequence and request.sequence < self._last_plain:
             self._discard_as_stale(request)
             return
+        if request.stream and self._settle is not None and self._settle(request, self._clock()):
+            # LIVE_DRAG_SETTLE_ON_PAUSE_V1: рука движется - готовый потоковый результат ждёт её остановки; прежний ждавший заменён новым (устарел).
+            if self._settling is not None:
+                self._discard_as_stale(self._settling[0])
+            self._settling = (request, job, value)
+            return
+        self._apply_value(request, job, value)
+
+    def _release_settled(self) -> None:
+        """LIVE_DRAG_SETTLE_ON_PAUSE_V1: ждавший результат применяется, как только `settle` его отпустил (рука остановилась)."""
+
+        if self._settling is None:
+            return
+        request, job, value = self._settling
+        if self._settle is not None and self._settle(request, self._clock()):
+            return
+        self._settling = None
+        if request.sequence <= self._retired_through or (request.sequence != self._sequence and request.sequence < self._last_plain):
+            self._discard_as_stale(request)
+            return
+        self._apply_value(request, job, value)
+
+    @property
+    def settling(self):
+        """Ждущий остановки руки потоковый результат (`PreviewRequestV1`) либо `None`."""
+
+        return None if self._settling is None else self._settling[0]
+
+    def _apply_value(self, request: PreviewRequestV1, job, value) -> None:
+        nearest = request.sequence != self._sequence
         reason = None if self._valid is None else self._valid(request, job)
         if reason:
             self._counts["invalid"] += 1
@@ -343,6 +432,8 @@ class AlphaPreviewScheduler:
             return
         finished = self._clock()
         self._counts["applied"] += 1
+        if nearest:
+            self._counts["nearest"] += 1
         self.last_applied = PreviewAppliedV1(
             request.sequence,
             request.alpha,
@@ -381,11 +472,13 @@ class AlphaPreviewScheduler:
 
     def _next_delay(self) -> float | None:
         if self._job is not None:
-            return self._poll
+            return min(self._poll, STREAM_POLL_SECONDS) if self._job_request is not None and self._job_request.stream else self._poll
         if self._pending is not None:
             if self._hold is not None and self._clock() >= self._deadline:
                 return self._poll  # срок назрел, но старт придержан: опрос, а не вращение вхолостую
             return max(MIN_DELAY_SECONDS, min(self._poll, self._deadline - self._clock()))
+        if self._settling is not None:
+            return min(self._poll, STREAM_POLL_SECONDS)  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: ждём остановки руки
         return None
 
     # ------------------------------------------------------------------
@@ -398,13 +491,38 @@ class AlphaPreviewScheduler:
         had_work = self.busy
         self._retired_through = self._sequence
         self._sequence += 1
+        self._last_plain = self._sequence
+        self._stream_open = False
         self._pending = None
+        self._settling = None
         if self._job is not None:
             self._job.cancel()
         if had_work:
             self._counts["cancelled"] += 1
             self._set_phase(STATUS_CANCELLED, f"cancelled: {reason}")
         return had_work
+
+    def retire_stream(self, reason: str) -> bool:
+        """Снимает ПОТОКОВУЮ работу (LIVE_DRAG_STREAM_V1: перетаскивание кончилось - отмена, подтверждение): потоковый заказ, что ждёт, снят, потоковый полёт остановлен, и его результат
+        выбрасывается как снятый, а простой больше не спрашивается. Обычный заказ и его полёт (COMMIT) не тронуты. `True` - было что снимать (счётчик `cancelled`)."""
+
+        hit = False
+        if self._pending is not None and self._pending.stream:
+            self._pending = None
+            hit = True
+        request = self._job_request
+        if self._job is not None and request is not None and request.stream:
+            self._retired_through = max(self._retired_through, request.sequence)
+            self._job.cancel()
+            hit = True
+        if self._settling is not None:  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: ждавший остановки руки результат не ляжет
+            self._settling = None
+            hit = True
+        self._stream_open = False
+        if hit:
+            self._counts["cancelled"] += 1
+            self._set_phase(STATUS_CANCELLED, f"cancelled: {reason}")
+        return hit
 
     def quiesce(self, reason: str) -> bool:
         """`supersede` и ожидание конца полёта: после возврата поток счёта не пишет в подготовки."""
@@ -495,5 +613,6 @@ __all__ = (
     "PreviewRequestV1",
     "PreviewUnavailable",
     "QUIESCE_TIMEOUT_SECONDS",
+    "STREAM_POLL_SECONDS",
     "ThreadedPreviewJob",
 )

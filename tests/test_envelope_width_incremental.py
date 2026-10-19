@@ -593,6 +593,81 @@ def test_the_composite_names_what_changed_in_the_layout_of_the_tick(clipped, mon
     assert outcome == expected
 
 
+def _same_answer(mine, reference) -> None:
+    """Образец перекладки и образец этапа A (результаты всех доменов, `build_mesh_arrays`) - один ответ: раскладка, владельцы, швы, строки доменов побитово, числа - с точностью округления."""
+
+    assert mine.layout_digest == reference.layout_digest
+    assert np.array_equal(mine.image.face_starts, reference.image.face_starts) and np.array_equal(mine.image.face_vertices, reference.image.face_vertices)
+    assert np.array_equal(mine.image.face_owner, reference.image.face_owner) and np.array_equal(mine.image.seams, reference.image.seams)
+    assert np.array_equal(mine.image.face_domain, reference.image.face_domain)
+    assert np.max(np.abs(mine.positions - reference.positions)) <= EXACT_TOLERANCE and np.max(np.abs(mine.uvs - reference.uvs)) <= EXACT_TOLERANCE
+    assert [(item.patch_id, item.token, item.structure, item.loop_start, item.loop_count, item.partners) for item in mine.domains] == [
+        (item.patch_id, item.token, item.structure, item.loop_start, item.loop_count, item.partners) for item in reference.domains
+    ]
+    for one, other in zip(mine.domains, reference.domains):
+        assert np.array_equal(one.vertices, other.vertices)
+
+
+@pytest.mark.parametrize("case", ["unfolded 0.27", "flat quarantined 2", "flat quarantined 0", "clipped quarantined 4", "clipped quarantined 3", "unfolded quarantined 1"])
+def test_a_weld_that_lies_otherwise_is_spliced_from_the_group_weld_and_equals_the_stage_a_sample(unfolded, clipped, flat, case, monkeypatch):
+    """COMPOSITE_SPLICE_V1: сварка группы легла иначе, чем меш на экране (здесь - принудительно: проверка разбиения отвечает «другое»). Потоковый такт перекладывает раскладку группы по её сварке и равен этапу A."""
+
+    from cftuv import envelope_width_composite as composite_module
+
+    monkeypatch.setattr(composite_module, "_same_partition", lambda first, second: False)
+    name = case.split()[0]
+    bundle = {"unfolded": unfolded, "clipped": clipped, "flat": flat}[name]
+    alpha = 0.27 if case == "unfolded 0.27" else 0.2502
+    session = _Session(bundle)
+    if "quarantined" in case:
+        _quarantine(session, int(case.split()[2]))
+    c = session.controller
+    plan = dataclasses.replace(session.plan(alpha), splice=True)
+    run = _press(c, bundle, alpha, lean=True, skipped=plan.served)
+    spliced = preview.finish_live_run(run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=plan)
+    assert spliced.plan.composite and spliced.plan.spliced == "INCREMENTAL_COMPOSITE_WELD_CHANGED"
+    stage_a = _press(c, bundle, alpha, lean=True, served=preview.rebase_served(plan, c.width_displayed, alpha))
+    _same_answer(spliced.sample, preview.build_sample(stage_a.results, production_mesh.build_mesh_arrays(stage_a.results, OFFSET, reports=False), KEY, alpha))
+
+
+def test_a_domain_that_changes_its_structure_is_spliced_into_the_layout_and_equals_the_stage_a_sample(clipped):
+    """COMPOSITE_SPLICE_V1: домен 4 на ширине 1.999 сменил структуру (6 вершин против 5). Потоковый такт не откатывается на массивы всего меша: раскладка группы переложена, и образец равен образцу этапа A."""
+
+    session = _Session(clipped)
+    c = session.controller
+    alpha = 1.999
+    plan = dataclasses.replace(session.plan(alpha), splice=True)
+    run = _press(c, clipped, alpha, lean=True, skipped=plan.served)
+    spliced = preview.finish_live_run(run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=plan)
+    assert spliced.plan.composite and spliced.plan.fallback == "" and spliced.plan.spliced == "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED" and spliced.arrays is None
+    stage_a = _press(c, clipped, alpha, lean=True, served=preview.rebase_served(plan, c.width_displayed, alpha))
+    reference = preview.build_sample(stage_a.results, production_mesh.build_mesh_arrays(stage_a.results, OFFSET, reports=False), KEY, alpha)
+    _same_answer(spliced.sample, reference)
+    assert spliced.sample.layout_digest != c.width_displayed.layout_digest and spliced.sample.cache is not c.width_displayed.cache  # другая раскладка - свои справочники
+    assert spliced.model.base is spliced.sample
+    without = preview.finish_live_run(run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=dataclasses.replace(plan, splice=False))
+    assert without.plan.fallback == "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED" and not without.plan.composite  # без потокового такта - прежний откат, побитово прежний путь
+
+
+def test_a_spliced_sample_is_the_base_of_the_next_composite_tick(clipped):
+    session = _Session(clipped)
+    c = session.controller
+    plan = dataclasses.replace(session.plan(1.999), splice=True)
+    run = _press(c, clipped, 1.999, lean=True, skipped=plan.served)
+    first = preview.finish_live_run(run, alpha=1.999, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=plan)
+    preview.note_exact_display(c, first)
+    alpha = 1.9985
+    nxt = dataclasses.replace(preview.plan_tick(REFRESH_INCREMENTAL, c.width_displayed, c.width_model, c.width_incremental, alpha), splice=True)
+    assert nxt.incremental
+    second_run = _press(c, clipped, alpha, lean=True, skipped=nxt.served)
+    second = preview.finish_live_run(second_run, alpha=alpha, offset=OFFSET, key=KEY, displayed=c.width_displayed, previous=c.width_model, trust=None, lean=True, plan=nxt)
+    assert second.plan.composite
+    exact = _press(c, clipped, alpha, lean=True)
+    reference = preview.build_sample(exact.results, production_mesh.build_mesh_arrays(exact.results, OFFSET, reports=False), KEY, alpha)
+    assert second.sample.layout_digest == reference.layout_digest
+    assert np.max(np.abs(second.sample.positions - reference.positions)) <= EXACT_TOLERANCE and np.max(np.abs(second.sample.uvs - reference.uvs)) <= EXACT_TOLERANCE
+
+
 def test_a_chain_of_incremental_ticks_does_not_accumulate_the_error_and_always_moves_the_original_results(flat):
     session = _Session(flat)
     origins = dict(session.sample.origins)

@@ -358,6 +358,8 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "plan_tick",
         "grade",
         "state",
+        # LIVE_DRAG_STREAM_V1: политика потокового такта (`StreamPolicyV1`: отложить срок сверки / полная сверка в простое) - неизменяемое значение, собранное `_begin` из заказа на главном потоке.
+        "stream",
     }
 )
 
@@ -473,12 +475,13 @@ def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_under_t
     glue = "envelope_width_mesh_preview.py"
     assert _callers_of("write_preview_geometry") == {glue: {"preview_mesh_now", "restore_base_mesh", "_lay_down"}}
     assert _callers_of("rebuild_mesh_from_image") == {glue: {"_lay_down"}}
-    assert _callers_of("_lay_down") == {glue: {"lean_exact_now", "_restore_origin"}}
+    # LIVE_DRAG_ONE_WRITE_V1: `lay_exact_now` - числа образца на экране, когда кадр к курсору не лёг (под той же проверкой владения).
+    assert _callers_of("_lay_down") == {glue: {"lean_exact_now", "_restore_origin", "lay_exact_now"}}
     path = HOST_PACKAGE / glue
-    for function in ("preview_mesh_now", "restore_base_mesh", "lean_exact_now", "_restore_origin"):
+    for function in ("preview_mesh_now", "restore_base_mesh", "lean_exact_now", "_restore_origin", "lay_exact_now"):
         node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
         assert "_mesh_problem" in _called_names(node), f"{function} пишет превью, не спросив, принадлежит ли меш сертификату"
-    for function in ("lean_exact_now", "_restore_origin"):
+    for function in ("lean_exact_now", "_restore_origin", "lay_exact_now"):
         node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
         assert "capture_ownership" in _called_names(node) and "drop_model" in _called_names(node), f"{function}: пересборка меша без владения и без снятия модели"
 
