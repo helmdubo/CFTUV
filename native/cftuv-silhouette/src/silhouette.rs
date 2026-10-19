@@ -1262,6 +1262,21 @@ fn chains_of_faces(source: &SilInput, polygons: &[Vec<Vec<Key>>], facts: &FxMap<
     Ok((boundary, interface, continuous))
 }
 
+/// `chains_of(frame_faces, cycles, layout, facts, lattice_alpha)`: the boundary and interface chains of the contours `source.cycles` (the batch's chains when no
+/// silhouette pass built them). Reads `rank`, `place`, `cycles`, `regions`, `cut_pairs`, `facts` and `front` of `source`.
+pub fn chains_of_cycles(source: &SilInput) -> SilResult<(Vec<Chain>, Vec<Chain>)> {
+    let mut halves = Vec::new();
+    for (index, cycle) in source.cycles.iter().enumerate() {
+        let size = cycle.len();
+        for position in 0..size {
+            halves.push((index as u32, cycle[position], cycle[(position + 1) % size]));
+        }
+    }
+    let (owner_of, order) = own_half_edges(source, halves.into_iter())?;
+    let (boundary, interface, _continuous) = chains_from(source, &source.facts, &owner_of, &order, false)?;
+    Ok(chain_records(source, &boundary, &interface))
+}
+
 /// The keys of the SOURCE and WALL boundary chains of `chains_of(frame_faces, cycles, ...)` (what `verify_silhouette` reads of it).
 fn walls_of_cycles(source: &SilInput) -> SilResult<FxSet<Key>> {
     let mut halves = Vec::new();

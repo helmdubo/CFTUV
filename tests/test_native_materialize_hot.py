@@ -43,6 +43,7 @@ APPROVED = {
     "exact_sqrt_sum_fused.py": "1f7f7d50a56159090eb5c33633221c7ff69cb5a02f4a0e373df949b887e9a9a4",
     "_radicand_products.py": "9d64abad54bd202442384fe79cc9c2f45582bcebf0781043c36968c4cf979f70",
     "wavefront/faces.py": "ab52d0a44599a902ec293c278b200300cc4140bc61cb33a2bcadf4c67bad700e",
+    "contracts/geometry_batch.py": "29e7014289eb59bd936a587c156cc4d707ee388ad1a69cb00ac2258b2c0c904b",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
 }
 
@@ -74,15 +75,15 @@ def test_the_pinned_files_of_this_tree_are_the_approved_ones():
 
 
 def test_the_domain_routes_the_hot_calls_through_the_dispatcher():
-    """`materialize.domain` calls the oracle of these three stages only through `backend` (MATERIALIZE_HOT_UNDER_W1_SWITCH_V1): a direct call would skip the native operation silently."""
+    """`materialize.domain` calls the oracle of these four stages only through `backend` (MATERIALIZE_HOT_UNDER_W1_SWITCH_V1): a direct call would skip the native operation silently."""
 
     source = (ROOT / "kernel/src/cftuv_envelope/materialize/domain.py").read_text(encoding="utf-8")
-    assert "backend.silhouette_compute(" in source and "backend.lift_vertices_compute(" in source and "backend.source_lift_compute(" in source
+    assert "backend.silhouette_compute(" in source and "backend.lift_vertices_compute(" in source and "backend.source_lift_compute(" in source and "backend.assemble_compute(" in source
     tree = ast.parse(source)
     direct = {
         node.func.id
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("apply_silhouette", "lift_vertices", "lift_source_vertices", "settle_emitted_faces")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("apply_silhouette", "lift_vertices", "lift_source_vertices", "settle_emitted_faces", "assemble_batch")
     }
     sourced = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_sourced")
     inside = {node.func.id for node in ast.walk(sourced) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
@@ -621,3 +622,118 @@ def test_silhouette_with_opened_ring_pairs(seed, approved):
         assert same(f"silhouette cut pairs #{index}", apply_silhouette, cftuv_native.apply_silhouette, budget, source, budget) == "answered"
         tried += 1
     assert tried >= 10, tried
+
+# --------------------------------------------------------------------------
+# ASSEMBLE: the records of the batch (`assemble_batch`)
+# --------------------------------------------------------------------------
+
+
+def _assemble_kwargs(row, *, chains=..., merged=...):
+    """The keyword arguments of one recorded `assemble_batch`: the frame faces from their attribute records, the layout the oracle's."""
+
+    from types import SimpleNamespace
+
+    from cftuv_envelope.materialize import assemble
+
+    frames = [SimpleNamespace(**{name: value for name, value in item.items() if name != "lineage_ids"}, run=SimpleNamespace(lineage_ids=item["lineage_ids"])) for item in row["frames"]]
+    diagnostics = row["diagnostics"]
+    return dict(
+        frame_faces=frames, cycles=row["cycles"], positions=row["positions"], polygons=row["polygons"], facts=row["facts"], layout=assemble.Layout(frames), scale=row["scale"],
+        lattice_alpha=row["lattice_alpha"], edge_faces=row["edge_faces"],
+        request=SimpleNamespace(material_policy_id=SimpleNamespace(value=row["material"]), decal_request_id=row["decal_request_id"]),
+        source_revision=row["source_revision"], patch_domain_id=row["patch_domain_id"], contract_versions=row["contract_versions"], diagnostics=lambda: diagnostics,
+        vertex_cycles=row["vertex_cycles"], merged_frames=row["merged_frames"] if merged is ... else merged, chains=row["chains"] if chains is ... else chains,
+    )
+
+
+def _assembled(label, **arguments):
+    from cftuv_envelope.materialize.assemble import assemble_batch
+
+    return same(label, lambda: assemble_batch(**arguments), lambda: cftuv_native.assemble_batch(**arguments), None)
+
+
+@needs_native
+def test_assemble_matches_the_oracle_on_the_seed(seed, approved):
+    """The records as recorded (chains of the silhouette law handed over), with the chains built here (`chains_of` over the contours, `cut_pairs` of the layout) and without the merged frames."""
+
+    rows = [row for row in seed if row["kind"] == "assemble"]
+    assert len(rows) >= 40 and any(row["has_cut"] for row in rows) and any(row["merged"] for row in rows) and any(row["chains"] is None for row in rows)
+    for index, row in enumerate(rows):
+        assert _assembled(f"assemble {row['case']} #{index}", **_assemble_kwargs(row)) == "answered"
+        assert _assembled(f"assemble chains_of {row['case']} #{index}", **_assemble_kwargs(row, chains=None)) in ("answered", "declined")
+        assert _assembled(f"assemble unmerged {row['case']} #{index}", **_assemble_kwargs(row, merged=None)) == "answered"
+    built = [_assembled(f"assemble chains_of #{index}", **_assemble_kwargs(row, chains=None)) for index, row in enumerate(rows)]
+    assert built.count("answered") >= len(rows) // 2, built
+
+
+@needs_native
+def test_assemble_declines_what_the_oracle_does_not_build(seed, approved):
+    """A face of two vertices, a vertex in no cycle, a fact of a region no frame face has, a blank lineage: the oracle raises, the port declines by name (the dispatcher then runs the oracle)."""
+
+    row = next(row for row in seed if row["kind"] == "assemble")
+    first = next(index for index, rings in enumerate(row["polygons"]) if rings)
+    short = [list(rings) for rings in row["polygons"]]
+    short[first] = [tuple(short[first][0][:2]), *short[first][1:]]
+    lost = {**row["positions"], "lost-vertex": next(iter(row["positions"].values()))}
+    stray = {**row["facts"], (10**6, next(iter(row["facts"]))[1]): next(iter(row["facts"].values()))}
+    blank = {**row, "frames": [{**row["frames"][0], "lineage_ids": (" ",)}, *row["frames"][1:]]}
+    for label, arguments in (
+        ("short face", {**_assemble_kwargs(row), "polygons": short}),
+        ("lost vertex", {**_assemble_kwargs(row), "positions": lost}),
+        ("stray fact", {**_assemble_kwargs(row), "facts": stray}),
+        ("blank lineage", _assemble_kwargs(blank)),
+    ):
+        from cftuv_envelope.materialize.assemble import assemble_batch
+
+        with pytest.raises(Exception) as oracle_error:
+            assemble_batch(**arguments)
+        assert not isinstance(oracle_error.value, cftuv_native.NATIVE_REFUSALS), label
+        with pytest.raises(cftuv_native.NATIVE_REFUSALS):
+            cftuv_native.assemble_batch(**arguments)
+
+class _Descending(frozenset):
+    """A pair of regions that iterates the larger region first (a frozenset of small ints may: `{8, 1}`); equal and of equal hash to the plain frozenset."""
+
+    def __iter__(self):
+        return iter(sorted(frozenset.__iter__(self), reverse=True))
+
+
+def _continuous_pairs(arguments):
+    """Pairs of regions with an edge of equal facts at both ends between them (the edges `chains_of` leaves out of the interfaces of an opened flow ring)."""
+
+    from cftuv_envelope.materialize import assemble
+
+    layout, facts, owner = arguments["layout"], arguments["facts"], {}
+    for index, cycle in enumerate(arguments["cycles"]):
+        region = layout.region_of(arguments["frame_faces"][index])
+        for position, (key, _point) in enumerate(cycle):
+            following = cycle[(position + 1) % len(cycle)][0]
+            owner[(assemble._location_key(key), assemble._location_key(following))] = (region, key, following)
+    found = set()
+    for (start, end), (region, key, following) in owner.items():
+        other = owner.get((end, start))
+        if other is not None and other[0] != region and facts.get((region, key)) == facts.get((other[0], other[2])) and facts.get((region, following)) == facts.get((other[0], other[1])):
+            found.add(frozenset((region, other[0])))
+    return found
+
+
+@needs_native
+def test_assemble_reads_a_cut_pair_in_either_order(seed, approved):
+    """`chains_of` asks `frozenset((a, b)) in cut_pairs` (an opened flow ring, `FLOW_CYCLE_OPENED`, which no recorded domain has): two regions with a continuous edge between them made
+    one flow, the pair iterating the larger region first. The oracle and the port agree, and the pair leaves that edge out of the interfaces."""
+
+    from cftuv_envelope.materialize.assemble import assemble_batch
+
+    changed = 0
+    for index, row in enumerate(row for row in seed if row["kind"] == "assemble"):
+        for pair in sorted(_continuous_pairs(_assemble_kwargs(row)), key=sorted)[:4]:
+            arguments = _assemble_kwargs(row, chains=None)
+            layout = arguments["layout"]
+            for item in arguments["frame_faces"]:
+                item.flow_key = "flow" if layout.region_of(item) in pair else None
+            assert layout.cut_pairs(arguments["frame_faces"]) == {pair}
+            layout.cut_pairs = lambda faces, pair=pair: frozenset((_Descending(pair),))
+            outcome = _assembled(f"assemble cut pair {sorted(pair)} #{index}", **arguments)
+            if outcome == "answered":
+                changed += assemble_batch(**_assemble_kwargs(row, chains=None)).interface_chains != assemble_batch(**arguments).interface_chains
+    assert changed >= 1

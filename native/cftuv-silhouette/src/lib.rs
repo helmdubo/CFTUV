@@ -14,6 +14,7 @@
 //! What the port does not carry is [`Unsupported`](silhouette::SilError::Unsupported) (a key missing from a table, a non-finite UV, ...): the
 //! host then runs the oracle on the same state.
 
+pub mod assemble_law;
 pub mod plane_lift;
 pub mod pymath;
 pub mod pyset;

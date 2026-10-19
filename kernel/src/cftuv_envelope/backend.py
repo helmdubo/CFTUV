@@ -1335,6 +1335,23 @@ def source_lift_compute(oracle, plane, positions, triangles, host_positions, ste
     return answer if done else oracle(*arguments)
 
 
+def assemble_compute(oracle, **arguments):
+    """`oracle(**arguments)` (`materialize.assemble.assemble_batch`), посчитанное заказанным бэкендом W1 (MATERIALIZE_HOT_UNDER_W1_SWITCH_V1): записи батча — нативно, диагностики,
+    версии контрактов и сам батч — как у эталона. Ни точной работы, ни памяти; вход, который порт не несёт, — эталон по имени (`NATIVE_PORT_UNSUPPORTED`)."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(**arguments)
+
+    def call(module):
+        if not hasattr(module, "assemble_batch"):
+            raise _OperationAbsent("this cftuv_native wheel has no `assemble_batch` (it predates the ASSEMBLE port)")
+        return module.assemble_batch(**arguments)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(**arguments)
+
+
 def lift_vertices_compute(oracle, points, plane):
     """`oracle(points, plane)` (`materialize.assemble.lift_vertices`), посчитанное заказанным бэкендом W1 на точной плоскости (`PlaneLiftV1`); иной подъём — эталон по имени."""
 
@@ -1616,6 +1633,7 @@ __all__ = (
     "skeleton_compute",
     "snapshot_check_compute",
     "warm_snapshot_check",
+    "assemble_compute",
     "lift_vertices_compute",
     "silhouette_compute",
     "source_lift_compute",

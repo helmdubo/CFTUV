@@ -41,7 +41,7 @@ const STATUS_UNSUPPORTED: u8 = 12;
 /// `(result, status, detail, counts, articles, changed, timings)`.
 pub type Answer<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], u8, [u64; 8]);
 
-enum Fail {
+pub(crate) enum Fail {
     Py(PyErr),
     Unsupported(String),
 }
@@ -52,24 +52,24 @@ impl From<PyErr> for Fail {
     }
 }
 
-type Read<T> = Result<T, Fail>;
+pub(crate) type Read<T> = Result<T, Fail>;
 
-fn unsupported<T>(text: impl Into<String>) -> Read<T> {
+pub(crate) fn unsupported<T>(text: impl Into<String>) -> Read<T> {
     Err(Fail::Unsupported(text.into()))
 }
 
 /// A conversion of the boundary that refuses (`TypeError("cftuv_native: ...")`) is an input the port does not carry, not an error of the call.
-fn carried<T>(found: PyResult<T>, what: &str) -> Read<T> {
+pub(crate) fn carried<T>(found: PyResult<T>, what: &str) -> Read<T> {
     found.map_err(|error| Fail::Unsupported(format!("{what}: {error}")))
 }
 
-fn nanos(since: Instant) -> u64 {
+pub(crate) fn nanos(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
-struct Classes {
-    pool: Pool,
-    local_point: Py<PyAny>,
+pub(crate) struct Classes {
+    pub(crate) pool: Pool,
+    pub(crate) local_point: Py<PyAny>,
     local_raw: Option<Raw>,
     x: Py<PyString>,
     y: Py<PyString>,
@@ -80,6 +80,7 @@ struct Classes {
 #[derive(Default)]
 pub struct Host {
     classes: Option<Classes>,
+    pub(crate) assemble: Option<crate::assemble_hot::AssembleClasses>,
 }
 
 impl Host {
@@ -94,7 +95,7 @@ impl Host {
         Ok(())
     }
 
-    fn classes(&self) -> PyResult<&Classes> {
+    pub(crate) fn classes(&self) -> PyResult<&Classes> {
         self.classes.as_ref().ok_or_else(|| PyRuntimeError::new_err("cftuv_native: the materialize_hot classes were not bound (`bind_hot`)"))
     }
 
@@ -111,7 +112,7 @@ impl Host {
 // --------------------------------------------------------------------------
 
 /// The items of an exact `list` or `tuple`.
-fn sequence<'py>(object: &Bound<'py, PyAny>, what: &str) -> Read<Vec<Bound<'py, PyAny>>> {
+pub(crate) fn sequence<'py>(object: &Bound<'py, PyAny>, what: &str) -> Read<Vec<Bound<'py, PyAny>>> {
     if let Ok(list) = object.cast_exact::<PyList>() {
         return Ok(list.iter().collect());
     }
@@ -121,14 +122,14 @@ fn sequence<'py>(object: &Bound<'py, PyAny>, what: &str) -> Read<Vec<Bound<'py, 
     unsupported(format!("{what} is not a list or a tuple"))
 }
 
-fn exact_dict<'a, 'py>(object: &'a Bound<'py, PyAny>, what: &str) -> Read<&'a Bound<'py, PyDict>> {
+pub(crate) fn exact_dict<'a, 'py>(object: &'a Bound<'py, PyAny>, what: &str) -> Read<&'a Bound<'py, PyDict>> {
     match object.cast_exact::<PyDict>() {
         Ok(dict) => Ok(dict),
         Err(_) => unsupported(format!("{what} is not a dict")),
     }
 }
 
-fn utf8<'a>(py: Python<'_>, object: &Bound<'_, PyAny>) -> Read<&'a [u8]> {
+pub(crate) fn utf8<'a>(py: Python<'_>, object: &Bound<'_, PyAny>) -> Read<&'a [u8]> {
     if !object.is_exact_instance_of::<PyString>() {
         return unsupported("a vertex key is not a str");
     }
@@ -142,7 +143,7 @@ fn utf8<'a>(py: Python<'_>, object: &Bound<'_, PyAny>) -> Read<&'a [u8]> {
     Ok(unsafe { std::slice::from_raw_parts(data.cast::<u8>(), size as usize) })
 }
 
-fn small_int(object: &Bound<'_, PyAny>, what: &str) -> Read<u32> {
+pub(crate) fn small_int(object: &Bound<'_, PyAny>, what: &str) -> Read<u32> {
     if !object.is_exact_instance_of::<PyInt>() {
         return unsupported(format!("{what} is not an int"));
     }
@@ -151,18 +152,18 @@ fn small_int(object: &Bound<'_, PyAny>, what: &str) -> Read<u32> {
 }
 
 /// The vertex keys of one call, numbered by first sight, with the objects (the result hands back the input strings).
-struct Keys<'a, 'py> {
+pub(crate) struct Keys<'a, 'py> {
     map: HashMap<&'a [u8], Key, FxBuild>,
-    bytes: Vec<&'a [u8]>,
-    objects: Vec<Bound<'py, PyAny>>,
+    pub(crate) bytes: Vec<&'a [u8]>,
+    pub(crate) objects: Vec<Bound<'py, PyAny>>,
 }
 
 impl<'a, 'py> Keys<'a, 'py> {
-    fn new() -> Keys<'a, 'py> {
+    pub(crate) fn new() -> Keys<'a, 'py> {
         Keys { map: HashMap::default(), bytes: Vec::new(), objects: Vec::new() }
     }
 
-    fn key(&mut self, py: Python<'py>, object: &Bound<'py, PyAny>) -> Read<Key> {
+    pub(crate) fn key(&mut self, py: Python<'py>, object: &Bound<'py, PyAny>) -> Read<Key> {
         let bytes: &'a [u8] = utf8(py, object)?;
         if let Some(found) = self.map.get(bytes) {
             return Ok(*found);
@@ -175,7 +176,7 @@ impl<'a, 'py> Keys<'a, 'py> {
     }
 
     /// The rank of each key's name in Python's `str` order (the byte order of UTF-8).
-    fn ranks(&self) -> Vec<u32> {
+    pub(crate) fn ranks(&self) -> Vec<u32> {
         let mut order: Vec<u32> = (0..self.bytes.len() as u32).collect();
         order.sort_by(|a, b| self.bytes[*a as usize].cmp(self.bytes[*b as usize]));
         let mut rank = vec![0u32; order.len()];
@@ -186,7 +187,7 @@ impl<'a, 'py> Keys<'a, 'py> {
     }
 
     /// `audit.location_key` of every key, numbered.
-    fn places(&self, mark: &[u8]) -> Vec<u32> {
+    pub(crate) fn places(&self, mark: &[u8]) -> Vec<u32> {
         let mut map: HashMap<&[u8], u32, FxBuild> = HashMap::default();
         let mut found = Vec::with_capacity(self.bytes.len());
         for bytes in &self.bytes {
@@ -198,7 +199,7 @@ impl<'a, 'py> Keys<'a, 'py> {
     }
 }
 
-fn float_of(object: &Bound<'_, PyAny>) -> Read<f64> {
+pub(crate) fn float_of(object: &Bound<'_, PyAny>) -> Read<f64> {
     if !object.is_exact_instance_of::<PyFloat>() {
         return unsupported("a position coordinate is not a float");
     }
@@ -206,7 +207,7 @@ fn float_of(object: &Bound<'_, PyAny>) -> Read<f64> {
     Ok(unsafe { ffi::PyFloat_AsDouble(object.as_ptr()) })
 }
 
-fn position_of(classes: &Classes, object: &Bound<'_, PyAny>) -> Read<[f64; 3]> {
+pub(crate) fn position_of(classes: &Classes, object: &Bound<'_, PyAny>) -> Read<[f64; 3]> {
     if object.get_type().as_ptr() != classes.local_point.as_ptr() {
         return unsupported("a position is not exactly a LocalPoint3V1");
     }
@@ -220,7 +221,7 @@ fn position_of(classes: &Classes, object: &Bound<'_, PyAny>) -> Read<[f64; 3]> {
     Ok([float_of(&object.getattr(classes.x.bind(py))?)?, float_of(&object.getattr(classes.y.bind(py))?)?, float_of(&object.getattr(classes.z.bind(py))?)?])
 }
 
-fn pair_of(pool: &Pool, object: &Bound<'_, PyAny>, what: &str) -> Read<(SqrtSum, SqrtSum)> {
+pub(crate) fn pair_of(pool: &Pool, object: &Bound<'_, PyAny>, what: &str) -> Read<(SqrtSum, SqrtSum)> {
     let Ok(pair) = object.cast_exact::<PyTuple>() else {
         return unsupported(format!("{what} is not a tuple"));
     };
@@ -230,7 +231,7 @@ fn pair_of(pool: &Pool, object: &Bound<'_, PyAny>, what: &str) -> Read<(SqrtSum,
     Ok((carried(sqrt_sum_from_py(pool, &pair.get_item(0)?), what)?, carried(sqrt_sum_from_py(pool, &pair.get_item(1)?), what)?))
 }
 
-fn rat_of(pool: &Pool, object: &Bound<'_, PyAny>, what: &str) -> Read<Rat> {
+pub(crate) fn rat_of(pool: &Pool, object: &Bound<'_, PyAny>, what: &str) -> Read<Rat> {
     carried(rat_from_number(pool, object), what)
 }
 
@@ -526,7 +527,7 @@ fn build_lift<'py>(
         .into_bound_py_any(py)
 }
 
-fn unsupported_answer<'py>(py: Python<'py>, text: &str, given: [u64; 6]) -> PyResult<Answer<'py>> {
+pub(crate) fn unsupported_answer<'py>(py: Python<'py>, text: &str, given: [u64; 6]) -> PyResult<Answer<'py>> {
     Ok((None, STATUS_UNSUPPORTED, Some(PyTuple::new(py, [PyString::new(py, text)])?), [0; 5], given, 0, [0; 8]))
 }
 

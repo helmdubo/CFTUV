@@ -42,7 +42,21 @@ SHAPE_FUNCTIONS = (
     ("materialize/audit.py", "location_key", "c0b3a2846c5b4fe542bd2de580281527a613f7ae5243e376312a18ece1c30fe5"),
     # the port replaces the whole body of the oracle `domain._sourced` (lift at the host, the rebinding of the normals, the settle of the faces)
     ("materialize/domain.py", "_sourced", "d7065c4f855d2df5f687b47b77f18e57525071dcdcfc744c8677a3f0f528b811"),
+    ("materialize/mesh.py", "decimal_of", "6de4873688c25968df0f5f2569c7fd34ceeae1e83edbd93387386b7e8bbcce7d"),
+    ("ids.py", "OpaqueId.__post_init__", "e0f93f57af960b5533329678d2d2b0c2009e19689bd50ab4c013fe911c823bc3"),
 )
+
+#: The classes `assemble_batch` builds, in the order of `assemble_hot.rs` `CLASS_NAMES`: `(module, name)`.
+ASSEMBLE_CLASSES = (
+    ("ids", "SourceFaceId"), ("ids", "PhysicalEdgeId"), ("ids", "ChainUseId"), ("ids", "LineageId"), ("ids", "VertexKey"), ("ids", "SemanticLocationId"), ("ids", "GeometryFaceId"),
+    ("ids", "SemanticRegionId"), ("ids", "OwnershipClaimId"), ("ids", "GeometryStationFactId"), ("ids", "SemanticBoundaryId"), ("ids", "SemanticInterfaceId"),
+    ("contracts.geometry_batch", "GeometryProvenanceV1"), ("contracts.geometry_batch", "GeometryVertexV1"), ("contracts.geometry_batch", "GeometryUvFactV1"), ("numeric", "UvPoint2V1"),
+    ("contracts.geometry_batch", "GeometryStationFactV1"), ("numeric", "LocalCoordinateV1"), ("contracts.geometry_batch", "GeometryFaceV1"), ("contracts.geometry_batch", "GeometrySemanticRegionV1"),
+    ("contracts.geometry_batch", "GeometryBoundaryChainV1"), ("contracts.geometry_batch", "GeometryInterfaceChainV1"),
+)
+
+#: `mesh.DECIMAL_CONTEXT` as the Rust side divides (`cftuv_silhouette::assemble_law`): 28 digits, half even, exponent limits a station never reaches, the three traps.
+DECIMAL_CONTEXT_SHAPE = (28, "ROUND_HALF_EVEN", -999999, 999999, 1, 0, ("DivisionByZero", "InvalidOperation", "Overflow"))
 
 SILHOUETTE_INPUT_FIELDS = ("polygons", "cycles", "vertex_cycles", "positions", "points", "facts", "frame_faces", "layout", "lattice_alpha", "uv_slide", "reverse", "free")
 SILHOUETTE_FIELDS = (
@@ -143,13 +157,36 @@ def bind(mirror) -> None:
             *((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS),
         )
     )
+    import decimal
+
+    from cftuv_envelope.materialize import mesh
+
+    context = mesh.DECIMAL_CONTEXT
+    shape = (context.prec, context.rounding, context.Emin, context.Emax, context.capitals, context.clamp, tuple(sorted(name.__name__ for name, on in context.traps.items() if on)))
+    pin.check_shapes((("materialize/mesh.py", "DECIMAL_CONTEXT is the context the Rust division mirrors", shape == DECIMAL_CONTEXT_SHAPE),))
+    table = []
+    for module, name in ASSEMBLE_CLASSES:
+        cls = getattr(importlib.import_module("cftuv_envelope." + module), name)
+        table.append((name, cls, _names(cls)))
     try:
         mirror._session.bind_hot(exact.SqrtSumV1, Fraction, point)
+        mirror._session.bind_assemble(table, decimal.Decimal, _metric_default())
     except TypeError as error:
         if "raw slot access was forced" in str(error):
             raise
         raise pin.NativePortStale(f"the oracle classes the native materialize_hot is built from changed: {error}") from None
     mirror._hot_bound = True
+
+
+def _metric_default():
+    """The default `metric_space` of `LocalCoordinateV1` (the oracle builds it with one argument)."""
+
+    from cftuv_envelope.numeric import LocalCoordinateV1
+
+    fields = dataclasses.fields(LocalCoordinateV1)
+    if tuple(field.name for field in fields) != ("value", "metric_space") or fields[1].default is dataclasses.MISSING:
+        raise pin.NativePortStale("LocalCoordinateV1 is not (value, metric_space=default) any more")
+    return fields[1].default
 
 
 def _begin(mirror):
@@ -317,3 +354,53 @@ def source_lift(mirror, plane, positions, triangles, host_positions, step, polyg
         return polygons, sourced, law.SourceFacesV1(0.0, 0, 0)
     settled, worst_plane, cut, flipped = faces
     return settled, sourced, law.SourceFacesV1(worst_plane, cut, flipped)
+
+
+def assemble_batch(mirror, *, frame_faces, cycles, positions, polygons, facts, layout, scale, lattice_alpha, edge_faces, request, source_revision, patch_domain_id, contract_versions,
+                   diagnostics, vertex_cycles=None, merged_frames=None, chains=None):
+    """`assemble.assemble_batch(...)`: the records natively (`assemble_hot.rs`), the diagnostics, the contract versions and the batch here, as the oracle builds them.
+
+    The frame faces are read here (a few per domain: the region, the claim number, the lineage of the provenance, the physical edges, the chain uses, the run's
+    lineage, the station model); a layout that is not the oracle's `Layout`, an attribute the frame face does not have, or anything the Rust side declines is
+    `NativePortUnsupported` (the dispatcher runs the oracle on the same input; nothing was built that it keeps)."""
+
+    started = perf_counter_ns()
+    _begin(mirror)
+    _silhouette, assemble, audit, _lift, _exact, _point = _kernel()
+    if type(layout) is not assemble.Layout:
+        raise pin.NativePortUnsupported(f"assemble_batch: the layout is a {type(layout).__name__}, not assemble.Layout")
+    try:
+        frames = [
+            (layout.region_of(item), layout.claim[item.claim_key], (*item.run.lineage_ids, *assemble._claim_lineage(item)), tuple(item.physical_edge_ids), tuple(item.chain_use_ids),
+             tuple(item.run.lineage_ids), item.station_model)
+            for item in frame_faces
+        ]
+        cut = () if chains is not None else [tuple(pair) for pair in layout.cut_pairs(frame_faces)]
+        material = assemble.MaterialId(request.material_policy_id.value)
+    except Exception as error:  # noqa: BLE001 - the oracle meets the same input and names it itself
+        raise pin.NativePortUnsupported(f"assemble_batch: a frame face the port does not read ({type(error).__name__}: {error})") from None
+    called = perf_counter_ns()
+    done, records = mirror._session.hot_assemble(
+        frames, edge_faces, cycles, vertex_cycles, positions, polygons, facts, merged_frames, chains, cut, audit.CUT_RIGHT_COPY_MARK, lattice_alpha, scale, material,
+    )
+    returned = perf_counter_ns()
+    if not done:
+        raise pin.NativePortUnsupported(f"assemble_batch: {records}")
+    vertices, faces, station_facts, regions, boundary, interface = records
+    batch = assemble.GeometryBatchV1(
+        schema_version=assemble.GEOMETRY_BATCH_SCHEMA_V1,
+        source_revision=source_revision,
+        decal_request_id=request.decal_request_id,
+        patch_domain_id=patch_domain_id,
+        vertices=vertices,
+        faces=faces,
+        station_facts=station_facts,
+        semantic_regions=regions,
+        boundary_chains=boundary,
+        interface_chains=interface,
+        diagnostics=frozenset(diagnostics()),
+        contract_versions=frozenset(assemble.ContractVersionId(x) for x in contract_versions),
+        semantic_digest=assemble.SemanticDigestValue(assemble.PENDING_SEMANTIC_DIGEST),
+    )
+    mirror.last_assemble_timings = (called - started, returned - called, perf_counter_ns() - returned)
+    return batch

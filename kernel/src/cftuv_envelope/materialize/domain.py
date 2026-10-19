@@ -877,7 +877,8 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
     shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
-    batch = assemble_batch(
+    batch = backend.assemble_compute(
+        assemble_batch,
         frame_faces=frame_faces,
         cycles=(cycles if cut is None else cut.cycles) if shaped is None else shaped.cycles,
         vertex_cycles=(None if cut is None else cut.vertex_lists) if shaped is None else shaped.vertex_cycles,

@@ -259,6 +259,20 @@ impl Raw {
         Ok(object)
     }
 
+    /// [`Raw::build`] for a count known only at run time (a table of classes the shim hands over): the same checks, the values in the order of the probe's names.
+    pub fn build_values<'py>(&self, py: Python<'py>, class: &Py<PyAny>, values: Vec<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyAny>> {
+        if class.as_ptr() != self.class.as_ptr() || self.offsets.len() != values.len() {
+            return Err(refuse(format!("raw build: {} values for {} probed slots, or a class that is not the probed one", values.len(), self.offsets.len())));
+        }
+        let object = alloc(py, class)?;
+        RAW_BUILDS.fetch_add(1, Ordering::Relaxed);
+        for (offset, value) in self.offsets.iter().zip(values) {
+            // SAFETY: as in `build`: a slot of exactly this class, still empty after `alloc`, and the instance owns the reference it is given.
+            unsafe { *object.as_ptr().cast::<u8>().add(*offset).cast::<*mut ffi::PyObject>() = value.into_ptr() };
+        }
+        Ok(object)
+    }
+
     /// The object in slot `index` of `obj`, borrowed; `None` when the slot is empty OR `obj` is not an instance of exactly the probed class (the callers then use the attribute
     /// protocol, which says what is wrong by name): the type is checked here, by pointer, so that the read never depends on the caller having remembered to.
     pub fn read<'a, 'py>(&self, obj: &'a Bound<'py, PyAny>, index: usize) -> Option<Borrowed<'a, 'py, PyAny>> {

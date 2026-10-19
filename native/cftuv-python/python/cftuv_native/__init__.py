@@ -61,6 +61,7 @@ __all__ = (
     "NativePortUnsupported",
     "NativeUnsupportedPython",
     "apply_silhouette",
+    "assemble_batch",
     "build_skeleton",
     "chain_station_plans",
     "clip_geometry",
@@ -437,6 +438,12 @@ def apply_silhouette(source, budget):
     """`materialize.silhouette.apply_silhouette(source, budget)`, native and whole (see `materialize_hot_op.py`): a refusal of the port leaves every Python-visible state as before the call."""
 
     return materialize_hot_op.apply_silhouette(default_mirror(), source, budget)
+
+
+def assemble_batch(**arguments):
+    """`materialize.assemble.assemble_batch(...)`: the records native, the batch as the oracle builds it (see `materialize_hot_op.py`)."""
+
+    return materialize_hot_op.assemble_batch(default_mirror(), **arguments)
 
 
 def lift_vertices(points, plane):

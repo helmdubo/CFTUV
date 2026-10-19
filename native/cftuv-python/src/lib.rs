@@ -13,6 +13,7 @@ mod density;
 mod effective_alpha;
 mod embedding;
 mod frame;
+mod assemble_hot;
 mod materialize_hot;
 mod materialize_w1;
 mod memlog;
@@ -32,7 +33,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList, PyTuple};
+use pyo3::types::{PyBytes, PyDict, PyList, PyString, PyTuple};
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -475,6 +476,39 @@ impl Session {
         let args = materialize_hot::SilhouetteArgs { polygons, cycles, positions, points, facts, regions, cut_pairs, mark, lattice_alpha, uv_slide, chord, reverse, free };
         self.hot.verify(py, &args, result)
     }
+
+    /// Hands the class table of the ASSEMBLE entry point over (`(name, class, field names)` rows, `decimal.Decimal`, the default metric space of `LocalCoordinateV1`).
+    fn bind_assemble(&mut self, py: Python<'_>, table: &Bound<'_, PyAny>, decimal: &Bound<'_, PyAny>, metric_space: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.hot.bind_assemble(py, table, decimal, metric_space, self.slots)
+    }
+
+    /// `assemble.assemble_batch` but its diagnostics, contract versions and the batch itself (see `assemble_hot.rs`): `(True, records)` or `(False, why the port declined)`.
+    #[allow(clippy::too_many_arguments)]
+    fn hot_assemble<'py>(
+        &self,
+        py: Python<'py>,
+        frames: &Bound<'py, PyAny>,
+        edge_faces: &Bound<'py, PyAny>,
+        cycles: &Bound<'py, PyAny>,
+        vertex_cycles: &Bound<'py, PyAny>,
+        positions: &Bound<'py, PyAny>,
+        polygons: &Bound<'py, PyAny>,
+        facts: &Bound<'py, PyAny>,
+        merged: &Bound<'py, PyAny>,
+        chains: &Bound<'py, PyAny>,
+        cut_pairs: &Bound<'py, PyAny>,
+        mark: &str,
+        lattice_alpha: &Bound<'py, PyAny>,
+        scale: &Bound<'py, PyAny>,
+        material: &Bound<'py, PyAny>,
+    ) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        let args = assemble_hot::AssembleArgs { frames, edge_faces, cycles, vertex_cycles, positions, polygons, facts, merged, chains, cut_pairs, mark, lattice_alpha, scale, material };
+        Ok(match self.hot.assemble(py, &args)? {
+            Ok(records) => (true, records),
+            Err(why) => (false, PyString::new(py, &why).into_any()),
+        })
+    }
+
     /// `{key: PlaneLiftV1(origin, basis_a, basis_b, scale).lift(point)}` of a dict of chart points; `None`: the port does not carry the input (the shim runs the oracle).
     fn hot_plane_lift<'py>(&self, py: Python<'py>, points: &Bound<'py, PyAny>, origin: &Bound<'py, PyAny>, basis_a: &Bound<'py, PyAny>, basis_b: &Bound<'py, PyAny>, scale: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyDict>>> {
         self.hot.plane_lift(py, points, origin, basis_a, basis_b, scale)
@@ -530,6 +564,7 @@ impl Session {
         self.skeleton.disable_raw();
         self.w1.disable_raw();
         self.hot.disable_raw();
+        self.hot.disable_assemble_raw();
     }
 
     /// `raw`, `attr` or `auto`: how this session reads and writes the slots of the bound classes.
