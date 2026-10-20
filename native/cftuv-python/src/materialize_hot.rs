@@ -22,6 +22,8 @@ use pyo3::{ffi, IntoPyObjectExt};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::codec::Reader;
+use cftuv_core::coverage::{doubled_shoelace, Point};
+use cftuv_core::products::ProductMemo;
 use cftuv_core::exact::ExactCtx;
 use cftuv_core::rat::Rat;
 use cftuv_core::session::{CostRun, Session};
@@ -34,7 +36,7 @@ use cftuv_silhouette::source_lift::{lift_source_vertices, settle_emitted_faces, 
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
 use crate::refusal::is_native_only;
-use crate::pyobj::{alloc, ibig_from_int, is_exactly, note_attr_build, note_attr_reads, rat_from_number, set_slot, sqrt_sum_from_py, Pool, Raw, SlotMode};
+use crate::pyobj::{alloc, ibig_from_int, is_exactly, note_attr_build, note_attr_reads, rat_from_number, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw, SlotMode};
 
 const STATUS_UNSUPPORTED: u8 = 12;
 
@@ -81,6 +83,9 @@ pub(crate) struct Classes {
 pub struct Host {
     classes: Option<Classes>,
     pub(crate) assemble: Option<crate::assemble_hot::AssembleClasses>,
+    /// `coverage_template.instantiate`: the templates converted once, by the identities of the template and the partition.
+    templates: HashMap<(usize, usize), Instantiable, FxBuild>,
+    clock: u64,
 }
 
 impl Host {
@@ -1083,6 +1088,177 @@ impl Host {
                 }
             }
             Ok(found)
+        })();
+        match read {
+            Ok(found) => Ok(Ok(found)),
+            Err(Fail::Py(error)) => Err(error),
+            Err(Fail::Unsupported(why)) => Ok(Err(why)),
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// the coverage of a width step from its template (MATERIALIZE_INSTANTIATE_NATIVE_V1)
+// --------------------------------------------------------------------------
+
+/// One item of a cut face's template: an original vertex of the face, or a cut point `base + alpha * slope`.
+enum TemplateItem {
+    Kept(usize),
+    Cut { base: Point, slope: Point },
+}
+
+/// One face of a template, converted once.
+enum TemplateFace {
+    Behind { area: SqrtSum },
+    Ahead,
+    Cut { items: Vec<TemplateItem> },
+}
+
+/// A template with the partition it was applied to, converted once and kept by the identity of both (frozen records, held here so the identities stay theirs).
+pub(crate) struct Instantiable {
+    stamp: u64,
+    _held: (Py<PyAny>, Py<PyAny>),
+    faces: Vec<TemplateFace>,
+    /// The original points of each face (what a kept item reads), converted when a cut face first needs them.
+    points: Vec<Option<Vec<Point>>>,
+}
+
+/// Templates kept converted per session (least recently used out).
+pub(crate) const TEMPLATE_LIMIT: usize = 1024;
+
+impl Host {
+    fn instantiable(&mut self, py: Python<'_>, template: &Bound<'_, PyAny>, partition: &Bound<'_, PyAny>, kinds: [&Bound<'_, PyAny>; 3]) -> Read<(usize, usize)> {
+        let key = (template.as_ptr() as usize, partition.as_ptr() as usize);
+        self.clock += 1;
+        if let Some(entry) = self.templates.get_mut(&key) {
+            entry.stamp = self.clock;
+            return Ok(key);
+        }
+        let pool = &self.classes().map_err(Fail::Py)?.pool;
+        let patterns = sequence(&template.getattr(pyo3::intern!(py, "faces"))?, "the template faces")?;
+        let mut faces = Vec::with_capacity(patterns.len());
+        for pattern in &patterns {
+            let kind = pattern.getattr(pyo3::intern!(py, "kind"))?;
+            let is = |known: &Bound<'_, PyAny>| -> PyResult<bool> { Ok(kind.is(known) || kind.eq(known)?) };
+            if is(kinds[0])? {
+                let area = pattern.getattr(pyo3::intern!(py, "area"))?;
+                faces.push(TemplateFace::Behind { area: carried(sqrt_sum_from_py(pool, &area), "a template area")? });
+            } else if is(kinds[1])? {
+                faces.push(TemplateFace::Ahead);
+            } else if is(kinds[2])? {
+                let mut items = Vec::new();
+                for item in sequence(&pattern.getattr(pyo3::intern!(py, "items"))?, "the template items")? {
+                    if item.is_exact_instance_of::<PyInt>() {
+                        let Ok(index) = usize::try_from(&ibig_from_int(&item)?) else {
+                            return unsupported("a template index is negative or too big");
+                        };
+                        items.push(TemplateItem::Kept(index));
+                        continue;
+                    }
+                    let part = |name: &str| -> Read<SqrtSum> { carried(sqrt_sum_from_py(pool, &item.getattr(name)?), "a cut point") };
+                    items.push(TemplateItem::Cut { base: (part("base_x")?, part("base_y")?), slope: (part("slope_x")?, part("slope_y")?) });
+                }
+                faces.push(TemplateFace::Cut { items });
+            } else {
+                return unsupported("a template face of an unknown kind");
+            }
+        }
+        let count = faces.len();
+        if self.templates.len() >= TEMPLATE_LIMIT {
+            if let Some(oldest) = self.templates.iter().min_by_key(|(_, entry)| entry.stamp).map(|(key, _)| *key) {
+                self.templates.remove(&oldest);
+            }
+        }
+        self.templates.insert(key, Instantiable {
+            stamp: self.clock,
+            _held: (template.clone().unbind(), partition.clone().unbind()),
+            faces,
+            points: (0..count).map(|_| None).collect(),
+        });
+        Ok(key)
+    }
+
+    /// `coverage_template.instantiate` past its checks (the shim's) and before its price: `Ok((faces, total))` with `faces` the `(points, doubled area)` of every face in the
+    /// order of the partition (the original `points` tuple of a face behind the front and its template's area object, `()` and a zero ahead of it, the contour of a cut
+    /// face with its original point objects and new cut points), `total` their sum; `Err(why)`: an input the port does not carry.
+    pub fn instantiate<'py>(
+        &mut self,
+        py: Python<'py>,
+        products: &mut ProductMemo,
+        template: &Bound<'py, PyAny>,
+        partition: &Bound<'py, PyAny>,
+        alpha: &Bound<'py, PyAny>,
+        kinds: [&Bound<'py, PyAny>; 3],
+    ) -> PyResult<Result<Bound<'py, PyTuple>, String>> {
+        let read = (|| -> Read<Bound<'py, PyTuple>> {
+            let key = self.instantiable(py, template, partition, kinds)?;
+            let pool = &self.classes.as_ref().ok_or_else(|| Fail::Unsupported("the classes were not bound".into()))?.pool;
+            let alpha = rat_of(pool, alpha, "alpha")?;
+            let partition_faces = sequence(&partition.getattr(pyo3::intern!(py, "faces"))?, "the partition faces")?;
+            let patterns = sequence(&template.getattr(pyo3::intern!(py, "faces"))?, "the template faces")?;
+            let Some(entry) = self.templates.get_mut(&key) else {
+                return unsupported("the template was not kept");
+            };
+            if partition_faces.len() != entry.faces.len() || patterns.len() != entry.faces.len() {
+                return unsupported("the template and the partition disagree");
+            }
+            let mut out = Vec::with_capacity(entry.faces.len());
+            let mut total = SqrtSum::zero();
+            for (position, face) in entry.faces.iter().enumerate() {
+                let source = &partition_faces[position];
+                match face {
+                    TemplateFace::Behind { area } => {
+                        total = total.add(area);
+                        let points = source.getattr(pyo3::intern!(py, "points"))?;
+                        let area = patterns[position].getattr(pyo3::intern!(py, "area"))?;
+                        out.push(PyTuple::new(py, [points, area])?.into_any());
+                    }
+                    TemplateFace::Ahead => {
+                        total = total.add(&SqrtSum::zero());
+                        out.push(PyTuple::new(py, [PyTuple::empty(py).into_any(), pool.zero_sum.bind(py).clone()])?.into_any());
+                    }
+                    TemplateFace::Cut { items } => {
+                        let originals = sequence(&source.getattr(pyo3::intern!(py, "points"))?, "the face points")?;
+                        if entry.points[position].is_none() {
+                            let mut converted = Vec::with_capacity(originals.len());
+                            for point in &originals {
+                                converted.push(pair_of(pool, point, "a face point")?);
+                            }
+                            entry.points[position] = Some(converted);
+                        }
+                        let kept = entry.points[position].as_ref().map(Vec::as_slice).unwrap_or(&[]);
+                        let mut contour: Vec<Point> = Vec::with_capacity(items.len());
+                        let mut objects = Vec::with_capacity(items.len());
+                        for item in items {
+                            match item {
+                                TemplateItem::Kept(original) => {
+                                    let (Some(point), Some(object)) = (kept.get(*original), originals.get(*original)) else {
+                                        return unsupported("a template index outside the face");
+                                    };
+                                    contour.push(point.clone());
+                                    objects.push(object.clone());
+                                }
+                                TemplateItem::Cut { base, slope } => {
+                                    let at = (base.0.add(&slope.0.scaled(&alpha)), base.1.add(&slope.1.scaled(&alpha)));
+                                    objects.push(PyTuple::new(py, [sqrt_sum_to_py(py, pool, &at.0)?, sqrt_sum_to_py(py, pool, &at.1)?])?.into_any());
+                                    contour.push(at);
+                                }
+                            }
+                        }
+                        let doubled = if contour.len() >= 3 {
+                            let refs: Vec<&Point> = contour.iter().collect();
+                            catch_unwind(AssertUnwindSafe(|| doubled_shoelace(&refs, products)))
+                                .map_err(|panic| Fail::Py(PyRuntimeError::new_err(format!("Session.instantiate: native panic: {}", crate::panic_message(&panic)))))?
+                        } else {
+                            SqrtSum::zero()
+                        };
+                        total = total.add(&doubled);
+                        let doubled = if contour.len() >= 3 { sqrt_sum_to_py(py, pool, &doubled)? } else { pool.zero_sum.bind(py).clone() };
+                        out.push(PyTuple::new(py, [PyTuple::new(py, objects)?.into_any(), doubled])?.into_any());
+                    }
+                }
+            }
+            Ok(PyTuple::new(py, [PyTuple::new(py, out)?.into_any(), sqrt_sum_to_py(py, pool, &total)?])?)
         })();
         match read {
             Ok(found) => Ok(Ok(found)),

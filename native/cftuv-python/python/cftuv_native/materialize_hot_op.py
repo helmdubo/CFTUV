@@ -14,6 +14,8 @@ every input it does not carry; the dispatcher then runs the oracle on the same s
 * `lift_vertices(mirror, points, plane)`: `({key: PlaneLiftV1.lift(point)}, {key: (None, None)})` for a `PlaneLiftV1` (no budget, no memory); any other lift is declined.
 * `key_slopes(mirror, prepared, coverage, templates, points)`: `parametric.key_slopes_of` (MATERIALIZE_CERTIFICATE_NATIVE_V1), the slopes of the points before the cut by vertex
   key; every refusal of the oracle is declined (no budget, no memory).
+* `instantiate(mirror, template, partition, alpha, work_budget)`: `coverage_template.instantiate` (MATERIALIZE_INSTANTIATE_NATIVE_V1), the coverage of a width step from
+  its template; the checks and the recorded price stay here (the price last, as the oracle pays it), the template is converted once per template and partition.
 
 What the shim reads LIVE: the chord budget (`silhouette.CHORD_BUDGET`), the copy mark of a cut vertex (`audit.CUT_RIGHT_COPY_MARK`), the classes the result is built from.
 
@@ -56,6 +58,10 @@ SHAPE_FUNCTIONS = (
     # `materialize_hot.rs` `key_slopes` (MATERIALIZE_CERTIFICATE_NATIVE_V1): the slopes of the moving coverage points by the identity of the point, per vertex key
     ("materialize/parametric.py", "key_slopes_of", "39ac7e60b320608c16685ac34a208b7c82ec4ab63d68e6f76d586a6583d5f4e1"),
     ("materialize/parametric.py", "point_slopes_of", "30f671add21281b54006d1429f8ba179af9b730a79407066e60b2e7a1d872ae9"),
+    # `materialize_hot.rs` `instantiate` (MATERIALIZE_INSTANTIATE_NATIVE_V1): the coverage of a width step from its template (`faces.doubled_shoelace` is pinned whole)
+    ("wavefront/coverage_template.py", "instantiate", "ee557997faccc3d8e5ef40c749ce29f9be1dc24a38862c9e3911a7f7279787e9"),
+    ("wavefront/coverage_template.py", "_points_of", "4a0465f75a900ef340458215730800e046cb04b558745e95b6b89cb023ab1b99"),
+    ("wavefront/coverage_template.py", "CutPointV1.at", "2cb3b2d55838c62c42d884c17d0ea4b06aba9b75f77723525e9df6f1759f4643"),
     ("materialize/parametric.py", "_point_identity", "8188dff341887f3c478f25367ce54b6c741f0606116a1f86de3f8ef9887a13e1"),
 )
 
@@ -213,6 +219,31 @@ def canonical_json_bytes(mirror, value):
     if not done:
         raise pin.NativePortUnsupported(f"canonical_json_bytes: {found}")
     return found
+
+
+def instantiate(mirror, template, partition, alpha, work_budget):
+    """`coverage_template.instantiate(template, partition, alpha, work_budget)`: its checks and its price here, the contours, the areas and their sum in Rust (the
+    template converted once per template and partition). The price is paid last, as the oracle pays it, when the answer is built."""
+
+    _begin(mirror)
+    from cftuv_envelope.wavefront import coverage_template as template_module
+    from cftuv_envelope.wavefront.coverage import CoverageOutcome, CoverageV1, FaceCoverageV1
+    from cftuv_envelope.wavefront.faces import FaceOutcome
+
+    if partition.outcome is not FaceOutcome.EXACT or alpha < 0 or len(template.faces) != len(partition.faces):
+        return None
+    if template.polygon_doubled_area != partition.polygon_doubled_area:
+        return None
+    if any(pattern.owner != face.owner for face, pattern in zip(partition.faces, template.faces)):
+        return None
+    done, found = mirror._session.hot_instantiate(template, partition, alpha, template_module.KIND_BEHIND, template_module.KIND_AHEAD, template_module.KIND_CUT)
+    if not done:
+        raise pin.NativePortUnsupported(f"instantiate: {found}")
+    faces, total = found
+    if work_budget is not None and template.price is not None and not work_budget.replay(template.price):
+        return None
+    covered = tuple(FaceCoverageV1(face.owner, points, doubled) for face, (points, doubled) in zip(partition.faces, faces))
+    return CoverageV1(CoverageOutcome.EXACT, alpha, covered, total, partition.polygon_doubled_area, work_budget=work_budget)
 
 
 def key_slopes(mirror, prepared, coverage, templates, points):

@@ -522,6 +522,24 @@ impl Session {
         })
     }
 
+    /// `coverage_template.instantiate` past its checks and before its price (see `materialize_hot.rs`): `(True, (faces, total))` or `(False, why the port declined)`.
+    #[allow(clippy::too_many_arguments)]
+    fn hot_instantiate<'py>(
+        &mut self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        partition: &Bound<'py, PyAny>,
+        alpha: &Bound<'py, PyAny>,
+        behind: &Bound<'py, PyAny>,
+        ahead: &Bound<'py, PyAny>,
+        cut: &Bound<'py, PyAny>,
+    ) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        Ok(match self.hot.instantiate(py, &mut self.inner.products, template, partition, alpha, [behind, ahead, cut])? {
+            Ok(found) => (true, found.into_any()),
+            Err(why) => (false, PyString::new(py, &why).into_any()),
+        })
+    }
+
     /// `parametric.key_slopes_of` past its region loop (see `materialize_hot.rs`): `(True, {key: slope or None})` or `(False, why the port declined)`.
     fn hot_key_slopes<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>, points: &Bound<'py, PyAny>, cut: &Bound<'py, PyAny>) -> PyResult<(bool, Bound<'py, PyAny>)> {
         Ok(match self.hot.key_slopes(py, pairs, points, cut)? {

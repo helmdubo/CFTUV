@@ -1369,6 +1369,23 @@ def canonical_bytes_compute(oracle, value):
     return answer if done else oracle(value)
 
 
+def instantiate_compute(oracle, template, partition, alpha, work_budget):
+    """`oracle(template, partition, alpha, work_budget)` (`coverage_template.instantiate`), посчитанное заказанным бэкендом W1 (MATERIALIZE_INSTANTIATE_NATIVE_V1): то же
+    покрытие либо `None`; вход, который порт не несёт, — эталон по имени (`NATIVE_PORT_UNSUPPORTED`). Цену шаблона платит прослойка последней, как эталон."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(template, partition, alpha, work_budget)
+
+    def call(module):
+        if not hasattr(module, "instantiate"):
+            raise _OperationAbsent("this cftuv_native wheel has no `instantiate` (it predates the template port)")
+        return module.instantiate(template, partition, alpha, work_budget)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(template, partition, alpha, work_budget)
+
+
 def key_slopes_compute(oracle, prepared, coverage, templates, points):
     """`oracle(prepared, coverage, templates, points)` (`parametric.key_slopes_of`), посчитанное заказанным бэкендом W1 (MATERIALIZE_CERTIFICATE_NATIVE_V1): тот же
     словарь; вход, который порт не несёт, и любой отказ сертификата (`ParametricRefusal` называет эталон) — эталон по имени (`NATIVE_PORT_UNSUPPORTED`)."""

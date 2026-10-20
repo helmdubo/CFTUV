@@ -63,6 +63,7 @@ __all__ = (
     "apply_silhouette",
     "assemble_batch",
     "canonical_json_bytes",
+    "instantiate",
     "key_slopes",
     "build_skeleton",
     "chain_station_plans",
@@ -452,6 +453,12 @@ def canonical_json_bytes(value):
     """`codec.canonical_json_bytes(value)`, the same bytes (see `materialize_hot_op.canonical_json_bytes`)."""
 
     return materialize_hot_op.canonical_json_bytes(default_mirror(), value)
+
+
+def instantiate(template, partition, alpha, work_budget):
+    """`coverage_template.instantiate(template, partition, alpha, work_budget)`, the same coverage or `None` (see `materialize_hot_op.instantiate`)."""
+
+    return materialize_hot_op.instantiate(default_mirror(), template, partition, alpha, work_budget)
 
 
 def key_slopes(prepared, coverage, templates, points):
