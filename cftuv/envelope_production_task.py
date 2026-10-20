@@ -96,7 +96,8 @@ def produce_domain(
     вид домена посчитан, батч упакован в байты. Прочитанное из него равно результату `defer=False`.
 
     `lean=True` (WIDTH_REFRESH_LEAN_V1; подразумевает `defer`) - lean-результат (`lean_result`): тот же вид, но батч НЕ пакуется (пикл и zlib - работа, нужная только
-    зафиксированному ответу). Вызов материализатора тот же, поэтому исходы доменов (в том числе отказы `VALIDATE` и `AUDIT`), счётчики и геометрия те же.
+    зафиксированному ответу), а проверка и аудит батча отложены до COMMIT (LEAN_TICK_DIAGNOSTICS_DEFERRED_V1, кроме выборки одного домена из 16): отказ `VALIDATE`
+    либо `AUDIT` на lean-тике виден только у выборки, счётчики аудита - только у неё; геометрия та же.
     """
 
     defer = defer or lean
@@ -141,6 +142,7 @@ def produce_domain(
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             decal_topology_law=DecalTopologyLawV1(topology_law),
             digests=not defer,
+            defer_checks=lean,  # LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: проверка и аудит батча - на COMMIT (и у выборки lean-тика)
             parametric=True,  # аффинный сертификат перетаскивания: `CFTUV_PARAMETRIC=0` в окружении процесса его выключает
         )
         result = stepped.result

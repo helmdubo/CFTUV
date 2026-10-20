@@ -129,6 +129,8 @@ from .envelope_production_result import (  # noqa: F401 - переэкспорт
     PLACEMENT_REBASED,
     PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED,
     PRODUCTION_REFRESH_INCREMENTAL_SERVED,
+    PRODUCTION_LEAN_CHECKS_DEFERRED,
+    PRODUCTION_LEAN_CHECKS_SAMPLED,
     PRODUCTION_REFRESH_LEAN_DOMAINS,
     PRODUCTION_REFRESH_LEAN_FULL_DOMAINS,
     lean_result,
@@ -970,6 +972,9 @@ def _record_lean_counters(profile, results) -> None:
     lean = sum(1 for item in results if item.lean and item.placement != PLACEMENT_REBASED)
     profile.set_counter(PRODUCTION_REFRESH_LEAN_DOMAINS, lean)
     profile.set_counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS, sum(1 for item in results if item.is_materialized and item.placement != PLACEMENT_REBASED) - lean)
+    # LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: домен называет это своим счётчиком (`LEAN_TICK_CHECKS_DEFERRED` либо `LEAN_TICK_CHECKS_SAMPLED`).
+    for name, label in ((PRODUCTION_LEAN_CHECKS_DEFERRED, "LEAN_TICK_CHECKS_DEFERRED"), (PRODUCTION_LEAN_CHECKS_SAMPLED, "LEAN_TICK_CHECKS_SAMPLED")):
+        profile.set_counter(name, sum(value for item in results if item.lean and item.placement != PLACEMENT_REBASED for key, value in item.counters if key == label))
 
 
 # --------------------------------------------------------------------------
@@ -1008,7 +1013,7 @@ def _lean_timing_suffix(run: ProductionRunV1) -> str:
         return f" | {REFRESH_INCREMENTAL} {run.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED)} served by the certificate, {run.counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED)} recomputed"
     if run.refresh != REFRESH_LEAN:
         return ""
-    return f" | {REFRESH_LEAN} {run.counter(PRODUCTION_REFRESH_LEAN_DOMAINS)} lean, {run.counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS)} full"
+    return f" | {REFRESH_LEAN} {run.counter(PRODUCTION_REFRESH_LEAN_DOMAINS)} lean, {run.counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS)} full | LEAN_TICK_DIAGNOSTICS_DEFERRED_V1 {run.counter(PRODUCTION_LEAN_CHECKS_DEFERRED)} deferred, {run.counter(PRODUCTION_LEAN_CHECKS_SAMPLED)} sampled"
 
 
 def _clip_memo_timing_suffix(run: ProductionRunV1) -> str:

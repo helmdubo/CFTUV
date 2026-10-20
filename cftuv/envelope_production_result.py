@@ -117,6 +117,9 @@ PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED = "PRODUCTION_REFRESH_INCREMENTAL_RECO
 #: Домены lean-прогона, посчитанные без фиксирующей работы, и домены того же прогона, что пошли полным путём (холодные либо с переносом из хранилища).
 PRODUCTION_REFRESH_LEAN_DOMAINS = "PRODUCTION_REFRESH_LEAN_DOMAINS"
 PRODUCTION_REFRESH_LEAN_FULL_DOMAINS = "PRODUCTION_REFRESH_LEAN_FULL_DOMAINS"
+#: LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: домены lean-прогона, чьи проверка и аудит батча отложены до COMMIT, и домены выборки, прошедшие их на тике.
+PRODUCTION_LEAN_CHECKS_DEFERRED = "PRODUCTION_LEAN_CHECKS_DEFERRED"
+PRODUCTION_LEAN_CHECKS_SAMPLED = "PRODUCTION_LEAN_CHECKS_SAMPLED"
 #: Исход, которым называется неверное обращение с lean-результатом (чтение батча, дайджеста; запись в кэш).
 OUTCOME_LEAN_RESULT_MISUSED = "LEAN_RESULT_MISUSED"
 

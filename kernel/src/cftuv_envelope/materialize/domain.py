@@ -1036,6 +1036,7 @@ def materialize_domain(
     digests: bool = True,
     certify: bool = False,
     parametric=None,
+    defer_checks: bool = False,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -1056,6 +1057,9 @@ def materialize_domain(
     подъёма и батча, ничего в ответе не двигают (счётчики, батч и дайджесты те же побитово).
     `parametric` (`parametric.ParametricRequestV1`, нужен `certify=True`) — записать аффинный сертификат перетаскивания ширины (`MaterializationV1.parametric`): наклон по ширине
     каждой вершины и петли UV из ЭТОГО прогона; считается ПОСЛЕ ответа, на своём бюджете, и ничего в ответе не двигает.
+    `defer_checks=True` — lean-тик перетаскивания (LEAN_TICK_DIAGNOSTICS_DEFERRED_V1): проверка батча (`validate_geometry_batch`) и аудит
+    (`audit_batch`) отложены до COMMIT, кроме домена выборки (`lean_tick_checks_sampled`, один из `LEAN_TICK_CHECK_SAMPLE`); счётчик
+    `LEAN_TICK_CHECKS_DEFERRED` либо `LEAN_TICK_CHECKS_SAMPLED` называет, что сделано. Остальной ответ тот же.
     """
 
     silhouette = decal_topology_law is DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
@@ -1070,8 +1074,33 @@ def materialize_domain(
         digests,
         certify,
         parametric,
+        defer_checks,
     )
     return replace(result, decal_topology_law=decal_topology_law)
+
+
+#: LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: на lean-тике проверку и аудит батча проходит один домен из стольких (выборка по домену и ширине).
+LEAN_TICK_CHECK_SAMPLE = 16
+#: Домен lean-тика, чьи проверка и аудит отложены до COMMIT.
+LEAN_TICK_CHECKS_DEFERRED = "LEAN_TICK_CHECKS_DEFERRED"
+#: Домен lean-тика из выборки: проверка и аудит выполнены, как на COMMIT.
+LEAN_TICK_CHECKS_SAMPLED = "LEAN_TICK_CHECKS_SAMPLED"
+
+
+def lean_tick_comparable(counters) -> tuple:
+    """Числа домена без того, что lean-тик меняет по LEAN_TICK_DIAGNOSTICS_DEFERRED_V1 (числа аудита и отметка отложенной либо выборочной проверки):
+    у lean-тика и COMMIT одной ширины они обязаны совпасть."""
+
+    from .audit import AUDIT_COUNTER_NAMES
+
+    return tuple(item for item in counters if item[0] not in AUDIT_COUNTER_NAMES and item[0] not in (LEAN_TICK_CHECKS_DEFERRED, LEAN_TICK_CHECKS_SAMPLED))
+
+
+def lean_tick_checks_sampled(domain_id: str, alpha) -> bool:
+    """Домен в выборке lean-тика: первые четыре байта `sha256("<домен>|<alpha>")` делятся на `LEAN_TICK_CHECK_SAMPLE` — выборка детерминирована и с шириной
+    обходит домены (не CRC: он линеен, и смена ширины одной длины сдвигала бы все домены одинаково)."""
+
+    return int.from_bytes(sha256(f"{domain_id}|{alpha}".encode("utf-8")).digest()[:4], "big") % LEAN_TICK_CHECK_SAMPLE == 0
 
 
 def finalize_digests(result: MaterializationV1) -> MaterializationV1:
@@ -1101,7 +1130,7 @@ def _step_facts(prepared, coverage, built, admission, batch):
 
 
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False, parametric=None
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False, parametric=None, defer_checks=False
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -1144,20 +1173,28 @@ def _materialize_domain(
     if digests:
         batch = sealed_geometry_batch(batch)
         clock.lap("SEMANTIC_DIGEST")
-    issues = validate_geometry_batch(batch) if digests else validate_geometry_batch(batch, check_semantic_digest=False)
-    clock.lap("VALIDATE")
+    checked = not defer_checks or lean_tick_checks_sampled(domain_id, coverage.alpha)
+    issues = ()
+    if checked:
+        issues = validate_geometry_batch(batch) if digests else validate_geometry_batch(batch, check_semantic_digest=False)
+        clock.lap("VALIDATE")
     offset_normals = (
         built.lift.offset_normals(batch.vertices)
         if getattr(built.lift, "has_offset_normals", False)
         else ()
     )
-    audit = (
-        audit_batch(batch, _source_normal(prepared), dict(offset_normals))
-        if offset_normals
-        else audit_batch(batch, _source_normal(prepared))
-    )
-    clock.lap("AUDIT")
-    counters = _counters(built, budget) + audit.counters()
+    audit = None
+    counters = _counters(built, budget)
+    if checked:
+        audit = (
+            audit_batch(batch, _source_normal(prepared), dict(offset_normals))
+            if offset_normals
+            else audit_batch(batch, _source_normal(prepared))
+        )
+        clock.lap("AUDIT")
+        counters = counters + audit.counters()
+    if defer_checks:
+        counters = counters + ((LEAN_TICK_CHECKS_SAMPLED if checked else LEAN_TICK_CHECKS_DEFERRED, 1),)
     if issues:
         shown = "; ".join(
             f"{item.code.value}@{'/'.join(map(str, item.path))}" for item in issues[:8]
@@ -1168,7 +1205,7 @@ def _materialize_domain(
             clock,
             counters,
         )
-    if audit.problems():
+    if audit is not None and audit.problems():
         return _refused(
             MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
             "AUDIT:" + ",".join(audit.problems()),

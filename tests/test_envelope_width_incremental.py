@@ -151,7 +151,10 @@ _RECORDED_NUMBERS = re.compile(r"NANOMETRES|MILLI|MILLICELLS|EXACT_WORK|_MAX_|DE
 
 
 def _decisions(counters):
-    return tuple(item for item in counters if not _RECORDED_NUMBERS.search(item[0]))
+    from cftuv_envelope.materialize.domain import lean_tick_comparable
+
+    # the audit numbers and the lean-tick check mark are what a lean tick defers (LEAN_TICK_DIAGNOSTICS_DEFERRED_V1)
+    return tuple(item for item in lean_tick_comparable(counters) if not _RECORDED_NUMBERS.search(item[0]))
 
 
 def _quarantine(session, patch_id):

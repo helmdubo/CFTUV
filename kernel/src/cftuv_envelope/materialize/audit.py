@@ -117,6 +117,16 @@ class BatchAuditV1:
         )
 
 
+#: Имена чисел аудита (`AuditV1.counters`): их нет у домена lean-тика, чей аудит отложен (LEAN_TICK_DIAGNOSTICS_DEFERRED_V1).
+AUDIT_COUNTER_NAMES = (
+    "MATERIALIZE_BOUNDARY_EDGES",
+    "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
+    "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+    "MATERIALIZE_TRIANGLES_UV_REVERSED",
+    OFFSET_NORMAL_SPREAD,
+)
+
+
 def batch_shape_counters(batch) -> tuple[tuple[str, int], ...]:
     """Числа материализатора, которые батч выражает сам: грани, вершины, факты, цепи (порядок — как в ответе домена)."""
 

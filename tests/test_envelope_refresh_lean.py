@@ -147,6 +147,29 @@ def _answer(result):
     return tuple(repr(getattr(result, name)) for name in ANSWER)
 
 
+def _lean_answer(result):
+    """The answer with the counters a lean tick changes under LEAN_TICK_DIAGNOSTICS_DEFERRED_V1 left out (the audit numbers and the deferred/sampled mark)."""
+
+    from cftuv_envelope.materialize.domain import lean_tick_comparable
+
+    return tuple(repr(lean_tick_comparable(result.counters) if name == "counters" else getattr(result, name)) for name in ANSWER)
+
+
+def _same_but_deferred_checks(full, lean):
+    """Lean equals full but for the deferred checks: a sampled domain carries the full counters plus its mark, a deferred one lacks the audit numbers."""
+
+    from cftuv_envelope.materialize.domain import LEAN_TICK_CHECKS_DEFERRED, LEAN_TICK_CHECKS_SAMPLED
+
+    assert [_lean_answer(item) for item in full] == [_lean_answer(item) for item in lean]
+    for one, two in zip(full, lean):
+        if not two.is_materialized:
+            continue
+        marks = [item for item in two.counters if item[0] in (LEAN_TICK_CHECKS_DEFERRED, LEAN_TICK_CHECKS_SAMPLED)]
+        assert len(marks) == 1 and marks[0][1] == 1
+        if marks[0][0] == LEAN_TICK_CHECKS_SAMPLED:
+            assert tuple(item for item in two.counters if item != marks[0]) == tuple(one.counters)
+
+
 def _view_of(result):
     view = result.view
     return build_domain_view(result) if view is None else view
@@ -174,7 +197,7 @@ def test_the_lean_refresh_answers_every_domain_exactly_as_the_full_one(request, 
     full, lean, _controller = _both(bundle, pooled=pooled)
 
     assert len(full.results) == len(lean.results) == ROW
-    assert [_answer(item) for item in full.results] == [_answer(item) for item in lean.results]
+    _same_but_deferred_checks(full.results, lean.results)
     assert [repr(_view_of(item)) for item in full.results] == [repr(_view_of(item)) for item in lean.results]  # плоские массивы, из которых пишется меш
     assert {item.outcome for item in full.results} == {"MATERIALIZED"}
     if fixture == "unfolded_row":
@@ -191,7 +214,7 @@ def test_a_refused_domain_is_refused_the_same_way_by_the_lean_refresh(unfolded_r
     full, lean, _controller = _both(unfolded_row, pooled=False)
 
     assert any(not item.is_materialized for item in full.results)
-    assert [_answer(item) for item in full.results] == [_answer(item) for item in lean.results]
+    _same_but_deferred_checks(full.results, lean.results)
     assert all(item.lean for item in lean.results if item.is_materialized)
     assert [item.outcome for item in lean.results] == [item.outcome for item in full.results]
 
@@ -238,19 +261,39 @@ def test_the_worker_does_not_pack_the_batch_of_a_lean_domain_and_the_reply_is_sm
     assert all(pickle.loads(blob).lean for blob in sent_lean)  # метка переживает пересылку
 
 
-def test_a_domain_the_validator_refuses_is_refused_by_the_lean_refresh_with_the_same_outcome(row, monkeypatch):
-    """VALIDATE влияет на исход домена, поэтому lean его НЕ пропускает: иначе lean показал бы геометрию, которую полный путь отказал."""
+def test_a_domain_the_validator_refuses_is_refused_by_the_lean_refresh_only_when_sampled(row, monkeypatch):
+    """LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: VALIDATE на lean-тике идёт только у выборки (один домен из 16 по домену и ширине) - там отказ тот же, что у
+    полного пути; остальные домены рисуются до COMMIT (цена правила: неверный батч виден, пока тянут). COMMIT отказывает, как прежде."""
 
     from cftuv_envelope.materialize import domain as domain_module
 
     issue = SimpleNamespace(code=SimpleNamespace(value="INJECTED_ISSUE"), path=("batch", "faces"))
     monkeypatch.setattr(domain_module, "validate_geometry_batch", lambda *args, **kwargs: [issue])
+    sampled = {"yes": 0}
+
+    def every_other(domain_id, alpha):
+        sampled["yes"] += 1
+        return sampled["yes"] % 2 == 1
+
+    monkeypatch.setattr(domain_module, "lean_tick_checks_sampled", every_other)
 
     full, lean, _controller = _both(row, pooled=False)
 
     assert {item.outcome for item in full.results} == {"BATCH_DID_NOT_VALIDATE"}
-    assert [_answer(item) for item in lean.results] == [_answer(item) for item in full.results]
-    assert not any(item.is_materialized for item in lean.results)
+    refused = [item for item in lean.results if not item.is_materialized]
+    drawn = [item for item in lean.results if item.is_materialized]
+    assert refused and drawn
+    assert all(_answer(item) == _answer(twin) for item, twin in zip(lean.results, full.results) if not item.is_materialized)
+    assert all(("LEAN_TICK_CHECKS_DEFERRED", 1) in item.counters for item in drawn)
+
+
+def test_the_lean_tick_sample_is_one_domain_in_sixteen_and_moves_with_the_width():
+    from cftuv_envelope.materialize.domain import LEAN_TICK_CHECK_SAMPLE, lean_tick_checks_sampled
+
+    domains = [f"host-v0:patch-domain:{index:04d}" for index in range(4000)]
+    picked = [sum(lean_tick_checks_sampled(item, alpha) for item in domains) for alpha in ("1/3", "2/7", "5/11")]
+    assert LEAN_TICK_CHECK_SAMPLE == 16 and all(150 <= count <= 350 for count in picked)
+    assert {item for item in domains if lean_tick_checks_sampled(item, "1/3")} != {item for item in domains if lean_tick_checks_sampled(item, "2/7")}
 
 
 def test_a_cold_session_runs_every_domain_the_full_way_inside_a_lean_run(row):
