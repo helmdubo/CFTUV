@@ -12,6 +12,8 @@ every input it does not carry; the dispatcher then runs the oracle on the same s
 * `source_lift(mirror, plane, positions, triangles, host_positions, step, polygons, points, budget, reverse)`: `domain._sourced` (the law `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` and the
   check of the emitted faces), the triangulations exact and priced on the domain's budget.
 * `lift_vertices(mirror, points, plane)`: `({key: PlaneLiftV1.lift(point)}, {key: (None, None)})` for a `PlaneLiftV1` (no budget, no memory); any other lift is declined.
+* `key_slopes(mirror, prepared, coverage, templates, points)`: `parametric.key_slopes_of` (MATERIALIZE_CERTIFICATE_NATIVE_V1), the slopes of the points before the cut by vertex
+  key; every refusal of the oracle is declined (no budget, no memory).
 
 What the shim reads LIVE: the chord budget (`silhouette.CHORD_BUDGET`), the copy mark of a cut vertex (`audit.CUT_RIGHT_COPY_MARK`), the classes the result is built from.
 
@@ -51,6 +53,10 @@ SHAPE_FUNCTIONS = (
     ("codec.py", "canonical_json_bytes", "a00baaa6d8a183fad9b8f4927dff4144a9ab74fa75c745e36390e17998e45875"),
     ("codec.py", "_json_sort_key", "c0298dee535ec5763bc344d27e9132a86ae65386bfb74a799ffe0f6de4eb9184"),
     ("schema.py", "is_wire_default_field", "9676153834bf0dfb2f32ebf266a77f44e3ad93f95f4672bc8744b59ea9fce00e"),
+    # `materialize_hot.rs` `key_slopes` (MATERIALIZE_CERTIFICATE_NATIVE_V1): the slopes of the moving coverage points by the identity of the point, per vertex key
+    ("materialize/parametric.py", "key_slopes_of", "39ac7e60b320608c16685ac34a208b7c82ec4ab63d68e6f76d586a6583d5f4e1"),
+    ("materialize/parametric.py", "point_slopes_of", "30f671add21281b54006d1429f8ba179af9b730a79407066e60b2e7a1d872ae9"),
+    ("materialize/parametric.py", "_point_identity", "8188dff341887f3c478f25367ce54b6c741f0606116a1f86de3f8ef9887a13e1"),
 )
 
 #: The classes `assemble_batch` builds, in the order of `assemble_hot.rs` `CLASS_NAMES`: `(module, name)`.
@@ -206,6 +212,30 @@ def canonical_json_bytes(mirror, value):
     done, found = mirror._session.canonical_json(value, decimal.getcontext().prec)
     if not done:
         raise pin.NativePortUnsupported(f"canonical_json_bytes: {found}")
+    return found
+
+
+def key_slopes(mirror, prepared, coverage, templates, points):
+    """`parametric.key_slopes_of(prepared, coverage, templates, points)`: the region loop of `point_slopes_of` here, the faces, the identities and the dict in Rust. Every refusal of
+    the oracle (`ParametricRefusal`: a region without contours or template, a template and contour that disagree, a point with two slopes) is declined: the oracle then names it."""
+
+    _begin(mirror)
+    from cftuv_envelope.wavefront.coverage_template import KIND_CUT
+
+    partitions = {item.region_id: item.partition for item in prepared.regions}
+    pairs = []
+    for region in coverage.regions:
+        contours = getattr(region, "contours", None)
+        if contours is None:
+            raise pin.NativePortUnsupported("key_slopes: a region without contours (the oracle names the refusal)")
+        partition = partitions.get(region.region_id)
+        template = None if partition is None else templates.get(id(partition))
+        if template is None or len(template.faces) != len(contours):
+            raise pin.NativePortUnsupported("key_slopes: a region without its template (the oracle names the refusal)")
+        pairs.append((template.faces, contours))
+    done, found = mirror._session.hot_key_slopes(pairs, points, KIND_CUT)
+    if not done:
+        raise pin.NativePortUnsupported(f"key_slopes: {found}")
     return found
 
 

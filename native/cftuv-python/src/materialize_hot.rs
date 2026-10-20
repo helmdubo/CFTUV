@@ -34,7 +34,7 @@ use cftuv_silhouette::source_lift::{lift_source_vertices, settle_emitted_faces, 
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
 use crate::refusal::is_native_only;
-use crate::pyobj::{alloc, ibig_from_int, note_attr_build, note_attr_reads, rat_from_number, set_slot, sqrt_sum_from_py, Pool, Raw, SlotMode};
+use crate::pyobj::{alloc, ibig_from_int, is_exactly, note_attr_build, note_attr_reads, rat_from_number, set_slot, sqrt_sum_from_py, Pool, Raw, SlotMode};
 
 const STATUS_UNSUPPORTED: u8 = 12;
 
@@ -887,5 +887,207 @@ impl Host {
             found.set_item(key, position)?;
         }
         Ok(Some(found))
+    }
+}
+
+// --------------------------------------------------------------------------
+// the certificate: the slopes of the moving coverage points (MATERIALIZE_CERTIFICATE_NATIVE_V1)
+// --------------------------------------------------------------------------
+
+/// `parametric._point_identity` of a point (or of a slope pair): the term count of each coordinate, then `(radicand, numerator, denominator)` of every term as the
+/// `int` objects the oracle reads (`Fraction` by its two slots, an `int` coefficient as `(value, 1)`). Equal identities are equal tuples of the oracle: the parts are
+/// compared with `int.__eq__` and hashed with `int.__hash__`, so no number is converted.
+struct Identity<'py> {
+    hash: u64,
+    counts: Vec<usize>,
+    parts: Vec<Bound<'py, PyAny>>,
+}
+
+impl<'py> Identity<'py> {
+    fn new() -> Identity<'py> {
+        Identity { hash: 0, counts: Vec::with_capacity(2), parts: Vec::with_capacity(12) }
+    }
+
+    fn push(&mut self, part: Bound<'py, PyAny>) -> Read<()> {
+        if !part.is_exact_instance_of::<PyInt>() {
+            return unsupported("an identity part is not an int");
+        }
+        // SAFETY: an exact `int`, whose hash never fails.
+        let hash = unsafe { ffi::PyObject_Hash(part.as_ptr()) } as u64;
+        self.hash = (self.hash.rotate_left(5) ^ hash).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        self.parts.push(part);
+        Ok(())
+    }
+
+    /// One `SqrtSumV1`.
+    fn sum(&mut self, pool: &Pool, one: &Bound<'py, PyAny>, coordinate: &Bound<'py, PyAny>) -> Read<()> {
+        if !is_exactly(coordinate, &pool.sqrt_sum) {
+            return unsupported("a coordinate is not a SqrtSumV1");
+        }
+        let terms = match pool.sqrt_raw.as_ref().and_then(|raw| raw.read(coordinate, 0)) {
+            Some(terms) => terms.to_owned(),
+            None => {
+                note_attr_reads(1);
+                coordinate.getattr(pool.terms.bind(coordinate.py()))?
+            }
+        };
+        let Ok(terms) = terms.cast_exact::<PyTuple>() else {
+            return unsupported("SqrtSumV1.terms is not a tuple");
+        };
+        self.counts.push(terms.len());
+        self.hash = (self.hash.rotate_left(5) ^ terms.len() as u64).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        for term in terms.iter() {
+            let Ok(term) = term.cast_exact::<PyTuple>() else {
+                return unsupported("a term is not a tuple");
+            };
+            if term.len() != 2 {
+                return unsupported("a term is not a pair");
+            }
+            self.push(term.get_item(0)?)?;
+            let coefficient = term.get_item(1)?;
+            if coefficient.is_exact_instance_of::<PyInt>() {
+                self.push(coefficient)?;
+                self.push(one.clone())?;
+            } else if is_exactly(&coefficient, &pool.fraction) {
+                match pool.fraction_raw.as_ref().and_then(|raw| raw.read(&coefficient, 0).zip(raw.read(&coefficient, 1))) {
+                    Some((numerator, denominator)) => {
+                        self.push(numerator.to_owned())?;
+                        self.push(denominator.to_owned())?;
+                    }
+                    None => {
+                        note_attr_reads(2);
+                        let py = coefficient.py();
+                        self.push(coefficient.getattr(pool.numerator.bind(py))?)?;
+                        self.push(coefficient.getattr(pool.denominator.bind(py))?)?;
+                    }
+                }
+            } else {
+                return unsupported("a coefficient is not an int or a Fraction");
+            }
+        }
+        Ok(())
+    }
+
+    /// A point: a pair of `SqrtSumV1`.
+    fn point(pool: &Pool, one: &Bound<'py, PyAny>, point: &Bound<'py, PyAny>) -> Read<Identity<'py>> {
+        let Ok(pair) = point.cast_exact::<PyTuple>() else {
+            return unsupported("a point is not a tuple");
+        };
+        if pair.len() != 2 {
+            return unsupported("a point is not a pair");
+        }
+        let mut identity = Identity::new();
+        identity.sum(pool, one, &pair.get_item(0)?)?;
+        identity.sum(pool, one, &pair.get_item(1)?)?;
+        Ok(identity)
+    }
+}
+
+impl PartialEq for Identity<'_> {
+    fn eq(&self, other: &Identity<'_>) -> bool {
+        // `int == int` of exact ints never fails; an error would read as "different" (and so as a miss, never as a wrong hit).
+        self.hash == other.hash
+            && self.counts == other.counts
+            && self.parts.len() == other.parts.len()
+            && self.parts.iter().zip(other.parts.iter()).all(|(left, right)| left.is(right) || left.eq(right).unwrap_or(false))
+    }
+}
+
+impl Eq for Identity<'_> {}
+
+impl std::hash::Hash for Identity<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
+/// What the oracle's table holds for one identity: the slope's identity (the ambiguity check compares values) and the slope objects of the last item set.
+struct SlopeEntry<'py> {
+    value: Identity<'py>,
+    x: Bound<'py, PyAny>,
+    y: Bound<'py, PyAny>,
+    tuple: Option<Bound<'py, PyAny>>,
+}
+
+impl Host {
+    /// `parametric.key_slopes_of` past the region loop of `point_slopes_of` (the shim's): `pairs` are `(template faces, contours)` of the regions in the oracle's order,
+    /// `points` the chart points before the cut by vertex key, `cut` the kind `KIND_CUT`. `Ok(dict)`: `{key: (slope_x, slope_y) or None}`, or `{}` when no point
+    /// moves; `Err(why)`: an input the port does not carry or any refusal of the oracle (a template and contour that disagree, a point with two slopes), which the
+    /// oracle then names.
+    pub fn key_slopes<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>, points: &Bound<'py, PyAny>, cut: &Bound<'py, PyAny>) -> PyResult<Result<Bound<'py, PyDict>, String>> {
+        let pool = &self.classes()?.pool;
+        let read = (|| -> Read<Bound<'py, PyDict>> {
+            let kind_name = pyo3::intern!(py, "kind");
+            let items_name = pyo3::intern!(py, "items");
+            let points_name = pyo3::intern!(py, "points");
+            let slope_x_name = pyo3::intern!(py, "slope_x");
+            let slope_y_name = pyo3::intern!(py, "slope_y");
+            let one = PyInt::new(py, 1i64).into_any();
+            let mut table: HashMap<Identity<'py>, SlopeEntry<'py>, FxBuild> = HashMap::default();
+            for pair in sequence(pairs, "the region pairs")? {
+                let parts = sequence(&pair, "a region pair")?;
+                if parts.len() != 2 {
+                    return unsupported("a region pair is not (template faces, contours)");
+                }
+                let faces = sequence(&parts[0], "the template faces")?;
+                let contours = sequence(&parts[1], "the contours")?;
+                for (pattern, covered) in faces.iter().zip(contours.iter()) {
+                    let kind = pattern.getattr(kind_name)?;
+                    if !kind.is(cut) && !kind.eq(cut)? {
+                        continue;
+                    }
+                    let items = sequence(&pattern.getattr(items_name)?, "the template items")?;
+                    let contour = sequence(&covered.getattr(points_name)?, "the contour points")?;
+                    if items.len() != contour.len() {
+                        return unsupported("the template and the contour disagree (PARAM_TEMPLATE_UNAVAILABLE)");
+                    }
+                    for (item, point) in items.iter().zip(contour.iter()) {
+                        if item.is_exact_instance_of::<PyInt>() {
+                            continue;
+                        }
+                        let identity = Identity::point(pool, &one, point)?;
+                        let x = item.getattr(slope_x_name)?;
+                        let y = item.getattr(slope_y_name)?;
+                        let mut value = Identity::new();
+                        value.sum(pool, &one, &x)?;
+                        value.sum(pool, &one, &y)?;
+                        match table.entry(identity) {
+                            std::collections::hash_map::Entry::Occupied(mut known) => {
+                                if known.get().value != value {
+                                    return unsupported("a point with two slopes (PARAM_POINT_SLOPE_AMBIGUOUS)");
+                                }
+                                let entry = known.get_mut();
+                                entry.x = x;
+                                entry.y = y;
+                            }
+                            std::collections::hash_map::Entry::Vacant(free) => {
+                                free.insert(SlopeEntry { value, x, y, tuple: None });
+                            }
+                        }
+                    }
+                }
+            }
+            let found = PyDict::new(py);
+            if table.is_empty() {
+                return Ok(found);
+            }
+            for (key, point) in exact_dict(points, "the points")?.iter() {
+                match table.get_mut(&Identity::point(pool, &one, &point)?) {
+                    Some(entry) => {
+                        if entry.tuple.is_none() {
+                            entry.tuple = Some(PyTuple::new(py, [&entry.x, &entry.y])?.into_any());
+                        }
+                        found.set_item(key, entry.tuple.as_ref())?;
+                    }
+                    None => found.set_item(key, py.None())?,
+                }
+            }
+            Ok(found)
+        })();
+        match read {
+            Ok(found) => Ok(Ok(found)),
+            Err(Fail::Py(error)) => Err(error),
+            Err(Fail::Unsupported(why)) => Ok(Err(why)),
+        }
     }
 }

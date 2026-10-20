@@ -63,6 +63,7 @@ __all__ = (
     "apply_silhouette",
     "assemble_batch",
     "canonical_json_bytes",
+    "key_slopes",
     "build_skeleton",
     "chain_station_plans",
     "clip_geometry",
@@ -451,6 +452,12 @@ def canonical_json_bytes(value):
     """`codec.canonical_json_bytes(value)`, the same bytes (see `materialize_hot_op.canonical_json_bytes`)."""
 
     return materialize_hot_op.canonical_json_bytes(default_mirror(), value)
+
+
+def key_slopes(prepared, coverage, templates, points):
+    """`parametric.key_slopes_of(prepared, coverage, templates, points)`, the same dict (see `materialize_hot_op.key_slopes`)."""
+
+    return materialize_hot_op.key_slopes(default_mirror(), prepared, coverage, templates, points)
 
 
 def lift_vertices(points, plane):

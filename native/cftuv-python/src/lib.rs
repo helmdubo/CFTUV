@@ -522,6 +522,14 @@ impl Session {
         })
     }
 
+    /// `parametric.key_slopes_of` past its region loop (see `materialize_hot.rs`): `(True, {key: slope or None})` or `(False, why the port declined)`.
+    fn hot_key_slopes<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>, points: &Bound<'py, PyAny>, cut: &Bound<'py, PyAny>) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        Ok(match self.hot.key_slopes(py, pairs, points, cut)? {
+            Ok(found) => (true, found.into_any()),
+            Err(why) => (false, PyString::new(py, &why).into_any()),
+        })
+    }
+
     /// `{key: PlaneLiftV1(origin, basis_a, basis_b, scale).lift(point)}` of a dict of chart points; `None`: the port does not carry the input (the shim runs the oracle).
     fn hot_plane_lift<'py>(&self, py: Python<'py>, points: &Bound<'py, PyAny>, origin: &Bound<'py, PyAny>, basis_a: &Bound<'py, PyAny>, basis_b: &Bound<'py, PyAny>, scale: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyDict>>> {
         self.hot.plane_lift(py, points, origin, basis_a, basis_b, scale)

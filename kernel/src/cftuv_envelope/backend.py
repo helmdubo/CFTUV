@@ -1369,6 +1369,23 @@ def canonical_bytes_compute(oracle, value):
     return answer if done else oracle(value)
 
 
+def key_slopes_compute(oracle, prepared, coverage, templates, points):
+    """`oracle(prepared, coverage, templates, points)` (`parametric.key_slopes_of`), посчитанное заказанным бэкендом W1 (MATERIALIZE_CERTIFICATE_NATIVE_V1): тот же
+    словарь; вход, который порт не несёт, и любой отказ сертификата (`ParametricRefusal` называет эталон) — эталон по имени (`NATIVE_PORT_UNSUPPORTED`)."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(prepared, coverage, templates, points)
+
+    def call(module):
+        if not hasattr(module, "key_slopes"):
+            raise _OperationAbsent("this cftuv_native wheel has no `key_slopes` (it predates the CERTIFY port)")
+        return module.key_slopes(prepared, coverage, templates, points)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(prepared, coverage, templates, points)
+
+
 def lift_vertices_compute(oracle, points, plane):
     """`oracle(points, plane)` (`materialize.assemble.lift_vertices`), посчитанное заказанным бэкендом W1 на точной плоскости (`PlaneLiftV1`); иной подъём — эталон по имени."""
 
