@@ -22,6 +22,8 @@ use pyo3::{ffi, IntoPyObjectExt};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::codec::Reader;
+use cftuv_core::coverage::{doubled_shoelace, Point};
+use cftuv_core::products::ProductMemo;
 use cftuv_core::exact::ExactCtx;
 use cftuv_core::rat::Rat;
 use cftuv_core::session::{CostRun, Session};
@@ -34,7 +36,7 @@ use cftuv_silhouette::source_lift::{lift_source_vertices, settle_emitted_faces, 
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
 use crate::refusal::is_native_only;
-use crate::pyobj::{alloc, ibig_from_int, note_attr_build, note_attr_reads, rat_from_number, set_slot, sqrt_sum_from_py, Pool, Raw, SlotMode};
+use crate::pyobj::{alloc, ibig_from_int, is_exactly, note_attr_build, note_attr_reads, rat_from_number, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw, SlotMode};
 
 const STATUS_UNSUPPORTED: u8 = 12;
 
@@ -81,6 +83,9 @@ pub(crate) struct Classes {
 pub struct Host {
     classes: Option<Classes>,
     pub(crate) assemble: Option<crate::assemble_hot::AssembleClasses>,
+    /// `coverage_template.instantiate`: the templates converted once, by the identities of the template and the partition.
+    templates: HashMap<(usize, usize), Instantiable, FxBuild>,
+    clock: u64,
 }
 
 impl Host {
@@ -887,5 +892,378 @@ impl Host {
             found.set_item(key, position)?;
         }
         Ok(Some(found))
+    }
+}
+
+// --------------------------------------------------------------------------
+// the certificate: the slopes of the moving coverage points (MATERIALIZE_CERTIFICATE_NATIVE_V1)
+// --------------------------------------------------------------------------
+
+/// `parametric._point_identity` of a point (or of a slope pair): the term count of each coordinate, then `(radicand, numerator, denominator)` of every term as the
+/// `int` objects the oracle reads (`Fraction` by its two slots, an `int` coefficient as `(value, 1)`). Equal identities are equal tuples of the oracle: the parts are
+/// compared with `int.__eq__` and hashed with `int.__hash__`, so no number is converted.
+struct Identity<'py> {
+    hash: u64,
+    counts: Vec<usize>,
+    parts: Vec<Bound<'py, PyAny>>,
+}
+
+impl<'py> Identity<'py> {
+    fn new() -> Identity<'py> {
+        Identity { hash: 0, counts: Vec::with_capacity(2), parts: Vec::with_capacity(12) }
+    }
+
+    fn push(&mut self, part: Bound<'py, PyAny>) -> Read<()> {
+        if !part.is_exact_instance_of::<PyInt>() {
+            return unsupported("an identity part is not an int");
+        }
+        // SAFETY: an exact `int`, whose hash never fails.
+        let hash = unsafe { ffi::PyObject_Hash(part.as_ptr()) } as u64;
+        self.hash = (self.hash.rotate_left(5) ^ hash).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        self.parts.push(part);
+        Ok(())
+    }
+
+    /// One `SqrtSumV1`.
+    fn sum(&mut self, pool: &Pool, one: &Bound<'py, PyAny>, coordinate: &Bound<'py, PyAny>) -> Read<()> {
+        if !is_exactly(coordinate, &pool.sqrt_sum) {
+            return unsupported("a coordinate is not a SqrtSumV1");
+        }
+        let terms = match pool.sqrt_raw.as_ref().and_then(|raw| raw.read(coordinate, 0)) {
+            Some(terms) => terms.to_owned(),
+            None => {
+                note_attr_reads(1);
+                coordinate.getattr(pool.terms.bind(coordinate.py()))?
+            }
+        };
+        let Ok(terms) = terms.cast_exact::<PyTuple>() else {
+            return unsupported("SqrtSumV1.terms is not a tuple");
+        };
+        self.counts.push(terms.len());
+        self.hash = (self.hash.rotate_left(5) ^ terms.len() as u64).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        for term in terms.iter() {
+            let Ok(term) = term.cast_exact::<PyTuple>() else {
+                return unsupported("a term is not a tuple");
+            };
+            if term.len() != 2 {
+                return unsupported("a term is not a pair");
+            }
+            self.push(term.get_item(0)?)?;
+            let coefficient = term.get_item(1)?;
+            if coefficient.is_exact_instance_of::<PyInt>() {
+                self.push(coefficient)?;
+                self.push(one.clone())?;
+            } else if is_exactly(&coefficient, &pool.fraction) {
+                match pool.fraction_raw.as_ref().and_then(|raw| raw.read(&coefficient, 0).zip(raw.read(&coefficient, 1))) {
+                    Some((numerator, denominator)) => {
+                        self.push(numerator.to_owned())?;
+                        self.push(denominator.to_owned())?;
+                    }
+                    None => {
+                        note_attr_reads(2);
+                        let py = coefficient.py();
+                        self.push(coefficient.getattr(pool.numerator.bind(py))?)?;
+                        self.push(coefficient.getattr(pool.denominator.bind(py))?)?;
+                    }
+                }
+            } else {
+                return unsupported("a coefficient is not an int or a Fraction");
+            }
+        }
+        Ok(())
+    }
+
+    /// A point: a pair of `SqrtSumV1`.
+    fn point(pool: &Pool, one: &Bound<'py, PyAny>, point: &Bound<'py, PyAny>) -> Read<Identity<'py>> {
+        let Ok(pair) = point.cast_exact::<PyTuple>() else {
+            return unsupported("a point is not a tuple");
+        };
+        if pair.len() != 2 {
+            return unsupported("a point is not a pair");
+        }
+        let mut identity = Identity::new();
+        identity.sum(pool, one, &pair.get_item(0)?)?;
+        identity.sum(pool, one, &pair.get_item(1)?)?;
+        Ok(identity)
+    }
+}
+
+impl PartialEq for Identity<'_> {
+    fn eq(&self, other: &Identity<'_>) -> bool {
+        // `int == int` of exact ints never fails; an error would read as "different" (and so as a miss, never as a wrong hit).
+        self.hash == other.hash
+            && self.counts == other.counts
+            && self.parts.len() == other.parts.len()
+            && self.parts.iter().zip(other.parts.iter()).all(|(left, right)| left.is(right) || left.eq(right).unwrap_or(false))
+    }
+}
+
+impl Eq for Identity<'_> {}
+
+impl std::hash::Hash for Identity<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
+/// What the oracle's table holds for one identity: the slope's identity (the ambiguity check compares values) and the slope objects of the last item set.
+struct SlopeEntry<'py> {
+    value: Identity<'py>,
+    x: Bound<'py, PyAny>,
+    y: Bound<'py, PyAny>,
+    tuple: Option<Bound<'py, PyAny>>,
+}
+
+impl Host {
+    /// `parametric.key_slopes_of` past the region loop of `point_slopes_of` (the shim's): `pairs` are `(template faces, contours)` of the regions in the oracle's order,
+    /// `points` the chart points before the cut by vertex key, `cut` the kind `KIND_CUT`. `Ok(dict)`: `{key: (slope_x, slope_y) or None}`, or `{}` when no point
+    /// moves; `Err(why)`: an input the port does not carry or any refusal of the oracle (a template and contour that disagree, a point with two slopes), which the
+    /// oracle then names.
+    pub fn key_slopes<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>, points: &Bound<'py, PyAny>, cut: &Bound<'py, PyAny>) -> PyResult<Result<Bound<'py, PyDict>, String>> {
+        let pool = &self.classes()?.pool;
+        let read = (|| -> Read<Bound<'py, PyDict>> {
+            let kind_name = pyo3::intern!(py, "kind");
+            let items_name = pyo3::intern!(py, "items");
+            let points_name = pyo3::intern!(py, "points");
+            let slope_x_name = pyo3::intern!(py, "slope_x");
+            let slope_y_name = pyo3::intern!(py, "slope_y");
+            let one = PyInt::new(py, 1i64).into_any();
+            let mut table: HashMap<Identity<'py>, SlopeEntry<'py>, FxBuild> = HashMap::default();
+            for pair in sequence(pairs, "the region pairs")? {
+                let parts = sequence(&pair, "a region pair")?;
+                if parts.len() != 2 {
+                    return unsupported("a region pair is not (template faces, contours)");
+                }
+                let faces = sequence(&parts[0], "the template faces")?;
+                let contours = sequence(&parts[1], "the contours")?;
+                for (pattern, covered) in faces.iter().zip(contours.iter()) {
+                    let kind = pattern.getattr(kind_name)?;
+                    if !kind.is(cut) && !kind.eq(cut)? {
+                        continue;
+                    }
+                    let items = sequence(&pattern.getattr(items_name)?, "the template items")?;
+                    let contour = sequence(&covered.getattr(points_name)?, "the contour points")?;
+                    if items.len() != contour.len() {
+                        return unsupported("the template and the contour disagree (PARAM_TEMPLATE_UNAVAILABLE)");
+                    }
+                    for (item, point) in items.iter().zip(contour.iter()) {
+                        if item.is_exact_instance_of::<PyInt>() {
+                            continue;
+                        }
+                        let identity = Identity::point(pool, &one, point)?;
+                        let x = item.getattr(slope_x_name)?;
+                        let y = item.getattr(slope_y_name)?;
+                        let mut value = Identity::new();
+                        value.sum(pool, &one, &x)?;
+                        value.sum(pool, &one, &y)?;
+                        match table.entry(identity) {
+                            std::collections::hash_map::Entry::Occupied(mut known) => {
+                                if known.get().value != value {
+                                    return unsupported("a point with two slopes (PARAM_POINT_SLOPE_AMBIGUOUS)");
+                                }
+                                let entry = known.get_mut();
+                                entry.x = x;
+                                entry.y = y;
+                            }
+                            std::collections::hash_map::Entry::Vacant(free) => {
+                                free.insert(SlopeEntry { value, x, y, tuple: None });
+                            }
+                        }
+                    }
+                }
+            }
+            let found = PyDict::new(py);
+            if table.is_empty() {
+                return Ok(found);
+            }
+            for (key, point) in exact_dict(points, "the points")?.iter() {
+                match table.get_mut(&Identity::point(pool, &one, &point)?) {
+                    Some(entry) => {
+                        if entry.tuple.is_none() {
+                            entry.tuple = Some(PyTuple::new(py, [&entry.x, &entry.y])?.into_any());
+                        }
+                        found.set_item(key, entry.tuple.as_ref())?;
+                    }
+                    None => found.set_item(key, py.None())?,
+                }
+            }
+            Ok(found)
+        })();
+        match read {
+            Ok(found) => Ok(Ok(found)),
+            Err(Fail::Py(error)) => Err(error),
+            Err(Fail::Unsupported(why)) => Ok(Err(why)),
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// the coverage of a width step from its template (MATERIALIZE_INSTANTIATE_NATIVE_V1)
+// --------------------------------------------------------------------------
+
+/// One item of a cut face's template: an original vertex of the face, or a cut point `base + alpha * slope`.
+enum TemplateItem {
+    Kept(usize),
+    Cut { base: Point, slope: Point },
+}
+
+/// One face of a template, converted once.
+enum TemplateFace {
+    Behind { area: SqrtSum },
+    Ahead,
+    Cut { items: Vec<TemplateItem> },
+}
+
+/// A template with the partition it was applied to, converted once and kept by the identity of both (frozen records, held here so the identities stay theirs).
+pub(crate) struct Instantiable {
+    stamp: u64,
+    _held: (Py<PyAny>, Py<PyAny>),
+    faces: Vec<TemplateFace>,
+    /// The original points of each face (what a kept item reads), converted when a cut face first needs them.
+    points: Vec<Option<Vec<Point>>>,
+}
+
+/// Templates kept converted per session (least recently used out).
+pub(crate) const TEMPLATE_LIMIT: usize = 1024;
+
+impl Host {
+    fn instantiable(&mut self, py: Python<'_>, template: &Bound<'_, PyAny>, partition: &Bound<'_, PyAny>, kinds: [&Bound<'_, PyAny>; 3]) -> Read<(usize, usize)> {
+        let key = (template.as_ptr() as usize, partition.as_ptr() as usize);
+        self.clock += 1;
+        if let Some(entry) = self.templates.get_mut(&key) {
+            entry.stamp = self.clock;
+            return Ok(key);
+        }
+        let pool = &self.classes().map_err(Fail::Py)?.pool;
+        let patterns = sequence(&template.getattr(pyo3::intern!(py, "faces"))?, "the template faces")?;
+        let mut faces = Vec::with_capacity(patterns.len());
+        for pattern in &patterns {
+            let kind = pattern.getattr(pyo3::intern!(py, "kind"))?;
+            let is = |known: &Bound<'_, PyAny>| -> PyResult<bool> { Ok(kind.is(known) || kind.eq(known)?) };
+            if is(kinds[0])? {
+                let area = pattern.getattr(pyo3::intern!(py, "area"))?;
+                faces.push(TemplateFace::Behind { area: carried(sqrt_sum_from_py(pool, &area), "a template area")? });
+            } else if is(kinds[1])? {
+                faces.push(TemplateFace::Ahead);
+            } else if is(kinds[2])? {
+                let mut items = Vec::new();
+                for item in sequence(&pattern.getattr(pyo3::intern!(py, "items"))?, "the template items")? {
+                    if item.is_exact_instance_of::<PyInt>() {
+                        let Ok(index) = usize::try_from(&ibig_from_int(&item)?) else {
+                            return unsupported("a template index is negative or too big");
+                        };
+                        items.push(TemplateItem::Kept(index));
+                        continue;
+                    }
+                    let part = |name: &str| -> Read<SqrtSum> { carried(sqrt_sum_from_py(pool, &item.getattr(name)?), "a cut point") };
+                    items.push(TemplateItem::Cut { base: (part("base_x")?, part("base_y")?), slope: (part("slope_x")?, part("slope_y")?) });
+                }
+                faces.push(TemplateFace::Cut { items });
+            } else {
+                return unsupported("a template face of an unknown kind");
+            }
+        }
+        let count = faces.len();
+        if self.templates.len() >= TEMPLATE_LIMIT {
+            if let Some(oldest) = self.templates.iter().min_by_key(|(_, entry)| entry.stamp).map(|(key, _)| *key) {
+                self.templates.remove(&oldest);
+            }
+        }
+        self.templates.insert(key, Instantiable {
+            stamp: self.clock,
+            _held: (template.clone().unbind(), partition.clone().unbind()),
+            faces,
+            points: (0..count).map(|_| None).collect(),
+        });
+        Ok(key)
+    }
+
+    /// `coverage_template.instantiate` past its checks (the shim's) and before its price: `Ok((faces, total))` with `faces` the `(points, doubled area)` of every face in the
+    /// order of the partition (the original `points` tuple of a face behind the front and its template's area object, `()` and a zero ahead of it, the contour of a cut
+    /// face with its original point objects and new cut points), `total` their sum; `Err(why)`: an input the port does not carry.
+    pub fn instantiate<'py>(
+        &mut self,
+        py: Python<'py>,
+        products: &mut ProductMemo,
+        template: &Bound<'py, PyAny>,
+        partition: &Bound<'py, PyAny>,
+        alpha: &Bound<'py, PyAny>,
+        kinds: [&Bound<'py, PyAny>; 3],
+    ) -> PyResult<Result<Bound<'py, PyTuple>, String>> {
+        let read = (|| -> Read<Bound<'py, PyTuple>> {
+            let key = self.instantiable(py, template, partition, kinds)?;
+            let pool = &self.classes.as_ref().ok_or_else(|| Fail::Unsupported("the classes were not bound".into()))?.pool;
+            let alpha = rat_of(pool, alpha, "alpha")?;
+            let partition_faces = sequence(&partition.getattr(pyo3::intern!(py, "faces"))?, "the partition faces")?;
+            let patterns = sequence(&template.getattr(pyo3::intern!(py, "faces"))?, "the template faces")?;
+            let Some(entry) = self.templates.get_mut(&key) else {
+                return unsupported("the template was not kept");
+            };
+            if partition_faces.len() != entry.faces.len() || patterns.len() != entry.faces.len() {
+                return unsupported("the template and the partition disagree");
+            }
+            let mut out = Vec::with_capacity(entry.faces.len());
+            let mut total = SqrtSum::zero();
+            for (position, face) in entry.faces.iter().enumerate() {
+                let source = &partition_faces[position];
+                match face {
+                    TemplateFace::Behind { area } => {
+                        total = total.add(area);
+                        let points = source.getattr(pyo3::intern!(py, "points"))?;
+                        let area = patterns[position].getattr(pyo3::intern!(py, "area"))?;
+                        out.push(PyTuple::new(py, [points, area])?.into_any());
+                    }
+                    TemplateFace::Ahead => {
+                        total = total.add(&SqrtSum::zero());
+                        out.push(PyTuple::new(py, [PyTuple::empty(py).into_any(), pool.zero_sum.bind(py).clone()])?.into_any());
+                    }
+                    TemplateFace::Cut { items } => {
+                        let originals = sequence(&source.getattr(pyo3::intern!(py, "points"))?, "the face points")?;
+                        if entry.points[position].is_none() {
+                            let mut converted = Vec::with_capacity(originals.len());
+                            for point in &originals {
+                                converted.push(pair_of(pool, point, "a face point")?);
+                            }
+                            entry.points[position] = Some(converted);
+                        }
+                        let kept = entry.points[position].as_ref().map(Vec::as_slice).unwrap_or(&[]);
+                        let mut contour: Vec<Point> = Vec::with_capacity(items.len());
+                        let mut objects = Vec::with_capacity(items.len());
+                        for item in items {
+                            match item {
+                                TemplateItem::Kept(original) => {
+                                    let (Some(point), Some(object)) = (kept.get(*original), originals.get(*original)) else {
+                                        return unsupported("a template index outside the face");
+                                    };
+                                    contour.push(point.clone());
+                                    objects.push(object.clone());
+                                }
+                                TemplateItem::Cut { base, slope } => {
+                                    let at = (base.0.add(&slope.0.scaled(&alpha)), base.1.add(&slope.1.scaled(&alpha)));
+                                    objects.push(PyTuple::new(py, [sqrt_sum_to_py(py, pool, &at.0)?, sqrt_sum_to_py(py, pool, &at.1)?])?.into_any());
+                                    contour.push(at);
+                                }
+                            }
+                        }
+                        let doubled = if contour.len() >= 3 {
+                            let refs: Vec<&Point> = contour.iter().collect();
+                            catch_unwind(AssertUnwindSafe(|| doubled_shoelace(&refs, products)))
+                                .map_err(|panic| Fail::Py(PyRuntimeError::new_err(format!("Session.instantiate: native panic: {}", crate::panic_message(&panic)))))?
+                        } else {
+                            SqrtSum::zero()
+                        };
+                        total = total.add(&doubled);
+                        let doubled = if contour.len() >= 3 { sqrt_sum_to_py(py, pool, &doubled)? } else { pool.zero_sum.bind(py).clone() };
+                        out.push(PyTuple::new(py, [PyTuple::new(py, objects)?.into_any(), doubled])?.into_any());
+                    }
+                }
+            }
+            Ok(PyTuple::new(py, [PyTuple::new(py, out)?.into_any(), sqrt_sum_to_py(py, pool, &total)?])?)
+        })();
+        match read {
+            Ok(found) => Ok(Ok(found)),
+            Err(Fail::Py(error)) => Err(error),
+            Err(Fail::Unsupported(why)) => Ok(Err(why)),
+        }
     }
 }

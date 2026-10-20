@@ -179,7 +179,8 @@ class _Instantiator:
 
     def coverage(self, partition, alpha, work_budget, store):
         template = self.certificate.templates.get(id(partition))
-        produced = None if template is None else instantiate(template, partition, alpha, work_budget)
+        # Покрытие из шаблона - `instantiate`, порт - MATERIALIZE_INSTANTIATE_NATIVE_V1.
+        produced = None if template is None else backend.instantiate_compute(instantiate, template, partition, alpha, work_budget)
         if produced is None:
             self.misses += 1
         return produced

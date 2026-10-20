@@ -12,6 +12,10 @@ every input it does not carry; the dispatcher then runs the oracle on the same s
 * `source_lift(mirror, plane, positions, triangles, host_positions, step, polygons, points, budget, reverse)`: `domain._sourced` (the law `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` and the
   check of the emitted faces), the triangulations exact and priced on the domain's budget.
 * `lift_vertices(mirror, points, plane)`: `({key: PlaneLiftV1.lift(point)}, {key: (None, None)})` for a `PlaneLiftV1` (no budget, no memory); any other lift is declined.
+* `key_slopes(mirror, prepared, coverage, templates, points)`: `parametric.key_slopes_of` (MATERIALIZE_CERTIFICATE_NATIVE_V1), the slopes of the points before the cut by vertex
+  key; every refusal of the oracle is declined (no budget, no memory).
+* `instantiate(mirror, template, partition, alpha, work_budget)`: `coverage_template.instantiate` (MATERIALIZE_INSTANTIATE_NATIVE_V1), the coverage of a width step from
+  its template; the checks and the recorded price stay here (the price last, as the oracle pays it), the template is converted once per template and partition.
 
 What the shim reads LIVE: the chord budget (`silhouette.CHORD_BUDGET`), the copy mark of a cut vertex (`audit.CUT_RIGHT_COPY_MARK`), the classes the result is built from.
 
@@ -44,6 +48,21 @@ SHAPE_FUNCTIONS = (
     ("materialize/domain.py", "_sourced", "d7065c4f855d2df5f687b47b77f18e57525071dcdcfc744c8677a3f0f528b811"),
     ("materialize/mesh.py", "decimal_of", "6de4873688c25968df0f5f2569c7fd34ceeae1e83edbd93387386b7e8bbcce7d"),
     ("ids.py", "OpaqueId.__post_init__", "e0f93f57af960b5533329678d2d2b0c2009e19689bd50ab4c013fe911c823bc3"),
+    # `canonical_json.rs` (MATERIALIZE_DIGEST_NATIVE_V1): the canonical tree, the C encoder's settings, the canonical Decimal and the wire-default fields
+    ("codec.py", "to_canonical_data", "adf01f776c7192a2841a3a5121677ca0bd10ee763dadba7e7d8deb183463692b"),
+    ("codec.py", "_canonical_decimal", "59af0426a73b1eccdcd23f80beb15a2d9885bebb5c9ffcf9cc8482417b7bb661"),
+    ("codec.py", "_build_text_encoder", "9a9b55af0ee1f70edb7c9c2dfc77bebb4961a4a887ace72aa469926ecdd7d12d"),
+    ("codec.py", "canonical_json_bytes", "a00baaa6d8a183fad9b8f4927dff4144a9ab74fa75c745e36390e17998e45875"),
+    ("codec.py", "_json_sort_key", "c0298dee535ec5763bc344d27e9132a86ae65386bfb74a799ffe0f6de4eb9184"),
+    ("schema.py", "is_wire_default_field", "9676153834bf0dfb2f32ebf266a77f44e3ad93f95f4672bc8744b59ea9fce00e"),
+    # `materialize_hot.rs` `key_slopes` (MATERIALIZE_CERTIFICATE_NATIVE_V1): the slopes of the moving coverage points by the identity of the point, per vertex key
+    ("materialize/parametric.py", "key_slopes_of", "39ac7e60b320608c16685ac34a208b7c82ec4ab63d68e6f76d586a6583d5f4e1"),
+    ("materialize/parametric.py", "point_slopes_of", "30f671add21281b54006d1429f8ba179af9b730a79407066e60b2e7a1d872ae9"),
+    # `materialize_hot.rs` `instantiate` (MATERIALIZE_INSTANTIATE_NATIVE_V1): the coverage of a width step from its template (`faces.doubled_shoelace` is pinned whole)
+    ("wavefront/coverage_template.py", "instantiate", "ee557997faccc3d8e5ef40c749ce29f9be1dc24a38862c9e3911a7f7279787e9"),
+    ("wavefront/coverage_template.py", "_points_of", "4a0465f75a900ef340458215730800e046cb04b558745e95b6b89cb023ab1b99"),
+    ("wavefront/coverage_template.py", "CutPointV1.at", "2cb3b2d55838c62c42d884c17d0ea4b06aba9b75f77723525e9df6f1759f4643"),
+    ("materialize/parametric.py", "_point_identity", "8188dff341887f3c478f25367ce54b6c741f0606116a1f86de3f8ef9887a13e1"),
 )
 
 #: The classes `assemble_batch` builds, in the order of `assemble_hot.rs` `CLASS_NAMES`: `(module, name)`.
@@ -158,7 +177,9 @@ def bind(mirror) -> None:
         )
     )
     import decimal
+    import enum
 
+    from cftuv_envelope import ids
     from cftuv_envelope.materialize import mesh
 
     context = mesh.DECIMAL_CONTEXT
@@ -171,11 +192,82 @@ def bind(mirror) -> None:
     try:
         mirror._session.bind_hot(exact.SqrtSumV1, Fraction, point)
         mirror._session.bind_assemble(table, decimal.Decimal, _metric_default())
+        mirror._session.bind_canonical(ids.OpaqueId, enum.Enum, decimal.Decimal, _record_plan)
     except TypeError as error:
         if "raw slot access was forced" in str(error):
             raise
         raise pin.NativePortStale(f"the oracle classes the native materialize_hot is built from changed: {error}") from None
     mirror._hot_bound = True
+
+
+def _record_plan(kind):
+    """`((name, is wire default, default), ...)` of a record class in the order of `dataclasses.fields` (what `codec.to_canonical_data` reads of it)."""
+
+    from cftuv_envelope.schema import is_wire_default_field
+
+    return tuple((item.name, is_wire_default_field(item), item.default if is_wire_default_field(item) else None) for item in dataclasses.fields(kind))
+
+
+def canonical_json_bytes(mirror, value):
+    """`codec.canonical_json_bytes(value)` (`canonical_json.rs`): the same bytes, or `NativePortUnsupported` for a value the port does not walk (the oracle then answers
+    or raises as it does). The Decimal context is the caller's (`_canonical_decimal` normalizes under it): its precision goes to the Rust side."""
+
+    import decimal
+
+    _begin(mirror)
+    done, found = mirror._session.canonical_json(value, decimal.getcontext().prec)
+    if not done:
+        raise pin.NativePortUnsupported(f"canonical_json_bytes: {found}")
+    return found
+
+
+def instantiate(mirror, template, partition, alpha, work_budget):
+    """`coverage_template.instantiate(template, partition, alpha, work_budget)`: its checks and its price here, the contours, the areas and their sum in Rust (the
+    template converted once per template and partition). The price is paid last, as the oracle pays it, when the answer is built."""
+
+    _begin(mirror)
+    from cftuv_envelope.wavefront import coverage_template as template_module
+    from cftuv_envelope.wavefront.coverage import CoverageOutcome, CoverageV1, FaceCoverageV1
+    from cftuv_envelope.wavefront.faces import FaceOutcome
+
+    if partition.outcome is not FaceOutcome.EXACT or alpha < 0 or len(template.faces) != len(partition.faces):
+        return None
+    if template.polygon_doubled_area != partition.polygon_doubled_area:
+        return None
+    if any(pattern.owner != face.owner for face, pattern in zip(partition.faces, template.faces)):
+        return None
+    done, found = mirror._session.hot_instantiate(template, partition, alpha, template_module.KIND_BEHIND, template_module.KIND_AHEAD, template_module.KIND_CUT)
+    if not done:
+        raise pin.NativePortUnsupported(f"instantiate: {found}")
+    faces, total = found
+    if work_budget is not None and template.price is not None and not work_budget.replay(template.price):
+        return None
+    covered = tuple(FaceCoverageV1(face.owner, points, doubled) for face, (points, doubled) in zip(partition.faces, faces))
+    return CoverageV1(CoverageOutcome.EXACT, alpha, covered, total, partition.polygon_doubled_area, work_budget=work_budget)
+
+
+def key_slopes(mirror, prepared, coverage, templates, points):
+    """`parametric.key_slopes_of(prepared, coverage, templates, points)`: the region loop of `point_slopes_of` here, the faces, the identities and the dict in Rust. Every refusal of
+    the oracle (`ParametricRefusal`: a region without contours or template, a template and contour that disagree, a point with two slopes) is declined: the oracle then names it."""
+
+    _begin(mirror)
+    from cftuv_envelope.wavefront.coverage_template import KIND_CUT
+
+    partitions = {item.region_id: item.partition for item in prepared.regions}
+    pairs = []
+    for region in coverage.regions:
+        contours = getattr(region, "contours", None)
+        if contours is None:
+            raise pin.NativePortUnsupported("key_slopes: a region without contours (the oracle names the refusal)")
+        partition = partitions.get(region.region_id)
+        template = None if partition is None else templates.get(id(partition))
+        if template is None or len(template.faces) != len(contours):
+            raise pin.NativePortUnsupported("key_slopes: a region without its template (the oracle names the refusal)")
+        pairs.append((template.faces, contours))
+    done, found = mirror._session.hot_key_slopes(pairs, points, KIND_CUT)
+    if not done:
+        raise pin.NativePortUnsupported(f"key_slopes: {found}")
+    return found
 
 
 def _metric_default():

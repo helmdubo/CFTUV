@@ -1212,7 +1212,7 @@ def _materialize_domain(
             clock,
             counters,
         )
-    digest = sha256(canonical_json_bytes(batch)).hexdigest() if digests else ""
+    digest = sha256(backend.canonical_bytes_compute(canonical_json_bytes, batch)).hexdigest() if digests else ""
     clock.lap("DIGEST")
     interval, structure, bounds = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None, None)
     if certify:

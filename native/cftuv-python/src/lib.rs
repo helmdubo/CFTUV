@@ -14,6 +14,7 @@ mod effective_alpha;
 mod embedding;
 mod frame;
 mod assemble_hot;
+mod canonical_json;
 mod materialize_hot;
 mod materialize_w1;
 mod memlog;
@@ -122,6 +123,8 @@ struct Session {
     w1: materialize_w1::Host,
     /// The hot part of the SILHOUETTE stage (`silhouette.apply_silhouette`, `PlaneLiftV1.lift`).
     hot: materialize_hot::Host,
+    /// `codec.canonical_json_bytes` (`canonical_json.rs`): the bound classes and the kind of every class met.
+    canonical: canonical_json::Host,
 }
 
 #[pymethods]
@@ -134,7 +137,7 @@ impl Session {
             Some(text) => pyobj::SlotMode::parse(text).map_err(|why| pyobj::refuse(format!("Session(slots=...): {why}")))?,
             None => pyobj::process_mode(),
         };
-        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default() })
+        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default(), canonical: canonical_json::Host::default() })
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -477,6 +480,16 @@ impl Session {
         self.hot.verify(py, &args, result)
     }
 
+    /// Binds `ids.OpaqueId`, `enum.Enum`, `decimal.Decimal` and the shim's plan of a record class (`canonical_json.rs`).
+    fn bind_canonical(&mut self, py: Python<'_>, opaque: &Bound<'_, pyo3::types::PyType>, enumeration: &Bound<'_, pyo3::types::PyType>, decimal: &Bound<'_, pyo3::types::PyType>, plan: &Bound<'_, PyAny>) {
+        self.canonical.bind(py, opaque, enumeration, decimal, plan)
+    }
+
+    /// `codec.canonical_json_bytes(value)` under a Decimal context of `precision` digits: `(True, bytes)` or `(False, why the port declined)`.
+    fn canonical_json<'py>(&mut self, py: Python<'py>, value: &Bound<'py, PyAny>, precision: usize) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        self.canonical.encode(py, value, precision)
+    }
+
     /// Hands the class table of the ASSEMBLE entry point over (`(name, class, field names)` rows, `decimal.Decimal`, the default metric space of `LocalCoordinateV1`).
     fn bind_assemble(&mut self, py: Python<'_>, table: &Bound<'_, PyAny>, decimal: &Bound<'_, PyAny>, metric_space: &Bound<'_, PyAny>) -> PyResult<()> {
         self.hot.bind_assemble(py, table, decimal, metric_space, self.slots)
@@ -505,6 +518,32 @@ impl Session {
         let args = assemble_hot::AssembleArgs { frames, edge_faces, cycles, vertex_cycles, positions, polygons, facts, merged, chains, cut_pairs, mark, lattice_alpha, scale, material };
         Ok(match self.hot.assemble(py, &args)? {
             Ok(records) => (true, records),
+            Err(why) => (false, PyString::new(py, &why).into_any()),
+        })
+    }
+
+    /// `coverage_template.instantiate` past its checks and before its price (see `materialize_hot.rs`): `(True, (faces, total))` or `(False, why the port declined)`.
+    #[allow(clippy::too_many_arguments)]
+    fn hot_instantiate<'py>(
+        &mut self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        partition: &Bound<'py, PyAny>,
+        alpha: &Bound<'py, PyAny>,
+        behind: &Bound<'py, PyAny>,
+        ahead: &Bound<'py, PyAny>,
+        cut: &Bound<'py, PyAny>,
+    ) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        Ok(match self.hot.instantiate(py, &mut self.inner.products, template, partition, alpha, [behind, ahead, cut])? {
+            Ok(found) => (true, found.into_any()),
+            Err(why) => (false, PyString::new(py, &why).into_any()),
+        })
+    }
+
+    /// `parametric.key_slopes_of` past its region loop (see `materialize_hot.rs`): `(True, {key: slope or None})` or `(False, why the port declined)`.
+    fn hot_key_slopes<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>, points: &Bound<'py, PyAny>, cut: &Bound<'py, PyAny>) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        Ok(match self.hot.key_slopes(py, pairs, points, cut)? {
+            Ok(found) => (true, found.into_any()),
             Err(why) => (false, PyString::new(py, &why).into_any()),
         })
     }

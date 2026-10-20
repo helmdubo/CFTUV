@@ -62,6 +62,9 @@ __all__ = (
     "NativeUnsupportedPython",
     "apply_silhouette",
     "assemble_batch",
+    "canonical_json_bytes",
+    "instantiate",
+    "key_slopes",
     "build_skeleton",
     "chain_station_plans",
     "clip_geometry",
@@ -444,6 +447,24 @@ def assemble_batch(**arguments):
     """`materialize.assemble.assemble_batch(...)`: the records native, the batch as the oracle builds it (see `materialize_hot_op.py`)."""
 
     return materialize_hot_op.assemble_batch(default_mirror(), **arguments)
+
+
+def canonical_json_bytes(value):
+    """`codec.canonical_json_bytes(value)`, the same bytes (see `materialize_hot_op.canonical_json_bytes`)."""
+
+    return materialize_hot_op.canonical_json_bytes(default_mirror(), value)
+
+
+def instantiate(template, partition, alpha, work_budget):
+    """`coverage_template.instantiate(template, partition, alpha, work_budget)`, the same coverage or `None` (see `materialize_hot_op.instantiate`)."""
+
+    return materialize_hot_op.instantiate(default_mirror(), template, partition, alpha, work_budget)
+
+
+def key_slopes(prepared, coverage, templates, points):
+    """`parametric.key_slopes_of(prepared, coverage, templates, points)`, the same dict (see `materialize_hot_op.key_slopes`)."""
+
+    return materialize_hot_op.key_slopes(default_mirror(), prepared, coverage, templates, points)
 
 
 def lift_vertices(points, plane):

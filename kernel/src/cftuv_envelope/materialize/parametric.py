@@ -60,6 +60,7 @@ from .clip_memo import kernel_code_identity, memo_disabled as clip_memo_disabled
 from .frames import MaterializationRefusal
 from .lift import PlaneLiftV1, enclosure_midpoint, ENCLOSURE_BITS
 from .memo import memo_enabled, memo_of
+from .. import backend
 from .stations import transverse_root
 from ..wavefront.coverage_template import KIND_CUT
 
@@ -251,6 +252,13 @@ def point_slopes_of(prepared, coverage, templates: dict) -> dict:
                     raise ParametricRefusal(PARAM_POINT_SLOPE_AMBIGUOUS, f"region {region.region_id}")
                 table[key] = slope
     return table
+
+
+def key_slopes_of(prepared, coverage, templates: dict, points: dict) -> dict:
+    """`{ключ вершины: наклон либо None}` точек `points` по наклонам движущихся точек покрытия (`point_slopes_of`); пусто, когда движущихся точек нет."""
+
+    moving = point_slopes_of(prepared, coverage, templates)
+    return {key: moving.get(_point_identity(point)) for key, point in points.items()} if moving else {}
 
 
 # --------------------------------------------------------------------------
@@ -768,9 +776,8 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
     normal_rate = 0.0
     source = _SlopeSource(None) if source is None else source
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
-    moving = point_slopes_of(prepared, coverage, request.templates)
-    # Точки до резки: наклоны покрытия по ключу вершины; факты до резки: формулы граней (из памяти наклонов, PARAMETRIC_SLOPE_MEMO_V1).
-    key_slope = {key: moving.get(_point_identity(point)) for key, point in inputs.points_before.items()} if moving else {}
+    # Точки до резки: наклоны покрытия по ключу вершины (`key_slopes_of`, MATERIALIZE_CERTIFICATE_NATIVE_V1); факты до резки: формулы граней (из памяти наклонов, PARAMETRIC_SLOPE_MEMO_V1).
+    key_slope = backend.key_slopes_compute(key_slopes_of, prepared, coverage, request.templates, inputs.points_before)
     fact_slope, fact_floats = source.facts(inputs.frame_faces, inputs.cycles, inputs.layout, key_slope, inputs.rungs, budget)
     clip_points: dict = {}
     clip_facts: dict = {}

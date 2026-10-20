@@ -132,4 +132,6 @@ def _compute_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSemanticDig
         "contract_versions": batch.contract_versions,
         "diagnostics": batch.diagnostics,
     }
-    return GeometryBatchSemanticDigest(_digest(canonical_json_bytes(projection)))
+    from . import backend  # лениво: `backend` тянет весь слой исполнения; вне материализации (без журнала) это эталон
+
+    return GeometryBatchSemanticDigest(_digest(backend.canonical_bytes_compute(canonical_json_bytes, projection)))
