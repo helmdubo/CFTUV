@@ -44,6 +44,13 @@ SHAPE_FUNCTIONS = (
     ("materialize/domain.py", "_sourced", "d7065c4f855d2df5f687b47b77f18e57525071dcdcfc744c8677a3f0f528b811"),
     ("materialize/mesh.py", "decimal_of", "6de4873688c25968df0f5f2569c7fd34ceeae1e83edbd93387386b7e8bbcce7d"),
     ("ids.py", "OpaqueId.__post_init__", "e0f93f57af960b5533329678d2d2b0c2009e19689bd50ab4c013fe911c823bc3"),
+    # `canonical_json.rs` (MATERIALIZE_DIGEST_NATIVE_V1): the canonical tree, the C encoder's settings, the canonical Decimal and the wire-default fields
+    ("codec.py", "to_canonical_data", "adf01f776c7192a2841a3a5121677ca0bd10ee763dadba7e7d8deb183463692b"),
+    ("codec.py", "_canonical_decimal", "59af0426a73b1eccdcd23f80beb15a2d9885bebb5c9ffcf9cc8482417b7bb661"),
+    ("codec.py", "_build_text_encoder", "9a9b55af0ee1f70edb7c9c2dfc77bebb4961a4a887ace72aa469926ecdd7d12d"),
+    ("codec.py", "canonical_json_bytes", "a00baaa6d8a183fad9b8f4927dff4144a9ab74fa75c745e36390e17998e45875"),
+    ("codec.py", "_json_sort_key", "c0298dee535ec5763bc344d27e9132a86ae65386bfb74a799ffe0f6de4eb9184"),
+    ("schema.py", "is_wire_default_field", "9676153834bf0dfb2f32ebf266a77f44e3ad93f95f4672bc8744b59ea9fce00e"),
 )
 
 #: The classes `assemble_batch` builds, in the order of `assemble_hot.rs` `CLASS_NAMES`: `(module, name)`.
@@ -158,7 +165,9 @@ def bind(mirror) -> None:
         )
     )
     import decimal
+    import enum
 
+    from cftuv_envelope import ids
     from cftuv_envelope.materialize import mesh
 
     context = mesh.DECIMAL_CONTEXT
@@ -171,11 +180,33 @@ def bind(mirror) -> None:
     try:
         mirror._session.bind_hot(exact.SqrtSumV1, Fraction, point)
         mirror._session.bind_assemble(table, decimal.Decimal, _metric_default())
+        mirror._session.bind_canonical(ids.OpaqueId, enum.Enum, decimal.Decimal, _record_plan)
     except TypeError as error:
         if "raw slot access was forced" in str(error):
             raise
         raise pin.NativePortStale(f"the oracle classes the native materialize_hot is built from changed: {error}") from None
     mirror._hot_bound = True
+
+
+def _record_plan(kind):
+    """`((name, is wire default, default), ...)` of a record class in the order of `dataclasses.fields` (what `codec.to_canonical_data` reads of it)."""
+
+    from cftuv_envelope.schema import is_wire_default_field
+
+    return tuple((item.name, is_wire_default_field(item), item.default if is_wire_default_field(item) else None) for item in dataclasses.fields(kind))
+
+
+def canonical_json_bytes(mirror, value):
+    """`codec.canonical_json_bytes(value)` (`canonical_json.rs`): the same bytes, or `NativePortUnsupported` for a value the port does not walk (the oracle then answers
+    or raises as it does). The Decimal context is the caller's (`_canonical_decimal` normalizes under it): its precision goes to the Rust side."""
+
+    import decimal
+
+    _begin(mirror)
+    done, found = mirror._session.canonical_json(value, decimal.getcontext().prec)
+    if not done:
+        raise pin.NativePortUnsupported(f"canonical_json_bytes: {found}")
+    return found
 
 
 def _metric_default():

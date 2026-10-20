@@ -62,6 +62,7 @@ __all__ = (
     "NativeUnsupportedPython",
     "apply_silhouette",
     "assemble_batch",
+    "canonical_json_bytes",
     "build_skeleton",
     "chain_station_plans",
     "clip_geometry",
@@ -444,6 +445,12 @@ def assemble_batch(**arguments):
     """`materialize.assemble.assemble_batch(...)`: the records native, the batch as the oracle builds it (see `materialize_hot_op.py`)."""
 
     return materialize_hot_op.assemble_batch(default_mirror(), **arguments)
+
+
+def canonical_json_bytes(value):
+    """`codec.canonical_json_bytes(value)`, the same bytes (see `materialize_hot_op.canonical_json_bytes`)."""
+
+    return materialize_hot_op.canonical_json_bytes(default_mirror(), value)
 
 
 def lift_vertices(points, plane):

@@ -14,6 +14,7 @@ mod effective_alpha;
 mod embedding;
 mod frame;
 mod assemble_hot;
+mod canonical_json;
 mod materialize_hot;
 mod materialize_w1;
 mod memlog;
@@ -122,6 +123,8 @@ struct Session {
     w1: materialize_w1::Host,
     /// The hot part of the SILHOUETTE stage (`silhouette.apply_silhouette`, `PlaneLiftV1.lift`).
     hot: materialize_hot::Host,
+    /// `codec.canonical_json_bytes` (`canonical_json.rs`): the bound classes and the kind of every class met.
+    canonical: canonical_json::Host,
 }
 
 #[pymethods]
@@ -134,7 +137,7 @@ impl Session {
             Some(text) => pyobj::SlotMode::parse(text).map_err(|why| pyobj::refuse(format!("Session(slots=...): {why}")))?,
             None => pyobj::process_mode(),
         };
-        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default() })
+        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default(), canonical: canonical_json::Host::default() })
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -475,6 +478,16 @@ impl Session {
     ) -> PyResult<Option<Vec<&'static str>>> {
         let args = materialize_hot::SilhouetteArgs { polygons, cycles, positions, points, facts, regions, cut_pairs, mark, lattice_alpha, uv_slide, chord, reverse, free };
         self.hot.verify(py, &args, result)
+    }
+
+    /// Binds `ids.OpaqueId`, `enum.Enum`, `decimal.Decimal` and the shim's plan of a record class (`canonical_json.rs`).
+    fn bind_canonical(&mut self, py: Python<'_>, opaque: &Bound<'_, pyo3::types::PyType>, enumeration: &Bound<'_, pyo3::types::PyType>, decimal: &Bound<'_, pyo3::types::PyType>, plan: &Bound<'_, PyAny>) {
+        self.canonical.bind(py, opaque, enumeration, decimal, plan)
+    }
+
+    /// `codec.canonical_json_bytes(value)` under a Decimal context of `precision` digits: `(True, bytes)` or `(False, why the port declined)`.
+    fn canonical_json<'py>(&mut self, py: Python<'py>, value: &Bound<'py, PyAny>, precision: usize) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        self.canonical.encode(py, value, precision)
     }
 
     /// Hands the class table of the ASSEMBLE entry point over (`(name, class, field names)` rows, `decimal.Decimal`, the default metric space of `LocalCoordinateV1`).
