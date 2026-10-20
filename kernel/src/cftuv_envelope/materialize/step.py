@@ -243,7 +243,9 @@ class StepV1:
 def _materialize(prepared, coverage, arguments, templates=None, exact=False) -> MaterializationV1:
     """Материализация домена на покрытии; `templates` (`{id(разбиение): шаблон}`) заказывает аффинный сертификат перетаскивания (`parametric`) из ЭТОГО прогона."""
 
-    request, lift_law, topology_law, digests, defer_checks = arguments
+    # `(запрос, закон подъёма, закон топологии, дайджесты[, отложить проверки lean-тика])`: без пятого — проверки на месте.
+    request, lift_law, topology_law, digests, *rest = arguments
+    defer_checks = bool(rest and rest[0])
     # Только при заказе: подменная стадия без этого параметра (отказ ядра в тестах хоста) продолжает работать.
     extra = {} if templates is None else {"parametric": ParametricRequestV1(templates, exact)}
     if defer_checks:
