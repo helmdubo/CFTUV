@@ -907,6 +907,9 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
 # --------------------------------------------------------------------------
 
 #: Appended to the pool's bootstrap in the parent's memory: every worker writes where its code came from (modules, code identity, native build and status).
+#: The `t5` dump runs on a timer THREAD while the worker's main thread may still be importing: a module is taken by `importlib.import_module`, which waits for an
+#: import in progress (a module half way through its import sits in `sys.modules` already, and reading it there gave `native_build_id None` / every stage
+#: `unavailable` under load, a probe race and not the worker's state: its `exit` dump was whole).
 WORKER_PROBE = r'''
 import atexit, threading
 
@@ -915,12 +918,11 @@ def _probe_dump(tag):
         info = {"pid": os.getpid(), "tag": tag, "executable": sys.executable, "python": sys.version.split()[0]}
         info["host_file"] = getattr(sys.modules.get(spec["package"]), "__file__", None)
         for name in ("cftuv_envelope", "cftuv_native", "sympy", "mpmath"):
-            module = sys.modules.get(name)
-            if module is None:
-                try:
-                    module = importlib.import_module(name)
-                except Exception as exc:
-                    info[name + "_error"] = repr(exc)
+            module = None
+            try:
+                module = importlib.import_module(name)
+            except Exception as exc:
+                info[name + "_error"] = repr(exc)
             info[name + "_file"] = None if module is None else getattr(module, "__file__", None)
         info["sympy_version"] = getattr(sys.modules.get("sympy"), "__version__", None)
         info["mpmath_version"] = getattr(sys.modules.get("mpmath"), "__version__", None)
@@ -929,7 +931,7 @@ def _probe_dump(tag):
         except Exception as exc:
             info["code_identity_error"] = repr(exc)
         try:
-            native = sys.modules.get("cftuv_native") or importlib.import_module("cftuv_native")
+            native = importlib.import_module("cftuv_native")
             info["native_build_id"] = native.native_build_id()
         except Exception as exc:
             info["native_error"] = repr(exc)

@@ -213,6 +213,35 @@ def test_a_failed_run_or_a_worker_that_imported_another_tree_is_a_failure_of_the
     assert comparison.differences == ["base: WORKER ORIGIN: pid 1: sympy_file differs"]
 
 
+PROBE_RACE = r"""
+import importlib, json, os, sys, threading, time
+DUMP_DIR, spec = sys.argv[1], {"package": "no_such_host_package"}
+import mpmath, sympy  # the probe reads them too: imported here, so it reaches the extension within the 1 s of its import
+exec(sys.argv[2])
+_timer.cancel()
+importing = threading.Thread(target=importlib.import_module, args=("cftuv_native",))
+importing.start()
+time.sleep(0.2)  # the import sleeps 1 s half way: `cftuv_native` is in `sys.modules`, without `native_build_id` yet
+_probe_dump("race")
+importing.join()
+"""
+
+
+def test_the_worker_probe_waits_for_an_import_in_progress(tmp_path):
+    """The `t5` dump runs on a timer thread while the worker may still be importing the extension: it reports what the import gives, not a half-made module
+    (`native_build_id None` / every stage `unavailable` was seen twice under load while the worker's `exit` dump was whole)."""
+
+    package = tmp_path / "site" / "cftuv_native"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("import time\ntime.sleep(1.0)\n\ndef native_build_id():\n    return 'whole'\n", encoding="utf-8")
+    dumps = tmp_path / "dumps"
+    dumps.mkdir()
+    environment = {**os.environ, "PYTHONPATH": str(tmp_path / "site"), "PYTHONDONTWRITEBYTECODE": "1"}
+    subprocess.run([sys.executable, "-c", PROBE_RACE, str(dumps), ab.WORKER_PROBE], check=True, env=environment, timeout=60)
+    race = [json.loads(path.read_text(encoding="utf-8")) for path in dumps.glob("*_race.json")]
+    assert len(race) == 1 and race[0].get("native_build_id") == "whole", race
+
+
 def test_reports_that_are_not_of_the_same_case_presses_or_inputs_do_not_compare():
     assert "not comparable" in ab.compare_runs(make_report(workers=8), make_report(workers=0)).differences[0]
     assert "different presses" in ab.compare_runs(make_report(), make_report(labels=("cold", "step1"))).differences[0]
