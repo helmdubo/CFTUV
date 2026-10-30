@@ -490,17 +490,24 @@ class AlphaIntervalV1:
             "uncertified": list(UNCERTIFIED),
         }
 
-    def __getstate__(self) -> tuple:
-        return _INTERVAL_STATE(self)
-
-    def __setstate__(self, state) -> None:
-        for name, value in zip(_INTERVAL_FIELDS, state):
-            object.__setattr__(self, name, value)
-
 
 #: SLOTS_STATE_TUPLE_V1 (`backend.BackendRecordV1`): интервал едет в каждом ответе домена; состояние пикла - кортеж значений полей, имена раз на класс.
 _INTERVAL_FIELDS = tuple(item.name for item in fields(AlphaIntervalV1))
 _INTERVAL_STATE = attrgetter(*_INTERVAL_FIELDS)
+
+
+def _interval_getstate(self) -> tuple:
+    return _INTERVAL_STATE(self)
+
+
+def _interval_setstate(self, state) -> None:
+    for name, value in zip(_INTERVAL_FIELDS, state):
+        object.__setattr__(self, name, value)
+
+
+#: После класса, а не в его теле: `dataclass(slots=True)` в Python 3.10 ставит свои `__getstate__`/`__setstate__` поверх объявленных в теле.
+AlphaIntervalV1.__getstate__ = _interval_getstate
+AlphaIntervalV1.__setstate__ = _interval_setstate
 
 
 def event_table(prepared, triangles, lift_key: str) -> EventTableV1:

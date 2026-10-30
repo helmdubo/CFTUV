@@ -287,17 +287,24 @@ class DomainTaskResultV1:
     def refused(self) -> bool:
         return not self.error and self.refusal is not None
 
-    def __getstate__(self) -> tuple:
-        return _TASK_RESULT_STATE(self)
-
-    def __setstate__(self, state) -> None:
-        for name, value in zip(_TASK_RESULT_FIELDS, state):
-            object.__setattr__(self, name, value)
-
 
 #: SLOTS_STATE_TUPLE_V1 (`cftuv_envelope.backend.BackendRecordV1`): ответ домена - кортеж значений полей, имена раз на класс (пикл `dataclass(slots=True)` зовёт `fields` на каждом объекте).
 _TASK_RESULT_FIELDS = tuple(item.name for item in fields(DomainTaskResultV1))
 _TASK_RESULT_STATE = attrgetter(*_TASK_RESULT_FIELDS)
+
+
+def _task_result_getstate(self) -> tuple:
+    return _TASK_RESULT_STATE(self)
+
+
+def _task_result_setstate(self, state) -> None:
+    for name, value in zip(_TASK_RESULT_FIELDS, state):
+        object.__setattr__(self, name, value)
+
+
+#: После класса, а не в его теле: `dataclass(slots=True)` в Python 3.10 ставит свои `__getstate__`/`__setstate__` поверх объявленных в теле.
+DomainTaskResultV1.__getstate__ = _task_result_getstate
+DomainTaskResultV1.__setstate__ = _task_result_setstate
 
 
 @dataclass(frozen=True, slots=True)

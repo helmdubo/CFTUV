@@ -695,18 +695,25 @@ class BackendRecordV1:
             "frame_fallbacks": [list(item) for item in self.frame_fallbacks],
         }
 
-    def __getstate__(self) -> tuple:
-        return _BACKEND_RECORD_STATE(self)
-
-    def __setstate__(self, state) -> None:
-        for name, value in zip(_BACKEND_RECORD_FIELDS, state):
-            object.__setattr__(self, name, value)
-
 
 #: SLOTS_STATE_TUPLE_V1: запись едет из воркера в каждом ответе домена, а пикл `dataclass(slots=True)` зовёт `dataclasses.fields` на КАЖДОМ объекте;
 #: здесь состояние - кортеж значений полей в порядке `fields`, имена посчитаны раз на класс.
 _BACKEND_RECORD_FIELDS = tuple(item.name for item in fields(BackendRecordV1))
 _BACKEND_RECORD_STATE = attrgetter(*_BACKEND_RECORD_FIELDS)
+
+
+def _backend_record_getstate(self) -> tuple:
+    return _BACKEND_RECORD_STATE(self)
+
+
+def _backend_record_setstate(self, state) -> None:
+    for name, value in zip(_BACKEND_RECORD_FIELDS, state):
+        object.__setattr__(self, name, value)
+
+
+#: После класса, а не в его теле: `dataclass(slots=True)` в Python 3.10 ставит свои `__getstate__`/`__setstate__` поверх объявленных в теле.
+BackendRecordV1.__getstate__ = _backend_record_getstate
+BackendRecordV1.__setstate__ = _backend_record_setstate
 
 
 def _merged_fallbacks(first: tuple, second: tuple) -> tuple:
