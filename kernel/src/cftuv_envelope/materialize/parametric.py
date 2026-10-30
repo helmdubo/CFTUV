@@ -51,8 +51,9 @@ import os
 import threading
 from array import array
 from collections import Counter
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from fractions import Fraction
+from operator import attrgetter
 
 from ..exact_sqrt_sum import SqrtSumV1, unlimited_reference_budget
 from .clip import cut_domain
@@ -201,6 +202,25 @@ class ParametricCertificateV1:
     @property
     def is_affine(self) -> bool:
         return not self.markers and not self.approximate
+
+
+#: SLOTS_STATE_TUPLE_V1 (`backend.BackendRecordV1`): сертификат едет в каждом ответе домена; состояние пикла - кортеж значений полей, имена раз на класс.
+_CERTIFICATE_FIELDS = tuple(item.name for item in fields(ParametricCertificateV1))
+_CERTIFICATE_STATE = attrgetter(*_CERTIFICATE_FIELDS)
+
+
+def _certificate_getstate(self) -> tuple:
+    return _CERTIFICATE_STATE(self)
+
+
+def _certificate_setstate(self, state) -> None:
+    for name, value in zip(_CERTIFICATE_FIELDS, state):
+        object.__setattr__(self, name, value)
+
+
+#: После класса, а не в его теле: `dataclass(slots=True)` в Python 3.10 ставит свои `__getstate__`/`__setstate__` поверх объявленных в теле.
+ParametricCertificateV1.__getstate__ = _certificate_getstate
+ParametricCertificateV1.__setstate__ = _certificate_setstate
 
 
 def unavailable(alpha: Fraction, scale: int, name: str, detail: str = "") -> ParametricCertificateV1:

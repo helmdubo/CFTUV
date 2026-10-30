@@ -489,6 +489,28 @@ def test_a_foreign_cycle_frozen_mid_drag_is_collected_at_idle_after_the_drag(_un
     assert not collect_frozen_when_idle(0.0)  # нечего возвращать: до следующей заморозки простой ничего не делает
 
 
+def test_the_idle_collection_waits_its_quiet_after_the_commit_has_landed_not_after_the_last_pause(_unfrozen, monkeypatch):
+    """GC_IDLE_COLLECT_AFTER_APPLIED_V1: заказ занят, пока его меш не лёг, и часы тишины идут от последнего занятого опроса - сборка не рвёт отпускание вторым рывком."""
+
+    from cftuv import envelope_gc_pause as pause
+
+    now = [1000.0]
+    monkeypatch.setattr(pause.time, "perf_counter", lambda: now[0])
+
+    @gc_paused_function
+    def tick():
+        pass
+
+    gc.enable()
+    tick()  # счёт фиксации кончился в 1000.0: заморожено
+    now[0] = 1005.0
+    assert not pause.collect_frozen_when_idle(1.0, busy=True)  # меш фиксации ещё не лёг: пять секунд после паузы не в счёт
+    now[0] = 1005.9
+    assert not pause.collect_frozen_when_idle(1.0)  # фиксация легла, тишины после неё меньше секунды
+    now[0] = 1006.0
+    assert pause.collect_frozen_when_idle(1.0) and gc.get_freeze_count() == 0
+
+
 def test_the_idle_is_busy_while_the_drag_or_an_order_lives():
     from types import SimpleNamespace
 
