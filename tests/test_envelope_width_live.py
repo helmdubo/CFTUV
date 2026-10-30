@@ -1025,7 +1025,7 @@ def test_the_confirm_pauses_its_own_body_and_the_commit_job_it_orders_pauses_its
 
     world.settings.hook = property_hook
     runtime = types.SimpleNamespace(
-        session=types.SimpleNamespace(width=0.31, phase=PHASE_CONFIRMED), controller=world.controller, start_width=0.25
+        session=types.SimpleNamespace(width=0.31, phase=PHASE_CONFIRMED, floor_hits=0), controller=world.controller, start_width=0.25
     )
 
     assert session.finish_adjust(world.context, runtime, confirmed=True) == "FINISHED"
@@ -1047,7 +1047,7 @@ def test_a_cancelled_or_failing_finish_gives_the_collector_back(monkeypatch, _co
     monkeypatch.setattr(session, "finish_drag", lambda controller, *, restore: seen.append((restore, gc.isenabled())))
     monkeypatch.setattr(session, "set_preview", lambda controller, preview: None)
     runtime = types.SimpleNamespace(
-        session=types.SimpleNamespace(width=0.25, phase=PHASE_CANCELLED), controller=world.controller, start_width=0.25
+        session=types.SimpleNamespace(width=0.25, phase=PHASE_CANCELLED, floor_hits=0), controller=world.controller, start_width=0.25
     )
 
     assert session.finish_adjust(world.context, runtime, confirmed=False) == "CANCELLED"
