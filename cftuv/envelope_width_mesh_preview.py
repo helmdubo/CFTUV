@@ -76,6 +76,8 @@ from .envelope_width_preview_model import (
     build_model,
     deviation,
     evaluate,
+    frame_summary,
+    gpu_rig_inputs,
     held_name,
     moving_patches,
     moving_patches_at,
@@ -155,6 +157,11 @@ class PreviewLogV1:
     incremental_fallback: dict = field(default_factory=dict)
     #: WIDTH_PREVIEW_INPUTS_DEFERRED_V1: кто построил входы линий превью записи кнопки (`idle` - простой после нажатия, `event` - первое событие либо действие раньше него): имя -> сколько раз.
     inputs_built: dict = field(default_factory=dict)
+    #: GPU_AFFINE_DRAG_V1: кадры, что показали узлы Blender (одно число в сокет), сколько раз узлы ставились (атрибуты модели в меш), секунды постановки и пути снятия: имя -> сколько.
+    gpu_frames: int = 0
+    gpu_installs: int = 0
+    gpu_install_seconds_total: float = 0.0
+    gpu_removed: dict = field(default_factory=dict)
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -237,6 +244,8 @@ class MeshOwnershipV1:
     #: Какое поколение нашей записи уже доложил каждый depsgraph (ключ — depsgraph: окно, слой вида). Один depsgraph докладывает о нашей
     #: записи один раз; второй слой вида или второе окно — свой ключ, и его доклад тоже наш, а не внешний.
     seen_writes: dict = field(default_factory=dict)
+    #: Меш держит геометрию самого образца (точная запись), а не кадр модели на другой ширине: узлы GPU_AFFINE_DRAG_V1 берут позиции и UV меша за базу.
+    holds_base: bool = True
     corner_scratch: object = None
     start_scratch: object = None
 
@@ -531,6 +540,9 @@ def drop_model(controller, reason: str) -> None:
     остаётся (он про ключ образца, а не про меш), и точный путь не затронут.
     """
 
+    from .envelope_width_gpu_drag import REMOVED_ON_MODEL_DROP
+
+    retire_gpu(controller, REMOVED_ON_MODEL_DROP)  # GPU_AFFINE_DRAG_V1: узлы модели, которой больше нет, не двигают меш
     had = controller.width_model is not None or controller.width_displayed is not None
     if had:
         name = f"{MODEL_DROPPED}:{reason}"
@@ -731,12 +743,17 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
     if problem:
         drop_model(controller, problem)
         return None
-    frame = evaluate(model, width)
-    try:
-        write_preview_geometry(decal.data, frame.positions, frame.uvs, owners)
-    except ProductionWriteError as exc:
-        drop_model(controller, exc.outcome)
-        return None
+    frame = _gpu_frame(controller, model, decal, width) if gpu_drag_active(controller) and owners is None else None
+    if frame is False:
+        return None  # узлам нужна была база в меше, а меш её не принял: модель снята с именем причины
+    if frame is None:
+        frame = evaluate(model, width)
+        try:
+            write_preview_geometry(decal.data, frame.positions, frame.uvs, owners)
+        except ProductionWriteError as exc:
+            drop_model(controller, exc.outcome)
+            return None
+        controller.width_mesh_owner.holds_base = False
     controller.width_mesh_owner.note_own_write()
     previous = controller.width_mesh_preview
     moving = frozenset() if frame.refusal else moving_patches(model, frame.held)
@@ -760,6 +777,97 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
     return state
 
 
+def gpu_drag_active(controller) -> bool:
+    """GPU_AFFINE_DRAG_V1: идёт перетаскивание с настройкой «GPU affine drag» - кадр модели показывают узлы Blender, а не запись меша."""
+
+    return bool(getattr(controller, "width_drag_active", False)) and bool(getattr(controller, "width_gpu_drag", False))
+
+
+def _gpu_frame(controller, model, decal, width: float):
+    """Кадр модели узлами Blender (GPU_AFFINE_DRAG_V1): исходы кадра (`frame_summary`), а позиции и UV считает depsgraph из атрибутов модели и числа в сокете «Width».
+
+    Узлы ставятся (атрибуты модели в меш, модификатор на объект) один раз на модель: на первом кадре перетаскивания и после каждого точного такта (новая модель). Меш должен держать
+    геометрию базы модели; держит кадр модели (его писал Python до перетаскивания) - база ложится точной записью (`lay_exact_now`). Возвращает кадр, `None` (узлы отказали по имени:
+    остаток перетаскивания пишет Python, как без настройки) либо `False` (меш не принял базу: модель снята с именем причины).
+    """
+
+    from . import envelope_width_gpu_drag as gpu
+
+    log = log_of(controller)
+    rig = getattr(controller, "width_gpu_rig", None)
+    try:
+        if not gpu.current(rig, decal, model):
+            if not controller.width_mesh_owner.holds_base:
+                if lay_exact_now(controller, model.base):
+                    return False
+            rig = gpu.install(decal, gpu.rig_arrays(**gpu_rig_inputs(model)), model.base_alpha, model)
+            controller.width_gpu_rig = rig
+            log.gpu_installs += 1
+            log.gpu_install_seconds_total += rig.install_seconds
+        gpu.set_width(rig, decal, width)
+    except gpu.GpuDragError as exc:
+        log.refuse(exc.outcome)
+        controller.width_gpu_rig = None
+        try:
+            gpu.remove(decal)  # постановка могла оборваться посередине: снимается всё, что успело лечь
+        except Exception:  # noqa: BLE001 - снять хоть как-то: весь файл
+            gpu.strip_everywhere()
+        log.gpu_removed[gpu.REMOVED_ON_FAILURE] = log.gpu_removed.get(gpu.REMOVED_ON_FAILURE, 0) + 1
+        if controller.width_mesh_owner is not None:
+            controller.width_mesh_owner.note_own_write()
+        controller.width_gpu_drag = False  # остаток перетаскивания - кадры Python, как без настройки
+        return None
+    log.gpu_frames += 1
+    return frame_summary(model, width)
+
+
+def _gpu_after_exact(controller, decal) -> None:
+    """Точный образец лёг в меш, пока стоят узлы прежней модели: узлы ставятся для новой модели на ширине самого образца (сдвиг ноль - меш, как его записали), иначе прежние наклоны
+    сдвинули бы новую базу второй раз. Модели нет - узлы сняты (`GPU_DRAG_REMOVED_ON_MODEL_DROP`). Кадр к курсору, если он следует, двигает уже новые узлы."""
+
+    if getattr(controller, "width_gpu_rig", None) is None:
+        return
+    from .envelope_width_gpu_drag import REMOVED_ON_MODEL_DROP
+
+    if not gpu_drag_active(controller) or not ensure_model(controller):
+        retire_gpu(controller, REMOVED_ON_MODEL_DROP)
+        return
+    model = controller.width_model
+    if _gpu_frame(controller, model, decal, model.base_alpha):
+        controller.width_mesh_owner.note_own_write()
+
+
+def _rig_object(rig):
+    import bpy
+
+    found = bpy.data.objects.get(rig.object_name)
+    if found is not None and int(found.as_pointer()) == rig.object_pointer:
+        return found
+    return next((item for item in bpy.data.objects if int(item.as_pointer()) == rig.object_pointer), None)
+
+
+def retire_gpu(controller, reason: str) -> bool:
+    """Узлы GPU_AFFINE_DRAG_V1 сняты с объекта декали (модификатор, атрибуты, группа) под именем пути снятия. `True` - они стояли."""
+
+    rig = getattr(controller, "width_gpu_rig", None)
+    if rig is None:
+        return False
+    from . import envelope_width_gpu_drag as gpu
+
+    controller.width_gpu_rig = None
+    log = log_of(controller)
+    try:
+        gpu.remove(_rig_object(rig))
+    except Exception as exc:  # noqa: BLE001 - снятие не роняет перетаскивание: остаток снимет любой следующий путь (запись файла, начало перетаскивания)
+        log.refuse(f"{gpu.REFUSED}:REMOVE:{type(exc).__name__}")
+        gpu.strip_everywhere()
+    log.gpu_removed[reason] = log.gpu_removed.get(reason, 0) + 1
+    owner = getattr(controller, "width_mesh_owner", None)
+    if owner is not None:
+        owner.note_own_write()  # снятие модификатора и атрибутов - наша запись, не внешняя правка
+    return True
+
+
 def moving_now(controller, width: float) -> frozenset:
     """Патчи, которые двигала бы модель на ширине `width`, БЕЗ записи в меш (вход инструмента: ещё ни одного кадра, а линии нужны только там, где меш не движется)."""
 
@@ -781,6 +889,11 @@ def finish_drag(controller, *, restore: bool) -> bool:
     """
 
     controller.width_drag_active = False
+    # GPU_AFFINE_DRAG_V1: узлы снимаются ДО возврата и до записи ширины подтверждения - меш снова пишет только Python, а в файл и в шаг отмены узлы не попадают.
+    from .envelope_width_gpu_drag import REMOVED_AT_CANCEL, REMOVED_AT_CONFIRM
+
+    retire_gpu(controller, REMOVED_AT_CANCEL if restore else REMOVED_AT_CONFIRM)
+    controller.width_gpu_drag = False
     scheduler = getattr(controller, "width_live", None)
     if scheduler is not None and hasattr(scheduler, "retire_stream"):
         # LIVE_DRAG_STREAM_V1: такт перетаскивания, что ещё в пути, больше не нужен ни отмене, ни подтверждению - снят с именем, иначе он лёг бы в СЛЕДУЮЩЕЕ перетаскивание (оно снова
@@ -880,7 +993,10 @@ def lean_exact_now(controller, live, *, reframe_to: float | None = None) -> str:
         drop_model(controller, exc.outcome)
         return exc.outcome
     note_exact_display(controller, live)
-    capture_ownership(controller, decal, sample)
+    owner = capture_ownership(controller, decal, sample)
+    if owner is not None and same_layout and reframe_to is not None:
+        owner.holds_base = False  # числа образца не писались: меш держит прежний кадр, его тут же заменит кадр к курсору
+    _gpu_after_exact(controller, decal)
     previous = controller.width_mesh_preview
     seconds = time.perf_counter() - started
     plan = live.plan
@@ -965,6 +1081,7 @@ def restore_base_mesh(controller) -> bool:
     except ProductionWriteError:
         return False
     controller.width_mesh_owner.note_own_write()
+    controller.width_mesh_owner.holds_base = True
     return True
 
 
@@ -1065,6 +1182,7 @@ __all__ = (
     "ensure_model",
     "finish_drag",
     "finish_live_run",
+    "gpu_drag_active",
     "lay_exact_now",
     "lean_exact_now",
     "same_layout_of",
@@ -1077,6 +1195,7 @@ __all__ = (
     "plan_tick",
     "preview_mesh_now",
     "restore_base_mesh",
+    "retire_gpu",
     "sample_key",
     "status_lines",
 )

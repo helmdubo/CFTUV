@@ -959,6 +959,33 @@ def evaluate(model: PreviewModelV1 | None, alpha: float) -> PreviewFrameV1:
     )
 
 
+def frame_summary(model: PreviewModelV1, alpha: float) -> PreviewFrameV1:
+    """То же, что `evaluate`, БЕЗ массивов (`positions`, `uvs` - `None`): живые и придержанные домены и отказ. GPU_AFFINE_DRAG_V1: позиции и UV на этой ширине считают узлы Blender
+    из тех же чисел модели (`gpu_rig_arrays`), а кадру нужны только его исходы - за O(доменов), не O(вершин)."""
+
+    import time
+
+    started = time.perf_counter()
+    alpha = float(alpha)
+    if not (math.isfinite(alpha) and alpha > 0.0):
+        return PreviewFrameV1(alpha, None, None, 0, len(model.rows), (), REFUSED_ALPHA)
+    live = _live_domains(model, alpha)
+    held = tuple(_held_reason(model, number, alpha) for number in np.flatnonzero(~live))
+    live_count = int(live.sum())
+    refusal = _empty_frame_refusal(held) if live_count == 0 else ""
+    approximate_live = 0 if model.approximate is None else int((live & model.approximate).sum())
+    return PreviewFrameV1(alpha, None, None, live_count, len(held), held, refusal, time.perf_counter() - started, approximate_live)
+
+
+def gpu_rig_inputs(model: PreviewModelV1) -> dict:
+    """Массивы модели, из которых узлы Blender (GPU_AFFINE_DRAG_V1) считают кадр: ровно те, что читает `positions_and_uvs`."""
+
+    return {
+        "a1": model.a1, "e1": model.e1, "vlow": model.vlow, "vhigh": model.vhigh, "dlow": model.dlow, "dhigh": model.dhigh,
+        "loop_counts": model.loop_counts, "quarantined": model.quarantined, "vertex_quarantined": model.vertex_quarantined,
+    }
+
+
 def _empty_frame_refusal(held: tuple) -> str:
     """Имя отказа кадра без живых доменов: все придержаны карантином — `PREVIEW_ALL_DOMAINS_QUARANTINED`, иначе ширина за областью."""
 
@@ -1133,6 +1160,8 @@ __all__ = (
     "domain_sample_of",
     "empty_ledger",
     "evaluate",
+    "frame_summary",
+    "gpu_rig_inputs",
     "held_name",
     "moving_patches",
     "moving_patches_at",
