@@ -53,6 +53,7 @@ from array import array
 from collections import Counter
 from dataclasses import dataclass, field, fields, replace
 from fractions import Fraction
+from functools import partial
 from operator import attrgetter
 
 from ..exact_sqrt_sum import SqrtSumV1, unlimited_reference_budget
@@ -198,6 +199,11 @@ class ParametricCertificateV1:
     approximate_rate: float = 0.0
     #: Как получены наклоны (`MEMO_LABELS`, PARAMETRIC_SLOPE_MEMO_V1): метка запуска, как `clip_memo`, а не ответ - числа и причины от неё не зависят.
     memo: str = ""
+    #: VERTEX_ALPHA_LIMITS_V1: по две ширины (метры) на вершину в порядке `position_slopes` - `(low, high)`, между которыми аффинный ход вершины верен: при `high` точка фронта вершины
+    #: доходит до дальнего конца своего ребра скелета (выход за край патча и встреча со встречным фронтом - одно событие, `alpha = u_j / sqrt(q)`, `CutPointV1.limits`), при `low` - до
+    #: ближнего (сужение). Дальше вершина стоит в узле скелета (приближение: точный ответ шёл бы вдоль линии встречи). Узел резки (`clip:`), неподвижная вершина и вершина без записи
+    #: шаблона берут границы заверенного интервала домена (`inf` - выше событий нет). Запись для кадра перетаскивания, не ответ; пусто у сертификата без чисел.
+    alpha_limits: object = field(default_factory=partial(array, "d"))
 
     @property
     def is_affine(self) -> bool:
@@ -812,12 +818,16 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
     triangles = None if isinstance(plane, PlaneLiftV1) else {item.name: item for item in plane.triangles}
     vertices = _sorted_vertices(batch)
     position_slopes = array("d")
+    limits = array("d")
+    reach = _cut_point_limits(request.templates, scale)
+    window = (float(interval.low), math.inf if interval.high is None else float(interval.high))
     exact_points, exact_point_slopes, exact_positions, exact_position_slopes = [], [], [], []
     moving_vertices = 0
     for vertex in vertices:
         key = vertex.vert_key.value
         point = inputs.points_after[key]
         slope = point_slope(key)
+        limits.extend(window if slope is None or key in clip_points else reach.get(id(slope[0]), window))
         if slope is None:
             position_slopes.extend(_FLOAT_ZERO3)
             positions_exact = _ZERO_TRIPLE
@@ -893,7 +903,29 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
         (("PARAMETRIC_MOVING_VERTICES", moving_vertices), ("PARAMETRIC_CLIP_NODE_SLOPES", len(clip_points)), ("PARAMETRIC_CLIP_FACT_SLOPES", len(clip_facts))),
         exact,
         approximate_rate=normal_rate,
+        alpha_limits=limits,
     )
+
+
+def _cut_point_limits(templates, scale: int) -> dict:
+    """VERTEX_ALPHA_LIMITS_V1: `{id(наклон x точки отсечения): (low, high)}` в метрах по пунктам шаблонов покрытия.
+
+    Наклон вершины (`key_slopes_of`, эталон и нативный порт) - пара САМИХ объектов `slope_x`/`slope_y` пункта шаблона, поэтому пункт находится по тождеству объекта, без
+    тождества точки: один и тот же ответ при любом бэкенде. Объект, общий у нескольких пунктов, берёт их пересечение (позже всех нижних, раньше всех верхних).
+    """
+
+    found: dict = {}
+    for template in (templates or {}).values():
+        for pattern in template.faces:
+            if pattern.kind != KIND_CUT:
+                continue
+            for item in pattern.items:
+                if type(item) is int or not item.limits:
+                    continue
+                low, high = item.limits[0] / scale, item.limits[1] / scale
+                known = found.get(id(item.slope_x))
+                found[id(item.slope_x)] = (low, high) if known is None else (max(known[0], low), min(known[1], high))
+    return found
 
 
 _ZERO_TRIPLE = (_ZERO, _ZERO, _ZERO)

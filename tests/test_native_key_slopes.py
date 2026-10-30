@@ -114,6 +114,25 @@ def test_every_certificate_of_the_kernel_fixtures_gets_the_same_slopes(approved)
     assert any(any(value is not None for value in _answer(call).values()) for call in calls), "no fixture moves a point: the test would prove nothing"
 
 
+@needs_native
+def test_both_backends_hand_the_same_template_objects_so_the_vertex_limits_agree(approved):
+    """VERTEX_ALPHA_LIMITS_V1: предел вершины сертификат находит по тождеству объекта `slope_x` пункта шаблона (`parametric._cut_point_limits`); порт и эталон отдают
+    одни и те же объекты (последний пункт с той же точкой), поэтому пределы NATIVE и PYTHON совпадают числом в число."""
+
+    from cftuv_envelope.materialize import parametric
+
+    calls = _captured()
+    compared = 0
+    for prepared, coverage, templates, points in calls:
+        expected = parametric.key_slopes_of(prepared, coverage, templates, points)
+        found = cftuv_native.key_slopes(prepared, coverage, templates, points)
+        reach = parametric._cut_point_limits(templates, int(prepared.lattice.scale) if prepared.lattice is not None else 1)
+        assert [None if pair is None else id(pair[0]) for pair in found.values()] == [None if pair is None else id(pair[0]) for pair in expected.values()]
+        assert [reach.get(id(pair[0])) for pair in found.values() if pair] == [reach.get(id(pair[0])) for pair in expected.values() if pair]
+        compared += sum(1 for pair in expected.values() if pair is not None and id(pair[0]) in reach)
+    assert compared, "no vertex took a limit of its own: the test would prove nothing"
+
+
 def _answer(call):
     from cftuv_envelope.materialize import parametric
 
