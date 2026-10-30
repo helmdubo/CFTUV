@@ -43,6 +43,7 @@ from cftuv.envelope_domain_pool import (  # noqa: E402
     order_by_cost,
     shutdown_domain_pool,
     solve_task,
+    task_frame,
 )
 from cftuv.envelope_production_export import (  # noqa: E402
     PRODUCTION_POOL_BLOB_HITS,
@@ -292,22 +293,56 @@ def _keyed_task(task_id, size, key):
 def test_a_blob_goes_once_and_every_later_send_to_the_same_worker_is_a_bare_key():
     worker, counted = _FakeWorker(), _PoolCounter()
     task = _keyed_task(1, 5000, "k")
-    frame = encode_frame(task)
+    frame = task_frame(task)  # LAZY_BLOB_FRAME_V1: кадр очереди - ключ без пикла, полный кадр кодирует `_exchange`, когда пикл едет
 
     for _ in range(3):
         assert _exchange(worker, task, frame, counted).ok
 
     stats = counted.stats(0, 0.0, 0.0)
-    assert [len(item) for item in worker.frames] == [len(frame), *[len(worker.frames[1])] * 2]
-    assert worker.frames[1] == worker.frames[2] and len(worker.frames[1]) < 300  # ключ без пикла: сотни байтов, а не килобайты
+    assert worker.frames == [encode_frame(task), frame, frame]
+    assert len(frame) < 300  # ключ без пикла: сотни байтов, а не килобайты
     assert (stats.blobs_shipped, stats.blob_bytes_shipped, stats.blob_hits, stats.blob_misses) == (1, 5000, 2, 0)
     assert stats.bytes_sent == sum(len(item) for item in worker.frames)
+
+
+def test_a_queued_blob_task_carries_its_key_frame_and_is_priced_with_its_blob():
+    """LAZY_BLOB_FRAME_V1: в очереди у задачи с пиклом подготовки кадр без пикла, а цена - как у кадра с пиклом (порядок тот же, тяжёлые первыми)."""
+
+    tasks = [_keyed_task(index, size, f"k{index}") for index, size in enumerate((3000, 900_000, 2000))]
+
+    ordered = order_by_cost(tasks)
+
+    assert [task.task_id for task, _frame in ordered] == [1, 0, 2]
+    for task, frame in ordered:
+        assert frame == task_frame(task) == encode_frame(pool_module._key_only(task))
+        assert pool_module._frame_cost(task, frame) == (len(frame) + len(task.production.blob)) / pool_module.COVERAGE_FRAME_COST_DIVISOR
+
+
+def test_a_run_starts_a_feed_thread_only_for_a_worker_that_can_get_a_task(monkeypatch):
+    """FEED_THREADS_ONLY_FOR_TASKS_V1: задач меньше, чем воркеров, - потоки только у воркеров с задачей первого круга; задач больше - у всех. Ответы те же."""
+
+    import threading
+
+    real = threading.Thread
+    for count, threads in ((2, 2), (6, 4)):
+        workers = []
+        for index in range(4):
+            worker = _FakeWorker()
+            worker.index, worker.dead, worker.on_reply_bytes = index, False, None
+            workers.append(worker)
+        started = []
+        monkeypatch.setattr(threading, "Thread", lambda *args, **kwargs: started.append(kwargs["args"][0].index) or real(*args, **kwargs))
+        run = pool_module._Run({}, workers, [_keyed_task(task_id, 1000 * task_id, f"k{task_id}") for task_id in range(1, count + 1)], None)
+
+        assert run.execute() is None
+        assert len(started) == threads and set(run.started) <= set(started)
+        assert sorted(run.results) == list(range(1, count + 1)) and all(reply.ok for reply in run.results.values())
 
 
 def test_a_worker_that_lost_the_blob_asks_for_it_and_the_exchange_heals():
     worker, counted = _FakeWorker(), _PoolCounter()
     task = _keyed_task(1, 3000, "k")
-    frame = encode_frame(task)
+    frame = task_frame(task)
     assert _exchange(worker, task, frame, counted).ok
     worker.forget.add("k")  # воркер вытеснил подготовку, а зеркало родителя об этом не знает
 
@@ -331,7 +366,7 @@ def test_a_failed_blob_task_is_forgotten_by_the_mirror_so_the_next_send_ships_ag
         worker._reply = DomainTaskResultV1(1, error="Traceback: boom")
 
     worker.send = failing
-    assert _exchange(worker, task, encode_frame(task), counted).error
+    assert _exchange(worker, task, task_frame(task), counted).error
     assert "k" not in worker.held
 
 

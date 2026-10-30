@@ -972,9 +972,16 @@ def _record_lean_counters(profile, results) -> None:
     lean = sum(1 for item in results if item.lean and item.placement != PLACEMENT_REBASED)
     profile.set_counter(PRODUCTION_REFRESH_LEAN_DOMAINS, lean)
     profile.set_counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS, sum(1 for item in results if item.is_materialized and item.placement != PLACEMENT_REBASED) - lean)
-    # LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: домен называет это своим счётчиком (`LEAN_TICK_CHECKS_DEFERRED` либо `LEAN_TICK_CHECKS_SAMPLED`).
-    for name, label in ((PRODUCTION_LEAN_CHECKS_DEFERRED, "LEAN_TICK_CHECKS_DEFERRED"), (PRODUCTION_LEAN_CHECKS_SAMPLED, "LEAN_TICK_CHECKS_SAMPLED")):
-        profile.set_counter(name, sum(value for item in results if item.lean and item.placement != PLACEMENT_REBASED for key, value in item.counters if key == label))
+    # LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: домен называет это своим счётчиком (`LEAN_TICK_CHECKS_DEFERRED` либо `LEAN_TICK_CHECKS_SAMPLED`). Один проход по счётчикам домена на оба имени
+    # (их сотни на домен, а доменов на тике тысяча: два прохода стоили ~0.02 с родителя на тике `cover.008`).
+    totals = {"LEAN_TICK_CHECKS_DEFERRED": 0, "LEAN_TICK_CHECKS_SAMPLED": 0}
+    for item in results:
+        if item.lean and item.placement != PLACEMENT_REBASED:
+            for key, value in item.counters:
+                if key in totals:
+                    totals[key] += value
+    profile.set_counter(PRODUCTION_LEAN_CHECKS_DEFERRED, totals["LEAN_TICK_CHECKS_DEFERRED"])
+    profile.set_counter(PRODUCTION_LEAN_CHECKS_SAMPLED, totals["LEAN_TICK_CHECKS_SAMPLED"])
 
 
 # --------------------------------------------------------------------------

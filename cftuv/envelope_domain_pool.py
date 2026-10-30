@@ -437,8 +437,20 @@ def write_frame(stream, value) -> None:
     stream.flush()
 
 
+def task_frame(task: DomainTaskV1) -> bytes:
+    """Кадр задачи в очереди (LAZY_BLOB_FRAME_V1): у задачи с пиклом подготовки, который воркер может держать (`_blob_input`), - кадр БЕЗ пикла
+    (ключ, `_key_only`), у прочих - полный кадр.
+
+    Шаг ширины находит подготовку у воркера почти всегда (на `cover.008` 1045 из 1053 задач уходят ключом), а полный кадр кодировался для каждой
+    задачи заранее: 66.8 МБ пиклов за нажатие, которые не уходили, и второй, ключевой кадр - в потоке воркера, под GIL, между ответом воркера и его
+    следующей задачей. Теперь ключевой кадр кодируется один раз здесь, а полный - только когда пикл едет (`_exchange`). Байты в трубе те же.
+    """
+
+    return encode_frame(task if _blob_input(task) is None else _key_only(task))
+
+
 def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
-    """Пары `(задача, готовый кадр)`, самые тяжёлые первыми.
+    """Пары `(задача, кадр очереди)` (`task_frame`), самые тяжёлые первыми.
 
     Цена — размер кадра: снапшот домена растёт с числом его граней и рёбер, а
     время домена — с тем же (на поле 83 КБ у пяти дорогих доменов против
@@ -454,7 +466,7 @@ def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
     DIVISOR`).
     """
 
-    framed = [(task, encode_frame(task)) for task in tasks]
+    framed = [(task, task_frame(task)) for task in tasks]
     framed.sort(key=lambda item: (-_frame_cost(*item), item[0].task_id))
     return framed
 
@@ -503,10 +515,13 @@ def split_first_round(tasks, workers: int):
 
 
 def _frame_cost(task: DomainTaskV1, frame: bytes) -> float:
+    """Цена задачи по кадру очереди (`task_frame`): у задачи с пиклом подготовки кадр без пикла, и пикл считается к нему (вес кадра, как если бы пикл ехал)."""
+
     if task.export is not None:
         return len(frame) * EXPORT_FRAME_COST_SCALE
     if task.coverage is not None or task.production is not None:
-        return len(frame) / COVERAGE_FRAME_COST_DIVISOR
+        inputs = _blob_input(task)
+        return (len(frame) + (0 if inputs is None else len(inputs.blob))) / COVERAGE_FRAME_COST_DIVISOR
     return float(len(frame))
 
 
@@ -1134,6 +1149,12 @@ class _PendingTasks:
             merged = sorted([*self._items, *items], key=lambda item: (-_frame_cost(*item), item[0].task_id))
             self._set(merged, big_cost, True)
 
+    def drained(self) -> bool:
+        """Очередь полна и пуста: `take` отдаст `None` любому воркеру."""
+
+        with self._cond:
+            return self._ready and self._final and not self._items
+
     def release(self) -> None:
         """Очередь, которую так и не наполнили до конца, становится полной как есть: воркеры не ждут того, чего не будет."""
 
@@ -1222,6 +1243,7 @@ def _received(worker, reply, counted: _PoolCounter):
 def _exchange(worker, task, frame: bytes, counted: _PoolCounter, sent: bool = False):
     """Задача воркеру и его ответ: подготовка уходит ключом, если воркер её держит, и пиклом, если нет либо он её не нашёл.
 
+    `frame` - кадр очереди (`task_frame`): у задачи с пиклом подготовки это кадр БЕЗ пикла, полный кадр кодируется здесь, только когда пикл едет (LAZY_BLOB_FRAME_V1).
     `sent` - задача уже ушла воркеру (`_Ahead`: вперёд разбора ответа на предыдущую): остаётся её ответ. Так уходят только холодные задачи, у которых блоба нет.
     """
 
@@ -1236,9 +1258,8 @@ def _exchange(worker, task, frame: bytes, counted: _PoolCounter, sent: bool = Fa
     key = inputs.key
     if key in worker.held:
         worker.held.touch(key)
-        stub = encode_frame(_key_only(task))
-        worker.send(stub)
-        counted.add(sent=len(stub))
+        worker.send(frame)
+        counted.add(sent=len(frame))
         reply = _received(worker, worker.receive(), counted)
         if not (isinstance(reply, DomainTaskResultV1) and reply.needs_blob):
             counted.add(hits=1)
@@ -1246,8 +1267,9 @@ def _exchange(worker, task, frame: bytes, counted: _PoolCounter, sent: bool = Fa
         worker.held.discard(key)
         counted.add(misses=1)
     worker.held.add(key, len(inputs.blob))
-    worker.send(frame)
-    counted.add(sent=len(frame), shipped=1, shipped_bytes=len(inputs.blob))
+    whole = encode_frame(task)
+    worker.send(whole)
+    counted.add(sent=len(whole), shipped=1, shipped_bytes=len(inputs.blob))
     reply = _received(worker, worker.receive(), counted)
     if isinstance(reply, DomainTaskResultV1) and (reply.error or reply.needs_blob):
         worker.held.discard(key)  # воркер мог её не запомнить: в следующий раз пикл уйдёт снова
@@ -1293,7 +1315,12 @@ class _Run:
     def execute(self):
         """Потоки воркеров считают, пока этот поток (при отборе кандидатов) упорядочивает остаток; `None` либо отказ упорядочения, который вызывающий бросает после прогона."""
 
-        threads = [threading.Thread(target=self.feed, args=(worker,), daemon=True) for worker in self.participants]
+        # Задач не больше, чем воркеров (повтор лотереи привязки, шаг ширины по нескольким доменам): поток воркера без задачи первого круга взял бы из пустой
+        # полной очереди `None` и вышел - его не заводят (FEED_THREADS_ONLY_FOR_TASKS_V1: старт и `join` потока под GIL - доли миллисекунды на воркер).
+        idle = not self.streamed and self.pending.drained()
+        threads = [
+            threading.Thread(target=self.feed, args=(worker,), daemon=True) for worker in self.participants if not (idle and worker.index not in self.started)
+        ]
         for worker in self.participants:
             worker.on_reply_bytes = self.ahead if EARLY_DISPATCH else None
         ordering_failure = None
@@ -1792,6 +1819,7 @@ __all__ = (
     "shutdown_domain_pool",
     "solve_task",
     "split_first_round",
+    "task_frame",
     "warm_worker_identities",
     "worker_main",
     "write_frame",
