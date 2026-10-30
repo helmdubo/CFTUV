@@ -23,9 +23,13 @@ from pathlib import Path
 import bpy
 
 import cftuv.envelope_production_mesh as production_mesh
-import cftuv.envelope_width_gpu_drag as gpu
 import cftuv.envelope_width_live as live
 import cftuv.envelope_width_modal as modal
+
+try:
+    import cftuv.envelope_width_gpu_drag as gpu
+except ImportError:  # an add-on without GPU_AFFINE_DRAG_V1 (main): the Python frames are measured alone
+    gpu = None
 
 KEY = "cftuv_gpu_probe"
 _OUT = Path(sys.argv[sys.argv.index("--") + 1]) if "--" in sys.argv and len(sys.argv) > sys.argv.index("--") + 1 else Path(tempfile.gettempdir())
@@ -92,7 +96,8 @@ for module, name, kind in (
     (gpu, "set_width", "node_width"),
     (gpu, "install", "node_install"),
 ):
-    _wrap(module, name, kind)
+    if module is not None:
+        _wrap(module, name, kind)
 _wrap(live, "_apply", "apply", around=_apply_kind)
 for name, factory in (("begin_adjust", _begin_wrapper), ("finish_adjust", _finish_wrapper)):
     original = getattr(modal, name)
