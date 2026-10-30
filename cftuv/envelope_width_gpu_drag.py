@@ -312,6 +312,21 @@ def set_width(rig: GpuRigV1, decal, width: float) -> None:
         decal.update_tag(refresh={"DATA"})
     except Exception as exc:  # noqa: BLE001 - отказ узлов назван, кадр пишет Python
         raise GpuDragError(f"{REFUSED}:{type(exc).__name__}", str(exc)) from exc
+    _redraw_views()
+
+
+def _redraw_views() -> None:
+    """Метка `update_tag` пересчитывает объект, но перерисовку вида не заказывает (запись меша Python заказывает её уведомлением `mesh.update()`): кадр из таймера без события руки иначе не был бы
+    виден до следующего события."""
+
+    import bpy
+
+    manager = getattr(bpy.context, "window_manager", None)
+    for window in getattr(manager, "windows", ()):
+        screen = getattr(window, "screen", None)
+        for area in getattr(screen, "areas", ()):
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
 
 
 def remove(decal) -> bool:
