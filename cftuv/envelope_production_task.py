@@ -42,6 +42,9 @@ from .envelope_snap_retry import snap_scale_notes
 from .envelope_worker_store import prepared_of
 from .surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
 
+#: PRODUCTION_EMPTY_BATCH_REFUSED_V1: материализованный домен без граней либо вершин (ширина <= 0: огибающая пуста) - отказ по имени, а не нормаль плоскости (у развёртки её нет: PRODUCTION_DOMAIN_RAISED).
+OUTCOME_PRODUCTION_EMPTY_BATCH = "PRODUCTION_EMPTY_BATCH"
+
 def _source_normal(prepared):
     """Нормаль первой (по имени) исходной грани патча-владельца либо `None`."""
 
@@ -127,13 +130,7 @@ def produce_domain(
             # Ядро называет это само: подготовка без компиляции запроса не
             # имеет, и отказ приходит из `admit` до любой работы.
             refused = admit_domain(prepared, None, None)
-            return _refusal(
-                patch_id,
-                domain_id,
-                refused.outcome.value,
-                refused.detail,
-                time.perf_counter() - started,
-            )
+            return _refusal(patch_id, domain_id, refused.outcome.value, refused.detail, time.perf_counter() - started)
         # Покрытие из шаблона внутри заверенного интервала ширины, иначе полный путь с записью шаблона; ответ в обоих случаях один.
         stepped = step_domain(
             prepared,
@@ -147,14 +144,12 @@ def produce_domain(
         )
         result = stepped.result
         if not result.is_materialized:
-            return _refusal(
-                patch_id,
-                domain_id,
-                result.outcome.value,
-                result.detail,
-                time.perf_counter() - started,
-            )
-        normal = _summary_normal(result.vertex_normals) or plane_normal_binary64(prepared.context.frame)
+            return _refusal(patch_id, domain_id, result.outcome.value, result.detail, time.perf_counter() - started)
+        normal = _summary_normal(result.vertex_normals)
+        if normal is None and not (result.batch.faces and result.batch.vertices):
+            detail = f"the batch has no faces or no vertices at width {alpha_text}: no plane normal to offset along"
+            return _refusal(patch_id, domain_id, OUTCOME_PRODUCTION_EMPTY_BATCH, detail, time.perf_counter() - started)
+        normal = normal or plane_normal_binary64(prepared.context.frame)
         produced = ProductionDomainResultV1(
             patch_id=int(patch_id),
             domain_id=str(domain_id),

@@ -821,6 +821,18 @@ def _called_names(function: ast.FunctionDef) -> set[str]:
     }
 
 
+def test_every_press_refuses_a_width_that_is_not_positive_before_the_pool():
+    """WIDTH_NOT_POSITIVE_REFUSED_AT_PRESS_V1: кнопка (`execute`) и такт/COMMIT живой ширины (`_begin`) спрашивают `width_refusal` раньше пула и прогона.
+
+    На ширине <= 0 огибающая пуста: прогон дал бы пустые батчи, отказы доменов и пустой меш вместо прежнего (полевая регрессия 2026-10-30).
+    """
+
+    for module, function, later in (("envelope_production_operator.py", "execute", "_build_and_write"), ("envelope_width_live.py", "_begin", "peek_domain_pool")):
+        calls = [node for node in ast.walk(_functions_of(module)[function]) if isinstance(node, ast.Call)]
+        first = {name: min(node.lineno for node in calls if _called_names_of(node) == name) for name in ("width_refusal", later)}
+        assert first["width_refusal"] < first[later], f"{module}:{function} спрашивает `width_refusal` после `{later}`"
+
+
 def test_a_drag_event_never_computes_the_full_contour_while_the_mesh_model_can_move_the_mesh():
     """PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1: событие перетаскивания и калбэк ползунка идут через `width_event_preview`.
 

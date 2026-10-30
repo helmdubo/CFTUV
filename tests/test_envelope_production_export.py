@@ -795,6 +795,32 @@ def test_an_exception_inside_a_domain_is_named_and_does_not_escape(monkeypatch):
     assert "kernel bug" in refused.detail
 
 
+def test_an_empty_batch_is_refused_by_name_and_never_offset_along_a_plane_normal():
+    """PRODUCTION_EMPTY_BATCH_REFUSED_V1: на ширине 0 огибающая пуста, батч без граней; нормали плоскости у него нет - отказ по имени (не MATERIALIZED с пустым батчем)."""
+
+    from cftuv.envelope_production_task import OUTCOME_PRODUCTION_EMPTY_BATCH
+
+    refused = produce_domain(1, "domain", _prepared_domain(), "0")
+
+    assert refused.outcome == OUTCOME_PRODUCTION_EMPTY_BATCH == "PRODUCTION_EMPTY_BATCH"
+    assert not refused.is_materialized and refused.batch is None and "no faces" in refused.detail
+
+
+def test_an_empty_unfolded_batch_is_refused_by_name_and_not_raised(monkeypatch):
+    """У развёртки нормали плоскости нет вовсе (`plane_normal_binary64` отказывает): пустой батч - тот же отказ по имени, а не PRODUCTION_DOMAIN_RAISED."""
+
+    from cftuv_envelope.materialize import lift
+
+    def unfolded(_descriptor):
+        raise ValueError("an unfolded chart has no source plane")
+
+    monkeypatch.setattr(lift, "plane_normal_binary64", unfolded)
+
+    refused = produce_domain(1, "domain", _prepared_domain(), "0")
+
+    assert refused.outcome == "PRODUCTION_EMPTY_BATCH", refused.detail
+
+
 def test_equality_ignores_the_seconds_and_the_placement_but_nothing_else():
     prepared = _prepared_domain()
     first = produce_domain(1, "d", prepared, "0.25")

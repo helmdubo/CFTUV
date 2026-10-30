@@ -47,8 +47,11 @@ from cftuv.envelope_width_adjust import (  # noqa: E402
     PHASE_CANCELLED,
     PHASE_CONFIRMED,
     PRECISION,
+    WIDTH_CLAMPED_AT_FLOOR,
+    WIDTH_NOT_POSITIVE,
     WidthAdjustSessionV1,
     WidthEventV1,
+    width_refusal,
 )
 from cftuv.envelope_width_preview import (  # noqa: E402
     OUTCOME_CLIPPED,
@@ -844,13 +847,47 @@ def test_moving_away_from_the_pivot_widens_in_proportion_to_the_path_and_back_na
     assert session.phase == PHASE_ACTIVE and session.events == 4
 
 
-def test_the_width_never_goes_below_the_minimum_and_does_not_hide_a_dead_zone():
+def test_the_width_never_goes_below_the_positive_floor_and_does_not_hide_a_dead_zone():
+    """WIDTH_FLOOR_POSITIVE_V1: пол по умолчанию 1 мм, а не 0 (нулевая огибающая пуста); событие, которое пол поднял, названо."""
+
     session = _session(metres_per_pixel=0.01)
 
-    session.handle(_move(105.0))  # путь к оси на 95 px по 0.01: ширина ушла бы ниже нуля
-    assert session.width == 0.0
-    # мёртвой зоны нет: уход от оси на 10 px растёт сразу, а не после «долга» в 0.7
-    assert session.handle(_move(115.0)).width == pytest.approx(10 * 0.01)
+    step = session.handle(_move(105.0))  # путь к оси на 95 px по 0.01: ширина ушла бы ниже нуля
+    assert session.width == 0.001 and session.floor_hits == 1
+    assert f"[{WIDTH_CLAMPED_AT_FLOOR}]" in step.header
+    # мёртвой зоны нет: уход от оси на 10 px растёт сразу от пола, а не после «долга» в 0.7
+    assert session.handle(_move(115.0)).width == pytest.approx(0.001 + 10 * 0.01)
+    assert session.floor_hits == 1 and WIDTH_CLAMPED_AT_FLOOR not in session.header()
+
+
+def test_control_snap_never_rounds_below_the_floor():
+    session = _session(metres_per_pixel=0.01)
+    session.handle(_move(105.0))  # у пола: 0.001
+
+    assert session.handle(_move(105.2, ctrl=True)).width == 0.001  # 0.003 по шагу 0.01 округлилось бы в 0: пол
+    assert session.floor_hits == 2
+    assert session.handle(_move(105.6, ctrl=True)).width == pytest.approx(0.01)  # 0.007 -> шаг 0.01: выше пола привязка прежняя
+    assert session.floor_hits == 2
+
+
+def test_a_typed_zero_is_held_at_the_floor_and_named():
+    session = _session()
+    session.handle(WidthEventV1(KIND_DIGIT, char="0"))
+
+    assert session.width == 0.001 and session.floor_hits == 1
+    assert WIDTH_CLAMPED_AT_FLOOR in session.header()
+
+
+@pytest.mark.parametrize("width", [0.0, -0.0, -0.25, float("nan"), float("-inf"), float("inf")])
+def test_a_press_at_a_width_that_is_not_positive_is_refused_by_name(width):
+    """WIDTH_NOT_POSITIVE_REFUSED_AT_PRESS_V1: кнопка, такт и COMMIT на такой ширине не идут в пул."""
+
+    line = width_refusal(width)
+    assert line.startswith(f"{WIDTH_NOT_POSITIVE}: ") and "decal mesh is kept" in line
+
+
+def test_a_positive_width_is_not_refused():
+    assert width_refusal(0.001) == "" and width_refusal(1e-9) == ""
 
 
 def test_control_snaps_to_the_step_and_shift_makes_it_precise():

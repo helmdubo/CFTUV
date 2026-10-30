@@ -484,6 +484,30 @@ def test_the_live_compute_carries_the_dissolve_tolerance_the_button_built_with(m
     assert seen["silhouette_uv_slide"] == Fraction(1, 200)  # 0.5 % ширины — тот же допуск, что у кнопки
 
 
+@pytest.mark.parametrize("width", [0.0, -0.1])
+def test_a_commit_at_a_width_that_is_not_positive_is_refused_before_the_pool_and_keeps_the_mesh(monkeypatch, capsys, width):
+    """WIDTH_NOT_POSITIVE_REFUSED_AT_PRESS_V1: COMMIT на ширине <= 0 не идёт ни в пул, ни в прогон; меш не переписан пустым, одна строка консоли."""
+
+    from cftuv import envelope_domain_pool
+    from cftuv import envelope_production_export as export
+
+    world = _World(monkeypatch)
+
+    def untouchable(*_args, **_kwargs):
+        raise AssertionError("a press at a width that is not positive reached the pool")
+
+    monkeypatch.setattr(envelope_domain_pool, "peek_domain_pool", untouchable)
+    monkeypatch.setattr(export, "run_production", untouchable)
+    world.drag(width)
+    live.settle_width_live(world.controller)
+
+    assert world.written == [] and world.decal.data[production_mesh.DECAL_WIDTH_PROPERTY] == 0.25
+    assert world.scheduler.counters.unavailable == 1 and world.scheduler.counters.failed == 0
+    assert "WIDTH_NOT_POSITIVE" in world.scheduler.status_text
+    printed = [line for line in capsys.readouterr().out.splitlines() if "WIDTH_NOT_POSITIVE" in line]
+    assert len(printed) == 1 and "decal mesh is kept" in printed[0]
+
+
 # --------------------------------------------------------------------------
 # 4. Пять изменений
 # --------------------------------------------------------------------------

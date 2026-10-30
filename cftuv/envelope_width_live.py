@@ -85,6 +85,7 @@ from .envelope_alpha_preview import (
     ThreadedPreviewJob,
 )
 from .envelope_gc_pause import gc_paused, gc_paused_function
+from .envelope_width_adjust import DEFAULT_MIN_WIDTH, WIDTH_CLAMPED_AT_FLOOR, WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
 from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
 from .envelope_width_stream import SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
@@ -723,6 +724,12 @@ def _begin(controller, request):
     from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
     target = request.payload
+    refusal = width_refusal(request.alpha)  # WIDTH_NOT_POSITIVE_REFUSED_AT_PRESS_V1: такт и COMMIT на ширине <= 0 не идут в пул, меш не трогается
+    if refusal:
+        print(f"[CFTUV][WidthLive] {refusal}", flush=True)
+        if target.stream and controller.width_live_drag is not None:
+            controller.width_live_drag.count(controller.width_live_drag.refused, WIDTH_NOT_POSITIVE)
+        raise PreviewUnavailable(WIDTH_NOT_POSITIVE)
     problem = target_problem(controller, target)
     if problem:
         raise PreviewUnavailable(problem)
@@ -978,12 +985,21 @@ def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
     return log
 
 
-def end_live_drag(controller) -> str:
-    """Перетаскивание кончилось: строка журнала в консоль (журнал остаётся до следующего перетаскивания: его показывает панель). Пусто - живого точного меша не было."""
+def end_live_drag(controller, floor_hits: int = 0) -> str:
+    """Перетаскивание кончилось: строка журнала в консоль (журнал остаётся до следующего перетаскивания: его показывает панель). Пусто - живого точного меша не было и пол не держал ширину.
+
+    `floor_hits` - сколько событий поднял пол ширины (WIDTH_FLOOR_POSITIVE_V1): исход `WIDTH_CLAMPED_AT_FLOOR` строки, а без журнала - своя строка.
+    """
 
     log = controller.width_live_drag
     if log is None:
-        return ""
+        if not floor_hits:
+            return ""
+        line = f"Drag {WIDTH_CLAMPED_AT_FLOOR} {floor_hits}: the width was held at the floor {DEFAULT_MIN_WIDTH:g}"
+        print(f"[CFTUV][WidthLive] {line}", flush=True)
+        return line
+    if floor_hits:
+        log.outcomes[WIDTH_CLAMPED_AT_FLOOR] = int(floor_hits)
     scheduler = controller.width_live
     line = live_drag_status_line(log, None if scheduler is None else scheduler.counters)
     print(f"[CFTUV][WidthLive] {line}", flush=True)

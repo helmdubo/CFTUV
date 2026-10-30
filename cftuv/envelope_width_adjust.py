@@ -17,7 +17,10 @@
 - ЧИСЛО: цифры, точка и Backspace набирают значение, как в нативных операторах; пока число набирается,
   мышь ширину не меняет. Недопустимый набор (две точки, пусто) оставляет прежнюю ширину и называется
   в заголовке.
-- Ширина не меньше `min_width` и не больше `max_width` (если задан).
+- Ширина не меньше `min_width` и не больше `max_width` (если задан). Пол по умолчанию положителен (`DEFAULT_MIN_WIDTH`,
+  WIDTH_FLOOR_POSITIVE_V1): нулевая огибающая пуста, рука её не достаёт; Ctrl-привязка тоже не ниже пола. Событие, чью ширину поднял
+  пол, названо (`WIDTH_CLAMPED_AT_FLOOR`: заголовок и счёт `floor_hits` для строки перетаскивания).
+- Нажатие (кнопка, такт, COMMIT) на ширине не больше нуля отказывает по имени до пула (`width_refusal`, `WIDTH_NOT_POSITIVE`).
 """
 
 from __future__ import annotations
@@ -40,9 +43,24 @@ PHASE_CANCELLED = "CANCELLED"
 DEFAULT_STEP = 0.01
 #: Множитель приращения с Shift.
 PRECISION = 0.1
-DEFAULT_MIN_WIDTH = 0.0
+#: Пол ширины перетаскивания, единицы длины сцены (1 мм): WIDTH_FLOOR_POSITIVE_V1.
+DEFAULT_MIN_WIDTH = 0.001
+WIDTH_CLAMPED_AT_FLOOR = "WIDTH_CLAMPED_AT_FLOOR"
+WIDTH_NOT_POSITIVE = "WIDTH_NOT_POSITIVE"
 
 HINT = "Ctrl snap, Shift fine, type a number, Enter/LMB confirm, Esc/RMB cancel"
+
+
+def width_refusal(width) -> str:
+    """Строка отказа нажатия на ширине `width` (`WIDTH_NOT_POSITIVE`: не больше нуля либо не число) или пусто.
+
+    На такой ширине огибающая пуста, и каждый батч пуст: нажатие не считает ничего и меш декали не трогает.
+    """
+
+    value = float(width)
+    if value > 0.0 and math.isfinite(value):
+        return ""
+    return f"{WIDTH_NOT_POSITIVE}: decal width {value:.4g} is not positive; nothing is computed and the decal mesh is kept"
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,9 +107,12 @@ class WidthAdjustSessionV1:
         self.min_width = float(min_width)
         self.max_width = None if max_width is None else float(max_width)
         self.unit = unit
+        self._floored = False  # поднял ли пол текущее событие
         self._pivot = (float(pivot[0]), float(pivot[1]))
         self._scale = float(metres_per_pixel)
         self._raw = self._clamp(self.start_width)
+        #: Сколько событий (и стартовая ширина) поднял пол: `WIDTH_CLAMPED_AT_FLOOR` строки перетаскивания.
+        self.floor_hits = int(self._floored)
         self._width = self._raw
         self._radius = self._distance(start_mouse)
         self._buffer = ""
@@ -118,14 +139,17 @@ class WidthAdjustSessionV1:
         return math.hypot(float(point[0]) - self._pivot[0], float(point[1]) - self._pivot[1])
 
     def _clamp(self, value: float) -> float:
-        value = max(self.min_width, value)
+        if not value >= self.min_width:  # и не число: пол
+            self._floored = True
+            value = self.min_width
         return value if self.max_width is None else min(self.max_width, value)
 
     def header(self) -> str:
         """Строка заголовка области: ширина названа ПРЕВЬЮ, пока не подтверждена."""
 
         shown = self._buffer + "|" if self._buffer else f"{self._width:.3f}"
-        note = f" [{self._note}]" if self._note else ""
+        note = self._note or (WIDTH_CLAMPED_AT_FLOOR if self._floored else "")
+        note = f" [{note}]" if note else ""
         return f"Decal width: {shown} {self.unit} (preview){note}   {HINT}"
 
     # ------------------------------------------------------------------
@@ -137,6 +161,7 @@ class WidthAdjustSessionV1:
             return WidthStepV1(self.phase, self._width, False, self.header())
         self.events += 1
         before = self._width
+        self._floored = False
         kind = event.kind
         if kind == KIND_MOVE:
             self._move(event)
@@ -155,6 +180,7 @@ class WidthAdjustSessionV1:
             self._width = self.start_width
         else:
             raise ValueError(f"unknown width event kind {kind!r}")
+        self.floor_hits += self._floored
         return WidthStepV1(self.phase, self._width, self._width != before, self.header())
 
     def _move(self, event: WidthEventV1) -> None:
@@ -211,4 +237,7 @@ __all__ = (
     "WidthAdjustSessionV1",
     "WidthEventV1",
     "WidthStepV1",
+    "WIDTH_CLAMPED_AT_FLOOR",
+    "WIDTH_NOT_POSITIVE",
+    "width_refusal",
 )

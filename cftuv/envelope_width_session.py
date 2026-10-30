@@ -184,7 +184,7 @@ def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
     controller.width_frame_pending = None  # LIVE_DRAG_WRITE_COALESCED_V1: ждавший кадр события не пишется после конца перетаскивания (подтверждение пишет кадр ширины отпускания само)
     # До записи ширины: lean-заказ, что ещё в пути, подтверждением снимается, а его результат отбрасывается. Отмена возвращает меш на то, что показывали к началу перетаскивания, побитово.
     finish_drag(controller, restore=not commit)
-    end_live_drag(controller)  # LIVE_DRAG_STREAM_V1: строка журнала перетаскивания в консоль (настройка выключена - ничего)
+    end_live_drag(controller, runtime.session.floor_hits)  # LIVE_DRAG_STREAM_V1: строка журнала перетаскивания в консоль (настройка выключена и пол не держал ширину - ничего)
     if commit:
         # LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: калбэк этой записи пишет кадр меша на ширине отпускания и линий не считает, если перетаскивание шло с живым точным мешем.
         controller.width_confirm_live = getattr(controller, "width_live_drag", None) is not None

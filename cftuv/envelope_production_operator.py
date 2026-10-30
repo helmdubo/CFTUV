@@ -60,6 +60,7 @@ from .envelope_production_mesh import (
 )
 from .envelope_pool_prewarm import cancel_pool_prewarm, schedule_pool_prewarm
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
+from .envelope_width_adjust import WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_live import remember_build, schedule_idle_preparation, tag_view3d_redraw
 from .envelope_width_mesh_preview import build_sample, capture_ownership, note_button_display, sample_key
 
@@ -237,6 +238,13 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         mesh_settings.timing = ""
         fold_legacy_skeleton_setting(mesh_settings)
         kernel_backend = kernel_backend_of(mesh_settings)
+        # WIDTH_NOT_POSITIVE_REFUSED_AT_PRESS_V1: ширина <= 0 - отказ по имени до анализа и пула; прежний меш декали не тронут (огибающая пуста, каждый батч пуст).
+        refusal = width_refusal(settings.envelope_debug_alpha)
+        if refusal:
+            mesh_settings.status = f"Failed: {WIDTH_NOT_POSITIVE}"
+            print(f"[CFTUV][DecalMesh] {refusal}", flush=True)
+            self.report({"ERROR"}, refusal)
+            return {"CANCELLED"}
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
         selected = [edge.index for edge in source_bm.edges if edge.select]

@@ -341,6 +341,30 @@ def test_the_log_names_everything_in_the_panel_and_the_console(monkeypatch, caps
     assert data["steps"] == 2 and data["scheduler"]["requested"] >= 2
 
 
+def test_the_floor_that_held_the_hand_is_named_in_the_drag_line_with_and_without_the_log(monkeypatch, capsys):
+    """WIDTH_FLOOR_POSITIVE_V1: событие, чью ширину поднял пол, - исход `WIDTH_CLAMPED_AT_FLOOR` строки перетаскивания, а не молчание."""
+
+    world, controller = _live_world(monkeypatch)
+    assert live.request_drag_tick(world.context, controller, 0.2505)
+    live.settle_width_live(controller)
+    line = live.end_live_drag(controller, 3)
+    assert line.startswith("Live drag LIVE_DRAG_STREAM_V1") and "WIDTH_CLAMPED_AT_FLOOR 3" in line
+    assert line in capsys.readouterr().out
+    _world, plain = _live_world(monkeypatch, enabled=False)
+    assert live.end_live_drag(plain) == ""
+    line = live.end_live_drag(plain, 2)
+    assert "WIDTH_CLAMPED_AT_FLOOR 2" in line and line in capsys.readouterr().out
+
+
+def test_a_stream_tick_at_a_width_that_is_not_positive_is_refused_by_name_before_the_pool(monkeypatch):
+    world, controller = _live_world(monkeypatch)
+    assert live.request_drag_tick(world.context, controller, 0.0)
+    scheduler = controller.width_live
+    scheduler.step()
+    assert scheduler._job is None and world.calls == [] and scheduler.counters.unavailable == 1
+    assert controller.width_live_drag.refused == {"WIDTH_NOT_POSITIVE": 1} and "refused: WIDTH_NOT_POSITIVE 1" in live.end_live_drag(controller)
+
+
 def test_a_stream_tick_in_flight_at_the_cancel_never_lands_on_the_next_drag(monkeypatch):
     """Отмена (Esc) либо подтверждение без перемены, пока такт считается, и сразу новое перетаскивание: такт прежнего перетаскивания снят концом перетаскивания с именем и не ложится в новое."""
 
