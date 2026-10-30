@@ -58,6 +58,12 @@ SETTLE_SAME_LAYOUT_BEFORE_NEWER = "LIVE_DRAG_SETTLE_SAME_LAYOUT_BEFORE_NEWER"
 SETTLE_WAITED_FOR_NEWER = "LIVE_DRAG_SETTLE_WAITED_FOR_NEWER"
 #: Имя статуса обслуженного домена: структура его последнего точного счёта на названной ширине.
 STRUCTURE_AS_OF = "STRUCTURE_AS_OF"
+#: LIVE_DRAG_COHERENT_V1 (настройка «Coherent drag»): пока рука движется, точный такт не ложится (как оседание); на остановке ложится ОДИН такт - на ширине, где рука стоит, целым кадром.
+#: Готовый такт другой ширины ждёт, пока его не заменит такт ширины покоя (`COHERENT_WAITS_FOR_REST`); такты сверки простоя не заказываются (`COHERENT_NO_IDLE_VERIFY`: они меняли бы
+#: экран кусками); на подтверждении ждавший такт другой ширины не ложится, его заменяет COMMIT (`COHERENT_DROPPED_AT_CONFIRM`).
+COHERENT_WAITS_FOR_REST = "LIVE_DRAG_COHERENT_WAITS_FOR_REST_WIDTH"
+COHERENT_NO_IDLE_VERIFY = "LIVE_DRAG_COHERENT_NO_IDLE_VERIFY"
+COHERENT_DROPPED_AT_CONFIRM = "LIVE_DRAG_COHERENT_TICK_DROPPED_AT_CONFIRM"
 
 EVENT_STEP = "step"
 EVENT_EXACT = "exact"
@@ -97,6 +103,9 @@ class LiveDragLogV1:
     #: LIVE_DRAG_SETTLE_ON_PAUSE_V1: точные такты ложатся только на остановке руки; момент заказа последнего шага (часы планировщика); сколько готовых тактов ждали остановки
     #: (`LIVE_DRAG_SETTLE_PENDING`) и номер последнего ждавшего (каждый считается один раз).
     settle: bool = False
+    #: LIVE_DRAG_COHERENT_V1: связное перетаскивание (оседание действует и без `settle`; ложится только такт ширины покоя; сверки простоя нет) и номер последнего такта, чьё ожидание ширины покоя названо.
+    coherent: bool = False
+    coherent_seen: int = -1
     last_step_at: float | None = None
     settle_held: int = 0
     settle_seen: int = -1
@@ -209,9 +218,15 @@ def settle_hold(log: LiveDragLogV1 | None, request, now: float, *, drag_active: 
     """LIVE_DRAG_SETTLE_ON_PAUSE_V1: готовый потоковый такт `request` ждёт остановки руки (`True`): настройка включена, перетаскивание идёт, и с последнего шага прошло меньше
     `SETTLE_PAUSE_SECONDS`. Каждый ждавший такт считается один раз (`settle_held`)."""
 
-    if log is None or not log.settle or not drag_active or log.last_step_at is None or not getattr(request, "stream", False):
+    if log is None or not (log.settle or log.coherent) or not drag_active or log.last_step_at is None or not getattr(request, "stream", False):
         return False
     if now - log.last_step_at >= SETTLE_PAUSE_SECONDS:
+        if log.coherent and log.cursor is not None and float(request.alpha) != log.cursor:
+            # LIVE_DRAG_COHERENT_V1: рука стоит на другой ширине - этот такт не ложится (иначе на остановке легли бы два кадра), его заменит такт ширины покоя
+            if log.coherent_seen != int(request.sequence):
+                log.coherent_seen = int(request.sequence)
+                log.count(log.outcomes, COHERENT_WAITS_FOR_REST)
+            return True
         return False
     if log.settle_seen != int(request.sequence):
         log.settle_seen = int(request.sequence)
@@ -255,6 +270,11 @@ def idle_answer(log: LiveDragLogV1 | None, displayed, *, drag_active: bool) -> f
 
     if log is None or not drag_active or displayed is None or log.target is None or log.cursor is None:
         return None
+    if log.coherent:
+        if log.idle_in_pause == 0:  # LIVE_DRAG_COHERENT_V1: такты сверки простоя меняли бы экран кусками - не заказываются (названо раз за остановку)
+            log.idle_in_pause = 1
+            log.count(log.outcomes, COHERENT_NO_IDLE_VERIFY)
+        return None
     left = unverified_at(log, displayed, log.cursor)
     if left == 0 or (log.idle_left is not None and left >= log.idle_left):
         return None
@@ -288,7 +308,7 @@ def report(log: LiveDragLogV1, counters=None) -> dict:
         "verify_domains": log.verify_domains, "structure_changes": log.structure_changes, "layout_changes": log.layout_changes, "idle_ticks": log.idle_ticks,
         "idle_budget_spent": log.idle_budget_spent, "weld_changes": log.weld_changes, "weld_position_mismatch": log.weld_position_mismatch,
         "deferred": dict(log.deferred), "full_ticks": dict(log.full_ticks), "refused": dict(log.refused), "spliced": dict(log.spliced), "fallbacks": dict(log.fallbacks),
-        "settle": log.settle, "settle_held": log.settle_held, "outcomes": dict(log.outcomes),
+        "settle": log.settle, "coherent": log.coherent, "settle_held": log.settle_held, "outcomes": dict(log.outcomes),
         "frame_events": log.frame_events, "frame_writes": log.frame_writes, "frames_coalesced": log.frames_coalesced,
     }
     if counters is not None:
@@ -315,7 +335,8 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
         f"(+{log.idle_ticks} idle ticks" + (f", {IDLE_BUDGET_SPENT} {log.idle_budget_spent}" if log.idle_budget_spent else "") + f"), {log.structure_changes} domain structures and {log.layout_changes} layouts corrected" + (f" ({outcomes})" if outcomes else "") + as_of
         + (f"; layouts spliced (COMPOSITE_SPLICE_V1): " + ", ".join(f"{name} {count}" for name, count in sorted(log.spliced.items())) if log.spliced else "")
         + (f"; whole-mesh rollbacks: " + ", ".join(f"{name} {count}" for name, count in sorted(log.fallbacks.items())) if log.fallbacks else "")
-        + (f"; settle on pause: {log.settle_held} exact ticks waited ({SETTLE_PENDING}) for the hand to rest {SETTLE_PAUSE_SECONDS:g} s" if log.settle else "")
+        + (f"; settle on pause: {log.settle_held} exact ticks waited ({SETTLE_PENDING}) for the hand to rest {SETTLE_PAUSE_SECONDS:g} s" if log.settle or log.coherent else "")
+        + ("; LIVE_DRAG_COHERENT_V1: one whole exact frame of the rest width per pause" if log.coherent else "")
         + ("; " + ", ".join(f"{name} {count}" for name, count in sorted(log.outcomes.items())) if log.outcomes else "")
         + (f"; mesh frames {log.frame_writes} for {log.frame_events} events ({log.frames_coalesced} coalesced, LIVE_DRAG_WRITE_COALESCED_V1)" if log.frames_coalesced else "")
         + (f"; weld diverged in {log.weld_changes} ticks" if log.weld_changes else "")
@@ -325,6 +346,9 @@ def status_line(log: LiveDragLogV1, counters=None) -> str:
 
 
 __all__ = (
+    "COHERENT_DROPPED_AT_CONFIRM",
+    "COHERENT_NO_IDLE_VERIFY",
+    "COHERENT_WAITS_FOR_REST",
     "EVENTS_KEPT",
     "EVENT_EXACT",
     "EVENT_STEP",

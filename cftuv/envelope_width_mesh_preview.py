@@ -66,6 +66,7 @@ from .envelope_width_rebase import rebase_result
 from .envelope_width_preview_model import (
     DISPLAY_APPROXIMATE_ERROR_LIMIT,
     DOMAIN_DISPLAY_APPROXIMATE,
+    LIVE_DRAG_COHERENT_V1,
     PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1,
     DeviationV1,
     PreviewModelV1,
@@ -74,8 +75,13 @@ from .envelope_width_preview_model import (
     advance_ledger,
     base_frame,
     build_model,
+    coherent_frame,
+    coherent_rig_inputs,
+    coherent_slopes,
+    coherent_summary,
     deviation,
     evaluate,
+    finite_difference,
     frame_summary,
     gpu_rig_inputs,
     held_name,
@@ -162,6 +168,12 @@ class PreviewLogV1:
     gpu_installs: int = 0
     gpu_install_seconds_total: float = 0.0
     gpu_removed: dict = field(default_factory=dict)
+    #: LIVE_DRAG_COHERENT_V1: связные кадры, наибольшее число доменов за окном модели, с конечной разностью и стоящих в одном кадре, и причины окна последнего кадра.
+    coherent_frames: int = 0
+    coherent_extrapolated_max: int = 0
+    coherent_estimated_max: int = 0
+    coherent_standing_max: int = 0
+    coherent_reasons: tuple = ()
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -185,6 +197,9 @@ class PreviewMeshStateV1:
     moving: frozenset = frozenset()
     #: Сколько из `live` доменов приближённые (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`: точная аффинная часть плюс замороженное смещение); остальные живые точны.
     approximate: int = 0
+    #: LIVE_DRAG_COHERENT_V1: сколько живых доменов идёт наклоном сертификата за окном модели и сколько - конечной разностью (у обычного кадра - нули).
+    extrapolated: int = 0
+    estimated: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,6 +504,7 @@ def note_exact_display(controller, live: LiveRunV1) -> None:
 
     _record_check(controller, live)
     controller.width_displayed = live.sample
+    _note_coherent_prior(controller, live.sample)
     controller.width_trust = live.trust
     controller.width_mesh_preview = None
     controller.width_incremental = next_state(controller.width_incremental, live.plan, live.sample.alpha)
@@ -498,10 +514,32 @@ def note_exact_display(controller, live: LiveRunV1) -> None:
     controller.width_model_refusal = model if isinstance(model, PreviewRefusalV1) else None
 
 
+def _note_coherent_prior(controller, sample: PreviewSampleV1) -> None:
+    """LIVE_DRAG_COHERENT_V1: точный образец лёг на экран - у его доменов без наклонов сертификата наклон конечной разности с прежним образцом (`finite_difference`), запас обновлён, наклоны связного
+    кадра будут посчитаны заново для новой модели (`coherent_now`). Дёшево: массивы трогаются только у доменов без сертификата."""
+
+    controller.width_coherent_finite, controller.width_coherent_prior = finite_difference(getattr(controller, "width_coherent_prior", None), sample)
+    controller.width_coherent = None
+
+
+def coherent_now(controller):
+    """Наклоны связного кадра (`CoherentSlopesV1`) модели на экране, пока идёт связное перетаскивание (`width_coherent_drag`: начало инструмента с настройкой «Coherent drag» и до записи ширины
+    подтверждения), иначе `None`. Считаются один раз на модель (миллисекунды numpy)."""
+
+    model = controller.width_model
+    if not getattr(controller, "width_coherent_drag", False) or model is None:
+        return None
+    cached = getattr(controller, "width_coherent", None)
+    if cached is None or cached.model is not model:
+        cached = controller.width_coherent = coherent_slopes(model, getattr(controller, "width_coherent_finite", None))
+    return cached
+
+
 def note_button_display(controller, sample: PreviewSampleV1) -> None:
     """Кнопка записала меш: образец на экране, модели ещё нет (её строит первый кадр: `ensure_model`), журнал доверия забыт."""
 
     controller.width_displayed = sample
+    _note_coherent_prior(controller, sample)
     controller.width_model = None
     controller.width_model_refusal = None
     controller.width_mesh_preview = None
@@ -554,6 +592,7 @@ def drop_model(controller, reason: str) -> None:
     controller.width_mesh_preview = None
     controller.width_mesh_owner = None
     controller.width_incremental = None
+    controller.width_coherent = None
 
 
 def note_history(controller) -> None:
@@ -743,11 +782,12 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
     if problem:
         drop_model(controller, problem)
         return None
+    coherent = coherent_now(controller)  # LIVE_DRAG_COHERENT_V1: за рукой идёт каждый домен (окна модели не держат), `None` - обычный кадр
     frame = _gpu_frame(controller, model, decal, width) if gpu_drag_active(controller) and owners is None else None
     if frame is False:
         return None  # узлам нужна была база в меше, а меш её не принял: модель снята с именем причины
     if frame is None:
-        frame = evaluate(model, width)
+        frame = evaluate(model, width) if coherent is None else coherent_frame(model, coherent, width)
         try:
             write_preview_geometry(decal.data, frame.positions, frame.uvs, owners)
         except ProductionWriteError as exc:
@@ -768,12 +808,20 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
         1 if previous is None else previous.serial + 1,
         moving,
         frame.approximate_domains,
+        frame.extrapolated,
+        frame.estimated,
     )
     controller.width_mesh_preview = state
     log = log_of(controller)
     log.frames += 1
     log.frame_seconds_total += seconds
     log.frame_seconds_max = max(log.frame_seconds_max, seconds)
+    if frame.coherent:
+        log.coherent_frames += 1
+        log.coherent_extrapolated_max = max(log.coherent_extrapolated_max, frame.extrapolated)
+        log.coherent_estimated_max = max(log.coherent_estimated_max, frame.estimated)
+        log.coherent_standing_max = max(log.coherent_standing_max, frame.held_domains)
+        log.coherent_reasons = frame.extrapolated_reasons
     return state
 
 
@@ -795,12 +843,14 @@ def _gpu_frame(controller, model, decal, width: float):
 
     log = log_of(controller)
     rig = getattr(controller, "width_gpu_rig", None)
+    coherent = coherent_now(controller)  # LIVE_DRAG_COHERENT_V1: узлы с наклонами связного кадра и окнами, открытыми всем
     try:
         if not gpu.current(rig, decal, model):
             if not controller.width_mesh_owner.holds_base:
                 if lay_exact_now(controller, model.base):
                     return False
-            rig = gpu.install(decal, gpu.rig_arrays(**gpu_rig_inputs(model)), model.base_alpha, model)
+            inputs = gpu_rig_inputs(model) if coherent is None else coherent_rig_inputs(model, coherent)
+            rig = gpu.install(decal, gpu.rig_arrays(**inputs), model.base_alpha, model)
             controller.width_gpu_rig = rig
             log.gpu_installs += 1
             log.gpu_install_seconds_total += rig.install_seconds
@@ -818,7 +868,7 @@ def _gpu_frame(controller, model, decal, width: float):
         controller.width_gpu_drag = False  # остаток перетаскивания - кадры Python, как без настройки
         return None
     log.gpu_frames += 1
-    return frame_summary(model, width)
+    return frame_summary(model, width) if coherent is None else coherent_summary(model, coherent, width)
 
 
 def _gpu_after_exact(controller, decal) -> None:
@@ -1105,6 +1155,13 @@ def status_lines(controller) -> tuple[str, ...]:
             f"Mesh {REFRESH_LEAN}: exact geometry at width {state.alpha:.4g}, {state.live} domains (without the checks and reports of a commit; "
             "confirming recomputes and writes the committed result)"
         )
+    elif state is not None and state.outcome == LIVE_DRAG_COHERENT_V1:
+        log = controller.width_preview_log
+        reasons = "" if log is None or not log.coherent_reasons else " (" + ", ".join(f"{name} {count}" for name, count in log.coherent_reasons) + ")"
+        lines.append(
+            f"Mesh {LIVE_DRAG_COHERENT_V1} (approximate, every domain follows the hand): width {state.alpha:.4g}, {state.live} domains moving, {state.extrapolated} extrapolated past their model window"
+            f"{reasons}, {state.estimated} by a finite difference, {state.held} standing; the exact frame of the rest width follows"
+        )
     elif state is not None:
         held = ""
         if state.held:
@@ -1174,6 +1231,7 @@ __all__ = (
     "PreviewMeshStateV1",
     "build_sample",
     "capture_ownership",
+    "coherent_now",
     "LEAN_KEY_MISMATCH",
     "LEAN_DRAG_ENDED_BY_FINISH",
     "LEAN_NO_BASE",

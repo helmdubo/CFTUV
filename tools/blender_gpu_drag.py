@@ -7,6 +7,7 @@
    `--tolerance` (a window edge decided differently in float32). The original mesh stays the base the whole time (its arrays hash before = after).
 2. COST. `--events` widths swept like a drag: per event the main-thread cost of the frame and of the depsgraph evaluation that a redraw would do, with the nodes (one number into the socket)
    and with today's Python write (`foreach_set` + `mesh.update()`). Headless has no viewport: the GPU batch is not built here, the GUI probe (`tools/gpu_drag_gui_probe.py`) measures that.
+`--coherent on` (LIVE_DRAG_COHERENT_V1): 1 and the ticks compare the coherent frame (every domain follows the hand, past its window) instead of the model frame.
 3. REMOVAL. Every named removal path leaves no modifier, no attribute and no node group in the file: the cancel and the confirm (`finish_drag`), the handlers of save / load / undo
    (`envelope_width_modal`), the model drop, the stale leftover at the drag start; after the cancel the mesh is the base bit for bit.
 Last line: GPU_DRAG_OK.
@@ -37,6 +38,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--span", type=float, default=0.05)
     parser.add_argument("--tolerance", type=float, default=1e-4)
     parser.add_argument("--kernel-backend", default="NATIVE")
+    parser.add_argument("--coherent", choices=("on", "off"), default="off")  # LIVE_DRAG_COHERENT_V1: the frame compared is the coherent one (every domain follows)
     parser.add_argument("--out", required=True)
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
 
@@ -71,11 +73,20 @@ def _clean(left: dict) -> bool:
     return not left["modifiers"] and not left["meshes"] and not left["group"]
 
 
+def _frame(controller, model, width):
+    """The frame the preview shows: the model frame, or with LIVE_DRAG_COHERENT_V1 the coherent frame (extrapolated past the windows)."""
+
+    import cftuv.envelope_width_mesh_preview as preview
+    from cftuv.envelope_width_preview_model import coherent_frame, evaluate
+
+    coherent = preview.coherent_now(controller)
+    return evaluate(model, width) if coherent is None else coherent_frame(model, coherent, width)
+
+
 def prove_equality(session, args, controller, decal, report) -> None:
     import numpy as np
 
     import cftuv.envelope_width_mesh_preview as preview
-    from cftuv.envelope_width_preview_model import evaluate
 
     bpy = session.bpy
     model = controller.width_model
@@ -83,7 +94,7 @@ def prove_equality(session, args, controller, decal, report) -> None:
     rows = []
     for rel in (float(item) for item in args.rels.split(",")):
         width = base * (1.0 + rel)
-        frame = evaluate(model, width)
+        frame = _frame(controller, model, width)
         state = preview.preview_mesh_now(controller, width)
         if state is None or controller.width_gpu_rig is None:
             raise RuntimeError(f"the nodes did not show width {width}: {preview.log_of(controller).refusals}")
@@ -95,7 +106,7 @@ def prove_equality(session, args, controller, decal, report) -> None:
         p_ulps = dp / np.spacing(np.maximum(np.abs(positions), np.abs(frame.positions)).astype(np.float32))
         u_ulps = du / np.spacing(np.maximum(np.abs(uvs), np.abs(frame.uvs)).astype(np.float32))
         rows.append({
-            "rel": rel, "width": width, "live_domains": frame.live_domains, "held_domains": frame.held_domains, "summary_live": state.live, "summary_held": state.held,
+            "rel": rel, "width": width, "live_domains": frame.live_domains, "held_domains": frame.held_domains, "extrapolated": frame.extrapolated, "estimated": frame.estimated, "summary_live": state.live, "summary_held": state.held,
             "max_position_diff": float(dp.max()), "max_uv_diff": float(du.max()), "position_ulp": float(np.spacing(np.float32(scale))),
             "max_position_ulps": float(p_ulps.max()), "max_uv_ulps": float(u_ulps.max()), "uv_abs_max": float(np.abs(frame.uvs).max()),
             "vertices_above_4ulp": int((p_ulps.reshape(-1, 3).max(axis=1) > 4).sum()), "loops_above_4ulp": int((u_ulps.reshape(-1, 2).max(axis=1) > 4).sum()),
@@ -150,7 +161,6 @@ def prove_ticks(session, controller, decal, report, count: int = 3) -> None:
     import numpy as np
 
     import cftuv.envelope_width_mesh_preview as preview
-    from cftuv.envelope_width_preview_model import evaluate
 
     bpy = session.bpy
     laps = drag_ticks.Laps()
@@ -161,11 +171,11 @@ def prove_ticks(session, controller, decal, report, count: int = 3) -> None:
         tick = session.step(base * 1.004, lean=True, laps=laps, incremental=True)
         model = controller.width_model
         positions, uvs, _names = _evaluated(bpy, decal)
-        at_tick = evaluate(model, model.base_alpha)
+        at_tick = _frame(controller, model, model.base_alpha)
         frame_width = model.base_alpha * 1.003
         preview.preview_mesh_now(controller, frame_width)
         moved_positions, moved_uvs, _names = _evaluated(bpy, decal)
-        frame = evaluate(model, frame_width)
+        frame = _frame(controller, model, frame_width)
         rows.append({
             "tick": tick["apply_outcome"], "plan": (tick["plan"] or {}).get("mode"), "installs": preview.log_of(controller).gpu_installs,
             "after_tick_position_diff": float(np.abs(positions - at_tick.positions).max()), "after_tick_uv_diff": float(np.abs(uvs - at_tick.uvs).max()),
@@ -245,6 +255,7 @@ def main() -> int:
         report["base_positions"] = positions.tolist()
         controller.width_drag_active = True
         controller.width_gpu_drag = True
+        controller.width_coherent_drag = args.coherent == "on"
         prove_equality(session, args, controller, decal, report)
         report["original_mesh_stays_base"] = drag_ticks.mesh_arrays_hash(mesh) == base_hash
         measure_cost(session, args, controller, report)
@@ -252,6 +263,7 @@ def main() -> int:
         report["after_cancel_is_base"] = drag_ticks.mesh_arrays_hash(mesh) == base_hash and session.mesh_module.mesh_content_digest(mesh) == base_digest
         controller.width_drag_active = True
         controller.width_gpu_drag = True
+        controller.width_coherent_drag = args.coherent == "on"
         prove_ticks(session, controller, decal, report)
         preview.finish_drag(controller, restore=True)  # the cancel after exact ticks: the mesh is what was shown before the first of them
         report["after_ticks_cancel_is_base"] = drag_ticks.mesh_arrays_hash(mesh) == base_hash

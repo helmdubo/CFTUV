@@ -716,10 +716,12 @@ def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_ent
             for node in ast.walk(function):
                 if isinstance(node, ast.Call):
                     name = _called_names_of(node)
-                    if name in ("evaluate", "positions_and_uvs", "shadow_prediction"):
+                    if name in ("evaluate", "coherent_frame", "positions_and_uvs", "shadow_prediction"):
                         callers.setdefault(name, set()).add((path.name, function.name))
     assert callers.get("evaluate", set()) >= {("envelope_width_mesh_preview.py", "preview_mesh_now")}
     assert {item for item in callers["evaluate"] if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers["evaluate"]
+    # LIVE_DRAG_COHERENT_V1: связный кадр (экстраполяция за окно, конечная разность) - тоже только экран, тот же единственный вход.
+    assert {item for item in callers.get("coherent_frame", set()) if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers.get("coherent_frame")
     # Составной образец инкрементального такта (WIDTH_REFRESH_INCREMENTAL_V1, `envelope_width_composite`) - второй читатель кадра модели: обслуженные домены он двигает тем же `positions_and_uvs`, что кадр мыши, и ничего не пишет в
     # меш (меш пишет только `lean_exact_now` через `_lay_down`); поэтому он единственный, кроме слоя превью, кому разрешено знать модель.
     readers = {"positions_and_uvs": {("envelope_width_composite.py", "compose_sample")}, "shadow_prediction": set()}
@@ -733,7 +735,7 @@ def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_ent
         for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
             calls = [node for node in ast.walk(function) if isinstance(node, ast.Call)]
             if any(_called_names_of(call) == "write_preview_geometry" for call in calls):
-                frame_writers.add((path.name, function.name, any(_called_names_of(call) == "evaluate" for call in calls)))
+                frame_writers.add((path.name, function.name, any(_called_names_of(call) in ("evaluate", "coherent_frame") for call in calls)))
     assert {item[:2] for item in frame_writers if item[2]} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, frame_writers
 
 
