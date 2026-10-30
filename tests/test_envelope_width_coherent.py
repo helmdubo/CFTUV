@@ -186,3 +186,99 @@ def test_the_setting_exists_and_is_on_by_default():
     assert 'drag_coherent: BoolProperty(' in source.replace("drag_coherent : ", "drag_coherent: ")
     block = source[source.index("drag_coherent"):][:400]
     assert "default=True" in block and "default=False" not in block
+
+
+# ==========================================================================
+# 4. Предел вершины (LIVE_DRAG_COHERENT_VERTEX_CLAMPED)
+# ==========================================================================
+
+
+def _with_limits(sample, limits_of):
+    """Образец, у доменов которого предельные ширины вершин заданы (`limits_of(domain) -> массив либо None`), как их отдаст сертификат ядра."""
+
+    return replace(sample, domains=tuple(replace(item, limits=limits_of(item)) for item in sample.domains), cache={})
+
+
+def test_a_vertex_stops_at_its_limit_width_and_the_others_keep_moving():
+    base, _ = _fold_sample(0.25)
+    stop = 0.3
+    wall = next(item for item in base.domains if item.patch_id == 1)
+    moving = np.flatnonzero(np.abs(wall.slopes).max(axis=1) > 0)
+    assert moving.size >= 2
+    capped = wall.vertices[moving[0]]
+    limits = np.full(wall.vertices.shape[0], np.inf)
+    limits[moving[0]] = stop
+    sample = _with_limits(base, lambda item: limits if item.patch_id == 1 else None)
+    model = pm.build_model(sample)
+    coherent = pm.coherent_slopes(model)
+    assert coherent.vertex_cap[capped] == stop and np.isinf(np.delete(coherent.vertex_cap, capped)).all()
+    loops = np.flatnonzero(np.asarray(sample.image.face_vertices) == capped)
+    assert np.all(coherent.loop_cap[loops] == stop)
+    at_stop, _ = _fold_sample(stop)
+    beyond, _ = _fold_sample(0.4)
+    frame = pm.coherent_frame(model, coherent, 0.4)
+    assert frame.clamped == 1
+    positions, uvs = frame.positions.reshape(-1, 3), frame.uvs.reshape(-1, 2)
+    assert np.allclose(positions[capped], at_stop.positions[capped], atol=1e-6)  # стоит на пределе
+    free = np.setdiff1d(np.arange(sample.vertex_count), [capped])
+    assert np.allclose(positions[free], beyond.positions.reshape(-1, 3)[free], atol=1e-6)  # остальные идут
+    assert np.allclose(uvs[loops] * 0.4, at_stop.uvs.reshape(-1, 2)[loops] * stop, atol=1e-6)  # произведение uv * ширина - на пределе
+    assert pm.coherent_frame(model, coherent, 0.29).clamped == 0
+    assert pm.coherent_summary(model, coherent, 0.4).clamped == 1
+
+
+def test_without_limits_the_coherent_frame_is_bit_for_bit_the_unclamped_one():
+    base, _ = _fold_sample(0.25)
+    model = pm.build_model(base)
+    coherent = pm.coherent_slopes(model)
+    assert coherent.vertex_cap is None and coherent.loop_cap is None
+    frame = pm.coherent_frame(model, coherent, 0.37)
+    assert frame.clamped == 0
+    assert np.array_equal(frame.positions, (base.positions + coherent.a1 * (0.37 - 0.25)).astype(np.float32).reshape(-1))
+    infinite = _with_limits(base, lambda item: np.full(item.vertices.shape[0], np.inf))
+    model = pm.build_model(infinite)
+    capped = pm.coherent_slopes(model)
+    other = pm.coherent_frame(model, capped, 0.37)
+    assert np.array_equal(other.positions, frame.positions) and np.array_equal(other.uvs, frame.uvs)  # предел `inf` - ни одного бита разницы
+
+
+def test_the_nodes_stop_the_vertex_where_the_python_frame_stops_it(row):
+    base, _, _ = row(0.25)
+    rng = np.random.default_rng(7)
+    sample = _with_limits(base, lambda item: np.where(rng.random(item.vertices.shape[0]) < 0.3, 0.25 * (1 + rng.random(item.vertices.shape[0]) * 0.2), np.inf))
+    model = pm.build_model(sample)
+    coherent = pm.coherent_slopes(model)
+    arrays = gpu.rig_arrays(**pm.coherent_rig_inputs(model, coherent))
+    p0, uv0 = pm.base_frame(sample).positions, pm.base_frame(sample).uvs
+    clamped = 0
+    for width in (0.25 * 0.9, 0.25 * 1.05, 0.25 * 1.3):
+        frame = pm.coherent_frame(model, coherent, width)
+        positions, uvs = gpu.emulate(p0, uv0, arrays, width, sample.alpha)
+        assert max(_ulps(positions, frame.positions), _ulps(uvs, frame.uvs)) <= 8.0
+        clamped += frame.clamped
+    assert clamped > 0
+
+
+def test_the_nodes_without_limits_compute_what_they_computed_before(row):
+    base, _, _ = row(0.25)
+    model = pm.build_model(base)
+    arrays = gpu.rig_arrays(**pm.gpu_rig_inputs(model))
+    assert np.isinf(arrays[gpu.VERTEX_CAP]).all() and np.isinf(arrays[gpu.LOOP_CAP]).all()
+    p0, uv0 = pm.base_frame(base).positions, pm.base_frame(base).uvs
+    f32 = np.float32
+    for width in (0.2, 0.26):
+        positions, uvs = gpu.emulate(p0, uv0, arrays, width, 0.25)
+        w, dt = f32(width), f32(f32(width) - f32(0.25))
+        live_v = (arrays[gpu.VERTEX_LOW] < w) & (w < arrays[gpu.VERTEX_HIGH])
+        old_p = (np.asarray(p0, f32).reshape(-1, 3) + arrays[gpu.SLOPE].reshape(-1, 3) * (live_v.astype(f32) * dt)[:, None]).reshape(-1)
+        live_l = (arrays[gpu.LOOP_LOW] < w) & (w < arrays[gpu.LOOP_HIGH])
+        old_uv = (np.asarray(uv0, f32).reshape(-1, 2) + arrays[gpu.UV_SLOPE].reshape(-1, 2) * (live_l.astype(f32) * f32(dt / w))[:, None]).reshape(-1)
+        assert np.array_equal(positions, old_p) and np.array_equal(uvs, old_uv)
+
+
+def test_the_limits_are_read_from_the_certificate_field_or_absent():
+    vertices = 3
+    assert pm.kernel_vertex_limits(SimpleNamespace(), vertices) is None
+    assert pm.kernel_vertex_limits(SimpleNamespace(**{pm.KERNEL_LIMIT_FIELD: (0.3, np.inf)}), vertices) is None  # не тот размер
+    raw = np.array([0.3, np.inf, 0.4]).tobytes()
+    assert np.array_equal(pm.kernel_vertex_limits(SimpleNamespace(**{pm.KERNEL_LIMIT_FIELD: raw}), vertices), [0.3, np.inf, 0.4])

@@ -8,6 +8,8 @@
 2. COST. `--events` widths swept like a drag: per event the main-thread cost of the frame and of the depsgraph evaluation that a redraw would do, with the nodes (one number into the socket)
    and with today's Python write (`foreach_set` + `mesh.update()`). Headless has no viewport: the GPU batch is not built here, the GUI probe (`tools/gpu_drag_gui_probe.py`) measures that.
 `--coherent on` (LIVE_DRAG_COHERENT_V1): 1 and the ticks compare the coherent frame (every domain follows the hand, past its window) instead of the model frame.
+`--overflow 0.02,0.05,...` (LIVE_DRAG_COHERENT_VERTEX_CLAMPED): only the metric "vertices past their limit": from the cold model, the frame shown at each relative width (the coherent one, and
+   the plain model frame for reference) against a full exact run at that width (`tools/coherent_overflow.py`: area excess per patch over the exact area, faces turned over); the vertices the frame stopped at their limit are counted too.
 3. REMOVAL. Every named removal path leaves no modifier, no attribute and no node group in the file: the cancel and the confirm (`finish_drag`), the handlers of save / load / undo
    (`envelope_width_modal`), the model drop, the stale leftover at the drag start; after the cancel the mesh is the base bit for bit.
 Last line: GPU_DRAG_OK.
@@ -27,6 +29,10 @@ sys.path.insert(0, str(HERE))
 import blender_drag_ticks as drag_ticks  # noqa: E402
 
 
+class _OverflowOnly(Exception):
+    """`--overflow`: the metric is the whole run."""
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
@@ -38,6 +44,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--span", type=float, default=0.05)
     parser.add_argument("--tolerance", type=float, default=1e-4)
     parser.add_argument("--kernel-backend", default="NATIVE")
+    parser.add_argument("--overflow", default="", help="LIVE_DRAG_COHERENT_VERTEX_CLAMPED metric only: comma-separated relative widths (e.g. 0.02,0.05,0.1,0.2,0.4)")
+    parser.add_argument("--overflow-share", type=float, default=0.01, help="area excess of a patch, as a share of its exact area, counted as spilling")
     parser.add_argument("--coherent", choices=("on", "off"), default="off")  # LIVE_DRAG_COHERENT_V1: the frame compared is the coherent one (every domain follows)
     parser.add_argument("--out", required=True)
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
@@ -227,6 +235,36 @@ def prove_removal(session, controller, decal, base_hash, report) -> None:
     report["removal_log"] = dict(preview.log_of(controller).gpu_removed)
 
 
+def measure_overflow(session, args, controller, report) -> None:
+    """The metric "vertices past their limit" (LIVE_DRAG_COHERENT_VERTEX_CLAMPED) of the shown frames against exact runs at the same widths."""
+
+    import coherent_overflow
+
+    import cftuv.envelope_width_mesh_preview as preview
+    from cftuv.envelope_width_preview_model import coherent_frame, coherent_slopes, evaluate
+
+    model = controller.width_model
+    base = model.base
+    coherent = coherent_slopes(model)
+    widths = [base.alpha * (1.0 + float(item)) for item in args.overflow.split(",") if item.strip()]
+    frames = {width: (coherent_frame(model, coherent, width), evaluate(model, width)) for width in widths}
+    laps = drag_ticks.Laps()
+    rows = []
+    for width in widths:
+        session.step(width, lean=True, laps=laps)
+        exact = controller.width_displayed
+        if exact is None or abs(exact.alpha - width) > 1e-12:
+            rows.append({"width": width, "failure": "no exact sample at the width"})
+            continue
+        shown, plain = frames[width]
+        found = coherent_overflow.overflow(shown.positions, base, exact, args.overflow_share)
+        plain_found = coherent_overflow.overflow(plain.positions, base, exact, args.overflow_share)
+        rows.append({"width": width, "rel": width / base.alpha - 1.0, "coherent": found, "plain": plain_found, "coherent_clamped": shown.clamped,
+                     "coherent_extrapolated_domains": shown.extrapolated, "plain_held_domains": plain.held_domains})
+    report["overflow"] = {"base_width": base.alpha, "vertex_limits": coherent.vertex_cap is not None, "rows": rows,
+                          "log_clamped_max": preview.log_of(controller).coherent_clamped_max}
+
+
 def main() -> int:
     args = _arguments()
     args.grade, args.ticks, args.confirms = "commit", 0, 0
@@ -254,6 +292,9 @@ def main() -> int:
         mesh.vertices.foreach_get("co", positions)
         report["base_positions"] = positions.tolist()
         controller.width_drag_active = True
+        if args.overflow:
+            measure_overflow(session, args, controller, report)
+            raise _OverflowOnly
         controller.width_gpu_drag = True
         controller.width_coherent_drag = args.coherent == "on"
         prove_equality(session, args, controller, decal, report)
@@ -269,6 +310,8 @@ def main() -> int:
         report["after_ticks_cancel_is_base"] = drag_ticks.mesh_arrays_hash(mesh) == base_hash
         prove_removal(session, controller, decal, base_hash, report)
         del report["base_positions"]
+    except _OverflowOnly:
+        report.pop("base_positions", None)
     except Exception:  # noqa: BLE001 - the traceback is the report
         report["failure"] = traceback.format_exc()
         report.pop("base_positions", None)
@@ -281,6 +324,10 @@ def main() -> int:
         print("pool shutdown:", type(exc).__name__, exc)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    if args.overflow:
+        ok = report["failure"] is None and "overflow" in report
+        print("GPU_DRAG_OVERFLOW_OK" if ok else "GPU_DRAG_OVERFLOW_FAILED")
+        return 0 if ok else 1
     ticks_ok = all(max(row["after_tick_position_diff"], row["frame_position_diff"]) < 1e-4 and max(row["after_tick_uv_diff"], row["frame_uv_diff"]) < 1e-3 for row in report.get("ticks_under_nodes", []))
     ok = (report["failure"] is None and report.get("removal_all_clean") and report.get("original_mesh_stays_base") and report.get("after_cancel_is_base")
           and report.get("after_ticks_cancel_is_base") and ticks_ok)

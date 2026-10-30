@@ -76,6 +76,14 @@ LIVE_DRAG_COHERENT_V1 = "LIVE_DRAG_COHERENT_V1"
 COHERENT_EXTRAPOLATED = "LIVE_DRAG_COHERENT_EXTRAPOLATED"
 COHERENT_FINITE_DIFFERENCE = "LIVE_DRAG_COHERENT_FINITE_DIFFERENCE"
 COHERENT_STANDING = "LIVE_DRAG_COHERENT_STANDING"
+#: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: вершина связного кадра остановлена на своей предельной ширине - конце дуги скелета (встреча со встречным фронтом) либо границе домена/патча, по сертификату ядра
+#: (`KERNEL_LIMIT_FIELD`: ширина, до которой вершина идёт своим наклоном; у вершин резки - конец интервала домена). Остальные вершины идут дальше: полоса не выходит за свой домен и за линию встречи
+#: (приближение: в точном ответе вершина после узла скелета идёт по линии встречи, а не стоит; принято координатором 2026-10-31). Без поля в сертификате предела нет (как прежде), это названо
+#: `COHERENT_NO_VERTEX_LIMITS` в журнале.
+COHERENT_VERTEX_CLAMPED = "LIVE_DRAG_COHERENT_VERTEX_CLAMPED"
+COHERENT_NO_VERTEX_LIMITS = "LIVE_DRAG_COHERENT_NO_VERTEX_LIMITS"
+#: Имя поля сертификата ядра (`ParametricCertificateV1`) с предельной шириной каждой вершины (метры ширины, float64 в порядке `position_slopes`, `inf` - предела нет).
+KERNEL_LIMIT_FIELD = "vertex_limit_widths"
 
 #: Статус заверенного интервала у ядра (`AlphaIntervalV1.status`): единственное, что здесь СЕРТИФИЦИРОВАНО вместе с аффинностью.
 INTERVAL_CERTIFIED = "CERTIFIED"
@@ -179,6 +187,8 @@ class DomainSampleV1:
     approximate_rate: float = 0.0
     #: Номера доменов (в порядке образца) соседей по стене, чьи нормали входят в смещение узлов этого домена (`MeshArraysV1.domain_partners`).
     partners: tuple = ()
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: предельная ширина каждой вершины домена (`KERNEL_LIMIT_FIELD` сертификата), `None` - поля нет.
+    limits: object | None = None
     #: Ширина, при которой посчитаны нормали смещения домена (`normals_alpha` его результата, а без неё ширина сертификата); `nan` - ширина образца. Образец инкрементального такта (`envelope_width_composite`) хранит строки обслуженных доменов как были, поэтому у домена-развёртки
     #: нормали заморожены на ширине ПРЕЖНЕГО прогона, а не образца: досягаемость приближённого кадра (`_display_reach`) считается от неё.
     normal_alpha: float = float("nan")
@@ -410,6 +420,8 @@ class PreviewFrameV1:
     estimated: int = 0
     extrapolated_reasons: tuple = ()
     coherent: bool = False
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: сколько вершин связного кадра стоят на своей предельной ширине.
+    clamped: int = 0
 
     @property
     def outcome(self) -> str:
@@ -517,7 +529,18 @@ def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_coun
         approximate_rate=float(getattr(certificate, "approximate_rate", 0.0) or 0.0) if slopes is not None else 0.0,
         partners=tuple(partners),
         normal_alpha=float(getattr(result, "normals_alpha", 0.0) or certificate.alpha) if slopes is not None else float("nan"),
+        limits=kernel_vertex_limits(certificate, int(vertices.shape[0])) if slopes is not None else None,
     )
+
+
+def kernel_vertex_limits(certificate, vertices: int):
+    """Предельные ширины вершин домена из сертификата (`KERNEL_LIMIT_FIELD`, float64) либо `None`: поля нет либо его размер не тот (тогда предела нет, как прежде)."""
+
+    raw = getattr(certificate, KERNEL_LIMIT_FIELD, None)
+    if raw is None:
+        return None
+    limits = np.frombuffer(raw, dtype=np.float64) if isinstance(raw, (bytes, bytearray, memoryview)) else np.asarray(raw, dtype=np.float64).reshape(-1)
+    return limits if limits.shape == (vertices,) else None
 
 
 def _has_slopes_to_move(result) -> bool:
@@ -1022,6 +1045,9 @@ class CoherentSlopesV1:
     kind: object
     #: `((патч, причина), ...)` стоящих доменов.
     standing: tuple
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: предельная ширина каждой вершины и каждой петли базы (не ниже ширины базы; `inf` - предела нет); `None` - ни у одного домена нет поля.
+    vertex_cap: object = None
+    loop_cap: object = None
 
     @property
     def estimated(self) -> int:
@@ -1077,7 +1103,23 @@ def coherent_slopes(model: PreviewModelV1, finite: dict | None = None) -> Cohere
     owner = kind[entries.domain]
     order = np.concatenate([np.flatnonzero(owner == 1), np.flatnonzero(owner == 0)])  # конечная разность первой: сертификат пишется последним и побеждает
     _scatter_last(a1, entries.vertex[order], slope_entries[order])
-    return CoherentSlopesV1(model, a1, e1, kind, tuple(standing))
+    vertex_cap, loop_cap = _coherent_caps(base, entries)
+    return CoherentSlopesV1(model, a1, e1, kind, tuple(standing), vertex_cap, loop_cap)
+
+
+def _coherent_caps(base: PreviewSampleV1, entries) -> tuple:
+    """`(предел вершин, предел петель)` базы (LIVE_DRAG_COHERENT_VERTEX_CLAMPED): у сваренной вершины - наименьший из пределов её доменов, у петли - предел её вершины; не ниже ширины базы."""
+
+    if not any(domain.limits is not None for domain in base.domains):
+        return None, None
+    per_entry = np.concatenate([domain.limits if domain.limits is not None else np.full(domain.vertices.shape[0], math.inf) for domain in base.domains])
+    vertex_cap = np.full(base.vertex_count, math.inf)
+    np.minimum.at(vertex_cap, entries.vertex, per_entry)
+    np.maximum(vertex_cap, base.alpha, out=vertex_cap)
+    loop_vertex = np.asarray(base.image.face_vertices, dtype=np.int64) if base.image is not None else None
+    if loop_vertex is None or loop_vertex.shape[0] != base.loop_count:
+        return vertex_cap, np.full(base.loop_count, math.inf)
+    return vertex_cap, vertex_cap[loop_vertex]
 
 
 def _coherent_outcomes(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: float) -> tuple:
@@ -1104,10 +1146,26 @@ def coherent_frame(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: flo
     if not (math.isfinite(alpha) and alpha > 0.0):
         return PreviewFrameV1(alpha, _flat32(base.positions), _flat32(base.uvs), 0, len(model.rows), (), REFUSED_ALPHA, coherent=True)
     dt = alpha - base.alpha
-    positions, uvs = (base.positions, base.uvs) if dt == 0.0 else (base.positions + coherent.a1 * dt, base.uvs + coherent.e1 * (dt / alpha))
+    clamped = _clamped(coherent, alpha)
+    if dt == 0.0:
+        positions, uvs = base.positions, base.uvs
+    elif not clamped:
+        positions, uvs = base.positions + coherent.a1 * dt, base.uvs + coherent.e1 * (dt / alpha)
+    else:
+        # Вершина на своём пределе стоит: её сдвиг - до предела (`min(alpha, предел) - alpha0`), UV - произведение `uv * alpha` на пределе, делённое на ширину кадра.
+        moved = np.minimum(alpha, coherent.vertex_cap) - base.alpha
+        moved_loops = np.minimum(alpha, coherent.loop_cap) - base.alpha
+        positions = base.positions + coherent.a1 * moved[:, None]
+        uvs = base.uvs + coherent.e1 * (moved_loops / alpha)[:, None] + base.uvs * ((moved_loops - dt) / alpha)[:, None]
     live, standing, outside, reasons = _coherent_outcomes(model, coherent, alpha)
     refusal = REFUSED_NO_MODELLED_DOMAIN if live == 0 else ""
-    return PreviewFrameV1(alpha, _flat32(positions), _flat32(uvs), live, len(standing), standing, refusal, time.perf_counter() - started, 0, outside, coherent.estimated, reasons, True)
+    return PreviewFrameV1(alpha, _flat32(positions), _flat32(uvs), live, len(standing), standing, refusal, time.perf_counter() - started, 0, outside, coherent.estimated, reasons, True, clamped)
+
+
+def _clamped(coherent: CoherentSlopesV1, alpha: float) -> int:
+    """Сколько вершин связного кадра на ширине `alpha` стоят на своём пределе (LIVE_DRAG_COHERENT_VERTEX_CLAMPED)."""
+
+    return 0 if coherent.vertex_cap is None else int((coherent.vertex_cap < alpha).sum())
 
 
 def coherent_summary(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: float) -> PreviewFrameV1:
@@ -1118,7 +1176,7 @@ def coherent_summary(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: f
         return PreviewFrameV1(alpha, None, None, 0, len(model.rows), (), REFUSED_ALPHA, coherent=True)
     live, standing, outside, reasons = _coherent_outcomes(model, coherent, alpha)
     refusal = REFUSED_NO_MODELLED_DOMAIN if live == 0 else ""
-    return PreviewFrameV1(alpha, None, None, live, len(standing), standing, refusal, 0.0, 0, outside, coherent.estimated, reasons, True)
+    return PreviewFrameV1(alpha, None, None, live, len(standing), standing, refusal, 0.0, 0, outside, coherent.estimated, reasons, True, _clamped(coherent, alpha))
 
 
 def coherent_rig_inputs(model: PreviewModelV1, coherent: CoherentSlopesV1) -> dict:
@@ -1128,6 +1186,7 @@ def coherent_rig_inputs(model: PreviewModelV1, coherent: CoherentSlopesV1) -> di
     return {
         "a1": coherent.a1, "e1": coherent.e1, "vlow": np.full(vertices, -math.inf), "vhigh": np.full(vertices, math.inf), "dlow": np.full(domains, -math.inf),
         "dhigh": np.full(domains, math.inf), "loop_counts": model.loop_counts, "quarantined": None, "vertex_quarantined": None,
+        "vcap": coherent.vertex_cap, "lcap": coherent.loop_cap,
     }
 
 
@@ -1253,7 +1312,11 @@ __all__ = (
     "ABANDON_AFTER_REFUTATIONS",
     "COHERENT_EXTRAPOLATED",
     "COHERENT_FINITE_DIFFERENCE",
+    "COHERENT_NO_VERTEX_LIMITS",
     "COHERENT_STANDING",
+    "COHERENT_VERTEX_CLAMPED",
+    "KERNEL_LIMIT_FIELD",
+    "kernel_vertex_limits",
     "CoherentSlopesV1",
     "DEVELOPABLE_MARKER",
     "DEVIATION_LIMIT_RATIO",

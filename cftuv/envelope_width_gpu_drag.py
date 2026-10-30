@@ -9,12 +9,13 @@
     `.cftuv_gn_dp`    точка, вектор   — наклон позиции вершины по ширине (`a1`; у вершины, которую модель не двигает, — ноль);
     `.cftuv_gn_vlow`, `.cftuv_gn_vhigh` точка — окно жизни вершины (`vlow`, `vhigh`; карантин и замороженные — пустое окно);
     `.cftuv_gn_duv`   угол, 2D        — `e1`: `uv = uv0 + e1 * dt / alpha`;
-    `.cftuv_gn_llow`, `.cftuv_gn_lhigh` угол — окно жизни домена петли (`dlow`, `dhigh`, карантин — пустое окно).
+    `.cftuv_gn_llow`, `.cftuv_gn_lhigh` угол — окно жизни домена петли (`dlow`, `dhigh`, карантин — пустое окно);
+    `.cftuv_gn_vcap`  точка, `.cftuv_gn_lcap` угол — предельная ширина вершины и вершины петли (LIVE_DRAG_COHERENT_VERTEX_CLAMPED, связный кадр; `inf` - предела нет).
 
 УЗЛЫ (группа `.CFTUV GPU Affine Drag`, модификатор `CFTUV GPU Affine Drag`, вход `Width`, вход `Width0` = ширина базы). Ровно формулы кадра модели:
-    dt      = Width - Width0
-    позиция = P0 + dp * (dt, если vlow < Width < vhigh, иначе 0)
-    uv      = uv0 + duv * (dt / Width, если llow < Width < lhigh, иначе 0)      (запись в слой `UVMap`, угол, 2D)
+    dt      = Width - Width0;  dv = min(Width, vcap) - Width0;  dl = min(Width, lcap) - Width0   (без предела dv = dl = dt ровно)
+    позиция = P0 + dp * (dv, если vlow < Width < vhigh, иначе 0)
+    uv      = uv0 + duv * (dl / Width, если llow < Width < lhigh, иначе 0) + uv0 * ((dl - dt) / Width, там же)   (запись в слой `UVMap`, угол, 2D; без предела второй член - ноль)
 Отличие от кадра Python — только округление: Python считает в binary64 и округляет итог до float32, узлы считают во float32. Окна сравниваются во float32: ширина в пределах
 одного ULP от края окна может решиться иначе (вершина придержана либо нет); это меряется и называется в замере (`tools/blender_gpu_drag.py`).
 
@@ -46,6 +47,8 @@ VERTEX_HIGH = ATTRIBUTE_PREFIX + "vhigh"
 UV_SLOPE = ATTRIBUTE_PREFIX + "duv"
 LOOP_LOW = ATTRIBUTE_PREFIX + "llow"
 LOOP_HIGH = ATTRIBUTE_PREFIX + "lhigh"
+VERTEX_CAP = ATTRIBUTE_PREFIX + "vcap"
+LOOP_CAP = ATTRIBUTE_PREFIX + "lcap"
 #: `(имя, тип, домен, поле foreach_set)` атрибутов узлов.
 ATTRIBUTES = (
     (SLOPE, "FLOAT_VECTOR", "POINT", "vector"),
@@ -54,6 +57,8 @@ ATTRIBUTES = (
     (UV_SLOPE, "FLOAT2", "CORNER", "vector"),
     (LOOP_LOW, "FLOAT", "CORNER", "value"),
     (LOOP_HIGH, "FLOAT", "CORNER", "value"),
+    (VERTEX_CAP, "FLOAT", "POINT", "value"),
+    (LOOP_CAP, "FLOAT", "CORNER", "value"),
 )
 
 #: Пути снятия (каждый назван в журнале превью меша).
@@ -79,6 +84,8 @@ REMOVAL_PATHS = (
 )
 #: Узлы не построились либо модификатор не принят: кадр этого перетаскивания пишет Python, как без настройки (отказ назван).
 REFUSED = "GPU_DRAG_REFUSED"
+#: Версия формулы группы узлов: группа с другой (или без) пометкой перестраивается.
+FORMULA = "GPU_AFFINE_DRAG_V1+VERTEX_CAP"
 
 
 class GpuDragError(RuntimeError):
@@ -108,8 +115,8 @@ class GpuRigV1:
 # --------------------------------------------------------------------------
 
 
-def rig_arrays(a1, e1, vlow, vhigh, dlow, dhigh, loop_counts, quarantined=None, vertex_quarantined=None) -> dict:
-    """Плоские float32 атрибутов узлов из массивов модели: карантин сложен в окна (пустое окно - никогда не жив), как в `_live_masks`."""
+def rig_arrays(a1, e1, vlow, vhigh, dlow, dhigh, loop_counts, quarantined=None, vertex_quarantined=None, vcap=None, lcap=None) -> dict:
+    """Плоские float32 атрибутов узлов из массивов модели: карантин сложен в окна (пустое окно - никогда не жив), как в `_live_masks`; пределы вершин и петель (`None` - `inf`)."""
 
     low = np.asarray(vlow, dtype=np.float64).copy()
     high = np.asarray(vhigh, dtype=np.float64).copy()
@@ -129,6 +136,8 @@ def rig_arrays(a1, e1, vlow, vhigh, dlow, dhigh, loop_counts, quarantined=None, 
         UV_SLOPE: np.ascontiguousarray(e1, dtype=np.float32).reshape(-1),
         LOOP_LOW: np.repeat(dlow, counts).astype(np.float32),
         LOOP_HIGH: np.repeat(dhigh, counts).astype(np.float32),
+        VERTEX_CAP: (np.full(low.shape[0], np.inf) if vcap is None else np.asarray(vcap, dtype=np.float64)).astype(np.float32),
+        LOOP_CAP: (np.full(int(counts.sum()), np.inf) if lcap is None else np.asarray(lcap, dtype=np.float64)).astype(np.float32),
     }
 
 
@@ -139,13 +148,15 @@ def emulate(positions, uvs, arrays: dict, width: float, base_width: float):
     w, w0 = f32(width), f32(base_width)
     dt = f32(w - w0)
     live_v = (arrays[VERTEX_LOW] < w) & (w < arrays[VERTEX_HIGH])
-    moved = live_v.astype(f32) * dt
+    moved = live_v.astype(f32) * (np.minimum(w, arrays[VERTEX_CAP]) - w0)
     p0 = np.asarray(positions, dtype=f32).reshape(-1, 3)
     out_p = p0 + arrays[SLOPE].reshape(-1, 3) * moved[:, None]
     live_l = (arrays[LOOP_LOW] < w) & (w < arrays[LOOP_HIGH])
-    scale = live_l.astype(f32) * f32(dt / w)
+    dl = np.minimum(w, arrays[LOOP_CAP]) - w0
+    scale = live_l.astype(f32) * (dl / w)
+    back = live_l.astype(f32) * ((dl - dt) / w)
     uv0 = np.asarray(uvs, dtype=f32).reshape(-1, 2)
-    out_uv = uv0 + arrays[UV_SLOPE].reshape(-1, 2) * scale[:, None]
+    out_uv = (uv0 + arrays[UV_SLOPE].reshape(-1, 2) * scale[:, None]) + uv0 * back[:, None]
     return out_p.reshape(-1), out_uv.reshape(-1)
 
 
@@ -199,6 +210,7 @@ def _build_group(bpy):
     """Группа узлов ровно с формулами кадра модели (см. докстроку модуля)."""
 
     group = bpy.data.node_groups.new(GROUP_NAME, "GeometryNodeTree")
+    group["cftuv_formula"] = FORMULA  # группа прежней формулы (без пределов), оставшаяся в файле, перестраивается
     if hasattr(group, "is_modifier"):
         group.is_modifier = True
     interface = group.interface
@@ -212,14 +224,19 @@ def _build_group(bpy):
     width, base = source.outputs[WIDTH_SOCKET], source.outputs[BASE_SOCKET]
     dt = _math(nodes, links, "SUBTRACT", width, base)
     live_v = _inside(nodes, links, _named(nodes, VERTEX_LOW, "FLOAT"), width, _named(nodes, VERTEX_HIGH, "FLOAT"))
-    moved = _math(nodes, links, "MULTIPLY", live_v, dt)
+    dv = _math(nodes, links, "SUBTRACT", _math(nodes, links, "MINIMUM", width, _named(nodes, VERTEX_CAP, "FLOAT")), base)
+    moved = _math(nodes, links, "MULTIPLY", live_v, dv)
     offset = _vector(nodes, links, "SCALE", _named(nodes, SLOPE, "FLOAT_VECTOR"), moved)
     place = nodes.new("GeometryNodeSetPosition")
     links.new(source.outputs[0], place.inputs["Geometry"])
     links.new(offset, place.inputs["Offset"])
     live_l = _inside(nodes, links, _named(nodes, LOOP_LOW, "FLOAT"), width, _named(nodes, LOOP_HIGH, "FLOAT"))
-    scale = _math(nodes, links, "MULTIPLY", live_l, _math(nodes, links, "DIVIDE", dt, width))
-    uv = _vector(nodes, links, "ADD", _named(nodes, UV_LAYER, "FLOAT_VECTOR"), _vector(nodes, links, "SCALE", _named(nodes, UV_SLOPE, "FLOAT_VECTOR"), scale))
+    dl = _math(nodes, links, "SUBTRACT", _math(nodes, links, "MINIMUM", width, _named(nodes, LOOP_CAP, "FLOAT")), base)
+    scale = _math(nodes, links, "MULTIPLY", live_l, _math(nodes, links, "DIVIDE", dl, width))
+    back = _math(nodes, links, "MULTIPLY", live_l, _math(nodes, links, "DIVIDE", _math(nodes, links, "SUBTRACT", dl, dt), width))
+    uv0 = _named(nodes, UV_LAYER, "FLOAT_VECTOR")
+    uv = _vector(nodes, links, "ADD", _vector(nodes, links, "ADD", uv0, _vector(nodes, links, "SCALE", _named(nodes, UV_SLOPE, "FLOAT_VECTOR"), scale)),
+                 _vector(nodes, links, "SCALE", uv0, back))
     store = nodes.new("GeometryNodeStoreNamedAttribute")
     store.data_type = "FLOAT2"
     store.domain = "CORNER"
@@ -238,7 +255,7 @@ def _build_group(bpy):
 
 def _group(bpy):
     group = bpy.data.node_groups.get(GROUP_NAME)
-    if group is not None and group.bl_idname == "GeometryNodeTree" and WIDTH_SOCKET in group.interface.items_tree:
+    if group is not None and group.bl_idname == "GeometryNodeTree" and WIDTH_SOCKET in group.interface.items_tree and group.get("cftuv_formula") == FORMULA:
         return group
     if group is not None:
         bpy.data.node_groups.remove(group)

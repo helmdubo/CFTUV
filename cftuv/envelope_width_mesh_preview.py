@@ -174,6 +174,9 @@ class PreviewLogV1:
     coherent_estimated_max: int = 0
     coherent_standing_max: int = 0
     coherent_reasons: tuple = ()
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: наибольшее число вершин на своём пределе в одном кадре; кадров, в которых предела нет (`LIVE_DRAG_COHERENT_NO_VERTEX_LIMITS`: сертификат без поля).
+    coherent_clamped_max: int = 0
+    coherent_without_limits: int = 0
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -200,6 +203,8 @@ class PreviewMeshStateV1:
     #: LIVE_DRAG_COHERENT_V1: сколько живых доменов идёт наклоном сертификата за окном модели и сколько - конечной разностью (у обычного кадра - нули).
     extrapolated: int = 0
     estimated: int = 0
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: вершин на своём пределе.
+    clamped: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -810,6 +815,7 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
         frame.approximate_domains,
         frame.extrapolated,
         frame.estimated,
+        frame.clamped,
     )
     controller.width_mesh_preview = state
     log = log_of(controller)
@@ -822,6 +828,10 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
         log.coherent_estimated_max = max(log.coherent_estimated_max, frame.estimated)
         log.coherent_standing_max = max(log.coherent_standing_max, frame.held_domains)
         log.coherent_reasons = frame.extrapolated_reasons
+        log.coherent_clamped_max = max(log.coherent_clamped_max, frame.clamped)
+        coherent = getattr(controller, "width_coherent", None)
+        if coherent is not None and coherent.vertex_cap is None:
+            log.coherent_without_limits += 1
     return state
 
 
@@ -1160,7 +1170,8 @@ def status_lines(controller) -> tuple[str, ...]:
         reasons = "" if log is None or not log.coherent_reasons else " (" + ", ".join(f"{name} {count}" for name, count in log.coherent_reasons) + ")"
         lines.append(
             f"Mesh {LIVE_DRAG_COHERENT_V1} (approximate, every domain follows the hand): width {state.alpha:.4g}, {state.live} domains moving, {state.extrapolated} extrapolated past their model window"
-            f"{reasons}, {state.estimated} by a finite difference, {state.held} standing; the exact frame of the rest width follows"
+            f"{reasons}, {state.estimated} by a finite difference, {state.held} standing, {state.clamped} vertices stopped at their limit (LIVE_DRAG_COHERENT_VERTEX_CLAMPED)"
+            "; the exact frame of the rest width follows"
         )
     elif state is not None:
         held = ""

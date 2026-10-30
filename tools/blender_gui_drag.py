@@ -238,7 +238,8 @@ def launch(args) -> int:
     for stale in [out, *run_dir.glob("shot_*"), *(run_dir / "requests").glob("*")]:
         stale.unlink(missing_ok=True)
     drive = ["--root", args.root, "--native-path", args.native_path, "--out", str(out), "--shots", str(run_dir), "--live", args.live, "--settle", args.settle,
-             "--gpu", args.gpu, "--coherent", args.coherent, "--workers", str(args.workers), "--pause", str(args.pause), "--view-mpp", str(args.view_mpp), "--limit", str(args.timeout - 30)]
+             "--gpu", args.gpu, "--coherent", args.coherent, "--workers", str(args.workers), "--pause", str(args.pause), "--view-mpp", str(args.view_mpp), "--limit", str(args.timeout - 30),
+             "--focus-patch", str(args.focus_patch), "--focus-mpp", str(args.focus_mpp), "--metric", args.metric]
     command = [str(BLENDER), "--enable-event-simulate", "--no-window-focus", "--window-geometry", "40", "40", "1600", "1000", str(scene), "--python", str(Path(__file__).resolve()), "--", "drive", *drive]
     started = time.monotonic()
     process = subprocess.Popen(command, env=user_environment(scratch, args.byte_check), stdout=(run_dir / "blender.log").open("w", encoding="utf-8"), stderr=subprocess.STDOUT)
@@ -302,7 +303,8 @@ def percentiles(values) -> dict:
 class Recorder:
     """Wrappers around module attributes of the tree under test and the two Blender handlers; everything is a `time.perf_counter` moment."""
 
-    def __init__(self) -> None:
+    def __init__(self, metric: bool = False) -> None:
+        self.metric = metric
         self.draws, self.deps, self.frames, self.applies, self.writes, self.nodes, self.events, self.shots = [], [], [], [], [], [], [], []
         self.originals = []
         self.handle = None
@@ -324,6 +326,7 @@ class Recorder:
         except ImportError:
             gpu = None
         self.wrap(live, "preview_mesh_now", lambda original: self._frame(original, controller, preview_model))
+        self.preview_model = preview_model
         self.wrap(live, "_apply", lambda original: self._apply(original, controller))
         for name in ("write_preview_geometry", "rebuild_mesh_from_image"):
             self.wrap(production_mesh, name, lambda original, name=name: self._timed(original, self.writes, name))
@@ -364,14 +367,29 @@ class Recorder:
                 "outcome": "NONE" if state is None else state.outcome, "regular_held": None if regular is None else regular.held_domains,
                 "reasons": {} if regular is None else dict(Counter(reason for _patch, reason in regular.held)),
                 "generations": None if log is None else len(set(log.verified.values())), "gpu": bool(getattr(controller, "width_gpu_rig", None)),
-                "extrapolated": getattr(state, "extrapolated", None), "estimated": getattr(state, "estimated", None),
+                "extrapolated": getattr(state, "extrapolated", None), "estimated": getattr(state, "estimated", None), "clamped": getattr(state, "clamped", None),
             })
+            if self.metric and state is not None and model is not None:
+                import coherent_overflow
+
+                faces, vertices = coherent_overflow.flipped(self._shown(controller, model, float(width)), model.base)
+                self.frames[-1].update({"flipped_faces": faces, "flipped_vertices": vertices})
             return state
 
         return wrapper
 
+    def _shown(self, controller, model, width: float):
+        """Positions of the frame the preview shows at `width` (the coherent frame while the coherent drag is on, the model frame otherwise), computed again for the metric."""
+
+        coherent = getattr(controller, "width_coherent", None) if getattr(controller, "width_coherent_drag", False) else None
+        if coherent is not None and coherent.model is model:
+            return self.preview_model.coherent_frame(model, coherent, width).positions
+        return self.preview_model.evaluate(model, width).positions
+
     def _apply(self, original, controller):
         def wrapper(session_controller, request, job, value):
+            model = getattr(controller, "width_model", None)
+            shown = self._shown(controller, model, float(request.alpha)) if self.metric and model is not None else None
             started = time.perf_counter()
             before = getattr(controller, "width_displayed", None)
             try:
@@ -385,6 +403,10 @@ class Recorder:
                     "layout_changed": before is not None and after is not None and before.layout_digest != after.layout_digest,
                     "plan": None if plan is None else {"incremental": bool(plan.incremental), "reason": plan.reason, "served": len(plan.served or ()), "held": dict(Counter((plan.held or {}).values()))},
                 })
+                if shown is not None and after is not None and after is not before and abs(after.alpha - float(request.alpha)) < 1e-12:
+                    import coherent_overflow
+
+                    self.applies[-1]["spill"] = coherent_overflow.overflow(shown, model.base, after)  # what was shown at this width just before, against the exact frame that replaced it
 
         return wrapper
 
@@ -499,7 +521,7 @@ class Driver:
     def __init__(self, args) -> None:
         self.args = args
         self.report: dict = {"schema": "cftuv.gui-drag.v1", "args": vars(args), "failure": None}
-        self.recorder = Recorder()
+        self.recorder = Recorder(metric=args.metric == "on")
         self.started = time.perf_counter()
         self.actions, self.index, self.t0, self.release_at, self.last_xy = [], 0, None, None, None
         self.session = {}
@@ -617,6 +639,8 @@ class Driver:
         self.report["view"] = {"pivot": view.pivot, "metres_per_pixel": view.metres_per_pixel, "shift": shift, "width": width, "region": [region.x, region.y, region.width, region.height]}
         to_window = lambda share: (int(round(region.x + point(share)[0])), int(round(region.y + point(share)[1])))  # noqa: E731
         self.actions = [("move", -0.30, 0.0), ("chord", -0.20, None)]
+        if self.args.focus_patch >= 0:  # the operator has its pivot and scale from the view at the chord; the view moves only after it
+            self.actions += [("focus", -0.15, None), ("focus_zoom", -0.10, None), ("focus_zoom", -0.06, None), ("shot", -0.02, "focus_start")]
         self.actions += [(kind, at, value) for kind, at, value in drag_plan(self.args.pause)]
         self.actions = [(kind, at, value, to_window(value) if kind == "move" else None) for kind, at, value in self.actions]
         self.shift = shift
@@ -635,6 +659,25 @@ class Driver:
         (Path(self.args.shots) / "requests").mkdir(exist_ok=True)
         (Path(self.args.shots) / "requests" / name).write_text(str(time.perf_counter()), encoding="utf-8")
         self.recorder.shots.append({"label": label, "at": time.perf_counter(), "seconds": 0.0, "path": str(Path(self.args.shots) / f"shot_{name}.png"), "problem": ""})
+
+    def focus(self) -> None:
+        """The view looks at the centroid of patch `--focus-patch` of the shown sample (world space)."""
+
+        import numpy as np
+        from mathutils import Vector
+
+        _window, area, _region = _windows()
+        sample = getattr(self.session["controller"], "width_displayed", None)
+        domains = [] if sample is None else [item for item in sample.domains if int(item.patch_id) == self.args.focus_patch]
+        if not domains:
+            self.report["focus"] = {"patch": self.args.focus_patch, "problem": "the shown sample has no domain of this patch"}
+            return
+        points = np.concatenate([sample.positions[item.vertices] for item in domains])
+        matrix = np.array(self.session["decal"].matrix_world, dtype=np.float64)
+        centre = points.mean(axis=0) @ matrix[:3, :3].T + matrix[:3, 3]
+        area.spaces.active.region_3d.view_location = Vector(centre)
+        area.tag_redraw()
+        self.report["focus"] = {"patch": self.args.focus_patch, "centre": centre.tolist(), "vertices": int(points.shape[0])}
 
     def send(self, kind: str, xy, value: str, **modifiers) -> None:
         window, _area, _region = _windows()
@@ -659,6 +702,11 @@ class Driver:
                 self.send("W", self.last_xy, "RELEASE", ctrl=True, shift=True, alt=True)
             elif kind == "shot":
                 self.shot(value)
+            elif kind == "focus":
+                self.focus()
+            elif kind == "focus_zoom":
+                _window, area, _region = _windows()
+                self.report.setdefault("focus_zoom_measured", []).append(zoom_view(area, self.args.focus_mpp))
             elif kind == "phase":
                 self.recorder.events.append((time.perf_counter(), "PHASE", value, None))
             elif kind == "release":
@@ -801,6 +849,11 @@ def analyse(recorder: Recorder, release_at, width: float) -> dict:
         "held_reasons_moving_frame_count": dict(reasons), "generations_moving": percentiles([item["generations"] for item in moving_frames if item["generations"] is not None]),
         "extrapolated_moving": percentiles([item["extrapolated"] for item in moving_frames if item["extrapolated"] is not None]),
         "estimated_moving": percentiles([item["estimated"] for item in moving_frames if item["estimated"] is not None]),
+        "clamped_moving": percentiles([item.get("clamped") for item in moving_frames if item.get("clamped") is not None]),
+        "flipped_faces_moving": percentiles([item["flipped_faces"] for item in moving_frames if "flipped_faces" in item]),
+        "flipped_vertices_moving": percentiles([item["flipped_vertices"] for item in moving_frames if "flipped_vertices" in item]),
+        "spill_at_exact": [{"alpha": round(item["alpha"], 6), "grade": item["grade"], **{key: item["spill"][key] for key in ("excess_share", "patches_spilling", "flipped_faces", "flipped_vertices", "worst_patches")}}
+                           for item in recorder.applies if "spill" in item],
         "frame_cost": percentiles([item["seconds"] for item in moving_frames]), "swaps_moving": len(moving_swaps), "swaps_total_before_release": len([item for item in ticks if release_at is None or item["at"] < release_at]),
         "pauses": per_pause, "python_writes": dict(Counter(item[2] for item in recorder.writes)), "node_calls": dict(Counter(item[2] for item in recorder.nodes)),
         "apply_cost": percentiles([item["seconds"] for item in ticks]), "shots": [item["path"] for item in recorder.shots if not item["problem"]],
@@ -822,6 +875,9 @@ def _arguments() -> argparse.Namespace:
         parser.add_argument(f"--{name}", default="on", choices=("on", "off"))
     for name in ("gpu", "coherent"):
         parser.add_argument(f"--{name}", default="off", choices=("on", "off"))
+    parser.add_argument("--focus-patch", type=int, default=-1, help="after the operator starts, the view moves to this patch (zoomed screenshots of one place); the mouse path is unchanged")
+    parser.add_argument("--focus-mpp", type=float, default=4e-4, help="metres per pixel of the focus view")
+    parser.add_argument("--metric", default="off", choices=("on", "off"), help="LIVE_DRAG_COHERENT_VERTEX_CLAMPED metric: faces turned over per frame, area spill at each exact landing (costs main-thread time: not a timing run)")
     parser.add_argument("--byte-check", default="all", choices=("all", "product"), help="all: the full snapshot byte check (reference); product: the button's default (timing)")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--pause", type=float, default=1.5)
