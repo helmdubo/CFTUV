@@ -39,7 +39,15 @@ from .envelope_width_adjust import (
     WidthEventV1,
 )
 from .envelope_width_gpu_drag import REMOVED_ON_HISTORY, REMOVED_ON_LOAD, REMOVED_ON_SAVE, REMOVED_ON_UNREGISTER
-from .envelope_width_live import follow_active_object, note_depsgraph, reconcile_after_history, strip_gpu_everywhere, sync_width_field
+from .envelope_width_live import (
+    GC_IDLE_POLL_SECONDS,
+    collect_frozen_at_idle,
+    follow_active_object,
+    note_depsgraph,
+    reconcile_after_history,
+    strip_gpu_everywhere,
+    sync_width_field,
+)
 from .envelope_width_overlay import register_overlay, unregister_overlay
 from .envelope_width_session import (
     NO_VIEW,
@@ -341,6 +349,8 @@ def register_width_tools() -> None:
         handlers = getattr(bpy.app.handlers, name)
         if handler not in handlers:
             handlers.append(handler)
+    # GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: замороженное кнопкой и тиками живёт только до простоя (таймер живёт с аддоном и переживает загрузку файла).
+    bpy.app.timers.register(collect_frozen_at_idle, first_interval=GC_IDLE_POLL_SECONDS, persistent=True)
 
 
 def unregister_width_tools() -> None:
@@ -349,7 +359,7 @@ def unregister_width_tools() -> None:
         handlers = getattr(bpy.app.handlers, name)
         while handler in handlers:
             handlers.remove(handler)
-    for timer in (_reconcile_once, _sync_once):
+    for timer in (_reconcile_once, _sync_once, collect_frozen_at_idle):
         if bpy.app.timers.is_registered(timer):
             bpy.app.timers.unregister(timer)
     unregister_overlay()

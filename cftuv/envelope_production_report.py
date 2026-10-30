@@ -2,7 +2,7 @@
 
 Чистый текст по результатам домена (`ProductionDomainResultV1`) и квитанции записи меша: ни кэшей сессии, ни пула, ни ядра. Вынесено из
 `envelope_production_export.py` ради бюджета размера модуля (поведение и имена прежние: `envelope_production_export` их переэкспортирует).
-Строка времени прогона (`production_timing_text`) осталась там: она читает счётчики прогона, которые называет тот модуль.
+Строка времени прогона (`production_timing_text`) переехала сюда же (PARENT_SERIAL_TRIM_V1): счётчики прогона называет `envelope_production_result`.
 """
 
 from __future__ import annotations
@@ -14,6 +14,25 @@ from .envelope_production_weld import (
     COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
     COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
     weld_console_lines,
+)
+from .envelope_kernel_backend import backend_timing_suffix
+from .envelope_production_result import (
+    PRODUCTION_CLIP_MEMO_HITS,
+    PRODUCTION_CLIP_MEMO_MISSES,
+    PRODUCTION_CONTENT_PREPARATION_REUSED,
+    PRODUCTION_CONTENT_RESULT_REUSED,
+    PRODUCTION_LEAN_CHECKS_DEFERRED,
+    PRODUCTION_LEAN_CHECKS_SAMPLED,
+    PRODUCTION_PREPARATION_BUILDS,
+    PRODUCTION_PREPARATION_REUSED,
+    PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED,
+    PRODUCTION_REFRESH_INCREMENTAL_SERVED,
+    PRODUCTION_REFRESH_LEAN_DOMAINS,
+    PRODUCTION_REFRESH_LEAN_FULL_DOMAINS,
+    PRODUCTION_RESULT_CACHE_HIT,
+    PRODUCTION_RESULT_CACHE_MISS,
+    REFRESH_INCREMENTAL,
+    REFRESH_LEAN,
 )
 from .envelope_stretch_lines import developable_stretch_lines
 
@@ -218,6 +237,58 @@ def export_production_json(results, directory, *, label: str = "production") -> 
     return summary
 
 
+def production_timing_text(run) -> str:
+    """Секунды прогона и работа пула в одну строку панели."""
+
+    from .envelope_queue_export import _pool_timing_suffix
+
+    kind = "cold" if run.cold else "warm"
+    reused = run.counter(PRODUCTION_PREPARATION_REUSED)
+    builds = run.counter(PRODUCTION_PREPARATION_BUILDS)
+    cached = run.counter(PRODUCTION_RESULT_CACHE_HIT)
+    computed = run.counter(PRODUCTION_RESULT_CACHE_MISS)
+    content = (run.counter(PRODUCTION_CONTENT_RESULT_REUSED) or 0) + (
+        run.counter(PRODUCTION_CONTENT_PREPARATION_REUSED) or 0
+    )
+    return (
+        f"Decal {kind} {run.wall_seconds:.2f} s | preparations reused {reused}, "
+        f"built {builds} | results cached {cached}, computed {computed}"
+        f"{_content_timing_suffix(run, content)}"
+        f"{_clip_memo_timing_suffix(run)}"
+        f"{_lean_timing_suffix(run)}"
+        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend)}"
+        f"{_pool_timing_suffix(run.profile)}"
+    )
+
+
+def _lean_timing_suffix(run) -> str:
+    """` | WIDTH_REFRESH_LEAN_V1 L lean, F full`: класс обновления назван в строке панели (у COMMIT строки нет, она прежняя)."""
+
+    if run.refresh == REFRESH_INCREMENTAL:
+        return f" | {REFRESH_INCREMENTAL} {run.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED)} served by the certificate, {run.counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED)} recomputed"
+    if run.refresh != REFRESH_LEAN:
+        return ""
+    return f" | {REFRESH_LEAN} {run.counter(PRODUCTION_REFRESH_LEAN_DOMAINS)} lean, {run.counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS)} full | LEAN_TICK_DIAGNOSTICS_DEFERRED_V1 {run.counter(PRODUCTION_LEAN_CHECKS_DEFERRED)} deferred, {run.counter(PRODUCTION_LEAN_CHECKS_SAMPLED)} sampled"
+
+
+def _clip_memo_timing_suffix(run) -> str:
+    """` | clip memo H hits, M misses`, когда у посчитанных доменов была резка с памятью стадии."""
+
+    hits, misses = run.counter(PRODUCTION_CLIP_MEMO_HITS), run.counter(PRODUCTION_CLIP_MEMO_MISSES)
+    return f" | clip memo {hits} hits, {misses} misses" if hits or misses else ""
+
+
+def _content_timing_suffix(run, content: int) -> str:
+    """` | content reused R results, P preparations`, когда хранилище по содержимому что-то отдало."""
+
+    if not content:
+        return ""
+    return (
+        f" | content reused {run.counter(PRODUCTION_CONTENT_RESULT_REUSED)} results, "
+        f"{run.counter(PRODUCTION_CONTENT_PREPARATION_REUSED)} preparations"
+    )
+
+
 __all__ = (
     "CONSOLE_DETAIL_LIMIT",
     "console_detail",
@@ -225,6 +296,7 @@ __all__ = (
     "export_production_json",
     "production_console_lines",
     "production_status_text",
+    "production_timing_text",
     "receipt_console_lines",
     "receipt_report_level",
     "receipt_status_text",

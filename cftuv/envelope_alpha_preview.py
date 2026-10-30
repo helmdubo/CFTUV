@@ -57,6 +57,8 @@ import traceback
 from dataclasses import dataclass
 from typing import Callable
 
+from .envelope_gc_pause import released
+
 #: Пауза после последнего изменения до старта счёта.
 DEBOUNCE_SECONDS = 0.15
 #: Шаг опроса таймером, пока счёт в полёте.
@@ -155,6 +157,7 @@ class ThreadedPreviewJob:
         self._cancel = threading.Event()
         self._value = None
         self._error: BaseException | None = None
+        self._handed = ""
         self._thread = threading.Thread(
             target=self._run, args=(compute,), name="CFTUV-alpha-preview", daemon=True
         )
@@ -165,6 +168,10 @@ class ThreadedPreviewJob:
         self.started_at = time.perf_counter()  # моменты старта и конца счёта (`time.perf_counter`; инструмент замера ставит планировщику тот же счётчик): разбор задержки «рука -> меш»
         try:
             self._value = compute(self._cancel)
+        except PreviewCancelled as exc:
+            # CANCELLED_TICK_WITHOUT_TRACE_V1: отмена - ход управления, а не сбой: её трасса держала бы кадры счёта (рабочий набор прогона) в цикле с этой работой
+            # (`_error` -> трасса -> кадр `_run` -> работа), даже если результат никто не возьмёт.
+            self._error = released(exc)
         except BaseException as exc:  # noqa: BLE001 - причина идёт в главный поток
             self._error = exc
         self.seconds = time.perf_counter() - started
@@ -181,13 +188,24 @@ class ThreadedPreviewJob:
         self._thread.join(timeout)
 
     def result(self):
-        """Значение либо исключение потока (`PreviewCancelled` — отмена)."""
+        """Значение либо исключение потока (`PreviewCancelled` — отмена).
+
+        Исключение отдаётся ОДИН раз (CANCELLED_TICK_WITHOUT_TRACE_V1): поднятое из этого метода, оно получает в трассу его кадр, а кадр держит работу; работа, которая
+        и дальше держала бы исключение, замкнула бы цикл, который ждёт сборщика (среди замороженного - вечно). Повторный вызов - названный `RuntimeError`, а не тихое `None`.
+        """
 
         if not self.finished:
             raise RuntimeError("preview job is still running")
         if self._error is not None:
-            raise self._error
+            raise self._hand_over()
+        if self._handed:
+            raise RuntimeError(f"the error of this preview job was handed over already: {self._handed}")
         return self._value
+
+    def _hand_over(self) -> BaseException:
+        error, self._error = self._error, None
+        self._handed = f"{type(error).__name__}: {error}"
+        return error
 
 
 class AlphaPreviewScheduler:

@@ -84,7 +84,7 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
-from .envelope_gc_pause import gc_paused, gc_paused_function
+from .envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle, gc_paused, gc_paused_function
 from .envelope_width_adjust import DEFAULT_MIN_WIDTH, WIDTH_CLAMPED_AT_FLOOR, WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
 from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
@@ -329,6 +329,31 @@ def schedule_idle_preparation(controller, record) -> None:
         return None
 
     bpy.app.timers.register(prepare, first_interval=IDLE_PREPARE_SECONDS)
+
+
+#: GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: шаг таймера простоя и тишина после последнего выхода из паузы, после которой замороженное кнопкой и тиками возвращается сборщику.
+GC_IDLE_POLL_SECONDS = 0.5
+GC_IDLE_QUIET_SECONDS = 1.0
+
+
+def gc_idle_busy(controller) -> bool:
+    """Не простой: идёт перетаскивание ширины, либо заказ ширины или alpha ещё не применён и не назван (фиксация после отпускания - тоже заказ)."""
+
+    if controller is None:
+        return False
+    return bool(controller.width_drag_active) or any(scheduler is not None and scheduler.busy for scheduler in (controller.width_live, controller.alpha_preview))
+
+
+def collect_frozen_at_idle():
+    """Таймер главного потока (`bpy.app.timers`, живёт с аддоном): в простое замороженное кнопкой и тиками возвращается сборщику, полная сборка идёт здесь (GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1)."""
+
+    try:
+        import bpy
+
+        collect_frozen_when_idle(GC_IDLE_QUIET_SECONDS, busy=gc_idle_busy(_controller_of(bpy.context)))
+    except Exception as exc:  # noqa: BLE001 - таймер не роняет цикл Blender: исход назван
+        print(f"[CFTUV][WidthLive] {GC_IDLE_COLLECT_OUTCOME}: the idle collection failed: {type(exc).__name__}: {exc}", flush=True)
+    return GC_IDLE_POLL_SECONDS
 
 
 def tag_view3d_redraw() -> None:
@@ -1279,9 +1304,11 @@ __all__ = (
     "begin_coherent_drag",
     "begin_gpu_drag",
     "begin_live_drag",
+    "collect_frozen_at_idle",
     "draw_decal_width_rows",
     "end_live_drag",
     "follow_active_object",
+    "gc_idle_busy",
     "has_preview_runs",
     "note_depsgraph",
     "flush_event_frame",

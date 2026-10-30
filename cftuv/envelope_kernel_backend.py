@@ -166,6 +166,18 @@ def environment_order(stage: str, master: str) -> str:
     return normalize_kernel_backend(ordered) if ordered else (KERNEL_BACKEND_PYTHON if stage in OPT_IN_STAGES else master)
 
 
+def _master_order(master: str, explicit) -> str:
+    """Порядок стадии без записи в среде (скелет, вложение): главный переключатель либо явное имя."""
+
+    return master if explicit is None else normalize_kernel_backend(explicit)
+
+
+def _stage_order(stage: str, master: str, explicit) -> str:
+    """Порядок стадии с записью в среде (`STAGE_ENVIRONMENT`): `environment_order` либо явное имя."""
+
+    return environment_order(stage, master) if explicit is None else normalize_kernel_backend(explicit)
+
+
 def stage_orders(
     kernel_backend=DEFAULT_KERNEL_BACKEND,
     skeleton_backend=None,
@@ -188,35 +200,36 @@ def stage_orders(
     master = normalize_kernel_backend(kernel_backend)
     return StageOrdersV1(
         master,
-        master if skeleton_backend is None else normalize_kernel_backend(skeleton_backend),
-        master if embedding_backend is None else normalize_kernel_backend(embedding_backend),
-        environment_order("effective_alpha", master) if effective_alpha_backend is None else normalize_kernel_backend(effective_alpha_backend),
-        environment_order("materialize_w1", master) if materialize_backend is None else normalize_kernel_backend(materialize_backend),
-        environment_order("snapshot_check", master) if snapshot_check_backend is None else normalize_kernel_backend(snapshot_check_backend),
-        environment_order("frame", master) if frame_backend is None else normalize_kernel_backend(frame_backend),
-        environment_order("density", master) if density_backend is None else normalize_kernel_backend(density_backend),
-        environment_order("angular", master) if angular_backend is None else normalize_kernel_backend(angular_backend),
-        environment_order("chain_station", master) if chain_station_backend is None else normalize_kernel_backend(chain_station_backend),
+        _master_order(master, skeleton_backend),
+        _master_order(master, embedding_backend),
+        _stage_order("effective_alpha", master, effective_alpha_backend),
+        _stage_order("materialize_w1", master, materialize_backend),
+        _stage_order("snapshot_check", master, snapshot_check_backend),
+        _stage_order("frame", master, frame_backend),
+        _stage_order("density", master, density_backend),
+        _stage_order("angular", master, angular_backend),
+        _stage_order("chain_station", master, chain_station_backend),
     )
 
 
 def resolve_density_backend(master, explicit=None) -> str:
-    """Зафиксировать порядок Density до передачи задачи и ключей кэша."""
+    """Зафиксировать порядок Density до передачи задачи и ключей кэша: поле `density` порядков `stage_orders`, без вывода остальных (среда читается только для Density)."""
 
-    return stage_orders(master, density_backend=explicit).density
+    return _stage_order("density", normalize_kernel_backend(master), explicit)
 
 
 def settle_stage_orders(record, master_field: str = "backend") -> None:
     """Приводит поля порядков записи (`skeleton_backend`, `embedding_backend` со значением `None` — «как главный переключатель») к конкретным именам.
 
     Для замороженных записей прогона, задачи пула и живой ширины: зовётся из их `__post_init__`, поле главного переключателя называется `master_field`.
+    Поля - те же, что дал бы `stage_orders` (`coverage_clip`, `skeleton`, `snap_embedding`), и тем же выводом (`_master_order`), но без порядков стадий со средой: запись их не несёт, а задача
+    пула строится на каждый домен каждого шага ширины (SETTLE_WITHOUT_ENVIRONMENT_V1: 12 чтений среды на задачу, ~0.02 с на тике `cover.008`).
     """
 
-    orders = stage_orders(getattr(record, master_field), record.skeleton_backend, record.embedding_backend,
-                          density_backend=getattr(record, "density_backend", None))
-    object.__setattr__(record, master_field, orders.coverage_clip)
-    object.__setattr__(record, "skeleton_backend", orders.skeleton)
-    object.__setattr__(record, "embedding_backend", orders.snap_embedding)
+    master = normalize_kernel_backend(getattr(record, master_field))
+    object.__setattr__(record, master_field, master)
+    object.__setattr__(record, "skeleton_backend", _master_order(master, record.skeleton_backend))
+    object.__setattr__(record, "embedding_backend", _master_order(master, record.embedding_backend))
 
 
 def legacy_skeleton_choice(mesh_settings):
