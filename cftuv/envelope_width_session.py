@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from .envelope_gc_pause import gc_paused_function
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
 from .envelope_width_live import (
+    begin_gpu_drag,
     begin_live_drag,
     end_live_drag,
     preview_now,
@@ -134,6 +135,7 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
     )
     runtime = AdjustRuntimeV1(session, controller, float(mesh_settings.offset), start)
     begin_drag(controller)  # пока идёт перетаскивание, действуют точные lean-кадры (`request_drag_tick`, WIDTH_REFRESH_LEAN_V1); запомнено, к чему вернёт отмена
+    begin_gpu_drag(controller, mesh_settings)  # GPU_AFFINE_DRAG_V1: кадры модели этого перетаскивания показывают узлы Blender (настройка выключена - как прежде)
     live = begin_live_drag(controller, mesh_settings)  # LIVE_DRAG_STREAM_V1: журнал живого точного меша этого перетаскивания (настройка выключена - `None`)
     if live is None:
         # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.

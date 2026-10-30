@@ -91,10 +91,12 @@ from .envelope_width_stream import SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, se
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
+from .envelope_width_gpu_drag import REMOVED_STALE
 from .envelope_width_mesh_preview import (
     capture_ownership,
     ensure_model,
     finish_live_run,
+    gpu_drag_active,
     lay_exact_now,
     lean_exact_now,
     log_of,
@@ -840,7 +842,8 @@ def _apply_lean(controller, request, job, live) -> None:
     log = controller.width_live_drag
     # LIVE_DRAG_ONE_WRITE_V1: курсор ушёл дальше ширины такта - при той же раскладке меш пишет один раз кадр модели нового образца на ширине курсора (с номерами владельцев образца), а не образец и следом кадр.
     pointer = pointer_after(log, request) if request.payload.stream else None
-    one_write = pointer is not None and same_layout_of(before, live.sample)
+    # GPU_AFFINE_DRAG_V1: узлы берут геометрию меша за базу - образец такта ложится своими числами, а к курсору его двигают узлы (одно число), не запись кадра.
+    one_write = pointer is not None and same_layout_of(before, live.sample) and not gpu_drag_active(controller)
     reason = lean_exact_now(controller, live, reframe_to=pointer) if one_write else lean_exact_now(controller, live)
     if reason:
         if request.payload.stream and log is not None:
@@ -963,6 +966,43 @@ def _live_drag_idle(controller):
     log = controller.width_live_drag
     width = idle_answer(log, controller.width_displayed, drag_active=controller.width_drag_active)
     return None if width is None else (width, log.target)
+
+
+def begin_gpu_drag(controller, mesh_settings) -> bool:
+    """GPU_AFFINE_DRAG_V1: перетаскивание началось с настройкой «GPU affine drag» (`True`) - кадры модели покажут узлы Blender. Остаток узлов от прошлого (сбой, снятие извне)
+    снимается здесь же под именем `GPU_DRAG_REMOVED_STALE`: узлы существуют только внутри своего перетаскивания."""
+
+    strip_gpu_everywhere(controller, REMOVED_STALE)
+    enabled = bool(getattr(mesh_settings, "drag_gpu_affine", False))
+    controller.width_gpu_drag = enabled
+    return enabled
+
+
+def strip_gpu_everywhere(controller, reason: str) -> int:
+    """Узлы GPU_AFFINE_DRAG_V1 сняты со всего файла (запись, загрузка, шаг истории, начало перетаскивания, снятие аддона), путь назван в журнале превью меша. Число снятых объектов и мешей."""
+
+    import bpy
+
+    from .envelope_width_gpu_drag import GROUP_NAME, MODIFIER_NAME, strip_everywhere
+
+    data = getattr(bpy, "data", None)
+    groups = getattr(data, "node_groups", None)
+    if groups is None:
+        return 0  # ограниченный контекст регистрации: данных нет, снимать нечего
+    leftover = groups.get(GROUP_NAME) is not None or any(item.modifiers.get(MODIFIER_NAME) is not None for item in data.objects if hasattr(item, "modifiers"))
+    if not leftover:
+        return 0
+    if controller is not None:
+        controller.width_gpu_rig = None
+    count = strip_everywhere()
+    if controller is not None:
+        log = log_of(controller)
+        log.gpu_removed[reason] = log.gpu_removed.get(reason, 0) + 1
+        owner = getattr(controller, "width_mesh_owner", None)
+        if owner is not None:
+            owner.note_own_write()
+    print(f"[CFTUV][WidthLive] {reason}: GPU affine drag nodes removed from {count} objects and meshes", flush=True)
+    return count
 
 
 def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
@@ -1129,6 +1169,8 @@ def draw_decal_width_rows(layout) -> None:
         layout.prop(mesh_settings, "drag_live_mesh")
         if getattr(mesh_settings, "drag_live_mesh", False):
             layout.prop(mesh_settings, "drag_settle_on_pause")  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: только при живом точном меше
+        if hasattr(mesh_settings, "drag_gpu_affine"):
+            layout.prop(mesh_settings, "drag_gpu_affine")  # GPU_AFFINE_DRAG_V1
     if problem:
         layout.label(text=problem, icon="INFO")
         return
@@ -1203,6 +1245,7 @@ __all__ = (
     "WidthPreviewStateV1",
     "active_target",
     "availability_problem",
+    "begin_gpu_drag",
     "begin_live_drag",
     "draw_decal_width_rows",
     "end_live_drag",
@@ -1225,6 +1268,7 @@ __all__ = (
     "settle_at_confirm",
     "settle_width_live",
     "status_lines",
+    "strip_gpu_everywhere",
     "sync_width_field",
     "tag_view3d_redraw",
     "target_of",

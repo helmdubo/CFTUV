@@ -50,6 +50,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--dwell", type=float, default=0.05, help="seconds between the last step and the release")
     parser.add_argument("--coalesce", default="on", choices=("on", "off"), help="LIVE_DRAG_WRITE_COALESCED_V1: on - the events queue the frame and the main loop writes one (as apply_step); off - every event writes")
     parser.add_argument("--burst", type=int, default=1, help="mouse events per step, back to back before the main loop turns (a high-poll mouse sends several per redraw)")
+    parser.add_argument("--gpu", default="off", choices=("on", "off"), help="GPU_AFFINE_DRAG_V1 ('GPU affine drag'): the model frames are shown by Geometry Nodes, not written by Python")
+    parser.add_argument("--evaluate", default="off", choices=("on", "off"), help="on: every loop turn evaluates the depsgraph as a redraw would (view_layer.update), timed in `evaluate_cost`")
     parser.add_argument("--kernel-backend", default="NATIVE")
     parser.add_argument("--out", required=True)
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
@@ -111,6 +113,17 @@ def step_metrics(events, release_at: float) -> list:
     return rows
 
 
+def _set_switches(mesh_settings, args) -> None:
+    """The drag switches of the panel, as the arguments say; a switch the tree does not have is refused by name when asked for."""
+
+    for name, wanted, value in (("drag_live_mesh", args.live == "on", args.live == "on"), ("drag_settle_on_pause", False, args.settle == "on"), ("drag_gpu_affine", args.gpu == "on", args.gpu == "on")):
+        if wanted and not hasattr(mesh_settings, name):
+            raise RuntimeError(f"this tree has no switch {name}")
+        if hasattr(mesh_settings, name):
+            setattr(mesh_settings, name, value)
+    mesh_settings.drag_exact_ticks = args.live == "ticks"  # the previous switch "Exact ticks while dragging" (debounced, cancelled by the hand)
+
+
 def run_drag(session, args, report: dict) -> None:
     import bpy
 
@@ -124,13 +137,7 @@ def run_drag(session, args, report: dict) -> None:
         stream_report = None
 
     controller, context = session.controller, bpy.context
-    if args.live == "on" and not hasattr(session.mesh_settings, "drag_live_mesh"):
-        raise RuntimeError("this tree has no LIVE_DRAG_STREAM_V1 switch (drag_live_mesh)")
-    if hasattr(session.mesh_settings, "drag_live_mesh"):
-        session.mesh_settings.drag_live_mesh = args.live == "on"
-    if hasattr(session.mesh_settings, "drag_settle_on_pause"):
-        session.mesh_settings.drag_settle_on_pause = args.settle == "on"
-    session.mesh_settings.drag_exact_ticks = args.live == "ticks"  # the previous switch "Exact ticks while dragging" (debounced, cancelled by the hand)
+    _set_switches(session.mesh_settings, args)
     scheduler = live.scheduler_of(controller)
     scheduler._timers = _NoTimers()
     scheduler._clock = time.perf_counter  # Windows `time.monotonic` ticks in 15.6 ms: the orders, the job moments and the tool share the fine counter
@@ -168,11 +175,18 @@ def run_drag(session, args, report: dict) -> None:
     if coalesce:
         live.FRAME_TIMERS = SimpleNamespace(register=lambda function, first_interval: frame_timers.append(function))
 
+    evaluate_costs: list = []
+
     def turn():
+        written = bool(frame_timers)
         while frame_timers:
             started = time.perf_counter()
             frame_timers.pop(0)()
             frame_costs.append(time.perf_counter() - started)
+        if args.evaluate == "on" and (written or not coalesce):
+            started = time.perf_counter()
+            bpy.context.view_layer.update()  # what the redraw after this turn evaluates (the GPU batch itself is not built headless)
+            evaluate_costs.append(time.perf_counter() - started)
 
     costs, samples, clock, previous = [], [], time.perf_counter(), base
     for width, pause in path:
@@ -194,6 +208,7 @@ def run_drag(session, args, report: dict) -> None:
     drive_until(scheduler, time.perf_counter() + args.dwell, turn)
     report["frame_write_cost"] = drag_ticks.stats(frame_costs)  # the coalesced frame writes on the loop turns (on: the events above cost the order only)
     report["frame_writes"] = len(frame_costs)
+    report["evaluate_cost"] = drag_ticks.stats(evaluate_costs)
     release_at = time.perf_counter()
     report["release_at"] = release_at
     log = getattr(controller, "width_live_drag", None)
