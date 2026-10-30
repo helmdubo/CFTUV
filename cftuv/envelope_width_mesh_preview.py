@@ -821,6 +821,22 @@ def _gpu_frame(controller, model, decal, width: float):
     return frame_summary(model, width)
 
 
+def _gpu_after_exact(controller, decal) -> None:
+    """Точный образец лёг в меш, пока стоят узлы прежней модели: узлы ставятся для новой модели на ширине самого образца (сдвиг ноль - меш, как его записали), иначе прежние наклоны
+    сдвинули бы новую базу второй раз. Модели нет - узлы сняты (`GPU_DRAG_REMOVED_ON_MODEL_DROP`). Кадр к курсору, если он следует, двигает уже новые узлы."""
+
+    if getattr(controller, "width_gpu_rig", None) is None:
+        return
+    from .envelope_width_gpu_drag import REMOVED_ON_MODEL_DROP
+
+    if not gpu_drag_active(controller) or not ensure_model(controller):
+        retire_gpu(controller, REMOVED_ON_MODEL_DROP)
+        return
+    model = controller.width_model
+    if _gpu_frame(controller, model, decal, model.base_alpha):
+        controller.width_mesh_owner.note_own_write()
+
+
 def _rig_object(rig):
     import bpy
 
@@ -980,6 +996,7 @@ def lean_exact_now(controller, live, *, reframe_to: float | None = None) -> str:
     owner = capture_ownership(controller, decal, sample)
     if owner is not None and same_layout and reframe_to is not None:
         owner.holds_base = False  # числа образца не писались: меш держит прежний кадр, его тут же заменит кадр к курсору
+    _gpu_after_exact(controller, decal)
     previous = controller.width_mesh_preview
     seconds = time.perf_counter() - started
     plan = live.plan

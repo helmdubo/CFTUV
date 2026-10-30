@@ -144,6 +144,36 @@ def measure_cost(session, args, controller, report) -> None:
     report["cost"] = out
 
 
+def prove_ticks(session, controller, decal, report, count: int = 3) -> None:
+    """Exact drag ticks laid while the nodes stand: after each one the evaluated mesh is the tick itself (the nodes were set again at zero shift), and a frame after it is the NEW model's frame."""
+
+    import numpy as np
+
+    import cftuv.envelope_width_mesh_preview as preview
+    from cftuv.envelope_width_preview_model import evaluate
+
+    bpy = session.bpy
+    laps = drag_ticks.Laps()
+    rows = []
+    for index in range(count):
+        base = float(controller.width_model.base_alpha)
+        preview.preview_mesh_now(controller, base * 1.004)  # the hand is away from the base: the nodes move the mesh
+        tick = session.step(base * 1.004, lean=True, laps=laps, incremental=True)
+        model = controller.width_model
+        positions, uvs, _names = _evaluated(bpy, decal)
+        at_tick = evaluate(model, model.base_alpha)
+        frame_width = model.base_alpha * 1.003
+        preview.preview_mesh_now(controller, frame_width)
+        moved_positions, moved_uvs, _names = _evaluated(bpy, decal)
+        frame = evaluate(model, frame_width)
+        rows.append({
+            "tick": tick["apply_outcome"], "plan": (tick["plan"] or {}).get("mode"), "installs": preview.log_of(controller).gpu_installs,
+            "after_tick_position_diff": float(np.abs(positions - at_tick.positions).max()), "after_tick_uv_diff": float(np.abs(uvs - at_tick.uvs).max()),
+            "frame_position_diff": float(np.abs(moved_positions - frame.positions).max()), "frame_uv_diff": float(np.abs(moved_uvs - frame.uvs).max()),
+        })
+    report["ticks_under_nodes"] = rows
+
+
 def prove_removal(session, controller, decal, base_hash, report) -> None:
     import cftuv.envelope_width_gpu_drag as gpu
     import cftuv.envelope_width_mesh_preview as preview
@@ -220,6 +250,11 @@ def main() -> int:
         measure_cost(session, args, controller, report)
         preview.finish_drag(controller, restore=True)
         report["after_cancel_is_base"] = drag_ticks.mesh_arrays_hash(mesh) == base_hash and session.mesh_module.mesh_content_digest(mesh) == base_digest
+        controller.width_drag_active = True
+        controller.width_gpu_drag = True
+        prove_ticks(session, controller, decal, report)
+        preview.finish_drag(controller, restore=True)  # the cancel after exact ticks: the mesh is what was shown before the first of them
+        report["after_ticks_cancel_is_base"] = drag_ticks.mesh_arrays_hash(mesh) == base_hash
         prove_removal(session, controller, decal, base_hash, report)
         del report["base_positions"]
     except Exception:  # noqa: BLE001 - the traceback is the report
@@ -234,7 +269,9 @@ def main() -> int:
         print("pool shutdown:", type(exc).__name__, exc)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    ok = report["failure"] is None and report.get("removal_all_clean") and report.get("original_mesh_stays_base") and report.get("after_cancel_is_base")
+    ticks_ok = all(max(row["after_tick_position_diff"], row["frame_position_diff"]) < 1e-4 and max(row["after_tick_uv_diff"], row["frame_uv_diff"]) < 1e-3 for row in report.get("ticks_under_nodes", []))
+    ok = (report["failure"] is None and report.get("removal_all_clean") and report.get("original_mesh_stays_base") and report.get("after_cancel_is_base")
+          and report.get("after_ticks_cancel_is_base") and ticks_ok)
     if report["failure"] is None:
         print(f"GPU_DRAG equality max position {report['equality_max']['position']:.3g} uv {report['equality_max']['uv']:.3g} cost {json.dumps(report['cost'])}")
     print("GPU_DRAG_OK" if ok else "GPU_DRAG_FAILED")

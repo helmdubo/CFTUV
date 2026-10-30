@@ -187,6 +187,26 @@ def test_a_dropped_model_takes_its_nodes_with_it(monkeypatch):
     assert world.rig.removed == ["decal"] and preview.log_of(world.controller).gpu_removed == {gpu.REMOVED_ON_MODEL_DROP: 1}
 
 
+def test_an_exact_sample_laid_under_the_nodes_reinstalls_them_at_zero_shift_or_removes_them_without_a_model(monkeypatch):
+    """Прежние наклоны поверх новой базы сдвинули бы её второй раз: после точной записи узлы ставятся для новой модели на ширине образца (сдвиг ноль)."""
+
+    world = _gpu_world(monkeypatch)
+    controller = world.controller
+    preview.preview_mesh_now(controller, 0.27)
+    controller.width_model = pm.build_model(world.base)  # точный такт: новая модель
+    preview._gpu_after_exact(controller, world.decal)
+    assert len(world.rig.installs) == 2 and world.rig.installs[-1][2] is controller.width_model and world.rig.widths[-1] == world.base.alpha
+    controller.width_model = None
+    controller.width_model_refusal = pm.PreviewRefusalV1("TEST")
+    preview._gpu_after_exact(controller, world.decal)
+    assert controller.width_gpu_rig is None and preview.log_of(controller).gpu_removed == {gpu.REMOVED_ON_MODEL_DROP: 1}
+    preview._gpu_after_exact(controller, world.decal)  # узлов нет - ничего
+    assert preview.log_of(controller).gpu_removed == {gpu.REMOVED_ON_MODEL_DROP: 1}
+    source = (HOST / "envelope_width_mesh_preview.py").read_text(encoding="utf-8")
+    lean = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef) and node.name == "lean_exact_now")
+    assert "_gpu_after_exact" in {getattr(node.func, "id", "") for node in ast.walk(lean) if isinstance(node, ast.Call)}
+
+
 def test_a_live_tick_under_the_nodes_lays_its_own_numbers(monkeypatch):
     """LIVE_DRAG_ONE_WRITE_V1 пишет вместо чисел такта кадр к курсору; узлы берут меш за базу, поэтому под ними такт ложится своими числами, а к курсору его двигает число в сокете."""
 
