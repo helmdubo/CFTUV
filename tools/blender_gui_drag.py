@@ -90,8 +90,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def user_environment(scratch: Path) -> dict:
-    """Environment of the started Blender: every user directory and TEMP in `scratch` (sympy and mpmath copied once into its scripts/modules), CFTUV_* switches cleared."""
+def user_environment(scratch: Path, byte_check: str = "all") -> dict:
+    """Environment of the started Blender: every user directory and TEMP in `scratch` (sympy and mpmath copied once into its scripts/modules), CFTUV_* switches cleared.
+
+    The snapshot byte check is pinned to the full check (`CFTUV_SNAPSHOT_BYTE_CHECK=all`, the field tools' reference); `byte_check="product"` leaves the button's own default, for timing
+    the drag the way the owner's button runs it (the run JSON records which).
+    """
 
     user = scratch / "bl_user"
     modules = user / "scripts" / "modules"
@@ -105,6 +109,8 @@ def user_environment(scratch: Path) -> dict:
         folder.mkdir(parents=True, exist_ok=True)
         environment[key] = str(folder)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    if byte_check == "all":
+        environment["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
     return environment
 
 
@@ -235,7 +241,7 @@ def launch(args) -> int:
              "--gpu", args.gpu, "--coherent", args.coherent, "--workers", str(args.workers), "--pause", str(args.pause), "--view-mpp", str(args.view_mpp), "--limit", str(args.timeout - 30)]
     command = [str(BLENDER), "--enable-event-simulate", "--no-window-focus", "--window-geometry", "40", "40", "1600", "1000", str(scene), "--python", str(Path(__file__).resolve()), "--", "drive", *drive]
     started = time.monotonic()
-    process = subprocess.Popen(command, env=user_environment(scratch), stdout=(run_dir / "blender.log").open("w", encoding="utf-8"), stderr=subprocess.STDOUT)
+    process = subprocess.Popen(command, env=user_environment(scratch, args.byte_check), stdout=(run_dir / "blender.log").open("w", encoding="utf-8"), stderr=subprocess.STDOUT)
     with (scratch / "pids.log").open("a", encoding="utf-8") as stream:
         stream.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {args.tag} pid={process.pid}\n")
     import threading
@@ -816,6 +822,7 @@ def _arguments() -> argparse.Namespace:
         parser.add_argument(f"--{name}", default="on", choices=("on", "off"))
     for name in ("gpu", "coherent"):
         parser.add_argument(f"--{name}", default="off", choices=("on", "off"))
+    parser.add_argument("--byte-check", default="all", choices=("all", "product"), help="all: the full snapshot byte check (reference); product: the button's default (timing)")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--pause", type=float, default=1.5)
     parser.add_argument("--view-mpp", type=float, default=1.5e-3, help="metres per pixel in the view centre (the view looks at the decal next to the pivot)")
