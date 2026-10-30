@@ -151,12 +151,12 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
     )
     drag_coherent: BoolProperty(
         name="Coherent drag",
-        default=False,
+        default=True,
         description=(
             "While Adjust Decal Width is dragged, every domain follows the hand (LIVE_DRAG_COHERENT_V1): a domain past the window of its affine certificate is extrapolated, "
             "a domain without one moves by the difference of its last two exact samples; the frame is approximate near collisions, like the preview lines. "
             "With the live exact mesh, no exact result lands while the hand moves, and when it rests ONE whole exact frame of the rest width replaces the mesh at once. "
-            "Confirming still recomputes and writes the committed result. Off by default: field test"
+            "Confirming still recomputes and writes the committed result. On by default; acts only with the live exact mesh"
         ),
     )
     status: StringProperty(name="Decal Mesh Status", default="")

@@ -172,14 +172,17 @@ def test_without_the_setting_the_stream_is_unchanged():
 
 def test_the_coherent_switch_begins_with_the_tool_and_ends_with_it():
     controller = SimpleNamespace()
-    assert live.begin_coherent_drag(controller, SimpleNamespace(drag_coherent=True)) and controller.width_coherent_drag
-    assert not live.begin_coherent_drag(controller, SimpleNamespace()) and not controller.width_coherent_drag
+    assert live.begin_coherent_drag(controller, SimpleNamespace(drag_coherent=True, drag_live_mesh=True)) and controller.width_coherent_drag
+    assert live.begin_coherent_drag(controller, SimpleNamespace(drag_live_mesh=True)) and controller.width_coherent_drag  # по умолчанию включена
+    assert not live.begin_coherent_drag(controller, SimpleNamespace(drag_coherent=False, drag_live_mesh=True)) and not controller.width_coherent_drag
+    assert not live.begin_coherent_drag(controller, SimpleNamespace(drag_coherent=True, drag_live_mesh=False)) and not controller.width_coherent_drag  # без живого меша - как прежде
+    assert not live.begin_coherent_drag(controller, SimpleNamespace(drag_coherent=True)) and not controller.width_coherent_drag
     source = (Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_session.py").read_text(encoding="utf-8")
     assert "finally:\n        controller.width_coherent_drag = False" in source  # конец инструмента снимает режим на любом пути
 
 
-def test_the_setting_exists_and_is_off_by_default():
+def test_the_setting_exists_and_is_on_by_default():
     source = (Path(__file__).resolve().parents[1] / "cftuv" / "envelope_production_operator.py").read_text(encoding="utf-8")
     assert 'drag_coherent: BoolProperty(' in source.replace("drag_coherent : ", "drag_coherent: ")
     block = source[source.index("drag_coherent"):][:400]
-    assert "default=False" in block
+    assert "default=True" in block and "default=False" not in block

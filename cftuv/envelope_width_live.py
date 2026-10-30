@@ -1041,10 +1041,13 @@ def strip_gpu_everywhere(controller, reason: str) -> int:
 
 
 def begin_coherent_drag(controller, mesh_settings) -> bool:
-    """LIVE_DRAG_COHERENT_V1: перетаскивание началось с настройкой «Coherent drag» (`True`) - кадр модели двигает каждый домен (`envelope_width_mesh_preview.coherent_now`), а живой точный меш
-    ложится только на остановке руки одним кадром ширины покоя (`envelope_width_stream`). Действует до записи ширины подтверждения (`finish_adjust`)."""
+    """LIVE_DRAG_COHERENT_V1: перетаскивание началось с настройкой «Coherent drag» и с живым точным мешем (`True`) - кадр модели двигает каждый домен (`envelope_width_mesh_preview.coherent_now`), а живой точный меш
+    ложится только на остановке руки одним кадром ширины покоя (`envelope_width_stream`). Действует до записи ширины подтверждения (`finish_adjust`).
 
-    enabled = bool(getattr(mesh_settings, "drag_coherent", False))
+    LIVE_DRAG_COHERENT_DEFAULT_ON_V1: настройка включена по умолчанию, но действует только при «Live exact mesh while dragging»; без живого меша перетаскивание - как прежде побитово.
+    """
+
+    enabled = bool(getattr(mesh_settings, "drag_coherent", True)) and bool(getattr(mesh_settings, "drag_live_mesh", False))
     controller.width_coherent_drag = enabled
     return enabled
 
