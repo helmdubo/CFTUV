@@ -69,6 +69,13 @@ from fractions import Fraction
 import numpy as np
 
 PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1 = "PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1"
+#: Кадр «связного перетаскивания» (`coherent_frame`): за рукой идёт КАЖДЫЙ домен, у которого есть хоть какой-то наклон (см. «СВЯЗНЫЙ КАДР» ниже).
+LIVE_DRAG_COHERENT_V1 = "LIVE_DRAG_COHERENT_V1"
+#: Как домен идёт за рукой в связном кадре: наклоном сертификата за окном модели (конец интервала ядра, досягаемость, карантин, сварка), конечной разностью двух последних точных образцов
+#: (у домена нет наклонов сертификата) либо стоит (нет ни того, ни другого: причина домена).
+COHERENT_EXTRAPOLATED = "LIVE_DRAG_COHERENT_EXTRAPOLATED"
+COHERENT_FINITE_DIFFERENCE = "LIVE_DRAG_COHERENT_FINITE_DIFFERENCE"
+COHERENT_STANDING = "LIVE_DRAG_COHERENT_STANDING"
 
 #: Статус заверенного интервала у ядра (`AlphaIntervalV1.status`): единственное, что здесь СЕРТИФИЦИРОВАНО вместе с аффинностью.
 INTERVAL_CERTIFIED = "CERTIFIED"
@@ -397,9 +404,17 @@ class PreviewFrameV1:
     seconds: float = 0.0
     #: Сколько из живых доменов - приближённые (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`); остальные живые точны.
     approximate_domains: int = 0
+    #: LIVE_DRAG_COHERENT_V1 (`coherent_frame`): сколько живых доменов двигает наклон сертификата ЗА окном модели (`LIVE_DRAG_COHERENT_EXTRAPOLATED`, причины окна - `extrapolated_reasons`:
+    #: `((имя, сколько), ...)`) и сколько - конечная разность двух последних точных образцов (`LIVE_DRAG_COHERENT_FINITE_DIFFERENCE`). У обычного кадра - нули.
+    extrapolated: int = 0
+    estimated: int = 0
+    extrapolated_reasons: tuple = ()
+    coherent: bool = False
 
     @property
     def outcome(self) -> str:
+        if self.coherent and not self.refusal:
+            return LIVE_DRAG_COHERENT_V1
         return self.refusal or PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1
 
 
@@ -986,6 +1001,136 @@ def gpu_rig_inputs(model: PreviewModelV1) -> dict:
     }
 
 
+# --------------------------------------------------------------------------
+# Связный кадр (LIVE_DRAG_COHERENT_V1)
+# --------------------------------------------------------------------------
+# СВЯЗНЫЙ КАДР. Обычный кадр двигает домен только внутри его окна (интервал ядра, досягаемость приближённого, не карантин), а остальные стоят на последней точной геометрии, пока
+# точный такт их не заменит: часть меша идёт за рукой, часть стоит и потом прыгает. Связный кадр - решение владельца 2026-10-30 (ослабленный контракт, как у линий превью): пока рука
+# движется, за ней идёт КАЖДЫЙ домен. Домен с наклонами сертификата идёт ими и за окном (экстраполяция, `COHERENT_EXTRAPOLATED` с причиной окна), домен без наклонов - конечной
+# разностью двух последних точных образцов той же структуры (`COHERENT_FINITE_DIFFERENCE`), а без неё стоит под именем своей причины (`COHERENT_STANDING`). Кадр ПРИБЛИЖЁН и может быть
+# виден неверным у столкновений (как линии); он только на экране: точный путь (такт на остановке руки, COMMIT) его не читает. Формулы - те же, что у обычного кадра, без окон.
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CoherentSlopesV1:
+    """Наклоны связного кадра по вершинам и петлям базы модели: у каждого домена, у которого они есть (сертификат либо конечная разность), и вид каждого домена."""
+
+    model: PreviewModelV1
+    a1: object
+    e1: object
+    #: По доменам базы: 0 - наклоны сертификата, 1 - конечная разность, 2 - стоит.
+    kind: object
+    #: `((патч, причина), ...)` стоящих доменов.
+    standing: tuple
+
+    @property
+    def estimated(self) -> int:
+        return int((self.kind == 1).sum())
+
+
+def finite_difference(prior: dict | None, sample: PreviewSampleV1) -> tuple:
+    """`(наклоны конечной разности, новый запас)` для доменов `sample` без наклонов сертификата. Запас `{(патч, домен): (ширина, структура, позиции, произведения uv*ширина)}` хранит такие домены
+    прежних образцов; наклон есть у домена той же структуры и тех же размеров на другой ширине: `(P - P') / (a - a')` и `(uv*a - uv'*a') / (a - a')` (это наклон произведения, как у сертификата)."""
+
+    prior = prior or {}
+    found, kept = {}, {}
+    for domain in sample.domains:
+        if domain.slopes is not None:
+            continue
+        key = (domain.patch_id, domain.domain_id)
+        positions = np.array(sample.positions[domain.vertices], dtype=np.float64)
+        products = np.array(sample.uvs[domain.loop_start : domain.loop_start + domain.loop_count], dtype=np.float64) * sample.alpha
+        kept[key] = (sample.alpha, domain.structure, positions, products)
+        before = prior.get(key)
+        if before is None or before[1] != domain.structure or before[2].shape != positions.shape or before[3].shape != products.shape or before[0] == sample.alpha:
+            continue
+        step = sample.alpha - before[0]
+        found[key] = ((positions - before[2]) / step, (products - before[3]) / step)
+    return found, kept
+
+
+def coherent_slopes(model: PreviewModelV1, finite: dict | None = None) -> CoherentSlopesV1:
+    """Наклоны связного кадра: сертификат у каждого домена, у которого есть числа (и тех, что модель не двигает: окно, карантин, сварка), конечная разность (`finite_difference`) у остальных.
+    На общей вершине наклон сертификата побеждает конечную разность."""
+
+    base = model.base
+    entries = _entries_of(base)
+    count = len(base.domains)
+    kind = np.full(count, 2, dtype=np.int8)
+    slope_entries = np.zeros((entries.vertex.shape[0], 3))
+    e1 = np.zeros((base.loop_count, 2))
+    standing = []
+    finite = finite or {}
+    for number, domain in enumerate(base.domains):
+        estimate = finite.get((domain.patch_id, domain.domain_id))
+        if domain.slopes is not None:
+            slopes, products, kind[number] = domain.slopes, domain.uv_slopes, 0
+        elif estimate is not None and estimate[0].shape == (domain.vertices.shape[0], 3) and estimate[1].shape == (domain.loop_count, 2):
+            (slopes, products), kind[number] = estimate, 1
+        else:
+            standing.append((domain.patch_id, _domain_reason(domain) or COHERENT_STANDING))
+            continue
+        slope_entries[entries.bounds[number] : entries.bounds[number + 1]] = slopes
+        loops = slice(domain.loop_start, domain.loop_start + domain.loop_count)
+        e1[loops] = products - base.uvs[loops]
+    a1 = np.zeros((base.vertex_count, 3))
+    owner = kind[entries.domain]
+    order = np.concatenate([np.flatnonzero(owner == 1), np.flatnonzero(owner == 0)])  # конечная разность первой: сертификат пишется последним и побеждает
+    _scatter_last(a1, entries.vertex[order], slope_entries[order])
+    return CoherentSlopesV1(model, a1, e1, kind, tuple(standing))
+
+
+def _coherent_outcomes(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: float) -> tuple:
+    """`(живые, придержанные, сколько за окном, причины окна)` связного кадра на ширине `alpha`."""
+
+    regular = _live_domains(model, alpha)
+    outside = np.flatnonzero((coherent.kind == 0) & ~regular)
+    reasons: dict = {}
+    for number in outside:
+        name = _held_reason(model, int(number), alpha)[1]
+        reasons[name] = reasons.get(name, 0) + 1
+    live = int((coherent.kind != 2).sum())
+    return live, coherent.standing, int(outside.size), tuple(sorted(reasons.items()))
+
+
+def coherent_frame(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: float) -> PreviewFrameV1:
+    """Связный кадр на ширине `alpha` (LIVE_DRAG_COHERENT_V1): `P0 + a1 * dt` и `uv0 + e1 * dt / alpha` у ВСЕХ вершин и петель базы, без окон; на ширине базы - сама база. Исходы названы."""
+
+    import time
+
+    started = time.perf_counter()
+    base = model.base
+    alpha = float(alpha)
+    if not (math.isfinite(alpha) and alpha > 0.0):
+        return PreviewFrameV1(alpha, _flat32(base.positions), _flat32(base.uvs), 0, len(model.rows), (), REFUSED_ALPHA, coherent=True)
+    dt = alpha - base.alpha
+    positions, uvs = (base.positions, base.uvs) if dt == 0.0 else (base.positions + coherent.a1 * dt, base.uvs + coherent.e1 * (dt / alpha))
+    live, standing, outside, reasons = _coherent_outcomes(model, coherent, alpha)
+    refusal = REFUSED_NO_MODELLED_DOMAIN if live == 0 else ""
+    return PreviewFrameV1(alpha, _flat32(positions), _flat32(uvs), live, len(standing), standing, refusal, time.perf_counter() - started, 0, outside, coherent.estimated, reasons, True)
+
+
+def coherent_summary(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: float) -> PreviewFrameV1:
+    """То же без массивов (GPU_AFFINE_DRAG_V1: позиции и UV считают узлы из `coherent_rig_inputs`)."""
+
+    alpha = float(alpha)
+    if not (math.isfinite(alpha) and alpha > 0.0):
+        return PreviewFrameV1(alpha, None, None, 0, len(model.rows), (), REFUSED_ALPHA, coherent=True)
+    live, standing, outside, reasons = _coherent_outcomes(model, coherent, alpha)
+    refusal = REFUSED_NO_MODELLED_DOMAIN if live == 0 else ""
+    return PreviewFrameV1(alpha, None, None, live, len(standing), standing, refusal, 0.0, 0, outside, coherent.estimated, reasons, True)
+
+
+def coherent_rig_inputs(model: PreviewModelV1, coherent: CoherentSlopesV1) -> dict:
+    """Массивы узлов (GPU_AFFINE_DRAG_V1) для связного кадра: его наклоны и окна, открытые всем (`-inf < ширина < inf`), без карантина - узлы считают то же, что `coherent_frame`."""
+
+    domains, vertices = len(model.rows), model.base.vertex_count
+    return {
+        "a1": coherent.a1, "e1": coherent.e1, "vlow": np.full(vertices, -math.inf), "vhigh": np.full(vertices, math.inf), "dlow": np.full(domains, -math.inf),
+        "dhigh": np.full(domains, math.inf), "loop_counts": model.loop_counts, "quarantined": None, "vertex_quarantined": None,
+    }
+
+
 def _empty_frame_refusal(held: tuple) -> str:
     """Имя отказа кадра без живых доменов: все придержаны карантином — `PREVIEW_ALL_DOMAINS_QUARANTINED`, иначе ширина за областью."""
 
@@ -1106,6 +1251,10 @@ def deviation(model: PreviewModelV1 | None, sample: PreviewSampleV1) -> Deviatio
 
 __all__ = (
     "ABANDON_AFTER_REFUTATIONS",
+    "COHERENT_EXTRAPOLATED",
+    "COHERENT_FINITE_DIFFERENCE",
+    "COHERENT_STANDING",
+    "CoherentSlopesV1",
     "DEVELOPABLE_MARKER",
     "DEVIATION_LIMIT_RATIO",
     "DISPLAY_APPROXIMATE_ERROR_LIMIT",
@@ -1129,6 +1278,7 @@ __all__ = (
     "DomainSampleV1",
     "DomainTrustV1",
     "INTERVAL_CERTIFIED",
+    "LIVE_DRAG_COHERENT_V1",
     "PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1",
     "PreviewFrameV1",
     "PreviewModelV1",
@@ -1156,10 +1306,15 @@ __all__ = (
     "advance_ledger",
     "base_frame",
     "build_model",
+    "coherent_frame",
+    "coherent_rig_inputs",
+    "coherent_slopes",
+    "coherent_summary",
     "deviation",
     "domain_sample_of",
     "empty_ledger",
     "evaluate",
+    "finite_difference",
     "frame_summary",
     "gpu_rig_inputs",
     "held_name",

@@ -88,7 +88,7 @@ from .envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle
 from .envelope_width_adjust import DEFAULT_MIN_WIDTH, WIDTH_CLAMPED_AT_FLOOR, WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
 from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
-from .envelope_width_stream import SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
+from .envelope_width_stream import COHERENT_DROPPED_AT_CONFIRM, SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
@@ -502,6 +502,9 @@ def settle_at_confirm(controller) -> bool:
 
     scheduler, log = getattr(controller, "width_live", None), getattr(controller, "width_live_drag", None)
     if scheduler is None or log is None or getattr(scheduler, "settling", None) is None:
+        return False
+    if log.coherent and scheduler.settling.alpha != log.cursor:
+        log.count(log.outcomes, COHERENT_DROPPED_AT_CONFIRM)  # LIVE_DRAG_COHERENT_V1: такт другой ширины не ложится перед COMMIT (второй кадр отпускания); его снимает конец перетаскивания
         return False
     applied = scheduler.release_settled_now()
     if applied:
@@ -1037,6 +1040,18 @@ def strip_gpu_everywhere(controller, reason: str) -> int:
     return count
 
 
+def begin_coherent_drag(controller, mesh_settings) -> bool:
+    """LIVE_DRAG_COHERENT_V1: перетаскивание началось с настройкой «Coherent drag» и с живым точным мешем (`True`) - кадр модели двигает каждый домен (`envelope_width_mesh_preview.coherent_now`), а живой точный меш
+    ложится только на остановке руки одним кадром ширины покоя (`envelope_width_stream`). Действует до записи ширины подтверждения (`finish_adjust`).
+
+    LIVE_DRAG_COHERENT_DEFAULT_ON_V1: настройка включена по умолчанию, но действует только при «Live exact mesh while dragging»; без живого меша перетаскивание - как прежде побитово.
+    """
+
+    enabled = bool(getattr(mesh_settings, "drag_coherent", True)) and bool(getattr(mesh_settings, "drag_live_mesh", False))
+    controller.width_coherent_drag = enabled
+    return enabled
+
+
 def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
     """Перетаскивание началось: журнал живого точного меша заведён заново, если настройка «Live exact mesh while dragging» включена (иначе `None`)."""
 
@@ -1046,6 +1061,7 @@ def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
     if log is not None:
         seed_verified(log, controller.width_displayed, controller.width_incremental)
         log.settle = bool(getattr(mesh_settings, "drag_settle_on_pause", True))  # LIVE_DRAG_SETTLE_ON_PAUSE_V1
+        log.coherent = bool(getattr(controller, "width_coherent_drag", False))  # LIVE_DRAG_COHERENT_V1
     controller.width_live_drag = log
     return log
 
@@ -1212,6 +1228,8 @@ def draw_decal_width_rows(layout) -> None:
             layout.prop(mesh_settings, "drag_settle_on_pause")  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: только при живом точном меше
         if hasattr(mesh_settings, "drag_gpu_affine"):
             layout.prop(mesh_settings, "drag_gpu_affine")  # GPU_AFFINE_DRAG_V1
+        if hasattr(mesh_settings, "drag_coherent"):
+            layout.prop(mesh_settings, "drag_coherent")  # LIVE_DRAG_COHERENT_V1
     if problem:
         layout.label(text=problem, icon="INFO")
         return
@@ -1286,6 +1304,7 @@ __all__ = (
     "WidthPreviewStateV1",
     "active_target",
     "availability_problem",
+    "begin_coherent_drag",
     "begin_gpu_drag",
     "begin_live_drag",
     "collect_frozen_at_idle",

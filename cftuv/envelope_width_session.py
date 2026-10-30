@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from .envelope_gc_pause import gc_paused_function
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
 from .envelope_width_live import (
+    begin_coherent_drag,
     begin_gpu_drag,
     begin_live_drag,
     end_live_drag,
@@ -136,6 +137,7 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
     runtime = AdjustRuntimeV1(session, controller, float(mesh_settings.offset), start)
     begin_drag(controller)  # пока идёт перетаскивание, действуют точные lean-кадры (`request_drag_tick`, WIDTH_REFRESH_LEAN_V1); запомнено, к чему вернёт отмена
     begin_gpu_drag(controller, mesh_settings)  # GPU_AFFINE_DRAG_V1: кадры модели этого перетаскивания показывают узлы Blender (настройка выключена - как прежде)
+    begin_coherent_drag(controller, mesh_settings)  # LIVE_DRAG_COHERENT_V1: за рукой идёт каждый домен, точный меш - одним кадром на остановке (настройка выключена - как прежде)
     live = begin_live_drag(controller, mesh_settings)  # LIVE_DRAG_STREAM_V1: журнал живого точного меша этого перетаскивания (настройка выключена - `None`)
     if live is None:
         # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения, и только там, где меш модели не движется.
@@ -185,18 +187,22 @@ def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
         settle_at_confirm(controller)  # LIVE_DRAG_SETTLE_AT_CONFIRM_V1: посчитанный и ждавший остановки руки такт ложится до COMMIT, пока перетаскивание ещё идёт
     controller.width_frame_pending = None  # LIVE_DRAG_WRITE_COALESCED_V1: ждавший кадр события не пишется после конца перетаскивания (подтверждение пишет кадр ширины отпускания само)
     # До записи ширины: lean-заказ, что ещё в пути, подтверждением снимается, а его результат отбрасывается. Отмена возвращает меш на то, что показывали к началу перетаскивания, побитово.
-    finish_drag(controller, restore=not commit)
-    end_live_drag(controller, runtime.session.floor_hits)  # LIVE_DRAG_STREAM_V1: строка журнала перетаскивания в консоль (настройка выключена и пол не держал ширину - ничего)
-    if commit:
-        # LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: калбэк этой записи пишет кадр меша на ширине отпускания и линий не считает, если перетаскивание шло с живым точным мешем.
-        controller.width_confirm_live = getattr(controller, "width_live_drag", None) is not None
-        try:
-            context.scene.hotspotuv_settings.envelope_debug_alpha = width
-        finally:
-            controller.width_confirm_live = False
-        return "FINISHED"
-    set_preview(runtime.controller, None)
-    return "CANCELLED"
+    try:
+        finish_drag(controller, restore=not commit)
+        end_live_drag(controller, runtime.session.floor_hits)  # LIVE_DRAG_STREAM_V1: строка журнала перетаскивания в консоль (настройка выключена и пол не держал ширину - ничего)
+        if commit:
+            # LIVE_DRAG_NO_LINES_AFTER_CONFIRM_V1: калбэк этой записи пишет кадр меша на ширине отпускания и линий не считает, если перетаскивание шло с живым точным мешем.
+            # LIVE_DRAG_COHERENT_V1: кадр отпускания - тоже связный (домены за окном не прыгают назад до COMMIT).
+            controller.width_confirm_live = getattr(controller, "width_live_drag", None) is not None
+            try:
+                context.scene.hotspotuv_settings.envelope_debug_alpha = width
+            finally:
+                controller.width_confirm_live = False
+            return "FINISHED"
+        set_preview(runtime.controller, None)
+        return "CANCELLED"
+    finally:
+        controller.width_coherent_drag = False  # LIVE_DRAG_COHERENT_V1 кончается с перетаскиванием: ползунок и кнопка пишут обычный кадр
 
 
 __all__ = (
