@@ -1155,38 +1155,53 @@ def coherent_frame(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: flo
     if not (math.isfinite(alpha) and alpha > 0.0):
         return PreviewFrameV1(alpha, _flat32(base.positions), _flat32(base.uvs), 0, len(model.rows), (), REFUSED_ALPHA, coherent=True)
     dt = alpha - base.alpha
-    clamped = _clamped(coherent, alpha)
+    vertices, loops = _beyond(coherent.vertex_cap, coherent.vertex_floor, alpha), _beyond(coherent.loop_cap, coherent.loop_floor, alpha)
+    clamped = int(vertices.shape[0])
     if dt == 0.0:
         positions, uvs = base.positions, base.uvs
-    elif not clamped:
-        positions, uvs = base.positions + coherent.a1 * dt, base.uvs + coherent.e1 * (dt / alpha)
     else:
-        # Вершина на своём пределе стоит: её сдвиг - до предела (`clip(alpha, нижний, верхний) - alpha0`), UV - произведение `uv * alpha` на пределе, делённое на ширину кадра.
-        moved = _clipped(alpha, coherent.vertex_cap, coherent.vertex_floor) - base.alpha
-        moved_loops = _clipped(alpha, coherent.loop_cap, coherent.loop_floor) - base.alpha
-        positions = base.positions + coherent.a1 * moved[:, None]
-        uvs = base.uvs + coherent.e1 * (moved_loops / alpha)[:, None] + base.uvs * ((moved_loops - dt) / alpha)[:, None]
+        positions, uvs = base.positions + coherent.a1 * dt, base.uvs + coherent.e1 * (dt / alpha)
+        if clamped:
+            # Вершина на своём пределе стоит: её сдвиг - до предела (`clip(alpha, нижний, верхний) - alpha0`), UV - произведение `uv * alpha` на пределе, делённое на ширину кадра.
+            # Переписываются только вершины и петли за пределом (кадр остальных - тот же, что без пределов, побитово; цена - по числу остановленных).
+            moved = _clipped(alpha, coherent.vertex_cap, coherent.vertex_floor, vertices) - base.alpha
+            positions[vertices] = base.positions[vertices] + coherent.a1[vertices] * moved[:, None]
+            if loops.shape[0]:
+                moved_loops = _clipped(alpha, coherent.loop_cap, coherent.loop_floor, loops) - base.alpha
+                uv0 = base.uvs[loops]
+                uvs[loops] = uv0 + coherent.e1[loops] * (moved_loops / alpha)[:, None] + uv0 * ((moved_loops - dt) / alpha)[:, None]
     live, standing, outside, reasons = _coherent_outcomes(model, coherent, alpha)
     refusal = REFUSED_NO_MODELLED_DOMAIN if live == 0 else ""
     return PreviewFrameV1(alpha, _flat32(positions), _flat32(uvs), live, len(standing), standing, refusal, time.perf_counter() - started, 0, outside, coherent.estimated, reasons, True, clamped)
 
 
-def _clipped(alpha: float, cap, floor):
-    """Ширина, до которой идёт каждая вершина (петля): `alpha` между её нижним и верхним пределом (`None` - предела нет)."""
+def _beyond(cap, floor, alpha: float):
+    """Номера вершин (петель), чей предел ширина `alpha` перешла: выше верхнего либо ниже нижнего (`None` - предела нет)."""
 
-    width = np.full(cap.shape[0] if cap is not None else floor.shape[0], alpha)
+    if cap is None and floor is None:
+        return np.zeros(0, dtype=np.int64)
+    if floor is None:
+        return np.flatnonzero(cap < alpha)
+    if cap is None:
+        return np.flatnonzero(floor > alpha)
+    return np.flatnonzero((cap < alpha) | (floor > alpha))
+
+
+def _clipped(alpha: float, cap, floor, indices):
+    """Ширина, до которой идёт каждая вершина (петля) `indices`: `alpha` между её нижним и верхним пределом (`None` - предела нет)."""
+
+    width = np.full(indices.shape[0], alpha)
     if cap is not None:
-        np.minimum(width, cap, out=width)
+        np.minimum(width, cap[indices], out=width)
     if floor is not None:
-        np.maximum(width, floor, out=width)
+        np.maximum(width, floor[indices], out=width)
     return width
 
 
 def _clamped(coherent: CoherentSlopesV1, alpha: float) -> int:
     """Сколько вершин связного кадра на ширине `alpha` стоят на своём пределе (LIVE_DRAG_COHERENT_VERTEX_CLAMPED): за верхним при росте, за нижним при сужении."""
 
-    count = 0 if coherent.vertex_cap is None else int((coherent.vertex_cap < alpha).sum())
-    return count + (0 if coherent.vertex_floor is None else int((coherent.vertex_floor > alpha).sum()))
+    return int(_beyond(coherent.vertex_cap, coherent.vertex_floor, alpha).shape[0])
 
 
 def coherent_summary(model: PreviewModelV1, coherent: CoherentSlopesV1, alpha: float) -> PreviewFrameV1:
