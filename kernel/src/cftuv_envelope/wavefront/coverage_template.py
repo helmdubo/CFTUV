@@ -19,9 +19,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from fractions import Fraction
 
+from .._cpython311 import left_fold_sum
 from ..exact_sqrt_sum import (
     ExactWorkBudgetV1,
     SqrtSumV1,
@@ -42,12 +44,18 @@ KIND_CUT = "CUT"
 
 @dataclass(frozen=True, slots=True)
 class CutPointV1:
-    """Точка отсечения на ребре грани: координаты `base + alpha * slope` (alpha - решётки), точные."""
+    """Точка отсечения на ребре грани: координаты `base + alpha * slope` (alpha - решётки), точные.
+
+    `limits` - VERTEX_ALPHA_LIMITS_V1: `(low, high)` alpha решётки (float), при которых точка доходит до конца своего ребра - того, что позади фронта (сужение), и того,
+    что впереди (расширение): корень `alpha = u_k / sqrt(q)` вершины k, тот же, что даёт событие прихода в таблице интервала. Выход за край патча и встреча со
+    встречным фронтом - одно это событие. Запись для кадра перетаскивания, а не ответ: в покрытие и резку она не входит. Пусто - точка не движется (`q = 0`).
+    """
 
     base_x: SqrtSumV1
     base_y: SqrtSumV1
     slope_x: SqrtSumV1
     slope_y: SqrtSumV1
+    limits: tuple = ()
 
     def at(self, alpha: Fraction) -> tuple[SqrtSumV1, SqrtSumV1]:
         return (self.base_x + self.slope_x.scaled(alpha), self.base_y + self.slope_y.scaled(alpha))
@@ -124,9 +132,24 @@ def _face_template(face, line, alpha, clipped, covered_area, signs, values, univ
             divisor = values[current] - values[following]
             share_slope = _divide_with_prime_universe(negative_root, divisor, universe, budget)
         slope_x, slope_y = (x1 - x0) * share_slope, (y1 - y0) * share_slope
-        bound.append(CutPointV1(point[0] - slope_x.scaled(alpha), point[1] - slope_y.scaled(alpha), slope_x, slope_y))
+        limits = () if root.is_zero else _arrival_limits(alpha, line.q, values[current], values[following])
+        bound.append(CutPointV1(point[0] - slope_x.scaled(alpha), point[1] - slope_y.scaled(alpha), slope_x, slope_y, limits))
     template = FaceTemplateV1(face.owner, KIND_CUT, tuple(bound), None, cuts)
     return template if _points_of(template, face, alpha) == clipped else None
+
+
+def _approximate(value: SqrtSumV1) -> float:
+    """Float величины для записи кадра (не для ответа): левая свёртка `c * sqrt(m)` по термам, одна и та же на любом интерпретаторе."""
+
+    return left_fold_sum(float(coefficient) * math.sqrt(radicand) for radicand, coefficient in value.terms) if value.terms else 0.0
+
+
+def _arrival_limits(alpha: Fraction, q, first: SqrtSumV1, second: SqrtSumV1) -> tuple:
+    """`(low, high)` alpha решётки прихода фронта в концы ребра: `alpha + v_k / sqrt(q)` (`v_k = u_k - alpha * sqrt(q)` при alpha шаблона; у концов отсечённого ребра знаки разные)."""
+
+    root = math.sqrt(float(q))
+    one, two = float(alpha) + _approximate(first) / root, float(alpha) + _approximate(second) / root
+    return (one, two) if one <= two else (two, one)
 
 
 def _points_of(template: FaceTemplateV1, face, alpha: Fraction):
