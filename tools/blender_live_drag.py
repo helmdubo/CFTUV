@@ -204,7 +204,8 @@ def run_drag(session, args, report: dict) -> None:
     report["drag_log"] = None if log is None else stream_report(log, scheduler.counters)
     report["scheduler_at_release"] = str(scheduler.counters)
     events = sorted(events, key=lambda item: item[3])
-    finished = SimpleNamespace(session=SimpleNamespace(width=path[-1][0], phase=PHASE_CONFIRMED), controller=controller, start_width=base, offset=runtime.offset)
+    # The tool drives the scheduler, not the session automaton: no event of its drag was raised by the floor (WIDTH_FLOOR_POSITIVE_V1), and a width below it is refused by the press (WIDTH_NOT_POSITIVE).
+    finished = SimpleNamespace(session=SimpleNamespace(width=path[-1][0], phase=PHASE_CONFIRMED, floor_hits=0), controller=controller, start_width=base, offset=runtime.offset)
     report["counters_at_release"] = str(scheduler.counters)
     assert finish_adjust(context, finished, confirmed=True) == "FINISHED"
     commit_sequence = scheduler._sequence  # the COMMIT order is the last order of the drag
