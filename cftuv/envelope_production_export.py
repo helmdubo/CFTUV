@@ -41,7 +41,6 @@ from .envelope_host_labels import record_host_tokens
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
     PreparationRefused,
-    backend_timing_suffix,
     entered_backend,
     ledger_record,
     resolve_density_backend,
@@ -56,6 +55,7 @@ from .envelope_production_report import (  # noqa: F401 - переэкспорт
     production_status_text,
     receipt_console_lines,
     receipt_report_level,
+    production_timing_text,
     receipt_status_text,
     refused_outcome_counts,
 )
@@ -982,63 +982,6 @@ def _record_lean_counters(profile, results) -> None:
                     totals[key] += value
     profile.set_counter(PRODUCTION_LEAN_CHECKS_DEFERRED, totals["LEAN_TICK_CHECKS_DEFERRED"])
     profile.set_counter(PRODUCTION_LEAN_CHECKS_SAMPLED, totals["LEAN_TICK_CHECKS_SAMPLED"])
-
-
-# --------------------------------------------------------------------------
-# Строки владельцу и свидетельства
-# --------------------------------------------------------------------------
-
-
-def production_timing_text(run: ProductionRunV1) -> str:
-    """Секунды прогона и работа пула в одну строку панели."""
-
-    from .envelope_queue_export import _pool_timing_suffix
-
-    kind = "cold" if run.cold else "warm"
-    reused = run.counter(PRODUCTION_PREPARATION_REUSED)
-    builds = run.counter(PRODUCTION_PREPARATION_BUILDS)
-    cached = run.counter(PRODUCTION_RESULT_CACHE_HIT)
-    computed = run.counter(PRODUCTION_RESULT_CACHE_MISS)
-    content = (run.counter(PRODUCTION_CONTENT_RESULT_REUSED) or 0) + (
-        run.counter(PRODUCTION_CONTENT_PREPARATION_REUSED) or 0
-    )
-    return (
-        f"Decal {kind} {run.wall_seconds:.2f} s | preparations reused {reused}, "
-        f"built {builds} | results cached {cached}, computed {computed}"
-        f"{_content_timing_suffix(run, content)}"
-        f"{_clip_memo_timing_suffix(run)}"
-        f"{_lean_timing_suffix(run)}"
-        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend, density_backend=run.density_backend)}"
-        f"{_pool_timing_suffix(run.profile)}"
-    )
-
-
-def _lean_timing_suffix(run: ProductionRunV1) -> str:
-    """` | WIDTH_REFRESH_LEAN_V1 L lean, F full`: класс обновления назван в строке панели (у COMMIT строки нет, она прежняя)."""
-
-    if run.refresh == REFRESH_INCREMENTAL:
-        return f" | {REFRESH_INCREMENTAL} {run.counter(PRODUCTION_REFRESH_INCREMENTAL_SERVED)} served by the certificate, {run.counter(PRODUCTION_REFRESH_INCREMENTAL_RECOMPUTED)} recomputed"
-    if run.refresh != REFRESH_LEAN:
-        return ""
-    return f" | {REFRESH_LEAN} {run.counter(PRODUCTION_REFRESH_LEAN_DOMAINS)} lean, {run.counter(PRODUCTION_REFRESH_LEAN_FULL_DOMAINS)} full | LEAN_TICK_DIAGNOSTICS_DEFERRED_V1 {run.counter(PRODUCTION_LEAN_CHECKS_DEFERRED)} deferred, {run.counter(PRODUCTION_LEAN_CHECKS_SAMPLED)} sampled"
-
-
-def _clip_memo_timing_suffix(run: ProductionRunV1) -> str:
-    """` | clip memo H hits, M misses`, когда у посчитанных доменов была резка с памятью стадии."""
-
-    hits, misses = run.counter(PRODUCTION_CLIP_MEMO_HITS), run.counter(PRODUCTION_CLIP_MEMO_MISSES)
-    return f" | clip memo {hits} hits, {misses} misses" if hits or misses else ""
-
-
-def _content_timing_suffix(run: ProductionRunV1, content: int) -> str:
-    """` | content reused R results, P preparations`, когда хранилище по содержимому что-то отдало."""
-
-    if not content:
-        return ""
-    return (
-        f" | content reused {run.counter(PRODUCTION_CONTENT_RESULT_REUSED)} results, "
-        f"{run.counter(PRODUCTION_CONTENT_PREPARATION_REUSED)} preparations"
-    )
 
 
 __all__ = (
