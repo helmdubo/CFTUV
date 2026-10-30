@@ -14,6 +14,7 @@ import zlib
 from dataclasses import dataclass, field, fields, replace
 
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
+from .envelope_view_bytes import cached_view, put_view
 from .surface_ir import HOST_DECAL_TOPOLOGY_POLICY, HostDecalTopologyPolicy
 
 #: Закон UV продукта. Реестр законов — `envelope_request_policy`.
@@ -191,6 +192,10 @@ PICKLE_PROTOCOL = 5
 HEAVY_COMPRESSION_LEVEL = 1
 
 
+def _no_view():  # у `view` нет значения класса: иначе чтение вида из байтов (VIEW_BYTES_V1) не дошло бы до `__getattr__`
+    return None
+
+
 @dataclass(frozen=True)
 class ProductionDomainResultV1:
     """Исход продуктового пути по ОДНОМУ домену: батч либо названный отказ.
@@ -208,7 +213,8 @@ class ProductionDomainResultV1:
     дайджестом, `content_digest` — sha256 канонических байтов того же батча (оба - чистые функции батча). Тихо не пропадает
     ничего: полей нет в `__dict__`, но чтение их достаёт, пикл несёт `heavy`, сравнение сравнивает прочитанное.
     `dataclasses.replace` на отложенном результате честно разворачивает его (и сбрасывает `view` и `heavy`: у нового результата
-    они не наследуются); сохраняет отложенность только `with_changes`.
+    они не наследуются); сохраняет отложенность только `with_changes`. Вид отложенный и lean-результат несут байтами (`view_bytes`, VIEW_BYTES_V1:
+    `envelope_view_bytes`), и `view` разбирается из них при первом чтении в те же кортежи, что у `build_domain_view`; пикл несёт байты, а не разобранный вид.
 
     Не входят в сравнение: секунды и `placement` — где посчитан домен. Размещение
     — свойство запуска, а не ответа (так же, как счётчики пула отладки).
@@ -264,9 +270,10 @@ class ProductionDomainResultV1:
     #: Что нативный бэкенд сделал с доменом (`BackendRecordV1`: кто посчитал, названный откат на Python) либо `None` (`PYTHON`).
     backend_record: object | None = field(default=None, compare=False, repr=False)
     #: `DomainViewV1` (`envelope_production_view`), посчитанный воркером, и пикл `(батч, нормали вершин)` отложенного результата.
-    #: Не аргументы конструктора: у результата, собранного заново, их нет (чужой вид к новому батчу не прикладывается).
-    view: object | None = field(default=None, init=False, compare=False, repr=False)
+    #: Не аргументы конструктора: у результата, собранного заново, их нет (чужой вид к новому батчу не прикладывается). `view_bytes` - вид байтами, из них разбирается `view`.
+    view: object | None = field(default_factory=_no_view, init=False, compare=False, repr=False)
     heavy: bytes | None = field(default=None, init=False, compare=False, repr=False)
+    view_bytes: bytes | None = field(default=None, init=False, compare=False, repr=False)
     #: `WIDTH_REFRESH_LEAN_V1` (`lean_result`): вид посчитан, а батча, нормалей вершин и дайджеста содержимого НЕТ ПО ПОСТРОЕНИЮ (чтение - `LeanResultError`).
     #: Такой результат не ложится ни в какой кэш и не переносится на другую ревизию: он про одно обновление ширины, а не про зафиксированный ответ.
     lean: bool = field(default=False, compare=False)
@@ -292,6 +299,8 @@ class ProductionDomainResultV1:
             else:
                 self._thaw()
             return self.__dict__[name]
+        if name == "view":
+            return cached_view(self)
         raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     def _thaw(self) -> None:
@@ -320,6 +329,8 @@ class ProductionDomainResultV1:
             # Развёрнутое лежит и в `heavy`: дважды его не пикляют (отложенность переживает пересылку).
             state.pop("batch", None)
             state.pop("vertex_normals", None)
+        if state.get("view_bytes") is not None:
+            state.pop("view", None)  # VIEW_BYTES_V1: разобранный вид - производное байтов, пикл несёт байты
         return state
 
     def materialized(self, with_digest: bool = True) -> "ProductionDomainResultV1":
@@ -335,6 +346,7 @@ class ProductionDomainResultV1:
             state["content_digest"] = self._content_digest_of(state["batch"]) if with_digest else ""
         state.pop("heavy")
         state.pop("view", None)
+        state.pop("view_bytes", None)
         copy = object.__new__(type(self))
         copy.__dict__.update(state)
         return copy
@@ -356,6 +368,7 @@ class ProductionDomainResultV1:
         state.update(changes)
         if _VIEW_INPUT_FIELDS & changes.keys():
             state.pop("view", None)
+            state.pop("view_bytes", None)
         copy = object.__new__(type(self))
         copy.__dict__.update(state)
         return copy
@@ -370,10 +383,8 @@ def deferred_result(result: ProductionDomainResultV1) -> ProductionDomainResultV
 
     if result.__dict__.get("lean") or result.__dict__.get("heavy") is not None or result.batch is None:
         return result
-    from .envelope_production_view import build_domain_view
-
     state = dict(result.__dict__)
-    state["view"] = build_domain_view(result)
+    put_view(state, result)
     packed = pickle.dumps((state.pop("batch"), state.pop("vertex_normals")), protocol=PICKLE_PROTOCOL)
     state["heavy"] = zlib.compress(packed, HEAVY_COMPRESSION_LEVEL)
     if not state.get("content_digest"):
@@ -392,10 +403,8 @@ def lean_result(result: ProductionDomainResultV1) -> ProductionDomainResultV1:
 
     if result.__dict__.get("lean") or result.__dict__.get("heavy") is not None or result.batch is None:
         return result
-    from .envelope_production_view import build_domain_view
-
     state = dict(result.__dict__)
-    state["view"] = build_domain_view(result)
+    put_view(state, result)
     for name in _LAZY_FIELDS:
         state.pop(name, None)
     state["lean"] = True
@@ -415,6 +424,7 @@ def rebased_result(result: ProductionDomainResultV1, *, view, certificate) -> Pr
     for name in _LAZY_FIELDS:
         state.pop(name, None)
     state.pop("heavy", None)
+    state.pop("view_bytes", None)  # байты - вид ПРЕЖНЕЙ ширины: у копии разобранный вид новой
     frozen_at = float(getattr(result, "normals_alpha", 0.0) or result.parametric.alpha)
     state.update(view=view, parametric=certificate, lean=True, placement=PLACEMENT_REBASED, seconds=0.0, clip_memo="", step_path="REBASED", normals_alpha=frozen_at)
     copy = object.__new__(type(result))

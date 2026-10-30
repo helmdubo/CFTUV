@@ -51,8 +51,9 @@ import os
 import threading
 from array import array
 from collections import Counter
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from fractions import Fraction
+from operator import attrgetter
 
 from ..exact_sqrt_sum import SqrtSumV1, unlimited_reference_budget
 from .clip import cut_domain
@@ -201,6 +202,18 @@ class ParametricCertificateV1:
     @property
     def is_affine(self) -> bool:
         return not self.markers and not self.approximate
+
+    def __getstate__(self) -> tuple:
+        return _CERTIFICATE_STATE(self)
+
+    def __setstate__(self, state) -> None:
+        for name, value in zip(_CERTIFICATE_FIELDS, state):
+            object.__setattr__(self, name, value)
+
+
+#: SLOTS_STATE_TUPLE_V1 (`backend.BackendRecordV1`): сертификат едет в каждом ответе домена; состояние пикла - кортеж значений полей, имена раз на класс.
+_CERTIFICATE_FIELDS = tuple(item.name for item in fields(ParametricCertificateV1))
+_CERTIFICATE_STATE = attrgetter(*_CERTIFICATE_FIELDS)
 
 
 def unavailable(alpha: Fraction, scale: int, name: str, detail: str = "") -> ParametricCertificateV1:

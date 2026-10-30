@@ -150,7 +150,8 @@ def test_with_changes_keeps_the_deferral_and_replace_unpacks_it_honestly():
 
     kept = deferred.with_changes(placement="cache", seconds=0.0, clip_memo="")
     assert {"batch", "vertex_normals", "content_digest"}.isdisjoint(kept.__dict__)
-    assert kept.heavy is deferred.heavy and kept.view is deferred.view and kept.placement == "cache"
+    assert kept.heavy is deferred.heavy and kept.view_bytes is deferred.view_bytes and kept.placement == "cache"  # VIEW_BYTES_V1: копия делит байты вида
+    assert kept.view == deferred.view
 
     moved = deferred.with_changes(patch_id=99)
     assert moved.patch_id == 99 and moved.view is None and moved.heavy is deferred.heavy  # чужой вид снят, пикл остался

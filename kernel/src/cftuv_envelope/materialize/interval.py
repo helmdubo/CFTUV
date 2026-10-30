@@ -44,8 +44,9 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from fractions import Fraction
+from operator import attrgetter
 
 from .. import float_filter
 from .._cpython311 import left_fold_sum
@@ -488,6 +489,18 @@ class AlphaIntervalV1:
             "scope": list(SCOPE),
             "uncertified": list(UNCERTIFIED),
         }
+
+    def __getstate__(self) -> tuple:
+        return _INTERVAL_STATE(self)
+
+    def __setstate__(self, state) -> None:
+        for name, value in zip(_INTERVAL_FIELDS, state):
+            object.__setattr__(self, name, value)
+
+
+#: SLOTS_STATE_TUPLE_V1 (`backend.BackendRecordV1`): интервал едет в каждом ответе домена; состояние пикла - кортеж значений полей, имена раз на класс.
+_INTERVAL_FIELDS = tuple(item.name for item in fields(AlphaIntervalV1))
+_INTERVAL_STATE = attrgetter(*_INTERVAL_FIELDS)
 
 
 def event_table(prepared, triangles, lift_key: str) -> EventTableV1:

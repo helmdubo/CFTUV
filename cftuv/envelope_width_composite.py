@@ -64,11 +64,11 @@ class CompositeV1:
 
 
 def structure_token_of(view) -> str:
-    """Токен локальной структуры вида домена (тот же, что кладёт в образец `build_mesh_arrays`): грани, швы, ссылки вершин, число петель UV."""
+    """Токен локальной структуры вида домена (тот же, что кладёт в образец `build_mesh_arrays`): грани, швы, ссылки вершин, число петель UV; у вида из байтов воркера - из заголовка (VIEW_BYTES_V1)."""
 
-    from .envelope_production_mesh import _structure_token
+    from .envelope_production_view import structure_token
 
-    return _structure_token(view)
+    return structure_token(view)
 
 
 def _layout_cache(displayed: PreviewSampleV1) -> dict:

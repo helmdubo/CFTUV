@@ -15,8 +15,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .envelope_production_weld import DomainVerticesV1, boundary_chain_names
 
@@ -33,6 +34,8 @@ class DomainViewV1:
 
     `failure` — `(исход, деталь)`, если писатель домен не примет (`ADAPTER_*`); тогда остальные поля пусты.
     `boundary_chains` — `boundary_chain_names(батч)`: вход отчёта шва (`seam_report_of_chains`).
+    `token` — токен структуры (`structure_token`), если его уже посчитали (VIEW_BYTES_V1: воркер кладёт его в заголовок байтов вида); пусто - считается по требованию.
+    Поле производное: в сравнение и `repr` не входит.
     """
 
     failure: tuple | None
@@ -43,12 +46,27 @@ class DomainViewV1:
     seams: tuple
     boundary_chains: tuple
     source_revision: str
+    token: str = field(default="", compare=False, repr=False)
 
     @property
     def arrays(self) -> tuple:
         """`(вершины, грани, uv, владельцы, швы)` — то, что кладёт в меш `build_mesh_arrays`."""
 
         return self.vertices, self.faces, self.uvs, self.owners, self.seams
+
+
+def structure_token(view: DomainViewV1) -> str:
+    """Токен локальной структуры домена: грани, швы и ссылки вершин в локальной нумерации (чисел позиций и UV в нём нет).
+
+    Два точных прогона одного домена с равным токеном кладут вершины и петли в меш одинаково, и превью ширины вправе
+    сравнивать их по номерам (`envelope_width_preview_model`). Номера владельцев (`claim:N`) в токен не входят: они меняют
+    лишь целочисленный атрибут граней, а не геометрию. Посчитанный (`view.token`) заново не считается.
+    """
+
+    if view.token:
+        return view.token
+    text = repr((view.faces, view.seams, view.vertices.refs, len(view.uvs)))
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=10).hexdigest()
 
 
 def _finite(values) -> bool:
@@ -156,4 +174,5 @@ __all__ = (
     "OUTCOME_NORMAL_OPPOSES_SOURCE",
     "OUTCOME_VERTEX_MISSING",
     "build_domain_view",
+    "structure_token",
 )

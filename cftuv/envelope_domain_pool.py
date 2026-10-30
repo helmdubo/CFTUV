@@ -82,6 +82,7 @@ import time
 import traceback
 from collections import deque
 from dataclasses import dataclass, field, fields, replace
+from operator import attrgetter
 
 from .envelope_gc_pause import gc_paused
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
@@ -285,6 +286,18 @@ class DomainTaskResultV1:
     @property
     def refused(self) -> bool:
         return not self.error and self.refusal is not None
+
+    def __getstate__(self) -> tuple:
+        return _TASK_RESULT_STATE(self)
+
+    def __setstate__(self, state) -> None:
+        for name, value in zip(_TASK_RESULT_FIELDS, state):
+            object.__setattr__(self, name, value)
+
+
+#: SLOTS_STATE_TUPLE_V1 (`cftuv_envelope.backend.BackendRecordV1`): ответ домена - кортеж значений полей, имена раз на класс (пикл `dataclass(slots=True)` зовёт `fields` на каждом объекте).
+_TASK_RESULT_FIELDS = tuple(item.name for item in fields(DomainTaskResultV1))
+_TASK_RESULT_STATE = attrgetter(*_TASK_RESULT_FIELDS)
 
 
 @dataclass(frozen=True, slots=True)
