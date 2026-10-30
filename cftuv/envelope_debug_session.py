@@ -316,6 +316,9 @@ class EnvelopeDebugSessionController:
         self.width_confirm_live = False
         #: `(ширина, сдвиг)` кадра события руки, который ещё не записан (LIVE_DRAG_WRITE_COALESCED_V1: пишет таймер, один раз на такт главного цикла) либо `None`.
         self.width_frame_pending = None
+        #: GPU_AFFINE_DRAG_V1 (`envelope_width_gpu_drag`): перетаскивание идёт с настройкой «GPU affine drag» и что поставлено на объект декали (`GpuRigV1`) либо `None`.
+        self.width_gpu_drag = False
+        self.width_gpu_rig = None
         #: `SourceCheckV1`: отпечаток массивов меша источника и отпечаток ревизии, что полный путь дал для него (`envelope_source_check`): шаг ширины не обходит bmesh, пока байты те же.
         self.width_source_check = None
         self.reset_width_mesh_preview()
@@ -579,6 +582,8 @@ class EnvelopeDebugSessionController:
         self.width_live_drag = None
         self.width_confirm_live = False
         self.width_frame_pending = None
+        self.width_gpu_drag = False
+        self.width_gpu_rig = None  # остаток на объекте (если был) снимают запись файла, загрузка и начало следующего перетаскивания (`GPU_DRAG_REMOVED_*`)
         self.width_source_check = None
         self.reset_width_mesh_preview()
         self._invalidation_count += 1
