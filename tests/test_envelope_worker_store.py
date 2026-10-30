@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import pickle
+from collections import deque
 import random
 import sys
 from fractions import Fraction
@@ -36,7 +37,6 @@ from cftuv.envelope_domain_pool import (  # noqa: E402
     DomainTaskResultV1,
     DomainTaskV1,
     PoolStatsV1,
-    _exchange,
     _PendingTasks,
     _PoolCounter,
     encode_frame,
@@ -256,15 +256,16 @@ def test_a_task_without_the_blob_that_the_worker_does_not_hold_is_a_request_not_
 
 
 class _FakeWorker:
-    """Воркер без процесса: держит подготовки так же, как настоящий, и отвечает заготовкой."""
+    """Воркер без процесса: держит подготовки так же, как настоящий, читает задачи по порядку отправки и отвечает заготовкой в том же порядке (труба)."""
 
     def __init__(self, *, forget=()):
         self.index = 0
+        self.dead = False
         self.held = PreparationLruV1()
         self.memory = PreparationLruV1()
         self.forget = set(forget)
         self.frames: list[bytes] = []
-        self._reply = None
+        self.replies: deque = deque()
 
     def send(self, frame):
         self.frames.append(frame)
@@ -272,15 +273,29 @@ class _FakeWorker:
         inputs = task.production
         if inputs.blob is not None:
             self.memory.add(inputs.key, len(inputs.blob))
-            self._reply = DomainTaskResultV1(task.task_id, queue_domain=object())
+            self.replies.append(DomainTaskResultV1(task.task_id, queue_domain=object()))
         elif inputs.key in self.memory and inputs.key not in self.forget:
             self.memory.touch(inputs.key)
-            self._reply = DomainTaskResultV1(task.task_id, queue_domain=object())
+            self.replies.append(DomainTaskResultV1(task.task_id, queue_domain=object()))
         else:
-            self._reply = DomainTaskResultV1(task.task_id, needs_blob=True)
+            self.replies.append(DomainTaskResultV1(task.task_id, needs_blob=True))
 
     def receive(self, timeout=None):
-        return self._reply
+        return self.replies.popleft()
+
+
+def _run_one_worker(worker, tasks):
+    run = pool_module._Run({}, [worker], list(tasks), None)
+    assert run.execute() is None
+    return run
+
+
+def _exchange(worker, task, counted):
+    """Одна задача через прогон с одним воркером (PIPELINED_LANES_V1): ответ воркера; счёт пересылок прогона добавлен к `counted`."""
+
+    run = _run_one_worker(worker, [task])
+    counted.add(**{name: value for name, value in run.counted._values.items() if name not in ("owner", "unowned", "stolen")})  # noqa: SLF001
+    return run.results[task.task_id]
 
 
 def _keyed_task(task_id, size, key):
@@ -296,7 +311,7 @@ def test_a_blob_goes_once_and_every_later_send_to_the_same_worker_is_a_bare_key(
     frame = task_frame(task)  # LAZY_BLOB_FRAME_V1: кадр очереди - ключ без пикла, полный кадр кодирует `_exchange`, когда пикл едет
 
     for _ in range(3):
-        assert _exchange(worker, task, frame, counted).ok
+        assert _exchange(worker, task, counted).ok
 
     stats = counted.stats(0, 0.0, 0.0)
     assert worker.frames == [encode_frame(task), frame, frame]
@@ -328,7 +343,7 @@ def test_a_run_starts_a_feed_thread_only_for_a_worker_that_can_get_a_task(monkey
         workers = []
         for index in range(4):
             worker = _FakeWorker()
-            worker.index, worker.dead, worker.on_reply_bytes = index, False, None
+            worker.index = index
             workers.append(worker)
         started = []
         monkeypatch.setattr(threading, "Thread", lambda *args, **kwargs: started.append(kwargs["args"][0].index) or real(*args, **kwargs))
@@ -339,34 +354,53 @@ def test_a_run_starts_a_feed_thread_only_for_a_worker_that_can_get_a_task(monkey
         assert sorted(run.results) == list(range(1, count + 1)) and all(reply.ok for reply in run.results.values())
 
 
+def test_a_blob_a_worker_lost_ships_behind_the_task_already_in_its_pipe_and_every_reply_lands_on_its_task(monkeypatch):
+    """PIPELINED_LANES_V1: воркер держит две задачи; первая ушла ключом, а воркер подготовку потерял - пикл уходит в хвост трубы, ЗА второй, и ответ каждой задачи
+    приходит к ней (ответы воркера идут по порядку отправки). Зеркало и память воркера сходятся: обе держат обе подготовки."""
+
+    monkeypatch.setattr(pool_module, "PIPELINE_DEPTH", 2)
+    worker = _FakeWorker()
+    tasks = [_keyed_task(index + 1, 3000 - 100 * index, key) for index, key in enumerate("abcdef")]  # ни одна не крупная: каждая дешевле четверти всех
+    assert all(reply.ok for reply in _run_one_worker(worker, tasks).results.values())  # воркер держит все шесть
+    worker.forget.add("a")
+    worker.frames.clear()
+
+    run = _run_one_worker(worker, tasks)
+
+    assert all(run.results[task.task_id].ok and not run.results[task.task_id].needs_blob for task in tasks)
+    frames = [task_frame(task) for task in tasks]
+    assert worker.frames == [frames[0], frames[1], encode_frame(tasks[0]), *frames[2:]]  # ключ, ключ, затем пикл первой - за второй, уже лежащей в трубе
+    stats = run.counted.stats(0, 0.0, 0.0)
+    assert (stats.blob_hits, stats.blob_misses, stats.blobs_shipped) == (5, 1, 1)
+    assert worker.held.keys == worker.memory.keys == tuple("bacdef")  # зеркало и память воркера в одном порядке давности
+
+
 def test_a_worker_that_lost_the_blob_asks_for_it_and_the_exchange_heals():
     worker, counted = _FakeWorker(), _PoolCounter()
     task = _keyed_task(1, 3000, "k")
-    frame = task_frame(task)
-    assert _exchange(worker, task, frame, counted).ok
+    assert _exchange(worker, task, counted).ok
     worker.forget.add("k")  # воркер вытеснил подготовку, а зеркало родителя об этом не знает
 
-    reply = _exchange(worker, task, frame, counted)
+    reply = _exchange(worker, task, counted)
 
     assert reply.ok and not reply.needs_blob
     stats = counted.stats(0, 0.0, 0.0)
     assert (stats.blob_misses, stats.blobs_shipped, stats.blob_hits) == (1, 2, 0)
     worker.forget.clear()
-    assert _exchange(worker, task, frame, counted).ok and counted.stats(0, 0.0, 0.0).blob_hits == 1
+    assert _exchange(worker, task, counted).ok and counted.stats(0, 0.0, 0.0).blob_hits == 1
 
 
 def test_a_failed_blob_task_is_forgotten_by_the_mirror_so_the_next_send_ships_again():
     worker, counted = _FakeWorker(), _PoolCounter()
     task = _keyed_task(1, 2000, "k")
-    worker._reply = None
     original_send = worker.send
 
     def failing(frame):
         original_send(frame)
-        worker._reply = DomainTaskResultV1(1, error="Traceback: boom")
+        worker.replies[-1] = DomainTaskResultV1(1, error="Traceback: boom")
 
     worker.send = failing
-    assert _exchange(worker, task, task_frame(task), counted).error
+    assert _exchange(worker, task, counted).error
     assert "k" not in worker.held
 
 
@@ -376,7 +410,7 @@ def test_a_task_without_a_key_is_sent_whole_and_touches_no_memory():
 
     worker.send = lambda frame: worker.frames.append(frame)
     worker.receive = lambda timeout=None: DomainTaskResultV1(1, queue_domain=object())
-    assert _exchange(worker, task, encode_frame(task), counted).ok
+    assert _exchange(worker, task, counted).ok and worker.frames == [encode_frame(task)]
     stats = counted.stats(0, 0.0, 0.0)
     assert (stats.blobs_shipped, stats.blob_hits, stats.blob_misses) == (0, 0, 0) and len(worker.held) == 0
 

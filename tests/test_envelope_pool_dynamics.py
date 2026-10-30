@@ -3,8 +3,9 @@
 Утверждение одно: пул меняет КОГДА воркер получает работу, а не ЧТО он отвечает и в каком порядке это видно снаружи. Поэтому здесь не ускорение (оно измерено на поле, см. `DECISIONS.md`), а
 что держит ответ прежним при любом порядке прихода ответов:
 
-* EARLY_DISPATCH_BEFORE_UNPICKLE_V1 - следующая ХОЛОДНАЯ задача уходит воркеру сразу после БАЙТОВ ответа на предыдущую, до их разбора. Выбор задачи тот же, что у `take` (очередь из одних холодных
-  задач отдаёт голову любому воркеру), задач у воркера по-прежнему одна в работе, а принятие ответов родителем идёт по номеру задачи (`results.get(task_id)`), а не по приходу.
+* PIPELINED_LANES_V1 - воркер держит до `PIPELINE_DEPTH` задач: следующая уже лежит в его трубе, пока он считает текущую. Вторая задача берётся только тогда, когда очередь отдаёт её сразу и
+  выбор не зависит от ещё не прочитанной памяти воркера (`take_behind`); пишет воркеру только его поток, ответы одного воркера идут по порядку отправки, а принятие ответов родителем - по номеру
+  задачи (`results.get(task_id)`), а не по приходу.
 * HEAD_STREAMED_FIRST_ROUND_V1 - первый круг стартует по отбору кандидатов (число цепочек, без кодирования всех кадров), остаток упорядочивается, пока воркеры считают; порядок ВСЕХ задач тот же, что у полного
   порядка, когда точный первый круг лежит среди кандидатов, и отказ упорядочения не вешает воркеров.
 * Названные потери: умерший воркер с задачей, ушедшей вперёд, и отмена посреди прогона не теряют задачу молча.
@@ -102,28 +103,16 @@ class _Marker:
         return "value"
 
 
-def test_the_bytes_of_a_frame_are_read_before_it_is_unpickled_and_the_hook_time_is_not_unpickle_time():
-    stream = io.BytesIO(encode_frame(_Marker()))
-    _Marker.log.clear()
-
-    value, length, cpu, wall = read_frame_sized(stream, lambda: (_Marker.log.append("between"), time.sleep(0.05)))
-
-    assert _Marker.log == ["between", "unpickled"]
-    assert value == "value" and length == len(encode_frame(_Marker())) - pool_module.FRAME_HEADER.size
-    assert wall < 0.05  # разбор измерен после вызова, а не вместе с ним
-    assert read_frame_sized(stream) is None
-
-
-def test_a_frame_cut_in_the_middle_is_an_error_and_never_reaches_the_hook():
+def test_a_frame_is_measured_apart_from_the_pipe_and_a_frame_cut_in_the_middle_is_an_error():
     frame = encode_frame(("ready", 7))
-    calls = []
+    value, length, _cpu, _wall = read_frame_sized(io.BytesIO(frame))
+    assert value == ("ready", 7) and length == len(frame) - pool_module.FRAME_HEADER.size
     with pytest.raises(EOFError):
-        read_frame_sized(io.BytesIO(frame[:-2]), lambda: calls.append(1))
-    assert calls == []
+        read_frame_sized(io.BytesIO(frame[:-2]))
 
 
 # --------------------------------------------------------------------------
-# 2. Очередь: вперёд ответа выбирается только то, что выбрал бы `take`
+# 2. Очередь: задача в трубу занятого воркера - только то, что выбрал бы `take`, и только без ожидания
 # --------------------------------------------------------------------------
 
 
@@ -135,23 +124,33 @@ def _items(*kinds):
     return out
 
 
-def test_take_ahead_gives_the_head_of_a_queue_of_cold_tasks_exactly_as_take_would():
-    ahead, plain = pool_module._PendingTasks(_items("cold", "cold", "cold"), 1.0), pool_module._PendingTasks(_items("cold", "cold", "cold"), 1.0)
+def test_take_behind_gives_what_take_would_while_nothing_heavy_or_of_another_kind_is_in_the_way():
     worker = type("W", (), {"held": {}})()
+    for kind in ("cold", "warm"):
+        behind, plain = pool_module._PendingTasks(_items(kind, kind, kind), 2.0), pool_module._PendingTasks(_items(kind, kind, kind), 2.0)  # холодная стоит 1, тёплая 1/32: ни одна не крупная
+        in_flight = _items(kind)  # у воркера в работе задача того же рода: зеркало и память воркера меняются в одном порядке
 
-    assert [ahead.take_ahead()[0].task_id for _ in range(3)] == [plain.take(worker)[0].task_id for _ in range(3)] == [0, 1, 2]
-    assert ahead.take_ahead() is None and plain.take(worker) is None
+        assert [behind.take_behind(worker, in_flight)[0].task_id for _ in range(3)] == [plain.take(worker)[0].task_id for _ in range(3)] == [0, 1, 2]
+        assert behind.take_behind(worker, in_flight) is None and plain.take(worker) is None
+        assert pool_module._PendingTasks(_items(kind), 2.0).take_behind(worker, [])[0].task_id == 0  # пустой воркер берёт как `take`
 
 
-def test_take_ahead_declines_while_a_task_that_depends_on_the_workers_memory_is_queued():
-    pending = pool_module._PendingTasks(_items("cold", "warm", "cold"), 1.0)
+def test_take_behind_declines_at_once_where_take_would_wait_or_the_choice_is_not_settled():
     worker = type("W", (), {"held": {}})()
+    pending = pool_module._PendingTasks()
+    assert pending.take_behind(worker, []) is None  # очередь ещё не наполнена: `take` ждал бы, а здесь ответ сразу
 
-    assert pending.take_ahead() is None  # теплая задача где-то в очереди: выбор зависит от памяти воркера
+    pending.fill(_items("cold", "warm"), 2.0)
+    assert pending.take_behind(worker, _items("cold")) is None  # в работе холодная, в очереди тёплая: ответ холодной ещё пополнит память воркера
+    assert pending.take_behind(worker, _items("warm")) is None  # в работе тёплая, в очереди холодная: пересланный пикл тёплой ушёл бы за холодной
+    heavy = [(task, b"x" * 64) for task, _frame in _items("warm")]  # 64 / 32 = 2: крупная
     assert pending.take(worker)[0].task_id == 0
-    assert pending.take_ahead() is None
-    assert pending.take(worker)[0].task_id == 1  # тёплую забрали...
-    assert pending.take_ahead()[0].task_id == 2  # ...и очередь из одних холодных снова отдаёт голову вперёд
+    assert pending.take_behind(worker, heavy) is None  # за крупной задачей в работе не ждут: другие воркеры свободны раньше
+    assert pending.take_behind(worker, _items("warm"))[0].task_id == 1
+
+    big_head = pool_module._PendingTasks([*heavy, *_items("cold")], 2.0)
+    assert big_head.take_behind(worker, []) is None  # крупная в голове очереди идёт свободному воркеру, а не в хвост занятому
+    assert big_head.take(worker)[0].task_id == 0
 
 
 # --------------------------------------------------------------------------
@@ -184,34 +183,51 @@ def _run_stub(pool, delays):
     return run, sequence, arrival
 
 
-def test_a_cold_batch_gives_the_same_results_whatever_the_arrival_order_and_whether_tasks_go_ahead(_stub_workers, monkeypatch):
+def _record_behind(monkeypatch):
+    behind = []
+    original = pool_module._PendingTasks.take_behind
+
+    def recording(self, worker, queued):
+        found = original(self, worker, queued)
+        if found is not None:
+            behind.append(found[0].task_id)
+        return found
+
+    monkeypatch.setattr(pool_module._PendingTasks, "take_behind", recording)
+    return behind
+
+
+def test_a_cold_batch_gives_the_same_results_whatever_the_arrival_order_and_the_depth_of_the_lanes(_stub_workers, monkeypatch):
     sends = _record_sends(monkeypatch)
+    behind = _record_behind(monkeypatch)
     pool = DomainPool(3)
     pool.ensure_started()
     count = 48
     outcomes = {}
-    early_sends = {}
-    for early in (True, False):
-        monkeypatch.setattr(pool_module, "EARLY_DISPATCH", early)
+    queued = {}
+    for depth in (1, 2):
+        monkeypatch.setattr(pool_module, "PIPELINE_DEPTH", depth)
         for seed in (1, 2, 3):
             sends.clear()
+            behind.clear()
             run, sequence, arrival = _run_stub(pool, _delays(seed, count))
-            outcomes[(early, seed)] = (sequence, arrival, run.stats)
-            early_sends[(early, seed)] = sum("_pump_frames" in name for name in sends)
+            outcomes[(depth, seed)] = (sequence, arrival, run.stats)
+            queued[(depth, seed)] = len(behind)
             assert len(sends) == count  # каждая задача ушла ровно один раз
+            assert all(name.startswith("Thread-") and "_pump_frames" not in name for name in sends)  # пишет воркеру только его поток
     pool.close()
 
-    baseline = outcomes[(False, 1)][0]
+    baseline = outcomes[(1, 1)][0]
     assert baseline == [(index, ("echo", index, f"d{index}")) for index in range(count)]
-    # то, что видно снаружи: ответы по номеру задачи и пересылки - те же при любых паузах, порядке прихода и моменте отправки
+    # то, что видно снаружи: ответы по номеру задачи и пересылки - те же при любых паузах, порядке прихода и глубине трубы
     for key, (sequence, _arrival, stats) in outcomes.items():
         assert sequence == baseline, key
-        assert stats.bytes_sent == outcomes[(False, key[1])][2].bytes_sent, key  # те же кадры (паузы разных зёрен пишутся разной длиной, поэтому сравнение внутри зерна)
+        assert stats.bytes_sent == outcomes[(1, key[1])][2].bytes_sent, key  # те же кадры (паузы разных зёрен пишутся разной длиной, поэтому сравнение внутри зерна)
         assert (stats.blob_hits, stats.blobs_shipped, stats.blob_misses, stats.tasks_to_owner, stats.tasks_stolen) == (0, 0, 0, 0, 0), key
-    # тест не пустой: порядки прихода различны, а вперёд уходит большинство задач ровно тогда, когда это включено
-    assert len({outcomes[(early, seed)][1] for early in (True, False) for seed in (1, 2, 3)}) >= 3
-    assert all(early_sends[(False, seed)] == 0 for seed in (1, 2, 3))
-    assert all(early_sends[(True, seed)] >= count // 2 for seed in (1, 2, 3)), early_sends
+    # тест не пустой: порядки прихода различны, а в трубу занятого воркера уходит большинство задач ровно тогда, когда глубина больше одной
+    assert len({outcomes[(depth, seed)][1] for depth in (1, 2) for seed in (1, 2, 3)}) >= 3
+    assert all(queued[(1, seed)] == 0 for seed in (1, 2, 3))
+    assert all(queued[(2, seed)] >= count // 2 for seed in (1, 2, 3)), queued
 
 
 def test_a_batch_with_a_warm_task_is_dispatched_by_the_workers_own_thread_only(_stub_workers, monkeypatch):
@@ -225,7 +241,7 @@ def test_a_batch_with_a_warm_task_is_dispatched_by_the_workers_own_thread_only(_
         pool.close()
 
     assert sorted(run.results) == list(range(13))
-    assert not any("_pump_frames" in name for name in sends)  # теплая задача в очереди: выбор может зависеть от памяти воркера, вперёд ответа не выбирается
+    assert len(sends) == 13 and not any("_pump_frames" in name for name in sends)  # поток-читатель воркеру не пишет никогда
 
 
 # --------------------------------------------------------------------------
@@ -339,7 +355,7 @@ def test_a_failed_ordering_of_the_rest_releases_the_workers_and_reaches_the_call
 # --------------------------------------------------------------------------
 
 
-def test_a_worker_that_dies_names_the_running_task_and_the_one_sent_ahead_and_the_others_are_answered(_stub_workers):
+def test_a_worker_that_dies_names_the_running_task_and_the_one_queued_behind_it_and_the_others_are_answered(_stub_workers):
     pool = DomainPool(3)
     count = 30
     delays = [0.01] * count
@@ -354,7 +370,7 @@ def test_a_worker_that_dies_names_the_running_task_and_the_one_sent_ahead_and_th
     assert sorted(run.results) == list(range(count))  # ни одна задача не пропала молча
     dead = {task_id for task_id, result in run.results.items() if result.error}
     assert 17 in dead and all("worker died" in run.results[task_id].error for task_id in dead)
-    assert len(dead) <= 2  # умерший воркер держал не больше одной задачи в работе и не больше одной, ушедшей вперёд
+    assert len(dead) <= pool_module.PIPELINE_DEPTH  # умерший воркер держал не больше одной задачи в работе и не больше одной в трубе за ней
     assert all(run.results[task_id].snapshot == ("echo", task_id, f"d{task_id}") for task_id in set(run.results) - dead)
 
 

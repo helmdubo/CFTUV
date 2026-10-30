@@ -407,19 +407,16 @@ def read_frame_bytes(stream) -> bytes | None:
     return payload
 
 
-def read_frame_sized(stream, between=None):
+def read_frame_sized(stream):
     """`(объект, длина кадра, CPU разбора, стена разбора)` либо `None` на чистом конце потока.
 
     Обрыв посреди кадра - не конец, а `EOFError`: отличить «воркер закончил» от
-    «воркер умер на записи» иначе нечем. Разбор (`pickle.loads`) измерен отдельно от чтения трубы. `between()` зовут, когда байты кадра
-    прочитаны, а разбор ещё не начат (EARLY_DISPATCH_BEFORE_UNPICKLE_V1): время вызова в разбор не входит.
+    «воркер умер на записи» иначе нечем. Разбор (`pickle.loads`) измерен отдельно от чтения трубы.
     """
 
     payload = read_frame_bytes(stream)
     if payload is None:
         return None
-    if between is not None:
-        between()
     cpu, wall = time.thread_time(), time.perf_counter()
     value = pickle.loads(payload)
     return value, len(payload), time.thread_time() - cpu, time.perf_counter() - wall
@@ -443,7 +440,7 @@ def task_frame(task: DomainTaskV1) -> bytes:
 
     Шаг ширины находит подготовку у воркера почти всегда (на `cover.008` 1045 из 1053 задач уходят ключом), а полный кадр кодировался для каждой
     задачи заранее: 66.8 МБ пиклов за нажатие, которые не уходили, и второй, ключевой кадр - в потоке воркера, под GIL, между ответом воркера и его
-    следующей задачей. Теперь ключевой кадр кодируется один раз здесь, а полный - только когда пикл едет (`_exchange`). Байты в трубе те же.
+    следующей задачей. Теперь ключевой кадр кодируется один раз здесь, а полный - только когда пикл едет (`_ship`). Байты в трубе те же.
     """
 
     return encode_frame(task if _blob_input(task) is None else _key_only(task))
@@ -887,8 +884,6 @@ class _Worker:
         self.received_bytes = 0
         self.unpickle_cpu = 0.0
         self.unpickle_wall = 0.0
-        #: Зовётся потоком-читателем, когда байты КАЖДОГО ответа прочитаны, а разбор ещё не начат (`DomainPool._run_locked` ставит его на прогон и снимает): следующая задача уходит воркеру до разбора ответа.
-        self.on_reply_bytes = None
         self._stdout_closed = False
         self._inbox: queue.Queue = queue.Queue()
         self._stderr_tail: deque = deque(maxlen=STDERR_TAIL_LINES)
@@ -910,7 +905,7 @@ class _Worker:
     def _pump_frames(self) -> None:
         try:
             while True:
-                sized = read_frame_sized(self.process.stdout, self._reply_bytes_read)
+                sized = read_frame_sized(self.process.stdout)
                 if sized is None:
                     break
                 frame, length, cpu, wall = sized
@@ -922,11 +917,6 @@ class _Worker:
             self._inbox.put(_WorkerGone(f"{type(exc).__name__}: {exc}"))
         self._stdout_closed = True
         self._inbox.put(_GONE)
-
-    def _reply_bytes_read(self) -> None:
-        hook = self.on_reply_bytes
-        if hook is not None:
-            hook(self)
 
     def _pump_stderr(self) -> None:
         try:
@@ -1056,26 +1046,29 @@ def _checked_identity(host: dict, reply) -> dict:
     return reply[1]
 
 
-#: EARLY_DISPATCH_BEFORE_UNPICKLE_V1: следующая холодная задача уходит воркеру, как только прочитаны БАЙТЫ ответа на предыдущую, а не после его разбора (разбор ответа - 1.1 мс процессора родителя, 1.9 мс стены
-#: под GIL, и всё это время воркер стоял без задачи: зазор между задачами на холодной `cover.008` 3.2 -> 0.45 мс, стена пула -0.13 с). Выбор задачи, порядок очереди и число задач у воркера (одна в работе) те же;
-#: выключатель - для теста, что порядок всего видимого прежний.
-EARLY_DISPATCH = True
+#: PIPELINED_LANES_V1: сколько задач воркер держит одновременно - одну считает, следующая уже лежит в его трубе. Замер критического пути (`cover.008`, w12, тик ширины):
+#: воркеры заняты 63 % окна пула, а зазор между ответом воркера и его следующей задачей - 1.9 мс медианы (4 мс p90) при задаче ~4 мс: ответ ждёт GIL родителя (разбор,
+#: поток воркера, выбор, отправка), и всё это время воркер стоит. Вторая задача в трубе прячет этот зазор: воркер берёт её сам, как только отправил ответ. Ответ задачи от
+#: момента отправки не зависит (родитель принимает ответы по номеру задачи), порядок ответов одного воркера - порядок отправки. Заменяет EARLY_DISPATCH_BEFORE_UNPICKLE_V1
+#: (следующая холодная задача уходила из потока-читателя после байтов ответа): теперь все отправки воркеру делает один поток - его поток воркера.
+PIPELINE_DEPTH = 2
 
 #: HEAD_STREAMED_FIRST_ROUND_V1: выключатель отбора кандидатов первого круга (см. `split_first_round`); выключен - полный порядок до старта, как прежде.
 STREAMED_HEAD = True
 
 
 class _Lane:
-    """Задачи, ушедшие воркеру в этом прогоне и ещё не отвеченные (по порядку отправки), и сбой отправки вперёд; одно звено на воркера.
+    """Задачи, ушедшие воркеру в этом прогоне и ещё не отвеченные, по порядку отправки: `(задача, кадр очереди, как ушла)`; одно звено на воркера, и пишет в него только поток этого воркера."""
 
-    Поток-читатель дописывает задачу, ушедшую вперёд (`take_ahead`), ДО того, как положит в ящик ответ, после которого она ушла, - поэтому поток воркера, получив тот ответ, видит её здесь.
-    """
-
-    __slots__ = ("flying", "failure")
+    __slots__ = ("flying",)
 
     def __init__(self) -> None:
         self.flying: deque = deque()
-        self.failure: str | None = None
+
+    def queued(self):
+        """Пары `(задача, кадр очереди)` в работе у воркера - для решения, можно ли дать ему ещё одну (`_PendingTasks.take_behind`)."""
+
+        return [(task, frame) for task, frame, _kind in self.flying]
 
 
 #: Свободный воркер берёт задачу, подготовку которой держит, вместо первой в очереди, только если первая не «крупная»: задача дороже
@@ -1126,7 +1119,7 @@ class _PendingTasks:
     def _set(self, items, big_cost: float, final: bool) -> None:
         self._items = list(items)
         self._big = big_cost
-        #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и вперёд ответа его делать нельзя.
+        #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и за холодной задачей в работе его делать нельзя (`take_behind`).
         self._warm = sum(1 for item in self._items if item[0].cold is None)
         self._ready = True
         self._final = self._final or final
@@ -1168,25 +1161,37 @@ class _PendingTasks:
                 self._cond.wait()
             if not self._items:
                 return None
-            head = self._items[0]
-            if _frame_cost(*head) >= self._big or _held_by(worker, head[0]):
-                return self._pop(0)
-            for position, item in enumerate(self._items):
-                if _held_by(worker, item[0]):
-                    return self._pop(position)
-            return self._pop(0)
+            return self._choose(worker)
 
-    def take_ahead(self):
-        """Первая задача очереди, если ВЫБОР не зависит от воркера и от его памяти, иначе `None`.
+    def take_behind(self, worker, queued):
+        """Задача в трубу воркера ЗА теми, что он уже держит (`queued` - пары `(задача, кадр очереди)`, PIPELINED_LANES_V1), либо `None` сразу, без ожидания.
 
-        В очереди из одних холодных задач `take` отдаёт голову при любом воркере (холодная задача подготовку не держит и ничьей памяти не нужна), поэтому задачу можно выбрать, не дожидаясь
-        разбора ответа, который эту память пополняет (EARLY_DISPATCH_BEFORE_UNPICKLE_V1): выбранное то же, что выбрал бы `take` после разбора. Есть в очереди хоть одна не холодная - `None`, и выбирает `take`.
+        `None`, когда очередь ещё не наполнена или пуста; когда крупная задача (`_big`) в голове очереди (она идёт свободному воркеру, а не в хвост занятому) или в работе у
+        воркера (за ней задача ждала бы, пока остальные свободны); и когда в работе и в очереди задачи разных родов (холодная и тёплая). Холодная в работе, тёплая в очереди:
+        ответ холодной пополнит память воркера (`_received`), и выбор тёплой и способ её отправки (ключ либо пикл) читали бы память раньше, чем её пополнит ответ, - а воркер
+        пополнит свою раньше. Тёплая в работе, холодная в очереди: если воркер не найдёт подготовку тёплой, её пикл уйдёт ЗА холодной, и зеркало запомнило бы его раньше, чем
+        ответ холодной пополнит память, а воркер - позже. Зеркало и память воркера меняются в одном порядке только тогда, когда в работе у воркера задачи одного рода с очередью.
+        Иначе - тот же выбор, что у `take`.
         """
 
         with self._cond:
-            if not self._ready or self._warm or not self._items:
+            if not self._ready or not self._items or _frame_cost(*self._items[0]) >= self._big:
                 return None
+            if any(_frame_cost(*item) >= self._big for item in queued):
+                return None
+            cold_queued = self._warm < len(self._items)
+            if any((item[0].cold is not None and self._warm) or (item[0].cold is None and cold_queued) for item in queued):
+                return None
+            return self._choose(worker)
+
+    def _choose(self, worker):
+        head = self._items[0]
+        if _frame_cost(*head) >= self._big or _held_by(worker, head[0]):
             return self._pop(0)
+        for position, item in enumerate(self._items):
+            if _held_by(worker, item[0]):
+                return self._pop(position)
+        return self._pop(0)
 
     def _pop(self, position):
         item = self._items.pop(position)
@@ -1240,44 +1245,57 @@ def _received(worker, reply, counted: _PoolCounter):
     return reply
 
 
-def _exchange(worker, task, frame: bytes, counted: _PoolCounter, sent: bool = False):
-    """Задача воркеру и его ответ: подготовка уходит ключом, если воркер её держит, и пиклом, если нет либо он её не нашёл.
+#: Как задача ушла воркеру (`_ship`): без пикла подготовки вовсе, ключом (воркер держит подготовку), пиклом.
+_PLAIN, _KEYED, _SHIPPED = "plain", "keyed", "shipped"
+
+
+def _ship(worker, task, frame: bytes, counted: _PoolCounter) -> str:
+    """Задача воркеру: подготовка уходит ключом, если воркер её держит (зеркало `worker.held`), и пиклом, если нет; как ушла - `_PLAIN` | `_KEYED` | `_SHIPPED`.
 
     `frame` - кадр очереди (`task_frame`): у задачи с пиклом подготовки это кадр БЕЗ пикла, полный кадр кодируется здесь, только когда пикл едет (LAZY_BLOB_FRAME_V1).
-    `sent` - задача уже ушла воркеру (`_Ahead`: вперёд разбора ответа на предыдущую): остаётся её ответ. Так уходят только холодные задачи, у которых блоба нет.
+    Зеркало меняется здесь, в порядке отправки, - в том же порядке воркер читает задачи из трубы и меняет свою память.
     """
 
     inputs = _blob_input(task)
     if inputs is None:
-        if not sent:
-            worker.send(frame)
-            counted.add(sent=len(frame))
-        return _received(worker, worker.receive(), counted)
-    if sent:
-        raise RuntimeError("a task with a preparation blob cannot be sent ahead of the previous reply")
-    key = inputs.key
-    if key in worker.held:
-        worker.held.touch(key)
         worker.send(frame)
         counted.add(sent=len(frame))
-        reply = _received(worker, worker.receive(), counted)
-        if not (isinstance(reply, DomainTaskResultV1) and reply.needs_blob):
-            counted.add(hits=1)
-            return reply
-        worker.held.discard(key)
-        counted.add(misses=1)
-    worker.held.add(key, len(inputs.blob))
+        return _PLAIN
+    if inputs.key in worker.held:
+        worker.held.touch(inputs.key)
+        worker.send(frame)
+        counted.add(sent=len(frame))
+        return _KEYED
+    worker.held.add(inputs.key, len(inputs.blob))
     whole = encode_frame(task)
     worker.send(whole)
     counted.add(sent=len(whole), shipped=1, shipped_bytes=len(inputs.blob))
-    reply = _received(worker, worker.receive(), counted)
+    return _SHIPPED
+
+
+def _needs_the_blob(worker, task, kind: str, reply, counted: _PoolCounter) -> bool:
+    """Ответ на задачу, ушедшую `kind`: `True` - воркер не нашёл подготовку по ключу, и пикл надо переслать (зеркало её забыло, промах посчитан); иначе ответ окончательный.
+
+    Ответ на пикл с ошибкой либо с просьбой пикла: воркер мог подготовку не запомнить - зеркало её забывает, и в следующий раз пикл уйдёт снова.
+    """
+
+    if kind == _PLAIN:
+        return False
+    key = _blob_input(task).key
+    if kind == _KEYED:
+        if isinstance(reply, DomainTaskResultV1) and reply.needs_blob:
+            worker.held.discard(key)
+            counted.add(misses=1)
+            return True
+        counted.add(hits=1)
+        return False
     if isinstance(reply, DomainTaskResultV1) and (reply.error or reply.needs_blob):
-        worker.held.discard(key)  # воркер мог её не запомнить: в следующий раз пикл уйдёт снова
-    return reply
+        worker.held.discard(key)
+    return False
 
 
 class _Run:
-    """Один прогон `DomainPool`: звенья воркеров, очередь, ответы и счёт пересылок; потоки воркеров (`feed`) и потоки-читатели (`ahead`) работают с ним."""
+    """Один прогон `DomainPool`: звенья воркеров, очередь, ответы и счёт пересылок; с ним работают потоки воркеров (`feed`), по одному на воркер, - и только они пишут воркерам."""
 
     def __init__(self, last_worker: dict, participants, tasks, cancel, late: LateTasksV1 | None = None) -> None:
         self.last_worker = last_worker  # `{ключ привязки: индекс воркера}` пула: поток воркера дописывает, кто считал задачу
@@ -1321,8 +1339,6 @@ class _Run:
         threads = [
             threading.Thread(target=self.feed, args=(worker,), daemon=True) for worker in self.participants if not (idle and worker.index not in self.started)
         ]
-        for worker in self.participants:
-            worker.on_reply_bytes = self.ahead if EARLY_DISPATCH else None
         ordering_failure = None
         try:
             for thread in threads:
@@ -1337,8 +1353,6 @@ class _Run:
                 thread.join()
         finally:
             self.pending.release()
-            for worker in self.participants:
-                worker.on_reply_bytes = None
         return ordering_failure
 
     def _order_rest(self) -> None:
@@ -1359,23 +1373,6 @@ class _Run:
         else:
             self.pending.extend(late, big)
 
-    def ahead(self, worker: _Worker) -> None:
-        """Поток-читатель: байты ответа прочитаны, разбор впереди. Следующая холодная задача уходит воркеру сейчас (`_PendingTasks.take_ahead`)."""
-
-        lane = self.lanes[worker.index]
-        if worker.dead or lane.failure is not None or (self.cancel is not None and self.cancel.is_set()):
-            return
-        item = self.pending.take_ahead()
-        if item is None:
-            return
-        lane.flying.append(item)
-        try:
-            worker.send(item[1])
-        except _WorkerGone as exc:  # сбой отправки называет поток воркера: он ждёт ответа на эту задачу и получает отказ воркера
-            lane.failure = str(exc)
-            return
-        self.counted.add(sent=len(item[1]))
-
     def lose(self, lane: _Lane, error: str) -> None:
         """Каждая задача, ушедшая воркеру и не отвеченная, получает названный ответ с ошибкой: молча пропавшей задачи нет."""
 
@@ -1383,40 +1380,73 @@ class _Run:
             lost = lane.flying.popleft()[0]
             self.results[lost.task_id] = DomainTaskResultV1(lost.task_id, error=error)
 
+    def _cancelled(self) -> bool:
+        return self.cancel is not None and self.cancel.is_set()
+
     def feed(self, worker: _Worker) -> None:
+        """Поток воркера: держит в его трубе до `PIPELINE_DEPTH` задач (PIPELINED_LANES_V1) и принимает ответы по порядку отправки.
+
+        Пустому воркеру задача берётся с ожиданием (`take`); следующая за ней - только если очередь готова отдать её сразу (`take_behind`). После отмены новых задач нет, а ушедшие
+        дочитываются. Умерший воркер и чужой ответ называют каждую ушедшую задачу (`lose`).
+        """
+
         lane = self.lanes[worker.index]
         first = self.started.get(worker.index)
         while True:
-            late = not lane.flying  # задачи нет у воркера: берём и шлём; иначе её отправил поток-читатель (`ahead`), остаётся ответ
-            if late:
-                if self.cancel is not None and self.cancel.is_set():
+            if not lane.flying:
+                if self._cancelled():
                     return
                 item = first if first is not None else self.pending.take(worker)
                 first = None
-                if item is None:
+                if item is None or not self._send(worker, lane, item):
                     return
-                lane.flying.append(item)
-            task, frame = lane.flying[0]
-            try:
-                if lane.failure is not None and not late:
-                    raise _WorkerGone(lane.failure)
-                reply = _exchange(worker, task, frame, self.counted, sent=not late)
-            except _WorkerGone as exc:
-                worker.dead = True
-                self.lose(lane, f"worker died: {exc}")
+            while len(lane.flying) < PIPELINE_DEPTH and not self._cancelled():
+                item = self.pending.take_behind(worker, lane.queued())
+                if item is None:
+                    break
+                if not self._send(worker, lane, item):
+                    return
+            if not self._settle(worker, lane):
                 return
+
+    def _send(self, worker: _Worker, lane: _Lane, item) -> bool:
+        task, frame = item
+        lane.flying.append((task, frame, _PLAIN))
+        try:
+            kind = _ship(worker, task, frame, self.counted)
+        except _WorkerGone as exc:
+            worker.dead = True
+            self.lose(lane, f"worker died: {exc}")
+            return False
+        lane.flying[-1] = (task, frame, kind)
+        return True
+
+    def _settle(self, worker: _Worker, lane: _Lane) -> bool:
+        """Ответ на первую ушедшую задачу звена: принят, либо её пикл переслан в хвост трубы (воркер не нашёл подготовку), либо воркер назван умершим."""
+
+        task, frame, kind = lane.flying[0]
+        try:
+            reply = _received(worker, worker.receive(), self.counted)
+        except _WorkerGone as exc:
+            worker.dead = True
+            self.lose(lane, f"worker died: {exc}")
+            return False
+        if not isinstance(reply, DomainTaskResultV1) or reply.task_id != task.task_id:
             lane.flying.popleft()
-            if not isinstance(reply, DomainTaskResultV1) or reply.task_id != task.task_id:
-                worker.dead = True
-                self.results[task.task_id] = DomainTaskResultV1(task.task_id, error=f"protocol violation: {type(reply).__name__}")
-                self.lose(lane, f"worker died: protocol violation on the reply to task {task.task_id}")
-                return
-            self.results[task.task_id] = reply
-            if task.affinity:
-                owner = self.owners.get(task.affinity)
-                kind = "owner" if owner == worker.index else ("stolen" if owner in self.indices else "unowned")
-                self.counted.add(**{kind: 1})
-                self.last_worker[task.affinity] = worker.index
+            worker.dead = True
+            self.results[task.task_id] = DomainTaskResultV1(task.task_id, error=f"protocol violation: {type(reply).__name__}")
+            self.lose(lane, f"worker died: protocol violation on the reply to task {task.task_id}")
+            return False
+        lane.flying.popleft()
+        if _needs_the_blob(worker, task, kind, reply, self.counted):
+            return self._send(worker, lane, (task, frame))
+        self.results[task.task_id] = reply
+        if task.affinity:
+            owner = self.owners.get(task.affinity)
+            placed = "owner" if owner == worker.index else ("stolen" if owner in self.indices else "unowned")
+            self.counted.add(**{placed: 1})
+            self.last_worker[task.affinity] = worker.index
+        return True
 
 
 class DomainPool:
