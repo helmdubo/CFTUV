@@ -830,7 +830,7 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
         log.coherent_reasons = frame.extrapolated_reasons
         log.coherent_clamped_max = max(log.coherent_clamped_max, frame.clamped)
         coherent = getattr(controller, "width_coherent", None)
-        if coherent is not None and coherent.vertex_cap is None:
+        if coherent is not None and coherent.vertex_cap is None and coherent.vertex_floor is None:
             log.coherent_without_limits += 1
     return state
 

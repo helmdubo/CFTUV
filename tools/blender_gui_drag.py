@@ -600,7 +600,10 @@ class Driver:
             window.view_layer.objects.active = obj
             bpy.ops.view3d.localview(frame_selected=True)  # the source and its decal alone, framed
             decal.select_set(False)
-        aim_view(window, area, obj, decal, self.session["controller"], self.args.view_mpp)
+        self.shot("local_framed")
+        self.session["decal"] = decal
+        if not (self.args.focus_patch >= 0 and self.focus(area)):
+            aim_view(window, area, obj, decal, self.session["controller"], self.args.view_mpp)
         space.shading.type = "SOLID"
         space.shading.color_type = "OBJECT"
         obj.color = (0.55, 0.55, 0.58, 1.0)
@@ -611,7 +614,7 @@ class Driver:
 
     def zoom(self):
         _window, area, _region = _windows()
-        self.session["zooms"].append(zoom_view(area, self.args.view_mpp))
+        self.session["zooms"].append(zoom_view(area, self.args.focus_mpp if self.args.focus_patch >= 0 else self.args.view_mpp))
         if len(self.session["zooms"]) < 3:
             return 0.4
         self.report["view_zoom_measured"] = self.session["zooms"]
@@ -639,8 +642,6 @@ class Driver:
         self.report["view"] = {"pivot": view.pivot, "metres_per_pixel": view.metres_per_pixel, "shift": shift, "width": width, "region": [region.x, region.y, region.width, region.height]}
         to_window = lambda share: (int(round(region.x + point(share)[0])), int(round(region.y + point(share)[1])))  # noqa: E731
         self.actions = [("move", -0.30, 0.0), ("chord", -0.20, None)]
-        if self.args.focus_patch >= 0:  # the operator has its pivot and scale from the view at the chord; the view moves only after it
-            self.actions += [("focus", -0.15, None), ("focus_zoom", -0.10, None), ("focus_zoom", -0.06, None), ("shot", -0.02, "focus_start")]
         self.actions += [(kind, at, value) for kind, at, value in drag_plan(self.args.pause)]
         self.actions = [(kind, at, value, to_window(value) if kind == "move" else None) for kind, at, value in self.actions]
         self.shift = shift
@@ -660,24 +661,25 @@ class Driver:
         (Path(self.args.shots) / "requests" / name).write_text(str(time.perf_counter()), encoding="utf-8")
         self.recorder.shots.append({"label": label, "at": time.perf_counter(), "seconds": 0.0, "path": str(Path(self.args.shots) / f"shot_{name}.png"), "problem": ""})
 
-    def focus(self) -> None:
-        """The view looks at the centroid of patch `--focus-patch` of the shown sample (world space)."""
+    def focus(self, area) -> bool:
+        """The view looks at the centroid of patch `--focus-patch` of the shown sample (world space), before the operator starts (a view moved while the modal operator runs is not
+        redrawn); the mouse path follows from the view (`mouse_path`), so the drag widths are the same shares of the start width."""
 
         import numpy as np
         from mathutils import Vector
 
-        _window, area, _region = _windows()
         sample = getattr(self.session["controller"], "width_displayed", None)
         domains = [] if sample is None else [item for item in sample.domains if int(item.patch_id) == self.args.focus_patch]
         if not domains:
             self.report["focus"] = {"patch": self.args.focus_patch, "problem": "the shown sample has no domain of this patch"}
-            return
+            return False
         points = np.concatenate([sample.positions[item.vertices] for item in domains])
         matrix = np.array(self.session["decal"].matrix_world, dtype=np.float64)
         centre = points.mean(axis=0) @ matrix[:3, :3].T + matrix[:3, 3]
         area.spaces.active.region_3d.view_location = Vector(centre)
         area.tag_redraw()
         self.report["focus"] = {"patch": self.args.focus_patch, "centre": centre.tolist(), "vertices": int(points.shape[0])}
+        return True
 
     def send(self, kind: str, xy, value: str, **modifiers) -> None:
         window, _area, _region = _windows()
@@ -702,11 +704,6 @@ class Driver:
                 self.send("W", self.last_xy, "RELEASE", ctrl=True, shift=True, alt=True)
             elif kind == "shot":
                 self.shot(value)
-            elif kind == "focus":
-                self.focus()
-            elif kind == "focus_zoom":
-                _window, area, _region = _windows()
-                self.report.setdefault("focus_zoom_measured", []).append(zoom_view(area, self.args.focus_mpp))
             elif kind == "phase":
                 self.recorder.events.append((time.perf_counter(), "PHASE", value, None))
             elif kind == "release":

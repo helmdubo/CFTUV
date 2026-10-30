@@ -282,3 +282,25 @@ def test_the_limits_are_read_from_the_certificate_field_or_absent():
     assert pm.kernel_vertex_limits(SimpleNamespace(**{pm.KERNEL_LIMIT_FIELD: (0.3, np.inf)}), vertices) is None  # не тот размер
     raw = np.array([0.3, np.inf, 0.4]).tobytes()
     assert np.array_equal(pm.kernel_vertex_limits(SimpleNamespace(**{pm.KERNEL_LIMIT_FIELD: raw}), vertices), [0.3, np.inf, 0.4])
+
+
+def test_while_the_width_shrinks_a_vertex_stops_at_its_floor_width():
+    base, _ = _fold_sample(0.25)
+    floor = 0.2
+    wall = next(item for item in base.domains if item.patch_id == 1)
+    moving = np.flatnonzero(np.abs(wall.slopes).max(axis=1) > 0)
+    stopped = wall.vertices[moving[0]]
+    floors = np.full(wall.vertices.shape[0], -np.inf)
+    floors[moving[0]] = floor
+    sample = replace(base, domains=tuple(replace(item, floors=floors if item.patch_id == 1 else None) for item in base.domains), cache={})
+    model = pm.build_model(sample)
+    coherent = pm.coherent_slopes(model)
+    assert coherent.vertex_cap is None and coherent.vertex_floor[stopped] == floor
+    at_floor, _ = _fold_sample(floor)
+    frame = pm.coherent_frame(model, coherent, 0.15)
+    assert frame.clamped == 1
+    assert np.allclose(frame.positions.reshape(-1, 3)[stopped], at_floor.positions[stopped], atol=1e-6)
+    assert pm.coherent_frame(model, coherent, 0.21).clamped == 0
+    arrays = gpu.rig_arrays(**pm.coherent_rig_inputs(model, coherent))
+    positions, uvs = gpu.emulate(pm.base_frame(sample).positions, pm.base_frame(sample).uvs, arrays, 0.15, 0.25)
+    assert max(_ulps(positions, frame.positions), _ulps(uvs, frame.uvs)) <= 8.0
