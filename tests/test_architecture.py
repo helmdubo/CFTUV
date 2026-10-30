@@ -833,6 +833,32 @@ def test_every_press_refuses_a_width_that_is_not_positive_before_the_pool():
         assert first["width_refusal"] < first[later], f"{module}:{function} спрашивает `width_refusal` после `{later}`"
 
 
+def test_the_width_session_a_tool_fakes_for_the_confirm_carries_everything_the_confirm_reads():
+    """`finish_adjust` читает у сессии инструмента ширины несколько полей. Инструмент замера, который подтверждает перетаскивание поддельной
+    сессией (`tools/blender_live_drag.py`: он ведёт планировщик, а не автомат), обязан дать их все - иначе подтверждение падает в Blender,
+    а не здесь (WIDTH_FLOOR_POSITIVE_V1 добавил `floor_hits`).
+    """
+
+    finish = _functions_of("envelope_width_session.py")["finish_adjust"]
+    read = {
+        node.attr
+        for node in ast.walk(finish)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "session"
+    }
+    assert {"width", "phase", "floor_hits"} <= read, read
+    fakes = [
+        keyword.value
+        for call in ast.walk(_parse(TOOLS / "blender_live_drag.py"))
+        if isinstance(call, ast.Call) and _called_names_of(call) == "SimpleNamespace"
+        for keyword in call.keywords
+        if keyword.arg == "session" and isinstance(keyword.value, ast.Call)
+    ]
+    assert fakes, "the live drag tool confirms with a fake session"
+    for fake in fakes:
+        given = {keyword.arg for keyword in fake.keywords}
+        assert read <= given, f"the fake session of the live drag tool lacks {sorted(read - given)}"
+
+
 def test_a_drag_event_never_computes_the_full_contour_while_the_mesh_model_can_move_the_mesh():
     """PREVIEW_CONTOUR_ONLY_WHERE_MODEL_HELD_V1: событие перетаскивания и калбэк ползунка идут через `width_event_preview`.
 
