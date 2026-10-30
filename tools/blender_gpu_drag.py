@@ -241,13 +241,18 @@ def measure_overflow(session, args, controller, report) -> None:
     import coherent_overflow
 
     import cftuv.envelope_width_mesh_preview as preview
-    from cftuv.envelope_width_preview_model import coherent_frame, coherent_slopes, evaluate
+    from dataclasses import replace
+
+    from cftuv.envelope_width_preview_model import build_model, coherent_frame, coherent_slopes, evaluate
 
     model = controller.width_model
     base = model.base
     coherent = coherent_slopes(model)
+    # "Before": the same frame with the vertex limits taken away (as LIVE_DRAG_COHERENT_V1 without VERTEX_ALPHA_LIMITS_V1).
+    bare = build_model(replace(base, domains=tuple(replace(item, limits=None, floors=None) for item in base.domains), cache={}))
+    unclamped = coherent_slopes(bare)
     widths = [base.alpha * (1.0 + float(item)) for item in args.overflow.split(",") if item.strip()]
-    frames = {width: (coherent_frame(model, coherent, width), evaluate(model, width)) for width in widths}
+    frames = {width: (coherent_frame(model, coherent, width), evaluate(model, width), coherent_frame(bare, unclamped, width)) for width in widths}
     laps = drag_ticks.Laps()
     rows = []
     for width in widths:
@@ -256,10 +261,11 @@ def measure_overflow(session, args, controller, report) -> None:
         if exact is None or abs(exact.alpha - width) > 1e-12:
             rows.append({"width": width, "failure": "no exact sample at the width"})
             continue
-        shown, plain = frames[width]
+        shown, plain, free = frames[width]
         found = coherent_overflow.overflow(shown.positions, base, exact, args.overflow_share)
         plain_found = coherent_overflow.overflow(plain.positions, base, exact, args.overflow_share)
-        rows.append({"width": width, "rel": width / base.alpha - 1.0, "coherent": found, "plain": plain_found, "coherent_clamped": shown.clamped,
+        free_found = coherent_overflow.overflow(free.positions, base, exact, args.overflow_share)
+        rows.append({"width": width, "rel": width / base.alpha - 1.0, "coherent": found, "plain": plain_found, "unclamped": free_found, "coherent_clamped": shown.clamped,
                      "coherent_extrapolated_domains": shown.extrapolated, "plain_held_domains": plain.held_domains})
     report["overflow"] = {"base_width": base.alpha, "vertex_limits": coherent.vertex_cap is not None, "rows": rows,
                           "log_clamped_max": preview.log_of(controller).coherent_clamped_max}
