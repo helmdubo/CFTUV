@@ -239,7 +239,7 @@ def launch(args) -> int:
         stale.unlink(missing_ok=True)
     drive = ["--root", args.root, "--native-path", args.native_path, "--out", str(out), "--shots", str(run_dir), "--live", args.live, "--settle", args.settle,
              "--gpu", args.gpu, "--coherent", args.coherent, "--workers", str(args.workers), "--pause", str(args.pause), "--view-mpp", str(args.view_mpp), "--limit", str(args.timeout - 30),
-             "--focus-patch", str(args.focus_patch), "--focus-mpp", str(args.focus_mpp), "--metric", args.metric]
+             "--focus-patch", str(args.focus_patch), "--focus-mpp", str(args.focus_mpp), "--metric", args.metric, "--offscreen-shots", args.offscreen_shots]
     command = [str(BLENDER), "--enable-event-simulate", "--no-window-focus", "--window-geometry", "40", "40", "1600", "1000", str(scene), "--python", str(Path(__file__).resolve()), "--", "drive", *drive]
     started = time.monotonic()
     process = subprocess.Popen(command, env=user_environment(scratch, args.byte_check), stdout=(run_dir / "blender.log").open("w", encoding="utf-8"), stderr=subprocess.STDOUT)
@@ -660,6 +660,13 @@ class Driver:
         (Path(self.args.shots) / "requests").mkdir(exist_ok=True)
         (Path(self.args.shots) / "requests" / name).write_text(str(time.perf_counter()), encoding="utf-8")
         self.recorder.shots.append({"label": label, "at": time.perf_counter(), "seconds": 0.0, "path": str(Path(self.args.shots) / f"shot_{name}.png"), "problem": ""})
+        if self.args.offscreen_shots == "on":
+            started = time.perf_counter()
+            try:
+                offscreen_view(Path(self.args.shots) / f"shot_{name}.view.png")
+            except Exception as exc:  # noqa: BLE001 - a missing picture is named, the run goes on
+                self.recorder.shots[-1]["problem"] = f"offscreen: {type(exc).__name__}: {exc}"
+            self.recorder.shots[-1]["seconds"] = time.perf_counter() - started
 
     def focus(self, area) -> bool:
         """The view looks at the centroid of patch `--focus-patch` of the shown sample (world space), before the operator starts (a view moved while the modal operator runs is not
@@ -771,6 +778,29 @@ class Driver:
         os._exit(0 if self.report["failure"] is None else 1)  # no quit.blend, no preferences, nothing saved
 
 
+def offscreen_view(path: Path) -> None:
+    """The 3D view drawn offscreen with its own view and projection (`GPUOffScreen.draw_view3d`, from a timer, not from a draw callback), saved as PNG."""
+
+    import bpy
+    import gpu
+    import numpy as np
+
+    window, area, region = _windows()
+    space = area.spaces.active
+    rv3d = space.region_3d
+    width, height = int(region.width), int(region.height)
+    offscreen = gpu.types.GPUOffScreen(width, height)
+    try:
+        offscreen.draw_view3d(window.scene, window.view_layer, space, region, rv3d.view_matrix, rv3d.window_matrix, do_color_management=True)
+        with offscreen.bind():
+            buffer = gpu.state.active_framebuffer_get().read_color(0, 0, width, height, 4, 0, "UBYTE")
+        pixels = np.array(buffer.to_list(), dtype=np.uint8).reshape(height, width, 4)[::-1]
+    finally:
+        offscreen.free()
+    pixels[:, :, 3] = 255
+    _png(path, pixels)
+
+
 def vars_of(item) -> dict:
     if item is None:
         return {}
@@ -875,6 +905,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--focus-patch", type=int, default=-1, help="after the operator starts, the view moves to this patch (zoomed screenshots of one place); the mouse path is unchanged")
     parser.add_argument("--focus-mpp", type=float, default=4e-4, help="metres per pixel of the focus view")
     parser.add_argument("--metric", default="off", choices=("on", "off"), help="LIVE_DRAG_COHERENT_VERTEX_CLAMPED metric: faces turned over per frame, area spill at each exact landing (costs main-thread time: not a timing run)")
+    parser.add_argument("--offscreen-shots", default="off", choices=("on", "off"), help="also draw each shot of the 3D view offscreen inside Blender (`shot_<n>_<label>.view.png`): "
+                        "the launcher's capture of the window is blank while the display is off or the session locked; each costs ~1 s of the main thread, so a run with them is for pictures, not numbers")
     parser.add_argument("--byte-check", default="all", choices=("all", "product"), help="all: the full snapshot byte check (reference); product: the button's default (timing)")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--pause", type=float, default=1.5)
