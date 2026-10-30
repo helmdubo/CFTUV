@@ -125,12 +125,17 @@ def collect_frozen_when_idle(quiet_seconds: float, *, busy: bool = False) -> boo
     """GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: в простое замороженное кнопкой и тиками возвращается сборщику, и одна полная сборка идёт здесь; `True` - собрано.
 
     Простой - ни одного открытого блока, вызывающий не занят (`busy`: перетаскивание или неприменённый заказ) и `quiet_seconds` с последнего выхода из паузы (между счётом такта и его
-    применением, между кнопкой и подготовкой в простое после неё - не простой). Сборка идёт вне замка: её финализаторы вправе сами войти в паузу.
+    применением, между кнопкой и подготовкой в простое после неё - не простой). Занятость тоже заводит часы тишины заново (GC_IDLE_COLLECT_AFTER_APPLIED_V1): заказ занят, пока
+    его меш не лёг, и сборка (0.4 с стоящего GUI на `cover.008`) идёт не раньше `quiet_seconds` ПОСЛЕ того, как фиксация легла, а не сразу за ней - иначе это ещё один рывок
+    на отпускании. Сборка идёт вне замка: её финализаторы вправе сами войти в паузу.
     """
 
-    global _FROZEN_UNCOLLECTED
+    global _FROZEN_UNCOLLECTED, _LAST_EXIT
     with _LOCK:
-        if busy or _OPEN_BLOCKS or not _FROZEN_UNCOLLECTED or time.perf_counter() - _LAST_EXIT < quiet_seconds:
+        if busy:
+            _LAST_EXIT = time.perf_counter()
+            return False
+        if _OPEN_BLOCKS or not _FROZEN_UNCOLLECTED or time.perf_counter() - _LAST_EXIT < quiet_seconds:
             return False
         _FROZEN_UNCOLLECTED = False
     gc.unfreeze()
