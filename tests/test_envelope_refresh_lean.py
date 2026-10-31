@@ -377,7 +377,8 @@ def test_a_lean_result_has_no_batch_no_normals_no_digest_and_says_so_loudly(row)
         lean.materialized()
     with pytest.raises(LeanResultError):
         lean.with_changes(batch=None)
-    assert lean.with_changes(seconds=1.5).lean and lean.with_changes(placement="parent").view is lean.view  # метки запуска lean не разворачивают
+    placed = lean.with_changes(placement="parent")
+    assert lean.with_changes(seconds=1.5).lean and placed.view_bytes is lean.view_bytes and placed.view == lean.view  # метки запуска lean не разворачивают (VIEW_BYTES_V1: байты вида общие)
     assert production.deferred_result(lean) is lean and production.lean_result(lean) is lean
     assert lean.is_materialized and lean.view is not None and lean.heavy is None
 

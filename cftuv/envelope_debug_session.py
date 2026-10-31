@@ -316,6 +316,11 @@ class EnvelopeDebugSessionController:
         self.width_confirm_live = False
         #: `(ширина, сдвиг)` кадра события руки, который ещё не записан (LIVE_DRAG_WRITE_COALESCED_V1: пишет таймер, один раз на такт главного цикла) либо `None`.
         self.width_frame_pending = None
+        #: GPU_AFFINE_DRAG_V1 (`envelope_width_gpu_drag`): перетаскивание идёт с настройкой «GPU affine drag» и что поставлено на объект декали (`GpuRigV1`) либо `None`.
+        self.width_gpu_drag = False
+        self.width_gpu_rig = None
+        #: LIVE_DRAG_COHERENT_V1: перетаскивание идёт с настройкой «Coherent drag» (от начала инструмента до записи ширины подтверждения): кадр двигает каждый домен.
+        self.width_coherent_drag = False
         #: `SourceCheckV1`: отпечаток массивов меша источника и отпечаток ревизии, что полный путь дал для него (`envelope_source_check`): шаг ширины не обходит bmesh, пока байты те же.
         self.width_source_check = None
         self.reset_width_mesh_preview()
@@ -333,6 +338,10 @@ class EnvelopeDebugSessionController:
         self.width_layout_generation = 0
         self.width_mesh_preview = None
         self.width_preview_log = None
+        #: LIVE_DRAG_COHERENT_V1 (`envelope_width_mesh_preview.coherent_now`): наклоны связного кадра модели на экране, наклоны конечной разности доменов без сертификата и их запас прежних образцов.
+        self.width_coherent = None
+        self.width_coherent_finite = None
+        self.width_coherent_prior = None
 
     def _preview_schedulers(self) -> tuple:
         return tuple(item for item in (self.alpha_preview, self.width_live) if item is not None)
@@ -579,6 +588,9 @@ class EnvelopeDebugSessionController:
         self.width_live_drag = None
         self.width_confirm_live = False
         self.width_frame_pending = None
+        self.width_gpu_drag = False
+        self.width_gpu_rig = None  # остаток на объекте (если был) снимают запись файла, загрузка и начало следующего перетаскивания (`GPU_DRAG_REMOVED_*`)
+        self.width_coherent_drag = False
         self.width_source_check = None
         self.reset_width_mesh_preview()
         self._invalidation_count += 1

@@ -85,6 +85,7 @@ from .envelope_production_view import (
     OUTCOME_NORMAL_OPPOSES_SOURCE,
     OUTCOME_VERTEX_MISSING,
     build_domain_view,
+    structure_token,
 )
 
 DECAL_OBJECT_SUFFIX = ".CFTUV_Decal"
@@ -314,7 +315,7 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
         domain_keys.append((result.patch_id, result.domain_id))
         domain_vertex_index.append(tuple(index))
         domain_loop_counts.append(len(d_uvs))
-        domain_tokens.append(_structure_token(view))
+        domain_tokens.append(structure_token(view))  # VIEW_BYTES_V1: у вида из байтов воркера токен уже в заголовке
     folds = cross_domain_seams(faces, uvs, face_domain)
     seam_pairs.update(folds)
     seams = sorted(seam_pairs)
@@ -393,18 +394,6 @@ def _partners_by_domain(partners, count: int) -> tuple:
     for owner, other in partners:
         found.setdefault(owner, []).append(other)
     return tuple(tuple(found.get(ordinal, ())) for ordinal in range(count))
-
-
-def _structure_token(view) -> str:
-    """Токен локальной структуры домена: грани, швы и ссылки вершин в локальной нумерации (чисел позиций и UV в нём нет).
-
-    Два точных прогона одного домена с равным токеном кладут вершины и петли в меш одинаково, и превью ширины вправе
-    сравнивать их по номерам (`envelope_width_preview_model`). Номера владельцев (`claim:N`) в токен не входят: они меняют
-    лишь целочисленный атрибут граней, а не геометрию.
-    """
-
-    text = repr((view.faces, view.seams, view.vertices.refs, len(view.uvs)))
-    return hashlib.blake2b(text.encode("utf-8"), digest_size=10).hexdigest()
 
 
 # --------------------------------------------------------------------------

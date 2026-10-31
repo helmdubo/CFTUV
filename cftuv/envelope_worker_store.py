@@ -63,6 +63,11 @@ class PreparationLruV1:
     def keys(self) -> tuple:
         return tuple(self._sizes)
 
+    def key_view(self):
+        """Живой вид ключей (`dict_keys`): очередь пула пересекает его со своим указателем ключей, и пересечение считает C (PENDING_TAKE_INDEXED_V1)."""
+
+        return self._sizes.keys()
+
     def touch(self, key: str) -> bool:
         """Обращение к записи освежает давность; `False` — записи нет."""
 

@@ -73,6 +73,7 @@ def rebased_view(view: DomainViewV1, certificate, alpha: float) -> DomainViewV1:
         view.seams,
         view.boundary_chains,
         view.source_revision,
+        view.token,  # грани, швы, ссылки и число петель те же: токен структуры тот же
     )
 
 

@@ -153,6 +153,80 @@ def test_take_behind_declines_at_once_where_take_would_wait_or_the_choice_is_not
     assert big_head.take(worker)[0].task_id == 0
 
 
+def _reference_take(items: list, big: float, worker):
+    """Прежний `take` (обход очереди с начала, до PENDING_TAKE_INDEXED_V1) над списком `items`: эталон выбора."""
+
+    def held(item):
+        inputs = pool_module._blob_input(item[0])
+        return inputs is not None and inputs.key in worker.held
+
+    if not items:
+        return None
+    if pool_module._frame_cost(*items[0]) >= big or held(items[0]):
+        return items.pop(0)
+    for position, item in enumerate(items):
+        if held(item):
+            return items.pop(position)
+    return items.pop(0)
+
+
+def _random_queue_items(rng, count: int, start: int = 0) -> list:
+    from cftuv.envelope_production_result import ProductionInputV1
+
+    keys = [f"k{number}" for number in range(max(1, count // 2))]
+    out = []
+    for task_id in range(start, start + count):
+        roll = rng.random()
+        if roll < 0.15:
+            task = DomainTaskV1(task_id, task_id, f"d{task_id}", None, None, "0", frozenset(), cold="c")
+        else:
+            key = "" if roll < 0.25 else rng.choice(keys)  # пустой ключ: подготовка не запоминается; общий ключ у двух задач тоже бывает
+            task = DomainTaskV1(task_id, task_id, f"d{task_id}", None, None, "0", frozenset(), production=ProductionInputV1(b"p" * rng.randint(1, 400), key=key))
+        out.append((task, b"f" * rng.randint(1, 60)))
+    out.sort(key=lambda item: (-pool_module._frame_cost(*item), item[0].task_id))
+    return out
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_the_indexed_take_picks_exactly_the_task_the_old_scan_picked(seed):
+    """PENDING_TAKE_INDEXED_V1: указатель ключей очереди выбирает ту же задачу, что прежний обход с начала, при любой памяти воркеров, `take_behind` и досыпке остатка (`extend`)."""
+
+    from types import SimpleNamespace
+
+    from cftuv.envelope_worker_store import PreparationLruV1
+
+    rng = random.Random(seed)
+    items = _random_queue_items(rng, rng.randint(0, 40))
+    total = sum(pool_module._frame_cost(*item) for item in items) or 1.0
+    big = total / rng.choice((1.5, 4.0, 1e9))
+    queue = pool_module._PendingTasks(list(items), big)
+    reference = list(items)
+    workers = [SimpleNamespace(held=PreparationLruV1(rng.choice((300, 2000, 10**9)))) for _ in range(3)] + [SimpleNamespace(held=())]
+    pool_keys = [f"k{number}" for number in range(25)]
+    late = _random_queue_items(rng, rng.randint(0, 12), start=1000)
+    for _step in range(80):
+        roll = rng.random()
+        if roll < 0.25:
+            worker = rng.choice(workers[:3])
+            for _ in range(rng.randint(1, 4)):
+                key = rng.choice(pool_keys)
+                worker.held.add(key, rng.randint(1, 400)) if rng.random() < 0.7 else worker.held.discard(key)
+            continue
+        if roll < 0.32 and late:
+            queue.extend(late, big)
+            reference = sorted([*reference, *late], key=lambda item: (-pool_module._frame_cost(*item), item[0].task_id))
+            late = []
+        elif roll < 0.4:
+            worker = rng.choice(workers)  # пустой воркер (`queued` пуст): `take_behind` берёт как `take`, кроме крупной головы - она ждёт свободного
+            expected = None if not reference or pool_module._frame_cost(*reference[0]) >= big else _reference_take(reference, big, worker)
+            assert queue.take_behind(worker, []) is expected
+        else:
+            worker = rng.choice(workers)
+            assert queue.take(worker) is _reference_take(reference, big, worker)
+        assert queue._items == reference  # noqa: SLF001 - порядок невзятых тот же
+        assert queue.drained() == (not reference)
+
+
 # --------------------------------------------------------------------------
 # 3. Ответ не зависит от порядка прихода ответов и от момента отправки
 # --------------------------------------------------------------------------

@@ -38,7 +38,16 @@ from .envelope_width_adjust import (
     PHASE_CONFIRMED,
     WidthEventV1,
 )
-from .envelope_width_live import follow_active_object, note_depsgraph, reconcile_after_history, sync_width_field
+from .envelope_width_gpu_drag import REMOVED_ON_HISTORY, REMOVED_ON_LOAD, REMOVED_ON_SAVE, REMOVED_ON_UNREGISTER
+from .envelope_width_live import (
+    GC_IDLE_POLL_SECONDS,
+    collect_frozen_at_idle,
+    follow_active_object,
+    note_depsgraph,
+    reconcile_after_history,
+    strip_gpu_everywhere,
+    sync_width_field,
+)
 from .envelope_width_overlay import register_overlay, unregister_overlay
 from .envelope_width_session import (
     NO_VIEW,
@@ -230,14 +239,44 @@ def _after_history(*_args) -> None:
 
 @persistent
 def _after_load(*_args) -> None:
-    """Загрузка файла: запись кнопки и превью старой сцены забыты у всех контроллеров (см. `forget_width_state`)."""
+    """Загрузка файла: запись кнопки и превью старой сцены забыты у всех контроллеров (см. `forget_width_state`); узлы GPU_AFFINE_DRAG_V1, найденные в загруженном файле, сняты."""
 
     from .envelope_debug_session import WINDOW_MANAGER_SESSION_ATTRIBUTE
 
+    _strip_gpu(REMOVED_ON_LOAD)
     descriptor = getattr(bpy.types.WindowManager, WINDOW_MANAGER_SESSION_ATTRIBUTE, None)
     forget = getattr(descriptor, "forget_width_state", None)
     if forget is not None:
         forget()
+
+
+def _strip_gpu(reason: str) -> None:
+    """GPU_AFFINE_DRAG_V1: узлы перетаскивания сняты со всего файла под именем пути. Сбой называется строкой консоли и не мешает записи, загрузке и истории."""
+
+    try:
+        manager = getattr(bpy.context, "window_manager", None)
+        strip_gpu_everywhere(getattr(manager, "_cftuv_envelope_debug_session", None), reason)
+    except Exception as exc:  # noqa: BLE001 - отказ снятия называется строкой
+        print(f"[CFTUV][WidthLive] {reason} failed: {type(exc).__name__}: {exc}", flush=True)
+
+
+@persistent
+def _before_save(*_args) -> None:
+    """Запись файла (и Ctrl+S, и «Save As»): узлы перетаскивания в файл не попадают."""
+
+    _strip_gpu(REMOVED_ON_SAVE)
+
+
+@persistent
+def _before_load(*_args) -> None:
+    _strip_gpu(REMOVED_ON_LOAD)
+
+
+@persistent
+def _before_history(*_args) -> None:
+    """Undo/Redo: шаг истории не видит узлов перетаскивания (до его применения они сняты)."""
+
+    _strip_gpu(REMOVED_ON_HISTORY)
 
 
 #: Обработчики истории: список `bpy.app.handlers` -> наш обработчик.
@@ -246,6 +285,10 @@ _HANDLERS = (
     ("redo_post", _after_history),
     ("load_post", _after_load),
     ("depsgraph_update_post", _after_depsgraph),
+    ("save_pre", _before_save),
+    ("load_pre", _before_load),
+    ("undo_pre", _before_history),
+    ("redo_pre", _before_history),
 )
 
 
@@ -306,14 +349,17 @@ def register_width_tools() -> None:
         handlers = getattr(bpy.app.handlers, name)
         if handler not in handlers:
             handlers.append(handler)
+    # GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: замороженное кнопкой и тиками живёт только до простоя (таймер живёт с аддоном и переживает загрузку файла).
+    bpy.app.timers.register(collect_frozen_at_idle, first_interval=GC_IDLE_POLL_SECONDS, persistent=True)
 
 
 def unregister_width_tools() -> None:
+    _strip_gpu(REMOVED_ON_UNREGISTER)
     for name, handler in _HANDLERS:
         handlers = getattr(bpy.app.handlers, name)
         while handler in handlers:
             handlers.remove(handler)
-    for timer in (_reconcile_once, _sync_once):
+    for timer in (_reconcile_once, _sync_once, collect_frozen_at_idle):
         if bpy.app.timers.is_registered(timer):
             bpy.app.timers.unregister(timer)
     unregister_overlay()

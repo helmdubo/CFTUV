@@ -81,7 +81,8 @@ import threading
 import time
 import traceback
 from collections import deque
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
+from operator import attrgetter
 
 from .envelope_gc_pause import gc_paused
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
@@ -287,6 +288,25 @@ class DomainTaskResultV1:
         return not self.error and self.refusal is not None
 
 
+#: SLOTS_STATE_TUPLE_V1 (`cftuv_envelope.backend.BackendRecordV1`): ответ домена - кортеж значений полей, имена раз на класс (пикл `dataclass(slots=True)` зовёт `fields` на каждом объекте).
+_TASK_RESULT_FIELDS = tuple(item.name for item in fields(DomainTaskResultV1))
+_TASK_RESULT_STATE = attrgetter(*_TASK_RESULT_FIELDS)
+
+
+def _task_result_getstate(self) -> tuple:
+    return _TASK_RESULT_STATE(self)
+
+
+def _task_result_setstate(self, state) -> None:
+    for name, value in zip(_TASK_RESULT_FIELDS, state):
+        object.__setattr__(self, name, value)
+
+
+#: После класса, а не в его теле: `dataclass(slots=True)` в Python 3.10 ставит свои `__getstate__`/`__setstate__` поверх объявленных в теле.
+DomainTaskResultV1.__getstate__ = _task_result_getstate
+DomainTaskResultV1.__setstate__ = _task_result_setstate
+
+
 @dataclass(frozen=True, slots=True)
 class PoolInterpreterV1:
     """Интерпретатор, на котором РАБОТАЮТ воркеры, и почему не тот, что заказан.
@@ -434,16 +454,49 @@ def write_frame(stream, value) -> None:
     stream.flush()
 
 
+#: KEYED_TASK_FRAME_V1: метка кадра задачи, которая едет одним ключом подготовки (`task_frame`), - не пикл датакласса, а кортеж значений.
+KEYED_TASK_FRAME = "KEYED_TASK_V1"
+_TASK_FIELD_NAMES = tuple(item.name for item in fields(DomainTaskV1))
+_INPUT_FIELD_NAMES: dict = {}
+
+
+def _field_names(cls) -> tuple:
+    names = _INPUT_FIELD_NAMES.get(cls)
+    if names is None:
+        names = _INPUT_FIELD_NAMES[cls] = tuple(item.name for item in fields(cls))
+    return names
+
+
 def task_frame(task: DomainTaskV1) -> bytes:
-    """Кадр задачи в очереди (LAZY_BLOB_FRAME_V1): у задачи с пиклом подготовки, который воркер может держать (`_blob_input`), - кадр БЕЗ пикла
-    (ключ, `_key_only`), у прочих - полный кадр.
+    """Кадр задачи в очереди (LAZY_BLOB_FRAME_V1): у задачи с пиклом подготовки, который воркер может держать (`_blob_input`), - кадр БЕЗ пикла (ключ), у прочих - полный кадр.
 
     Шаг ширины находит подготовку у воркера почти всегда (на `cover.008` 1045 из 1053 задач уходят ключом), а полный кадр кодировался для каждой
     задачи заранее: 66.8 МБ пиклов за нажатие, которые не уходили, и второй, ключевой кадр - в потоке воркера, под GIL, между ответом воркера и его
-    следующей задачей. Теперь ключевой кадр кодируется один раз здесь, а полный - только когда пикл едет (`_ship`). Байты в трубе те же.
+    следующей задачей. Теперь ключевой кадр кодируется один раз здесь, а полный - только когда пикл едет (`_ship`).
+
+    KEYED_TASK_FRAME_V1: ключевой кадр - пикл КОРТЕЖА `(метка, значения полей задачи, поле входа, класс входа, значения полей входа без пикла)`, а не задачи-датакласса без пикла:
+    `dataclasses.replace` и пикл датакласса со слотами (`fields()` на каждый объект) стоили ~0.06 с процессора родителя на шаге ширины `cover.008`. Воркер собирает
+    из кортежа ту же задачу (`decode_task`), равную задаче без пикла.
     """
 
-    return encode_frame(task if _blob_input(task) is None else _key_only(task))
+    inputs = _blob_input(task)
+    if inputs is None:
+        return encode_frame(task)
+    slot = "production" if task.production is inputs else "coverage"
+    row = tuple(None if name == slot else getattr(task, name) for name in _TASK_FIELD_NAMES)
+    values = tuple(None if name == "blob" else getattr(inputs, name) for name in _field_names(type(inputs)))
+    return encode_frame((KEYED_TASK_FRAME, row, slot, type(inputs), values))
+
+
+def decode_task(value):
+    """Задача из разобранного кадра: ключевой кадр (KEYED_TASK_FRAME_V1) собирается в `DomainTaskV1` без пикла подготовки; всё прочее - как пришло."""
+
+    if type(value) is not tuple or not value or value[0] != KEYED_TASK_FRAME:
+        return value
+    _tag, row, slot, cls, values = value
+    arguments = dict(zip(_TASK_FIELD_NAMES, row))
+    arguments[slot] = cls(**dict(zip(_field_names(cls), values)))
+    return DomainTaskV1(**arguments)
 
 
 def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
@@ -849,7 +902,7 @@ def worker_main() -> None:
     importlib.import_module(".envelope_production_export", __package__)
     write_frame(channel, ("ready", os.getpid(), warm_worker_identities()))
     while True:
-        task = read_frame(source)
+        task = decode_task(read_frame(source))
         if task is None:
             return
         channel.write(serve_message(task) if not isinstance(task, DomainTaskV1) else serve_task(task))
@@ -1085,17 +1138,16 @@ def _blob_input(task):
     return None
 
 
-def _key_only(task):
-    """Та же задача без пикла подготовки: воркер берёт её из своей памяти по ключу."""
-
-    if task.production is not None:
-        return replace(task, production=replace(task.production, blob=None))
-    return replace(task, coverage=replace(task.coverage, blob=None))
-
-
 def _held_by(worker, task) -> bool:
     inputs = _blob_input(task)
     return inputs is not None and inputs.key in worker.held
+
+
+def _held_keys(held):
+    """Ключи зеркала памяти воркера для пересечения с ключами очереди: живой `dict_keys` (`PreparationLruV1.key_view`, пересечение считает C по меньшему из двух) либо сам набор."""
+
+    view = getattr(held, "key_view", None)
+    return held if view is None else view()
 
 
 class _PendingTasks:
@@ -1103,10 +1155,20 @@ class _PendingTasks:
 
     Очередь, которую наполняют позже (`fill`, HEAD_STREAMED_FIRST_ROUND_V1), держит воркеров на `take` до наполнения: первый круг уже считается, а остаток ещё упорядочивается.
     Очередь, у которой есть готовая часть и будет остаток (`prefill`, потом `extend`; SCAN_BEHIND_THE_POOL_V1), отдаёт готовую часть сразу, а воркер, опустошивший её раньше остатка, ждёт остаток, а не уходит.
+
+    PENDING_TAKE_INDEXED_V1: место задачи в очереди - её ранг (позиция в порядке очереди на момент наполнения; взятые места пустеют, порядок живых не меняется), а задачи с пиклом
+    подготовки (`_blob_input`) лежат ещё и в указателе `ключ -> ранги`. Выбор `take` прежний - голова, если она крупная или её подготовку воркер держит, иначе первая по порядку задача,
+    чью подготовку воркер держит, иначе голова, - но «первая держимая» - это наименьший ранг среди ключей, общих у указателя и зеркала воркера (`_held_keys`), а не обход очереди
+    с начала: на шаге ширины `cover.008` обход стоил ~50 проверок `_held_by` на взятие (0.05 с процессора родителя на нажатие).
     """
 
     def __init__(self, items=None, big_cost: float = 0.0) -> None:
-        self._items: list = []
+        self._slots: list = []
+        self._head = 0
+        self._alive = 0
+        self._ranks: dict = {}
+        self._first: dict = {}
+        self._key_of: list = []
         self._big = big_cost
         self._cond = threading.Condition()
         self._warm = 0
@@ -1116,11 +1178,29 @@ class _PendingTasks:
         if items is not None:
             self.fill(items, big_cost)
 
+    @property
+    def _items(self) -> list:
+        """Невзятые задачи по порядку очереди."""
+
+        return [item for item in self._slots[self._head:] if item is not None]
+
     def _set(self, items, big_cost: float, final: bool) -> None:
-        self._items = list(items)
+        self._slots = list(items)
+        self._head = 0
+        self._alive = len(self._slots)
+        self._key_of = []
+        self._ranks = {}
+        for rank, item in enumerate(self._slots):
+            inputs = _blob_input(item[0])
+            key = None if inputs is None else inputs.key
+            self._key_of.append(key)
+            if key is not None:
+                self._ranks.setdefault(key, deque()).append(rank)
+        #: Наименьший ранг невзятой задачи на каждый ключ: его пересекают с зеркалом воркера.
+        self._first = {key: ranks[0] for key, ranks in self._ranks.items()}
         self._big = big_cost
-        #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и за холодной задачей в работе его делать нельзя (`take_behind`).
-        self._warm = sum(1 for item in self._items if item[0].cold is None)
+        #: Сколько в очереди задач, не холодных: пока они есть, выбор зависит от памяти подготовок воркера (`_held_by`), и вперёд ответа его делать нельзя.
+        self._warm = sum(1 for item in self._slots if item[0].cold is None)
         self._ready = True
         self._final = self._final or final
         self._cond.notify_all()
@@ -1146,7 +1226,7 @@ class _PendingTasks:
         """Очередь полна и пуста: `take` отдаст `None` любому воркеру."""
 
         with self._cond:
-            return self._ready and self._final and not self._items
+            return self._ready and self._final and not self._alive
 
     def release(self) -> None:
         """Очередь, которую так и не наполнили до конца, становится полной как есть: воркеры не ждут того, чего не будет."""
@@ -1157,9 +1237,9 @@ class _PendingTasks:
 
     def take(self, worker):
         with self._cond:
-            while not self._ready or (not self._items and not self._final):
+            while not self._ready or (not self._alive and not self._final):
                 self._cond.wait()
-            if not self._items:
+            if not self._alive:
                 return None
             return self._choose(worker)
 
@@ -1175,26 +1255,39 @@ class _PendingTasks:
         """
 
         with self._cond:
-            if not self._ready or not self._items or _frame_cost(*self._items[0]) >= self._big:
+            if not self._ready or not self._alive or _frame_cost(*self._slots[self._head]) >= self._big:
                 return None
             if any(_frame_cost(*item) >= self._big for item in queued):
                 return None
-            cold_queued = self._warm < len(self._items)
+            cold_queued = self._warm < self._alive
             if any((item[0].cold is not None and self._warm) or (item[0].cold is None and cold_queued) for item in queued):
                 return None
             return self._choose(worker)
 
     def _choose(self, worker):
-        head = self._items[0]
-        if _frame_cost(*head) >= self._big or _held_by(worker, head[0]):
-            return self._pop(0)
-        for position, item in enumerate(self._items):
-            if _held_by(worker, item[0]):
-                return self._pop(position)
-        return self._pop(0)
+        """PENDING_TAKE_INDEXED_V1: голова, если она крупная; иначе наименьший ранг среди ключей, общих у указателя и зеркала воркера (голова, если её держит воркер); иначе голова."""
 
-    def _pop(self, position):
-        item = self._items.pop(position)
+        if _frame_cost(*self._slots[self._head]) >= self._big:
+            return self._pop(self._head)
+        common = self._first.keys() & _held_keys(worker.held)
+        if not common:
+            return self._pop(self._head)
+        return self._pop(min(self._first[key] for key in common))
+
+    def _pop(self, rank: int):
+        item = self._slots[rank]
+        self._slots[rank] = None
+        self._alive -= 1
+        key = self._key_of[rank]
+        if key is not None:
+            ranks = self._ranks[key]
+            ranks.remove(rank)  # взятая задача ключа - всегда его наименьший ранг (голова очереди либо минимум общих ключей): это `popleft`
+            if ranks:
+                self._first[key] = ranks[0]
+            else:
+                del self._ranks[key], self._first[key]
+        while self._head < len(self._slots) and self._slots[self._head] is None:
+            self._head += 1
         if item[0].cold is None:
             self._warm -= 1
         return item

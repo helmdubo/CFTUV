@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, replace
 
 from .envelope_chart_band import tightening_is_current_facts
 from .envelope_content_key import result_slot
+from .envelope_gc_pause import released
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
     entered_backend,
@@ -156,23 +157,6 @@ def lean_ready(run: _RunInputsV1, entry: _DomainEntryV1) -> bool:
     """
 
     return run.lean and entry.prepared is not None and entry.carried is None and not entry.reuse
-
-
-def released(failure):
-    """Исключение-отказ, которое прогон держит ЗНАЧЕНИЕМ, без трассы (`__traceback__` у него и у причин снят): ответ тот же, цикл разорван (PRODUCTION_REFUSAL_WITHOUT_TRACEBACK_V1).
-
-    Трасса поднятого и пойманного исключения держит кадры (`tb_frame` -> `f_back`) всей цепочки вызовов, то есть и кадр `run_production` с его рабочим набором (задачи, ответы воркеров,
-    записи доменов), а отказ лежит в этом же наборе (`refused`, `_DomainEntryV1.failure`): цикл, который не умирает счётчиком ссылок. На `cover.008` пять отказов держали ~110 тыс. объектов
-    до первой сборки мусора (она шла в конце кнопки, 0.36 с). Текст, исход и домен отказа от трассы не зависят.
-    """
-
-    seen = set()
-    node = failure
-    while node is not None and id(node) not in seen:
-        seen.add(id(node))
-        node.__traceback__ = None
-        node = node.__cause__ or node.__context__
-    return failure
 
 
 def _check_cancel(run: _RunInputsV1) -> None:

@@ -140,6 +140,25 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
             "exact refreshes still compute in the background, and the newest one is swapped in only when the hand rests (LIVE_DRAG_SETTLE_PENDING until then) or on release"
         ),
     )
+    drag_gpu_affine: BoolProperty(
+        name="GPU affine drag",
+        default=False,
+        description=(
+            "While Adjust Decal Width is dragged, Blender's Geometry Nodes move the decal by the model (GPU_AFFINE_DRAG_V1): every mouse step sets one number on a temporary "
+            "hidden modifier instead of rewriting the mesh from Python. The modifier and its attributes exist only during the drag: confirming and cancelling remove them first, "
+            "and saving, loading or an undo step remove any leftover. Confirming still recomputes and writes the committed result. Off by default: field test"
+        ),
+    )
+    drag_coherent: BoolProperty(
+        name="Coherent drag",
+        default=True,
+        description=(
+            "While Adjust Decal Width is dragged, every domain follows the hand (LIVE_DRAG_COHERENT_V1): a domain past the window of its affine certificate is extrapolated, "
+            "a domain without one moves by the difference of its last two exact samples; the frame is approximate near collisions, like the preview lines. "
+            "With the live exact mesh, no exact result lands while the hand moves, and when it rests ONE whole exact frame of the rest width replaces the mesh at once. "
+            "Confirming still recomputes and writes the committed result. On by default; acts only with the live exact mesh"
+        ),
+    )
     status: StringProperty(name="Decal Mesh Status", default="")
     timing: StringProperty(name="Decal Mesh Timing", default="")
 

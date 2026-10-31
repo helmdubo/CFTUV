@@ -44,8 +44,9 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from fractions import Fraction
+from operator import attrgetter
 
 from .. import float_filter
 from .._cpython311 import left_fold_sum
@@ -488,6 +489,25 @@ class AlphaIntervalV1:
             "scope": list(SCOPE),
             "uncertified": list(UNCERTIFIED),
         }
+
+
+#: SLOTS_STATE_TUPLE_V1 (`backend.BackendRecordV1`): интервал едет в каждом ответе домена; состояние пикла - кортеж значений полей, имена раз на класс.
+_INTERVAL_FIELDS = tuple(item.name for item in fields(AlphaIntervalV1))
+_INTERVAL_STATE = attrgetter(*_INTERVAL_FIELDS)
+
+
+def _interval_getstate(self) -> tuple:
+    return _INTERVAL_STATE(self)
+
+
+def _interval_setstate(self, state) -> None:
+    for name, value in zip(_INTERVAL_FIELDS, state):
+        object.__setattr__(self, name, value)
+
+
+#: После класса, а не в его теле: `dataclass(slots=True)` в Python 3.10 ставит свои `__getstate__`/`__setstate__` поверх объявленных в теле.
+AlphaIntervalV1.__getstate__ = _interval_getstate
+AlphaIntervalV1.__setstate__ = _interval_setstate
 
 
 def event_table(prepared, triangles, lift_key: str) -> EventTableV1:

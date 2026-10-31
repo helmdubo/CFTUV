@@ -66,6 +66,7 @@ from .envelope_width_rebase import rebase_result
 from .envelope_width_preview_model import (
     DISPLAY_APPROXIMATE_ERROR_LIMIT,
     DOMAIN_DISPLAY_APPROXIMATE,
+    LIVE_DRAG_COHERENT_V1,
     PREVIEW_MESH_FROM_AFFINE_CERTIFICATE_V1,
     DeviationV1,
     PreviewModelV1,
@@ -74,8 +75,15 @@ from .envelope_width_preview_model import (
     advance_ledger,
     base_frame,
     build_model,
+    coherent_frame,
+    coherent_rig_inputs,
+    coherent_slopes,
+    coherent_summary,
     deviation,
     evaluate,
+    finite_difference,
+    frame_summary,
+    gpu_rig_inputs,
     held_name,
     moving_patches,
     moving_patches_at,
@@ -155,6 +163,20 @@ class PreviewLogV1:
     incremental_fallback: dict = field(default_factory=dict)
     #: WIDTH_PREVIEW_INPUTS_DEFERRED_V1: кто построил входы линий превью записи кнопки (`idle` - простой после нажатия, `event` - первое событие либо действие раньше него): имя -> сколько раз.
     inputs_built: dict = field(default_factory=dict)
+    #: GPU_AFFINE_DRAG_V1: кадры, что показали узлы Blender (одно число в сокет), сколько раз узлы ставились (атрибуты модели в меш), секунды постановки и пути снятия: имя -> сколько.
+    gpu_frames: int = 0
+    gpu_installs: int = 0
+    gpu_install_seconds_total: float = 0.0
+    gpu_removed: dict = field(default_factory=dict)
+    #: LIVE_DRAG_COHERENT_V1: связные кадры, наибольшее число доменов за окном модели, с конечной разностью и стоящих в одном кадре, и причины окна последнего кадра.
+    coherent_frames: int = 0
+    coherent_extrapolated_max: int = 0
+    coherent_estimated_max: int = 0
+    coherent_standing_max: int = 0
+    coherent_reasons: tuple = ()
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: наибольшее число вершин на своём пределе в одном кадре; кадров, в которых предела нет (`LIVE_DRAG_COHERENT_NO_VERTEX_LIMITS`: сертификат без поля).
+    coherent_clamped_max: int = 0
+    coherent_without_limits: int = 0
 
     def refuse(self, name: str) -> None:
         self.refusals[name] = self.refusals.get(name, 0) + 1
@@ -178,6 +200,11 @@ class PreviewMeshStateV1:
     moving: frozenset = frozenset()
     #: Сколько из `live` доменов приближённые (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`: точная аффинная часть плюс замороженное смещение); остальные живые точны.
     approximate: int = 0
+    #: LIVE_DRAG_COHERENT_V1: сколько живых доменов идёт наклоном сертификата за окном модели и сколько - конечной разностью (у обычного кадра - нули).
+    extrapolated: int = 0
+    estimated: int = 0
+    #: LIVE_DRAG_COHERENT_VERTEX_CLAMPED: вершин на своём пределе.
+    clamped: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +264,8 @@ class MeshOwnershipV1:
     #: Какое поколение нашей записи уже доложил каждый depsgraph (ключ — depsgraph: окно, слой вида). Один depsgraph докладывает о нашей
     #: записи один раз; второй слой вида или второе окно — свой ключ, и его доклад тоже наш, а не внешний.
     seen_writes: dict = field(default_factory=dict)
+    #: Меш держит геометрию самого образца (точная запись), а не кадр модели на другой ширине: узлы GPU_AFFINE_DRAG_V1 берут позиции и UV меша за базу.
+    holds_base: bool = True
     corner_scratch: object = None
     start_scratch: object = None
 
@@ -480,6 +509,7 @@ def note_exact_display(controller, live: LiveRunV1) -> None:
 
     _record_check(controller, live)
     controller.width_displayed = live.sample
+    _note_coherent_prior(controller, live.sample)
     controller.width_trust = live.trust
     controller.width_mesh_preview = None
     controller.width_incremental = next_state(controller.width_incremental, live.plan, live.sample.alpha)
@@ -489,10 +519,32 @@ def note_exact_display(controller, live: LiveRunV1) -> None:
     controller.width_model_refusal = model if isinstance(model, PreviewRefusalV1) else None
 
 
+def _note_coherent_prior(controller, sample: PreviewSampleV1) -> None:
+    """LIVE_DRAG_COHERENT_V1: точный образец лёг на экран - у его доменов без наклонов сертификата наклон конечной разности с прежним образцом (`finite_difference`), запас обновлён, наклоны связного
+    кадра будут посчитаны заново для новой модели (`coherent_now`). Дёшево: массивы трогаются только у доменов без сертификата."""
+
+    controller.width_coherent_finite, controller.width_coherent_prior = finite_difference(getattr(controller, "width_coherent_prior", None), sample)
+    controller.width_coherent = None
+
+
+def coherent_now(controller):
+    """Наклоны связного кадра (`CoherentSlopesV1`) модели на экране, пока идёт связное перетаскивание (`width_coherent_drag`: начало инструмента с настройкой «Coherent drag» и до записи ширины
+    подтверждения), иначе `None`. Считаются один раз на модель (миллисекунды numpy)."""
+
+    model = controller.width_model
+    if not getattr(controller, "width_coherent_drag", False) or model is None:
+        return None
+    cached = getattr(controller, "width_coherent", None)
+    if cached is None or cached.model is not model:
+        cached = controller.width_coherent = coherent_slopes(model, getattr(controller, "width_coherent_finite", None))
+    return cached
+
+
 def note_button_display(controller, sample: PreviewSampleV1) -> None:
     """Кнопка записала меш: образец на экране, модели ещё нет (её строит первый кадр: `ensure_model`), журнал доверия забыт."""
 
     controller.width_displayed = sample
+    _note_coherent_prior(controller, sample)
     controller.width_model = None
     controller.width_model_refusal = None
     controller.width_mesh_preview = None
@@ -531,6 +583,9 @@ def drop_model(controller, reason: str) -> None:
     остаётся (он про ключ образца, а не про меш), и точный путь не затронут.
     """
 
+    from .envelope_width_gpu_drag import REMOVED_ON_MODEL_DROP
+
+    retire_gpu(controller, REMOVED_ON_MODEL_DROP)  # GPU_AFFINE_DRAG_V1: узлы модели, которой больше нет, не двигают меш
     had = controller.width_model is not None or controller.width_displayed is not None
     if had:
         name = f"{MODEL_DROPPED}:{reason}"
@@ -542,6 +597,7 @@ def drop_model(controller, reason: str) -> None:
     controller.width_mesh_preview = None
     controller.width_mesh_owner = None
     controller.width_incremental = None
+    controller.width_coherent = None
 
 
 def note_history(controller) -> None:
@@ -731,12 +787,18 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
     if problem:
         drop_model(controller, problem)
         return None
-    frame = evaluate(model, width)
-    try:
-        write_preview_geometry(decal.data, frame.positions, frame.uvs, owners)
-    except ProductionWriteError as exc:
-        drop_model(controller, exc.outcome)
-        return None
+    coherent = coherent_now(controller)  # LIVE_DRAG_COHERENT_V1: за рукой идёт каждый домен (окна модели не держат), `None` - обычный кадр
+    frame = _gpu_frame(controller, model, decal, width) if gpu_drag_active(controller) and owners is None else None
+    if frame is False:
+        return None  # узлам нужна была база в меше, а меш её не принял: модель снята с именем причины
+    if frame is None:
+        frame = evaluate(model, width) if coherent is None else coherent_frame(model, coherent, width)
+        try:
+            write_preview_geometry(decal.data, frame.positions, frame.uvs, owners)
+        except ProductionWriteError as exc:
+            drop_model(controller, exc.outcome)
+            return None
+        controller.width_mesh_owner.holds_base = False
     controller.width_mesh_owner.note_own_write()
     previous = controller.width_mesh_preview
     moving = frozenset() if frame.refusal else moving_patches(model, frame.held)
@@ -751,13 +813,119 @@ def preview_mesh_now(controller, width: float, owners=None) -> PreviewMeshStateV
         1 if previous is None else previous.serial + 1,
         moving,
         frame.approximate_domains,
+        frame.extrapolated,
+        frame.estimated,
+        frame.clamped,
     )
     controller.width_mesh_preview = state
     log = log_of(controller)
     log.frames += 1
     log.frame_seconds_total += seconds
     log.frame_seconds_max = max(log.frame_seconds_max, seconds)
+    if frame.coherent:
+        log.coherent_frames += 1
+        log.coherent_extrapolated_max = max(log.coherent_extrapolated_max, frame.extrapolated)
+        log.coherent_estimated_max = max(log.coherent_estimated_max, frame.estimated)
+        log.coherent_standing_max = max(log.coherent_standing_max, frame.held_domains)
+        log.coherent_reasons = frame.extrapolated_reasons
+        log.coherent_clamped_max = max(log.coherent_clamped_max, frame.clamped)
+        coherent = getattr(controller, "width_coherent", None)
+        if coherent is not None and coherent.vertex_cap is None and coherent.vertex_floor is None:
+            log.coherent_without_limits += 1
     return state
+
+
+def gpu_drag_active(controller) -> bool:
+    """GPU_AFFINE_DRAG_V1: идёт перетаскивание с настройкой «GPU affine drag» - кадр модели показывают узлы Blender, а не запись меша."""
+
+    return bool(getattr(controller, "width_drag_active", False)) and bool(getattr(controller, "width_gpu_drag", False))
+
+
+def _gpu_frame(controller, model, decal, width: float):
+    """Кадр модели узлами Blender (GPU_AFFINE_DRAG_V1): исходы кадра (`frame_summary`), а позиции и UV считает depsgraph из атрибутов модели и числа в сокете «Width».
+
+    Узлы ставятся (атрибуты модели в меш, модификатор на объект) один раз на модель: на первом кадре перетаскивания и после каждого точного такта (новая модель). Меш должен держать
+    геометрию базы модели; держит кадр модели (его писал Python до перетаскивания) - база ложится точной записью (`lay_exact_now`). Возвращает кадр, `None` (узлы отказали по имени:
+    остаток перетаскивания пишет Python, как без настройки) либо `False` (меш не принял базу: модель снята с именем причины).
+    """
+
+    from . import envelope_width_gpu_drag as gpu
+
+    log = log_of(controller)
+    rig = getattr(controller, "width_gpu_rig", None)
+    coherent = coherent_now(controller)  # LIVE_DRAG_COHERENT_V1: узлы с наклонами связного кадра и окнами, открытыми всем
+    try:
+        if not gpu.current(rig, decal, model):
+            if not controller.width_mesh_owner.holds_base:
+                if lay_exact_now(controller, model.base):
+                    return False
+            inputs = gpu_rig_inputs(model) if coherent is None else coherent_rig_inputs(model, coherent)
+            rig = gpu.install(decal, gpu.rig_arrays(**inputs), model.base_alpha, model)
+            controller.width_gpu_rig = rig
+            log.gpu_installs += 1
+            log.gpu_install_seconds_total += rig.install_seconds
+        gpu.set_width(rig, decal, width)
+    except gpu.GpuDragError as exc:
+        log.refuse(exc.outcome)
+        controller.width_gpu_rig = None
+        try:
+            gpu.remove(decal)  # постановка могла оборваться посередине: снимается всё, что успело лечь
+        except Exception:  # noqa: BLE001 - снять хоть как-то: весь файл
+            gpu.strip_everywhere()
+        log.gpu_removed[gpu.REMOVED_ON_FAILURE] = log.gpu_removed.get(gpu.REMOVED_ON_FAILURE, 0) + 1
+        if controller.width_mesh_owner is not None:
+            controller.width_mesh_owner.note_own_write()
+        controller.width_gpu_drag = False  # остаток перетаскивания - кадры Python, как без настройки
+        return None
+    log.gpu_frames += 1
+    return frame_summary(model, width) if coherent is None else coherent_summary(model, coherent, width)
+
+
+def _gpu_after_exact(controller, decal) -> None:
+    """Точный образец лёг в меш, пока стоят узлы прежней модели: узлы ставятся для новой модели на ширине самого образца (сдвиг ноль - меш, как его записали), иначе прежние наклоны
+    сдвинули бы новую базу второй раз. Модели нет - узлы сняты (`GPU_DRAG_REMOVED_ON_MODEL_DROP`). Кадр к курсору, если он следует, двигает уже новые узлы."""
+
+    if getattr(controller, "width_gpu_rig", None) is None:
+        return
+    from .envelope_width_gpu_drag import REMOVED_ON_MODEL_DROP
+
+    if not gpu_drag_active(controller) or not ensure_model(controller):
+        retire_gpu(controller, REMOVED_ON_MODEL_DROP)
+        return
+    model = controller.width_model
+    if _gpu_frame(controller, model, decal, model.base_alpha):
+        controller.width_mesh_owner.note_own_write()
+
+
+def _rig_object(rig):
+    import bpy
+
+    found = bpy.data.objects.get(rig.object_name)
+    if found is not None and int(found.as_pointer()) == rig.object_pointer:
+        return found
+    return next((item for item in bpy.data.objects if int(item.as_pointer()) == rig.object_pointer), None)
+
+
+def retire_gpu(controller, reason: str) -> bool:
+    """Узлы GPU_AFFINE_DRAG_V1 сняты с объекта декали (модификатор, атрибуты, группа) под именем пути снятия. `True` - они стояли."""
+
+    rig = getattr(controller, "width_gpu_rig", None)
+    if rig is None:
+        return False
+    from . import envelope_width_gpu_drag as gpu
+
+    controller.width_gpu_rig = None
+    log = log_of(controller)
+    try:
+        gpu.remove(_rig_object(rig))
+    except Exception as exc:  # noqa: BLE001 - снятие не роняет перетаскивание: остаток снимет любой следующий путь (запись файла, начало перетаскивания)
+        log.refuse(f"{gpu.REFUSED}:REMOVE:{type(exc).__name__}")
+        gpu.strip_everywhere()
+    log.gpu_removed[reason] = log.gpu_removed.get(reason, 0) + 1
+    owner = getattr(controller, "width_mesh_owner", None)
+    if owner is not None:
+        owner.note_own_write()  # снятие модификатора и атрибутов - наша запись, не внешняя правка
+    return True
 
 
 def moving_now(controller, width: float) -> frozenset:
@@ -781,6 +949,11 @@ def finish_drag(controller, *, restore: bool) -> bool:
     """
 
     controller.width_drag_active = False
+    # GPU_AFFINE_DRAG_V1: узлы снимаются ДО возврата и до записи ширины подтверждения - меш снова пишет только Python, а в файл и в шаг отмены узлы не попадают.
+    from .envelope_width_gpu_drag import REMOVED_AT_CANCEL, REMOVED_AT_CONFIRM
+
+    retire_gpu(controller, REMOVED_AT_CANCEL if restore else REMOVED_AT_CONFIRM)
+    controller.width_gpu_drag = False
     scheduler = getattr(controller, "width_live", None)
     if scheduler is not None and hasattr(scheduler, "retire_stream"):
         # LIVE_DRAG_STREAM_V1: такт перетаскивания, что ещё в пути, больше не нужен ни отмене, ни подтверждению - снят с именем, иначе он лёг бы в СЛЕДУЮЩЕЕ перетаскивание (оно снова
@@ -880,7 +1053,10 @@ def lean_exact_now(controller, live, *, reframe_to: float | None = None) -> str:
         drop_model(controller, exc.outcome)
         return exc.outcome
     note_exact_display(controller, live)
-    capture_ownership(controller, decal, sample)
+    owner = capture_ownership(controller, decal, sample)
+    if owner is not None and same_layout and reframe_to is not None:
+        owner.holds_base = False  # числа образца не писались: меш держит прежний кадр, его тут же заменит кадр к курсору
+    _gpu_after_exact(controller, decal)
     previous = controller.width_mesh_preview
     seconds = time.perf_counter() - started
     plan = live.plan
@@ -965,6 +1141,7 @@ def restore_base_mesh(controller) -> bool:
     except ProductionWriteError:
         return False
     controller.width_mesh_owner.note_own_write()
+    controller.width_mesh_owner.holds_base = True
     return True
 
 
@@ -987,6 +1164,14 @@ def status_lines(controller) -> tuple[str, ...]:
         lines.append(
             f"Mesh {REFRESH_LEAN}: exact geometry at width {state.alpha:.4g}, {state.live} domains (without the checks and reports of a commit; "
             "confirming recomputes and writes the committed result)"
+        )
+    elif state is not None and state.outcome == LIVE_DRAG_COHERENT_V1:
+        log = controller.width_preview_log
+        reasons = "" if log is None or not log.coherent_reasons else " (" + ", ".join(f"{name} {count}" for name, count in log.coherent_reasons) + ")"
+        lines.append(
+            f"Mesh {LIVE_DRAG_COHERENT_V1} (approximate, every domain follows the hand): width {state.alpha:.4g}, {state.live} domains moving, {state.extrapolated} extrapolated past their model window"
+            f"{reasons}, {state.estimated} by a finite difference, {state.held} standing, {state.clamped} vertices stopped at their limit (LIVE_DRAG_COHERENT_VERTEX_CLAMPED)"
+            "; the exact frame of the rest width follows"
         )
     elif state is not None:
         held = ""
@@ -1057,6 +1242,7 @@ __all__ = (
     "PreviewMeshStateV1",
     "build_sample",
     "capture_ownership",
+    "coherent_now",
     "LEAN_KEY_MISMATCH",
     "LEAN_DRAG_ENDED_BY_FINISH",
     "LEAN_NO_BASE",
@@ -1065,6 +1251,7 @@ __all__ = (
     "ensure_model",
     "finish_drag",
     "finish_live_run",
+    "gpu_drag_active",
     "lay_exact_now",
     "lean_exact_now",
     "same_layout_of",
@@ -1077,6 +1264,7 @@ __all__ = (
     "plan_tick",
     "preview_mesh_now",
     "restore_base_mesh",
+    "retire_gpu",
     "sample_key",
     "status_lines",
 )

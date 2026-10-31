@@ -302,12 +302,15 @@ def test_the_function_decorator_restores_the_collector_when_the_call_raises_and_
 
 
 def _imports_of_the_pause(path):
+    """Имена паузы (`gc_paused*`), которые модуль берёт у `envelope_gc_pause`; `released` (исключение без трассы) сборщик не трогает и сюда не входит."""
+
     tree = ast.parse(path.read_text(encoding="utf-8"))
     return sorted(
         alias.name
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == "envelope_gc_pause"
         for alias in node.names
+        if alias.name.startswith("gc_paused")
     )
 
 
@@ -426,22 +429,144 @@ def test_a_frozen_set_above_the_valve_is_given_back_to_the_collector_instead_of_
     assert gc.get_freeze_count() == 0 and gc.isenabled()
 
 
-def test_the_button_decorator_requests_the_freeze_and_the_tick_decorator_does_not(_unfrozen):
+def test_the_tick_decorator_freezes_like_the_button_but_only_the_button_checks_the_valve(_unfrozen, monkeypatch):
+    """GC_FROZEN_AFTER_WIDTH_TICK_V1: работа тика выходит из паузы заморозкой, как кнопка; клапан (подсчёт ВСЕГО постоянного поколения - стена такта) проверяет только кнопка."""
+
+    from cftuv import envelope_gc_pause
+    from cftuv.envelope_gc_pause import GC_FROZEN_WIDTH_OUTCOME
+
+    assert GC_FROZEN_WIDTH_OUTCOME == "GC_FROZEN_AFTER_WIDTH_TICK_V1"
     gc.enable()
 
     @gc_paused_function
     def tick():
         return [[0]]
 
-    tick()
-    assert gc.get_freeze_count() == 0
-
     @gc_paused_call
     def execute(self, context):
         return {"FINISHED"}
 
+    tick()
+    assert gc.get_freeze_count() > 0 and gc.isenabled()
+    monkeypatch.setattr(envelope_gc_pause, "FREEZE_VALVE_OBJECTS", 1)
+    tick()
+    assert gc.get_freeze_count() > 0 and gc.isenabled()  # тик клапан не считает: замороженное остаётся замороженным
     execute(None, None)
-    assert gc.get_freeze_count() > 0
+    assert gc.get_freeze_count() == 0 and gc.isenabled()  # кнопка считает: выше клапана замороженное возвращено сборщику
+
+
+def test_a_foreign_cycle_frozen_mid_drag_is_collected_at_idle_after_the_drag(_unfrozen):
+    """GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: заморозка тика уносит и ЧУЖОЙ несобранный цикл (другой аддон, интерфейс); он живёт только до простоя после перетаскивания."""
+
+    import weakref
+
+    from cftuv.envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle
+
+    assert GC_IDLE_COLLECT_OUTCOME == "GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1"
+
+    class Foreign:
+        pass
+
+    alive = []
+
+    @gc_paused_function
+    def tick_while_foreign_code_runs():
+        first, second = Foreign(), Foreign()
+        first.other, second.other = second, first  # цикл чужого кода, ставший мусором, пока сборщик стоял
+        alive.append(weakref.ref(first))
+
+    gc.enable()
+    tick_while_foreign_code_runs()  # выход тика замораживает накопленное - и чужой мусор тоже
+    gc.collect()
+    assert alive[0]() is not None  # обычная сборка постоянного поколения не видит
+    assert not collect_frozen_when_idle(0.0, busy=True)  # перетаскивание ещё идёт (либо фиксация не легла): не простой
+    with gc_paused():
+        assert not collect_frozen_when_idle(0.0)  # блок открыт (такт в полёте): не простой
+    assert not collect_frozen_when_idle(3600.0)  # тишины после последнего выхода из паузы мало
+    assert alive[0]() is not None
+    assert collect_frozen_when_idle(0.0)  # простой после перетаскивания
+    assert alive[0]() is None and gc.get_freeze_count() == 0 and gc.isenabled()
+    assert not collect_frozen_when_idle(0.0)  # нечего возвращать: до следующей заморозки простой ничего не делает
+
+
+def test_the_idle_collection_waits_its_quiet_after_the_commit_has_landed_not_after_the_last_pause(_unfrozen, monkeypatch):
+    """GC_IDLE_COLLECT_AFTER_APPLIED_V1: заказ занят, пока его меш не лёг, и часы тишины идут от последнего занятого опроса - сборка не рвёт отпускание вторым рывком."""
+
+    from cftuv import envelope_gc_pause as pause
+
+    now = [1000.0]
+    monkeypatch.setattr(pause.time, "perf_counter", lambda: now[0])
+
+    @gc_paused_function
+    def tick():
+        pass
+
+    gc.enable()
+    tick()  # счёт фиксации кончился в 1000.0: заморожено
+    now[0] = 1005.0
+    assert not pause.collect_frozen_when_idle(1.0, busy=True)  # меш фиксации ещё не лёг: пять секунд после паузы не в счёт
+    now[0] = 1005.9
+    assert not pause.collect_frozen_when_idle(1.0)  # фиксация легла, тишины после неё меньше секунды
+    now[0] = 1006.0
+    assert pause.collect_frozen_when_idle(1.0) and gc.get_freeze_count() == 0
+
+
+def test_the_idle_is_busy_while_the_drag_or_an_order_lives():
+    from types import SimpleNamespace
+
+    from cftuv.envelope_width_live import gc_idle_busy
+
+    idle = SimpleNamespace(busy=False)
+    assert not gc_idle_busy(None)
+    assert not gc_idle_busy(SimpleNamespace(width_drag_active=False, width_live=idle, alpha_preview=None))
+    assert gc_idle_busy(SimpleNamespace(width_drag_active=True, width_live=idle, alpha_preview=None))
+    assert gc_idle_busy(SimpleNamespace(width_drag_active=False, width_live=SimpleNamespace(busy=True), alpha_preview=None))  # фиксация после отпускания ещё не легла
+    assert gc_idle_busy(SimpleNamespace(width_drag_active=False, width_live=None, alpha_preview=SimpleNamespace(busy=True)))
+
+
+def test_only_the_pause_freezes_and_the_idle_timer_lives_with_the_width_tools():
+    """Замораживает только пауза (`gc.freeze` - в одном модуле; `freeze=True` - кнопка, тик и подготовка в простое после кнопки), а таймер простоя, который возвращает
+    замороженное сборщику, регистрируется вместе с инструментами ширины (постоянный) и снимается с ними."""
+
+    frozen_by = sorted(path.name for path in HOST.glob("*.py") if "gc.freeze(" in path.read_text(encoding="utf-8"))
+    assert frozen_by == ["envelope_gc_pause.py"]
+    asks = {}
+    for path in sorted(HOST.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and any(item.arg == "freeze" and getattr(item.value, "value", None) is True for item in node.keywords):
+                asks[path.name] = asks.get(path.name, 0) + 1
+    assert asks == {"envelope_gc_pause.py": 2, "envelope_width_live.py": 1}  # gc_paused_call, gc_paused_function; run_idle_preparation
+    modal = (HOST / "envelope_width_modal.py").read_text(encoding="utf-8")
+    assert "bpy.app.timers.register(collect_frozen_at_idle, first_interval=GC_IDLE_POLL_SECONDS, persistent=True)" in modal
+    assert "for timer in (_reconcile_once, _sync_once, collect_frozen_at_idle):" in modal
+
+
+def test_repeated_cancelled_ticks_do_not_grow_the_frozen_set(_unfrozen):
+    """Заморозка после тика не копит: выжившее такта умирает счётчиком ссылок на следующем такте, а отмена не держит цикла (CANCELLED_TICK_WITHOUT_TRACE_V1)."""
+
+    from cftuv.envelope_alpha_preview import PreviewCancelled, ThreadedPreviewJob
+
+    gc.enable()
+
+    @gc_paused_function
+    def compute(cancel):
+        working_set = [[index] for index in range(500)]  # рабочий набор прогона в кадрах счёта
+        raise PreviewCancelled(f"superseded with {len(working_set)} lists in flight")
+
+    def tick():
+        job = ThreadedPreviewJob(compute)
+        job.join(5.0)
+        try:
+            job.result()
+        except PreviewCancelled:
+            pass
+
+    for _ in range(3):
+        tick()
+    settled = gc.get_freeze_count()
+    for _ in range(30):
+        tick()
+    assert gc.get_freeze_count() - settled < 500  # без снятой трассы каждый такт оставлял бы в постоянном поколении свои 500 списков и кадры
 
 
 def test_a_stored_refusal_carries_no_traceback_so_it_closes_no_cycle_with_the_run():
@@ -493,3 +618,68 @@ def test_the_released_chain_covers_the_cause_and_the_context():
     except ValueError as exc:
         kept = released(exc)
     assert kept.__traceback__ is None and kept.__cause__.__traceback__ is None and str(kept) == "second"
+
+
+def _cycle_garbage_after(make_jobs) -> int:
+    """Сколько объектов в циклах оставили работы `make_jobs()` (их результат взят либо брошен): сборщик выключен, всё, что не умерло счётчиком ссылок, - цикл."""
+
+    gc.disable()
+    try:
+        gc.collect()
+        make_jobs()
+        return gc.collect()
+    finally:
+        gc.enable()
+
+
+def test_a_cancelled_tick_job_closes_no_cycle_whether_its_result_is_taken_or_abandoned():
+    """CANCELLED_TICK_WITHOUT_TRACE_V1: отмена такта не держит кадры счёта в цикле с работой - ни у взятого результата, ни у брошенного (снятый полёт планировщик не опрашивает)."""
+
+    from cftuv.envelope_alpha_preview import PreviewCancelled, ThreadedPreviewJob
+
+    @gc_paused_function
+    def compute(cancel):
+        working_set = [object() for _ in range(50)]  # рабочий набор прогона в кадре счёта
+        try:
+            raise KeyError("superseded")
+        except KeyError as exc:
+            raise PreviewCancelled(str(exc)) from exc
+
+    def taken():
+        for _ in range(4):
+            job = ThreadedPreviewJob(compute)
+            job.join(5.0)
+            with pytest.raises(PreviewCancelled, match="superseded"):
+                job.result()
+            with pytest.raises(RuntimeError, match="handed over already: PreviewCancelled"):
+                job.result()  # второй раз - названный отказ, а не тихое `None`
+
+    def abandoned():
+        for _ in range(4):
+            ThreadedPreviewJob(compute).join(5.0)
+
+    assert _cycle_garbage_after(taken) == 0
+    assert _cycle_garbage_after(abandoned) == 0
+
+
+def test_a_failed_job_hands_its_error_over_once_with_the_compute_trace_and_closes_no_cycle():
+    """Сбой счёта (не отмена) несёт трассу счёта к отчёту планировщика; отданный, он не держит работу в цикле."""
+
+    import traceback
+
+    from cftuv.envelope_alpha_preview import ThreadedPreviewJob
+
+    def deep_failure(cancel):
+        raise ValueError("domain 7 failed")
+
+    def failed():
+        job = ThreadedPreviewJob(deep_failure)
+        job.join(5.0)
+        text = ""
+        try:
+            job.result()
+        except ValueError as exc:  # не `pytest.raises(...) as`: держатель исключения в кадре теста замкнул бы свой цикл
+            text = "".join(traceback.format_exception(exc))
+        assert "deep_failure" in text and "domain 7 failed" in text
+
+    assert _cycle_garbage_after(failed) == 0

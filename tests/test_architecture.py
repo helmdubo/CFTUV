@@ -716,10 +716,12 @@ def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_ent
             for node in ast.walk(function):
                 if isinstance(node, ast.Call):
                     name = _called_names_of(node)
-                    if name in ("evaluate", "positions_and_uvs", "shadow_prediction"):
+                    if name in ("evaluate", "coherent_frame", "positions_and_uvs", "shadow_prediction"):
                         callers.setdefault(name, set()).add((path.name, function.name))
     assert callers.get("evaluate", set()) >= {("envelope_width_mesh_preview.py", "preview_mesh_now")}
     assert {item for item in callers["evaluate"] if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers["evaluate"]
+    # LIVE_DRAG_COHERENT_V1: связный кадр (экстраполяция за окно, конечная разность) - тоже только экран, тот же единственный вход.
+    assert {item for item in callers.get("coherent_frame", set()) if item[0] != "envelope_width_preview_model.py"} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, callers.get("coherent_frame")
     # Составной образец инкрементального такта (WIDTH_REFRESH_INCREMENTAL_V1, `envelope_width_composite`) - второй читатель кадра модели: обслуженные домены он двигает тем же `positions_and_uvs`, что кадр мыши, и ничего не пишет в
     # меш (меш пишет только `lean_exact_now` через `_lay_down`); поэтому он единственный, кроме слоя превью, кому разрешено знать модель.
     readers = {"positions_and_uvs": {("envelope_width_composite.py", "compose_sample")}, "shadow_prediction": set()}
@@ -733,7 +735,7 @@ def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_ent
         for function in (node for node in ast.walk(_parse(path)) if isinstance(node, ast.FunctionDef)):
             calls = [node for node in ast.walk(function) if isinstance(node, ast.Call)]
             if any(_called_names_of(call) == "write_preview_geometry" for call in calls):
-                frame_writers.add((path.name, function.name, any(_called_names_of(call) == "evaluate" for call in calls)))
+                frame_writers.add((path.name, function.name, any(_called_names_of(call) in ("evaluate", "coherent_frame") for call in calls)))
     assert {item[:2] for item in frame_writers if item[2]} == {("envelope_width_mesh_preview.py", "preview_mesh_now")}, frame_writers
 
 
@@ -831,6 +833,32 @@ def test_every_press_refuses_a_width_that_is_not_positive_before_the_pool():
         calls = [node for node in ast.walk(_functions_of(module)[function]) if isinstance(node, ast.Call)]
         first = {name: min(node.lineno for node in calls if _called_names_of(node) == name) for name in ("width_refusal", later)}
         assert first["width_refusal"] < first[later], f"{module}:{function} спрашивает `width_refusal` после `{later}`"
+
+
+def test_the_width_session_a_tool_fakes_for_the_confirm_carries_everything_the_confirm_reads():
+    """`finish_adjust` читает у сессии инструмента ширины несколько полей. Инструмент замера, который подтверждает перетаскивание поддельной
+    сессией (`tools/blender_live_drag.py`: он ведёт планировщик, а не автомат), обязан дать их все - иначе подтверждение падает в Blender,
+    а не здесь (WIDTH_FLOOR_POSITIVE_V1 добавил `floor_hits`).
+    """
+
+    finish = _functions_of("envelope_width_session.py")["finish_adjust"]
+    read = {
+        node.attr
+        for node in ast.walk(finish)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "session"
+    }
+    assert {"width", "phase", "floor_hits"} <= read, read
+    fakes = [
+        keyword.value
+        for call in ast.walk(_parse(TOOLS / "blender_live_drag.py"))
+        if isinstance(call, ast.Call) and _called_names_of(call) == "SimpleNamespace"
+        for keyword in call.keywords
+        if keyword.arg == "session" and isinstance(keyword.value, ast.Call)
+    ]
+    assert fakes, "the live drag tool confirms with a fake session"
+    for fake in fakes:
+        given = {keyword.arg for keyword in fake.keywords}
+        assert read <= given, f"the fake session of the live drag tool lacks {sorted(read - given)}"
 
 
 def test_a_drag_event_never_computes_the_full_contour_while_the_mesh_model_can_move_the_mesh():
@@ -1178,7 +1206,10 @@ MODULE_LINE_ALLOWANCE = {
     # (`envelope_production_scan`) лежат в своих модулях, а все прежние имена по-прежнему доступны из `envelope_production_export` (переэкспорт). Потолки новых модулей - не общий
     # предел 2000, а размер модуля с запасом на рост (около 10 % сверх факта: 1003 / 410 / 363 / 460 строк на WIDTH_REFRESH_LEAN_V1).
     "cftuv/envelope_production_export.py": 1100,
-    "cftuv/envelope_production_result.py": 450,
+    # 450 -> 459. +9 за VIEW_BYTES_V1: поле `view_bytes`, значение поля `view` без значения класса (`_no_view`: иначе чтение вида из байтов не доходит до `__getattr__`),
+    # ветка разбора в `__getattr__` и снятие байтов там, где снимается вид (`__getstate__`, `materialized`, `with_changes`, `rebased_result`). Кодек, запись вида в
+    # состояние (`put_view`) и разбор с памятью (`cached_view`) живут в `envelope_view_bytes`; модуль стоял на строку под потолком. Число поднято осознанно, до фактического.
+    "cftuv/envelope_production_result.py": 459,
     "cftuv/envelope_production_task.py": 400,
     # 500 -> 520. +19 за домен из записи сборки без блока бэкенда на домен (SCAN_REUSED_ENTRY_WITHOUT_BACKEND_BLOCK_V1): `_Scan._reused` (запись пустого блока раз на обход,
     # модуль ядра раз на обход) и одна проверка `peek_domain_snapshot` перед блоком. Сама проверка кэшей живёт в `envelope_debug_session`, память идентичности домена - в `envelope_scan_memo`.

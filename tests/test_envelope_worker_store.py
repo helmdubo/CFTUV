@@ -13,6 +13,7 @@ import pickle
 from collections import deque
 import random
 import sys
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -269,7 +270,7 @@ class _FakeWorker:
 
     def send(self, frame):
         self.frames.append(frame)
-        task = pickle.loads(frame[8:])
+        task = pool_module.decode_task(pickle.loads(frame[8:]))
         inputs = task.production
         if inputs.blob is not None:
             self.memory.add(inputs.key, len(inputs.blob))
@@ -329,8 +330,23 @@ def test_a_queued_blob_task_carries_its_key_frame_and_is_priced_with_its_blob():
 
     assert [task.task_id for task, _frame in ordered] == [1, 0, 2]
     for task, frame in ordered:
-        assert frame == task_frame(task) == encode_frame(pool_module._key_only(task))
+        assert frame == task_frame(task) and pool_module.decode_task(pickle.loads(frame[8:])) == replace(task, production=replace(task.production, blob=None))
         assert pool_module._frame_cost(task, frame) == (len(frame) + len(task.production.blob)) / pool_module.COVERAGE_FRAME_COST_DIVISOR
+
+
+def test_a_keyed_frame_is_a_plain_tuple_that_the_worker_turns_into_the_task_without_its_blob():
+    """KEYED_TASK_FRAME_V1: ключевой кадр - кортеж значений (у родителя нет `dataclasses.replace` и пикла датакласса); воркер собирает из него задачу без пикла."""
+
+    production_task = _keyed_task(4, 700, "kp")
+    coverage_task = DomainTaskV1(5, 5, "d5", None, None, "0.3", frozenset({1, 2}), coverage=envelope_queue_pool.CoverageInputV1(b"y" * 90, False, key="kc"), affinity="d5")
+    for task, slot in ((production_task, "production"), (coverage_task, "coverage")):
+        value = pickle.loads(task_frame(task)[8:])
+        assert type(value) is tuple and value[0] == pool_module.KEYED_TASK_FRAME and value[2] == slot
+        decoded = pool_module.decode_task(value)
+        assert decoded == replace(task, **{slot: replace(getattr(task, slot), blob=None)})
+        assert getattr(decoded, slot).blob is None and getattr(task, slot).blob is not None
+    keyless = DomainTaskV1(6, 6, "d6", None, None, "0.3", frozenset(), production=ProductionInputV1(b"z" * 50), affinity="d6")
+    assert pool_module.decode_task(pickle.loads(task_frame(keyless)[8:])) == keyless  # без ключа пикл едет всегда: полный кадр, как прежде
 
 
 def test_a_run_starts_a_feed_thread_only_for_a_worker_that_can_get_a_task(monkeypatch):

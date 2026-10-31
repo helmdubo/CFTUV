@@ -84,18 +84,20 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
-from .envelope_gc_pause import gc_paused, gc_paused_function
+from .envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle, gc_paused, gc_paused_function
 from .envelope_width_adjust import DEFAULT_MIN_WIDTH, WIDTH_CLAMPED_AT_FLOOR, WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
 from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
-from .envelope_width_stream import SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
+from .envelope_width_stream import COHERENT_DROPPED_AT_CONFIRM, SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
+from .envelope_width_gpu_drag import REMOVED_STALE
 from .envelope_width_mesh_preview import (
     capture_ownership,
     ensure_model,
     finish_live_run,
+    gpu_drag_active,
     lay_exact_now,
     lean_exact_now,
     log_of,
@@ -329,6 +331,31 @@ def schedule_idle_preparation(controller, record) -> None:
     bpy.app.timers.register(prepare, first_interval=IDLE_PREPARE_SECONDS)
 
 
+#: GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: шаг таймера простоя и тишина после последнего выхода из паузы, после которой замороженное кнопкой и тиками возвращается сборщику.
+GC_IDLE_POLL_SECONDS = 0.5
+GC_IDLE_QUIET_SECONDS = 1.0
+
+
+def gc_idle_busy(controller) -> bool:
+    """Не простой: идёт перетаскивание ширины, либо заказ ширины или alpha ещё не применён и не назван (фиксация после отпускания - тоже заказ)."""
+
+    if controller is None:
+        return False
+    return bool(controller.width_drag_active) or any(scheduler is not None and scheduler.busy for scheduler in (controller.width_live, controller.alpha_preview))
+
+
+def collect_frozen_at_idle():
+    """Таймер главного потока (`bpy.app.timers`, живёт с аддоном): в простое замороженное кнопкой и тиками возвращается сборщику, полная сборка идёт здесь (GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1)."""
+
+    try:
+        import bpy
+
+        collect_frozen_when_idle(GC_IDLE_QUIET_SECONDS, busy=gc_idle_busy(_controller_of(bpy.context)))
+    except Exception as exc:  # noqa: BLE001 - таймер не роняет цикл Blender: исход назван
+        print(f"[CFTUV][WidthLive] {GC_IDLE_COLLECT_OUTCOME}: the idle collection failed: {type(exc).__name__}: {exc}", flush=True)
+    return GC_IDLE_POLL_SECONDS
+
+
 def tag_view3d_redraw() -> None:
     """Строки статуса и оверлей — не свойства RNA: перерисовка вьюпортов по явному заказу."""
 
@@ -475,6 +502,9 @@ def settle_at_confirm(controller) -> bool:
 
     scheduler, log = getattr(controller, "width_live", None), getattr(controller, "width_live_drag", None)
     if scheduler is None or log is None or getattr(scheduler, "settling", None) is None:
+        return False
+    if log.coherent and scheduler.settling.alpha != log.cursor:
+        log.count(log.outcomes, COHERENT_DROPPED_AT_CONFIRM)  # LIVE_DRAG_COHERENT_V1: такт другой ширины не ложится перед COMMIT (второй кадр отпускания); его снимает конец перетаскивания
         return False
     applied = scheduler.release_settled_now()
     if applied:
@@ -847,7 +877,8 @@ def _apply_lean(controller, request, job, live) -> None:
     log = controller.width_live_drag
     # LIVE_DRAG_ONE_WRITE_V1: курсор ушёл дальше ширины такта - при той же раскладке меш пишет один раз кадр модели нового образца на ширине курсора (с номерами владельцев образца), а не образец и следом кадр.
     pointer = pointer_after(log, request) if request.payload.stream else None
-    one_write = pointer is not None and same_layout_of(before, live.sample)
+    # GPU_AFFINE_DRAG_V1: узлы берут геометрию меша за базу - образец такта ложится своими числами, а к курсору его двигают узлы (одно число), не запись кадра.
+    one_write = pointer is not None and same_layout_of(before, live.sample) and not gpu_drag_active(controller)
     reason = lean_exact_now(controller, live, reframe_to=pointer) if one_write else lean_exact_now(controller, live)
     if reason:
         if request.payload.stream and log is not None:
@@ -972,6 +1003,55 @@ def _live_drag_idle(controller):
     return None if width is None else (width, log.target)
 
 
+def begin_gpu_drag(controller, mesh_settings) -> bool:
+    """GPU_AFFINE_DRAG_V1: перетаскивание началось с настройкой «GPU affine drag» (`True`) - кадры модели покажут узлы Blender. Остаток узлов от прошлого (сбой, снятие извне)
+    снимается здесь же под именем `GPU_DRAG_REMOVED_STALE`: узлы существуют только внутри своего перетаскивания."""
+
+    strip_gpu_everywhere(controller, REMOVED_STALE)
+    enabled = bool(getattr(mesh_settings, "drag_gpu_affine", False))
+    controller.width_gpu_drag = enabled
+    return enabled
+
+
+def strip_gpu_everywhere(controller, reason: str) -> int:
+    """Узлы GPU_AFFINE_DRAG_V1 сняты со всего файла (запись, загрузка, шаг истории, начало перетаскивания, снятие аддона), путь назван в журнале превью меша. Число снятых объектов и мешей."""
+
+    import bpy
+
+    from .envelope_width_gpu_drag import GROUP_NAME, MODIFIER_NAME, strip_everywhere
+
+    data = getattr(bpy, "data", None)
+    groups = getattr(data, "node_groups", None)
+    if groups is None:
+        return 0  # ограниченный контекст регистрации: данных нет, снимать нечего
+    leftover = groups.get(GROUP_NAME) is not None or any(item.modifiers.get(MODIFIER_NAME) is not None for item in data.objects if hasattr(item, "modifiers"))
+    if not leftover:
+        return 0
+    if controller is not None:
+        controller.width_gpu_rig = None
+    count = strip_everywhere()
+    if controller is not None:
+        log = log_of(controller)
+        log.gpu_removed[reason] = log.gpu_removed.get(reason, 0) + 1
+        owner = getattr(controller, "width_mesh_owner", None)
+        if owner is not None:
+            owner.note_own_write()
+    print(f"[CFTUV][WidthLive] {reason}: GPU affine drag nodes removed from {count} objects and meshes", flush=True)
+    return count
+
+
+def begin_coherent_drag(controller, mesh_settings) -> bool:
+    """LIVE_DRAG_COHERENT_V1: перетаскивание началось с настройкой «Coherent drag» и с живым точным мешем (`True`) - кадр модели двигает каждый домен (`envelope_width_mesh_preview.coherent_now`), а живой точный меш
+    ложится только на остановке руки одним кадром ширины покоя (`envelope_width_stream`). Действует до записи ширины подтверждения (`finish_adjust`).
+
+    LIVE_DRAG_COHERENT_DEFAULT_ON_V1: настройка включена по умолчанию, но действует только при «Live exact mesh while dragging»; без живого меша перетаскивание - как прежде побитово.
+    """
+
+    enabled = bool(getattr(mesh_settings, "drag_coherent", True)) and bool(getattr(mesh_settings, "drag_live_mesh", False))
+    controller.width_coherent_drag = enabled
+    return enabled
+
+
 def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
     """Перетаскивание началось: журнал живого точного меша заведён заново, если настройка «Live exact mesh while dragging» включена (иначе `None`)."""
 
@@ -981,6 +1061,7 @@ def begin_live_drag(controller, mesh_settings) -> LiveDragLogV1 | None:
     if log is not None:
         seed_verified(log, controller.width_displayed, controller.width_incremental)
         log.settle = bool(getattr(mesh_settings, "drag_settle_on_pause", True))  # LIVE_DRAG_SETTLE_ON_PAUSE_V1
+        log.coherent = bool(getattr(controller, "width_coherent_drag", False))  # LIVE_DRAG_COHERENT_V1
     controller.width_live_drag = log
     return log
 
@@ -1145,6 +1226,10 @@ def draw_decal_width_rows(layout) -> None:
         layout.prop(mesh_settings, "drag_live_mesh")
         if getattr(mesh_settings, "drag_live_mesh", False):
             layout.prop(mesh_settings, "drag_settle_on_pause")  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: только при живом точном меше
+        if hasattr(mesh_settings, "drag_gpu_affine"):
+            layout.prop(mesh_settings, "drag_gpu_affine")  # GPU_AFFINE_DRAG_V1
+        if hasattr(mesh_settings, "drag_coherent"):
+            layout.prop(mesh_settings, "drag_coherent")  # LIVE_DRAG_COHERENT_V1
     if problem:
         layout.label(text=problem, icon="INFO")
         return
@@ -1219,10 +1304,14 @@ __all__ = (
     "WidthPreviewStateV1",
     "active_target",
     "availability_problem",
+    "begin_coherent_drag",
+    "begin_gpu_drag",
     "begin_live_drag",
+    "collect_frozen_at_idle",
     "draw_decal_width_rows",
     "end_live_drag",
     "follow_active_object",
+    "gc_idle_busy",
     "has_preview_runs",
     "note_depsgraph",
     "flush_event_frame",
@@ -1241,6 +1330,7 @@ __all__ = (
     "settle_at_confirm",
     "settle_width_live",
     "status_lines",
+    "strip_gpu_everywhere",
     "sync_width_field",
     "tag_view3d_redraw",
     "target_of",
