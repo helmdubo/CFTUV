@@ -2,14 +2,16 @@
 
 Чистая математика без Blender. Хост (`cftuv/envelope_production_weld.py`, его докстринг описывает законы: сварка по ссылке `location:src:` при побитово
 равных позициях, митра как пересечение сдвинутых плоскостей, закон конца стены `WALL_MITER_OFFSET_V1`) зовёт `weld_core` здесь либо через
-`backend.mesh_assembly_compute`, а тексты находок (`.6g`, `math.dist` худшего зазора) пишет сам из чисел ответа. Семантика — CPython: сумма слева
-(`sum` с целого нуля), `max` берёт первое из равных, равенство нормалей числовое (`-0.0 == 0.0`), позиции сравниваются побитово (`float.hex`).
+`backend.mesh_assembly_compute`, а тексты находок (`.6g`, `math.dist` худшего зазора) пишет сам из чисел ответа. Семантика — CPython 3.11 на любом интерпретаторе: сумма слева
+(`_cpython311.left_fold_sum` с целого нуля; `sum` 3.12+ компенсирует), `max` берёт первое из равных, равенство нормалей числовое (`-0.0 == 0.0`), позиции сравниваются побитово (`float.hex`).
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+
+from ._cpython311 import left_fold_sum
 
 #: Только ссылки вершин ИСХОДНИКА сваривают: ссылка узла (`location:node:<k>`) принадлежит домену.
 WELD_LOCATION_PREFIX = "location:src:"
@@ -65,7 +67,7 @@ def miter_offset(normals, law):
     for row, column in enumerate(pivots):
         weights[column] = rows[row][size]
     offset = tuple(
-        sum(weight * normal[axis] for weight, normal in zip(weights, normals))
+        left_fold_sum(weight * normal[axis] for weight, normal in zip(weights, normals))
         for axis in range(3)
     )
     if any(abs(_dot(normal, offset) - 1.0) > residual_epsilon for normal in normals):

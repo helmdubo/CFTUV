@@ -168,7 +168,7 @@ DENSITY_FILES = (
 ANGULAR_FILES = ("contracts/analysis.py", "contracts/metric.py", "ids.py", "numeric.py", "reference/angle_measure.py", "reference/metric.py", "reference/planar_types.py")
 
 #: `mesh_checks` (MESH_ASSEMBLY_NATIVE_V1): the checks of the assembled decal mesh in the main process.
-MESH_ASSEMBLY_FILES = ("mesh_checks.py", "mesh_weld.py")
+MESH_ASSEMBLY_FILES = ("_cpython311.py", "mesh_checks.py", "mesh_weld.py")
 
 OPERATION_FILES = {
     "coverage": COVERAGE_FILES,
@@ -207,7 +207,7 @@ PINS: dict = {
     "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "mesh_checks.py": "55d5ef082c0c393faea038760eb02d6db9b3161cf0dbca0d7d3863bfa7a739eb",
-    "mesh_weld.py": "54170de113878c1f7018fe82fec9cbc0fbc1689b916d58fc17858423e9b2fb0d",
+    "mesh_weld.py": "731526189d46677014433b04d5d6f31aa91974331ebe1ec73ea4848afac4ffe6",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
     "planar_metric.py": "eba51fedd37424c13be6e34350fe4d9b23e044f7807a7f071f430cdc72cb0f6a",
     "reference/angle_certificate_sign.py": "3114f1d3784f7ebfbda707455fe499fa9496d8b9a340ce692b584764824191be",
