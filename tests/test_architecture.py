@@ -82,6 +82,10 @@ def _imported_roots(path: Path) -> set[str]:
                 roots |= _expand(alias.name)
         elif isinstance(node, ast.ImportFrom) and node.module:
             roots |= _expand(node.module)
+            if node.module in {"cftuv", "cftuv_envelope"}:
+                roots |= {alias.name for alias in node.names}  # `from cftuv import module`
+        elif isinstance(node, ast.ImportFrom) and node.level:
+            roots |= {alias.name for alias in node.names}  # `from . import module`
     return roots
 
 
