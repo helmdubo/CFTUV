@@ -64,6 +64,12 @@ STRUCTURE_AS_OF = "STRUCTURE_AS_OF"
 COHERENT_WAITS_FOR_REST = "LIVE_DRAG_COHERENT_WAITS_FOR_REST_WIDTH"
 COHERENT_NO_IDLE_VERIFY = "LIVE_DRAG_COHERENT_NO_IDLE_VERIFY"
 COHERENT_DROPPED_AT_CONFIRM = "LIVE_DRAG_COHERENT_TICK_DROPPED_AT_CONFIRM"
+#: LIVE_DRAG_STALE_TICK_PREEMPTED_V1: в связном перетаскивании такт в полёте, чья ширина уже не ширина курсора, не ляжет никогда (ложится только такт ширины покоя) - новый шаг руки
+#: отменяет его (пул дочитывает ушедшие задачи, хвост сборки не считается), и такт ширины покоя не ждёт выброшенного. Счёт шагов, отменивших полёт, - этот исход; вернувшиеся отменённые - счётчик
+#: планировщика `preempted` (из `stale`).
+STALE_TICK_PREEMPTED = "LIVE_DRAG_STALE_TICK_PREEMPTED_V1"
+#: Сколько секунд без шага руки, прежде чем такт в полёте другой ширины отменяется: события мыши в движении идут чаще (60-125 Гц), а ложное «рука встала» лишь отменяет такт, который и так не ляжет.
+PREEMPT_REST_SECONDS = 0.03
 
 EVENT_STEP = "step"
 EVENT_EXACT = "exact"
@@ -234,6 +240,20 @@ def settle_hold(log: LiveDragLogV1 | None, request, now: float, *, drag_active: 
     return True
 
 
+def preempt_stale(log: LiveDragLogV1 | None, running, waiting, now: float, *, drag_active: bool) -> bool:
+    """LIVE_DRAG_STALE_TICK_PREEMPTED_V1: ждущий потоковый шаг `waiting` отменяет потоковый такт `running` в полёте (`True`): связное перетаскивание идёт, ширина такта в полёте - не ширина
+    ждущего шага, и рука не двигалась `PREEMPT_REST_SECONDS` (ждущий шаг - вероятно, ширина покоя). Такой такт не лёг бы (`settle_hold`: ждал бы такта ширины покоя, на подтверждении
+    `COHERENT_DROPPED_AT_CONFIRM`), а ждать его конца - задержка кадра покоя. Пока рука движется, полёт не отменяется: каждый отменённый такт - ещё один старт на главном потоке.
+    Каждая отмена считается один раз (планировщик спрашивает о такте в полёте, пока не отменил его)."""
+
+    if log is None or not log.coherent or not drag_active or not getattr(running, "stream", False) or not getattr(waiting, "stream", False):
+        return False
+    if float(running.alpha) == float(waiting.alpha) or log.last_step_at is None or now - log.last_step_at < PREEMPT_REST_SECONDS:
+        return False
+    log.count(log.outcomes, STALE_TICK_PREEMPTED)
+    return True
+
+
 def settle_defer(log: LiveDragLogV1 | None, request, same_layout: bool) -> bool:
     """LIVE_DRAG_SETTLE_NO_DOUBLE_SWAP_V1: рука встала, а в полёте такт новее и другой ширины. Ждавший такт `request` ложится сейчас, если его раскладка та же, что на экране
     (одна запись чисел, `same_layout`), иначе ждёт новейшего (`True`): две пересборки раскладки подряд за 0.2-0.3 с - тот самый двойной рывок. Исход назван один раз на такт."""
@@ -313,7 +333,7 @@ def report(log: LiveDragLogV1, counters=None) -> dict:
     }
     if counters is not None:
         names = {"requested": "requested", "superseded": "coalesced", "started": "started", "applied": "applied", "nearest": "nearest",
-                 "stale": "stale", "invalid": "invalid", "unavailable": "unavailable", "failed": "failed", "cancelled": "cancelled"}
+                 "stale": "stale", "invalid": "invalid", "unavailable": "unavailable", "failed": "failed", "cancelled": "cancelled", "preempted": "preempted"}
         base = log.baseline
         data["scheduler"] = {name: getattr(counters, field_name) - (0 if base is None else getattr(base, field_name)) for name, field_name in names.items()}
     return data
@@ -365,12 +385,14 @@ __all__ = (
     "note_applied",
     "note_step",
     "pointer_after",
+    "preempt_stale",
     "report",
     "seed_verified",
     "SETTLE_PAUSE_SECONDS",
     "SETTLE_APPLIED_AT_CONFIRM",
     "SETTLE_PENDING",
     "SETTLE_SAME_LAYOUT_BEFORE_NEWER",
+    "STALE_TICK_PREEMPTED",
     "SETTLE_WAITED_FOR_NEWER",
     "settle_defer",
     "settle_hold",

@@ -41,7 +41,9 @@
 - простой: когда потоковый полёт применён и ничего не ждёт, планировщик один раз спрашивает `idle()`; ответ `(значение, заказ)` — такой же
   потоковый заказ (такт сверки в простое): рука его не отменяет, а следующий её шаг просто стартует после него;
 - оседание (LIVE_DRAG_SETTLE_ON_PAUSE_V1, `settle`): готовый потоковый результат, который `settle(заказ, сейчас)` держит (рука движется), ждёт в `settling`
-  и применяется на первом шаге, где `settle` его отпустил; более новый результат заменяет ждавший (`stale`), снятие (`supersede`, `retire_stream`) его выбрасывает.
+  и применяется на первом шаге, где `settle` его отпустил; более новый результат заменяет ждавший (`stale`), снятие (`supersede`, `retire_stream`) его выбрасывает;
+- вытеснение (LIVE_DRAG_STALE_TICK_PREEMPTED_V1, `preempt`): ждущее потоковое значение, для которого `preempt(в полёте, ждущее, сейчас)` сказал «полёт не ляжет», отменяет полёт кооперативно
+  (пул дочитывает ушедшие задачи, новых не берёт); вернувшийся полёт - отменой или значением - выброшен (`stale`) и назван (`preempted`), следующий стартует последним значением.
 
 ОТМЕНА ПЕРЕД ТЯЖЁЛЫМ СИНХРОННЫМ ПУТЁМ. Кнопки считают на главном потоке на тех же
 подготовках (их память растёт от покрытий), поэтому `quiesce` останавливает полёт и
@@ -88,6 +90,7 @@ _COUNTER_NAMES = (
     "failed",
     "cancelled",
     "nearest",
+    "preempted",
 )
 
 
@@ -130,6 +133,8 @@ class PreviewCountersV1:
     cancelled: int = 0
     #: LIVE_DRAG_STREAM_V1: из `applied` - применены, хотя за ними пришли потоковые значения (точный ответ ближайшей ширины).
     nearest: int = 0
+    #: LIVE_DRAG_STALE_TICK_PREEMPTED_V1: из `stale` - потоковые полёты, остановленные новым потоковым значением (`preempt`) и вернувшиеся отменой.
+    preempted: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,8 +247,13 @@ class AlphaPreviewScheduler:
         idle: Callable[[], tuple | None] | None = None,
         settle: Callable[[PreviewRequestV1, float], bool] | None = None,
         defer: Callable[[PreviewRequestV1, object], bool] | None = None,
+        preempt: Callable[[PreviewRequestV1, PreviewRequestV1, float], bool] | None = None,
     ) -> None:
         self._label = label
+        #: LIVE_DRAG_STALE_TICK_PREEMPTED_V1: в полёте потоковый счёт, а ждёт новое потоковое значение - `preempt(в полёте, ждущее, сейчас) -> True` отменяет полёт (его результат
+        #: не ляжет никогда: связное перетаскивание кладёт только такт ширины покоя), и ждущий стартует, как только пул дочитает ушедшие задачи; номер отменённого - `_preempted`.
+        self._preempt = preempt
+        self._preempted = 0
         self._idle = idle
         #: LIVE_DRAG_SETTLE_ON_PAUSE_V1: `settle(заказ, сейчас) -> True` - готовый потоковый результат ждёт (рука движется); ждущий - `_settling`.
         self._settle = settle
@@ -362,6 +372,7 @@ class AlphaPreviewScheduler:
 
         try:
             self._collect()
+            self._preempt_if_due()
             self._release_settled()
             self._start_if_due()
             if self._ask_idle():
@@ -384,6 +395,27 @@ class AlphaPreviewScheduler:
         self.request(alpha, payload, stream=True)
         return True
 
+    def _preempt_if_due(self) -> None:
+        """LIVE_DRAG_STALE_TICK_PREEMPTED_V1: в полёте потоковый счёт, а ждёт более новое потоковое значение - `preempt(в полёте, ждущее, сейчас)` решает, отменить ли полёт сейчас.
+
+        Отмена кооперативна (пул дочитывает ушедшие задачи и новых не берёт, поток счёта не собирает меш): поток кончается сам, а `_collect` выбрасывает его результат как `preempted`.
+        Каждый полёт спрашивается, пока не отменён.
+        """
+
+        running, waiting = self._job_request, self._pending
+        if (
+            self._preempt is None
+            or self._job is None
+            or running is None
+            or waiting is None
+            or not (running.stream and waiting.stream)
+            or running.sequence <= self._preempted
+            or not self._preempt(running, waiting, self._clock())
+        ):
+            return
+        self._preempted = running.sequence
+        self._job.cancel()
+
     def _collect(self) -> None:
         job = self._job
         if job is None or not job.finished:
@@ -397,6 +429,8 @@ class AlphaPreviewScheduler:
         try:
             value = job.result()
         except PreviewCancelled:
+            if request.sequence == self._preempted:
+                self._counts["preempted"] += 1  # LIVE_DRAG_STALE_TICK_PREEMPTED_V1: отменён новым потоковым значением - выброшен (в `stale`) и назван
             self._discard_as_stale(request)
             return
         except Exception as exc:  # noqa: BLE001 - причина идёт в статус и консоль
@@ -404,6 +438,10 @@ class AlphaPreviewScheduler:
             self._report_failure(f"{self._label}={request.alpha:.4g} compute", exc)
             return
         if request.sequence != self._sequence and request.sequence < self._last_plain:
+            self._discard_as_stale(request)
+            return
+        if request.sequence == self._preempted and request.sequence != self._sequence:
+            self._counts["preempted"] += 1  # LIVE_DRAG_STALE_TICK_PREEMPTED_V1: отмена пришла после последней точки остановки - результат всё равно не ляжет, выброшен и назван
             self._discard_as_stale(request)
             return
         if request.stream and self._settle is not None and self._settle(request, self._clock()):

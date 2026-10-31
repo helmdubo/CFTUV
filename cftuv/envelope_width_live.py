@@ -87,7 +87,7 @@ from .envelope_alpha_preview import (
 from .envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle, gc_paused, gc_paused_function
 from .envelope_width_adjust import DEFAULT_MIN_WIDTH, WIDTH_CLAMPED_AT_FLOOR, WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
-from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, seed_verified, settle_hold
+from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, preempt_stale, seed_verified, settle_hold
 from .envelope_width_stream import COHERENT_DROPPED_AT_CONFIRM, SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
@@ -827,6 +827,10 @@ def _begin(controller, request):
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc
+        # LIVE_DRAG_STALE_TICK_PREEMPTED_V1: отмена (такт вытеснен шагом руки другой ширины) пришла, пока пул дочитывал ушедшие задачи - хвост сборки (образец, раскладка группы, модель)
+        # ради выброшенного результата не считается.
+        if cancel is not None and cancel.is_set():
+            raise PreviewCancelled("PRODUCTION_CANCELLED: the order was superseded after the pool")
         return finish_live_run(
             run,
             alpha=alpha,
@@ -990,6 +994,7 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             idle=lambda: _live_drag_idle(controller),
             settle=lambda request, now: settle_hold(controller.width_live_drag, request, now, drag_active=controller.width_drag_active),
             defer=lambda request, live: settle_defer(controller.width_live_drag, request, same_layout_of(controller.width_displayed, live.sample)),
+            preempt=lambda running, waiting, now: preempt_stale(controller.width_live_drag, running, waiting, now, drag_active=controller.width_drag_active),
         )
         controller.width_live = scheduler
     return scheduler

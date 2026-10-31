@@ -474,6 +474,97 @@ def test_supersede_does_not_wait_and_the_late_result_is_dropped_without_a_second
     assert (counters.cancelled, counters.stale) == (1, 0)
 
 
+def _preempting(threshold=0.03):
+    """Планировщик с `preempt`: отменяет потоковый полёт другой ширины, когда ждущий шаг старше `threshold` (как `envelope_width_stream.preempt_stale`)."""
+
+    asked: list = []
+
+    def preempt(running, waiting, now):
+        asked.append((running.sequence, waiting.sequence))
+        return running.alpha != waiting.alpha and now - waiting.requested_at >= threshold
+
+    return Harness(preempt=preempt), asked
+
+
+def test_a_stream_flight_of_another_width_is_preempted_at_rest_and_the_rest_value_starts_next():
+    """LIVE_DRAG_STALE_TICK_PREEMPTED_V1: полёт отменён (кооперативно), вернулся отменой - выброшен в `stale` и назван `preempted`; ждущий стартует следом и ложится."""
+
+    h, asked = _preempting()
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.0).step()
+    first = h.jobs[0]
+    h.at(0.01).scheduler.request(0.35, stream=True)
+    h.at(0.02).step()
+    assert not first.cancelled  # рука ещё движется: полёт не трогается
+    h.at(0.05).step()
+    assert first.cancelled and len(h.jobs) == 1  # отменён, а следующий ждёт его конца (один полёт)
+    h.at(0.06).step()
+    assert asked.count((1, 2)) == 2  # отменённый полёт больше не спрашивается
+    first.error, first.finished = PreviewCancelled("pool stopped"), True
+    h.at(0.07).step()
+    assert [item.alpha for item in h.begun] == [0.30, 0.35]
+    h.jobs[1].finished = True
+    h.at(0.08).step()
+    assert h.applied == [(0.35, ("scene", 0.35))]
+    counters = h.scheduler.counters
+    assert (counters.started, counters.applied, counters.stale, counters.preempted, counters.cancelled, counters.failed) == (2, 1, 1, 1, 0, 0)
+
+
+def test_a_preempted_flight_that_returns_a_value_is_dropped_and_named_too():
+    h, _asked = _preempting(threshold=0.0)
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.0).step()
+    h.at(0.01).scheduler.request(0.35, stream=True)
+    h.at(0.01).step()
+    first = h.jobs[0]
+    assert first.cancelled
+    first.finished = True  # отмена пришла после последней точки остановки: значение посчитано
+    h.at(0.02).step()
+    assert h.applied == [] and h.begun[-1].alpha == 0.35
+    counters = h.scheduler.counters
+    assert (counters.stale, counters.preempted) == (1, 1)
+
+
+def test_the_same_width_and_a_plain_order_are_not_preempted():
+    h, _asked = _preempting(threshold=0.0)
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.0).step()
+    h.at(0.01).scheduler.request(0.30, stream=True)
+    h.at(0.02).step()
+    assert not h.jobs[0].cancelled  # та же ширина: этот полёт и ляжет
+    h.jobs[0].finished = True
+    h.at(0.03).step()
+    h.at(0.04).step()
+    assert h.scheduler.counters.preempted == 0
+    plain, _ = _preempting(threshold=0.0)
+    plain.at(0.0).scheduler.request(0.30)
+    plain.at(0.2).step()
+    plain.at(0.21).scheduler.request(0.35, stream=True)
+    plain.at(0.22).step()
+    assert not plain.jobs[0].cancelled  # обычный полёт (COMMIT) вытеснением не трогается
+
+
+def test_esc_during_a_preempted_flight_drops_everything_once_and_the_pool_is_free_after():
+    h, _asked = _preempting(threshold=0.0)
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.0).step()
+    h.at(0.01).scheduler.request(0.35, stream=True)
+    h.at(0.01).step()
+    first = h.jobs[0]
+    assert first.cancelled
+    assert h.scheduler.retire_stream("drag cancelled") is True  # ESC: ждущий снят, полёт снят
+    first.error, first.finished = PreviewCancelled("pool stopped"), True
+    h.at(0.02).step()
+    assert h.applied == [] and len(h.begun) == 1 and not h.scheduler.busy
+    counters = h.scheduler.counters
+    assert (counters.cancelled, counters.stale, counters.preempted) == (1, 0, 0)  # снятый полёт - `cancelled`, без второго счёта
+    h.at(0.5).scheduler.request(0.40)  # подтверждение после: обычный путь
+    h.at(0.7).step()
+    h.jobs[-1].finished = True
+    h.at(0.8).step()
+    assert h.applied == [(0.40, ("scene", 0.40))]
+
+
 def test_settle_skips_the_debounce_and_drains_to_the_applied_result():
     h = Harness()
     h.at(0.0).scheduler.request(0.30)

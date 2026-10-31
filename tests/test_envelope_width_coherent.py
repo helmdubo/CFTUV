@@ -152,6 +152,23 @@ def test_while_the_hand_moves_no_exact_tick_lands_and_at_rest_only_the_rest_widt
     assert not stream.settle_hold(log, _request(3, 0.29), 10.6, drag_active=False)  # перетаскивание кончилось - прежний путь
 
 
+def test_at_rest_the_tick_in_flight_of_another_width_is_preempted_and_named():
+    """LIVE_DRAG_STALE_TICK_PREEMPTED_V1: связное перетаскивание, рука не двигалась `PREEMPT_REST_SECONDS`, а в полёте такт другой ширины - он отменяется (не лёг бы никогда)."""
+
+    log = stream.LiveDragLogV1(cursor=0.3, coherent=True, last_step_at=10.0)
+    running, waiting = _request(1, 0.29), _request(2, 0.3)
+    assert not stream.preempt_stale(log, running, waiting, 10.0 + stream.PREEMPT_REST_SECONDS / 2, drag_active=True)  # рука ещё движется
+    assert stream.preempt_stale(log, running, waiting, 10.0 + stream.PREEMPT_REST_SECONDS * 1.01, drag_active=True)
+    assert log.outcomes == {stream.STALE_TICK_PREEMPTED: 1}
+    assert not stream.preempt_stale(log, _request(3, 0.3), _request(4, 0.3), 11.0, drag_active=True)  # в полёте ширина покоя - он и ляжет
+    assert not stream.preempt_stale(log, running, waiting, 11.0, drag_active=False)  # перетаскивание кончилось
+    assert not stream.preempt_stale(log, running, SimpleNamespace(sequence=5, alpha=0.3, stream=False), 11.0, drag_active=True)  # подтверждение - свой путь
+    plain = stream.LiveDragLogV1(cursor=0.3, last_step_at=10.0, settle=True)
+    assert not stream.preempt_stale(plain, running, waiting, 11.0, drag_active=True)  # без связного перетаскивания такт ближайшей ширины ложится - не отменяется
+    assert not stream.preempt_stale(None, running, waiting, 11.0, drag_active=True)
+    assert log.outcomes == {stream.STALE_TICK_PREEMPTED: 1}
+
+
 def test_the_coherent_drag_orders_no_idle_verification_and_names_it_once_per_pause():
     log = stream.LiveDragLogV1(cursor=0.3, coherent=True, target=object())
     displayed = SimpleNamespace(domains=(SimpleNamespace(patch_id=1),))
