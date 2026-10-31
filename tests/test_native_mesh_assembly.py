@@ -84,11 +84,14 @@ def test_minus_zero_uv_is_the_same_uv_and_one_ulp_is_a_seam():
 
 
 @needs_native
-def test_a_deviation_of_half_a_nanometre_rounds_to_even_and_is_not_counted():
-    half = 0.5e-9
-    quad = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, half)]
-    for face in ((0, 1, 2, 3), (0, 1, 2, 4)):
-        assert cftuv_native.mesh_off_plane(quad, [face]) == mesh_checks.off_plane_measure(quad, [face])
+def test_a_deviation_of_exactly_half_a_nanometre_rounds_to_even_and_is_not_counted():
+    # the loop (o, a, b, c, b) has the normal a x b exactly (the two fan terms of c cancel), so c deviates by exactly its height: 5e-10 * 1e9 == 0.5, and
+    # round(0.5) == 0 (half to even) leaves the face uncounted, while 1.5 nanometres rounds to 2 and counts
+    for height, counted in ((5e-10, 0), (1.5e-9, 1), (2.5e-9, 1)):
+        points = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.25, 0.25, height)]
+        expected = mesh_checks.off_plane_measure(points, [(0, 1, 2, 3, 2)])
+        assert expected == (height, counted)
+        assert cftuv_native.mesh_off_plane(points, [(0, 1, 2, 3, 2)]) == expected
 
 
 @needs_native
