@@ -455,11 +455,12 @@ def test_the_tick_decorator_freezes_like_the_button_but_only_the_button_checks_t
     assert gc.get_freeze_count() == 0 and gc.isenabled()  # кнопка считает: выше клапана замороженное возвращено сборщику
 
 
-def test_a_foreign_cycle_frozen_mid_drag_is_collected_at_idle_after_the_drag(_unfrozen):
+def test_a_foreign_cycle_frozen_mid_drag_is_collected_only_past_the_memory_guard(_unfrozen, monkeypatch):
     """GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: заморозка тика уносит и ЧУЖОЙ несобранный цикл (другой аддон, интерфейс); он живёт только до простоя после перетаскивания."""
 
     import weakref
 
+    from cftuv import envelope_gc_pause as pause
     from cftuv.envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle
 
     assert GC_IDLE_COLLECT_OUTCOME == "GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1"
@@ -484,7 +485,11 @@ def test_a_foreign_cycle_frozen_mid_drag_is_collected_at_idle_after_the_drag(_un
         assert not collect_frozen_when_idle(0.0)  # блок открыт (такт в полёте): не простой
     assert not collect_frozen_when_idle(3600.0)  # тишины после последнего выхода из паузы мало
     assert alive[0]() is not None
-    assert collect_frozen_when_idle(0.0)  # простой после перетаскивания
+    assert not collect_frozen_when_idle(0.0)  # GC_NO_IDLE_COLLECT_V1: простой без стража памяти не собирает
+    assert alive[0]() is not None and gc.get_freeze_count() > 0
+    monkeypatch.setattr(pause, "_FROZEN_BASELINE_RSS", 0)
+    monkeypatch.setattr(pause, "rss_bytes", lambda: pause.RSS_GUARD_BYTES + 1)
+    assert collect_frozen_when_idle(0.0)  # страж сработал: простой собрал и чужой цикл
     assert alive[0]() is None and gc.get_freeze_count() == 0 and gc.isenabled()
     assert not collect_frozen_when_idle(0.0)  # нечего возвращать: до следующей заморозки простой ничего не делает
 
@@ -508,7 +513,51 @@ def test_the_idle_collection_waits_its_quiet_after_the_commit_has_landed_not_aft
     now[0] = 1005.9
     assert not pause.collect_frozen_when_idle(1.0)  # фиксация легла, тишины после неё меньше секунды
     now[0] = 1006.0
+    monkeypatch.setattr(pause, "_FROZEN_BASELINE_RSS", 0)
+    monkeypatch.setattr(pause, "rss_bytes", lambda: pause.RSS_GUARD_BYTES + 1)  # страж сработал (GC_NO_IDLE_COLLECT_V1): без него простой не собирает вовсе
     assert pause.collect_frozen_when_idle(1.0) and gc.get_freeze_count() == 0
+
+
+def test_the_idle_after_a_drag_never_runs_a_full_collect_below_the_guard(_unfrozen, monkeypatch):
+    """GC_NO_IDLE_COLLECT_V1: замер `cover.008` w12 - полная сборка простоя ~0.5 с и 0 объектов мусора за 5 тактов и 5 фиксаций; простой после перетаскивания её не зовёт, выжившее заморожено."""
+
+    import sys
+    from types import SimpleNamespace
+
+    from cftuv import envelope_gc_pause as pause
+    from cftuv import envelope_width_live as live
+
+    assert pause.GC_NO_IDLE_COLLECT_OUTCOME == "GC_NO_IDLE_COLLECT_V1"
+    if sys.platform in ("win32", "linux"):  # the guard reads the working set where it can (a None would silently leave only save/load)
+        found = pause.rss_bytes()
+        assert isinstance(found, int) and found > 0
+    calls = []
+    monkeypatch.setattr(pause.gc, "collect", lambda *args: calls.append(args) or 0)
+
+    @gc_paused_function
+    def tick():
+        pass
+
+    gc.enable()
+    tick()
+    frozen = gc.get_freeze_count()
+    assert frozen > 0 and pause._FROZEN_UNCOLLECTED
+    monkeypatch.setattr(live, "GC_IDLE_QUIET_SECONDS", 0.0)
+    monkeypatch.setattr(live, "_controller_of", lambda _context: None)
+    monkeypatch.setitem(sys.modules, "bpy", SimpleNamespace(context=None))
+    for _ in range(3):
+        assert live.collect_frozen_at_idle() == live.GC_IDLE_POLL_SECONDS  # таймер простоя после перетаскивания
+    assert calls == [] and gc.get_freeze_count() == frozen
+    monkeypatch.setattr(pause, "rss_bytes", lambda: None)
+    assert not pause.collect_frozen_when_idle(0.0)  # процесс без замера памяти: стража нет
+    assert pause.collect_frozen_now() and calls == [()] and gc.get_freeze_count() == 0  # запись или загрузка файла собирает
+
+
+def test_save_and_load_collect_what_the_idle_keeps_frozen():
+    modal = (HOST / "envelope_width_modal.py").read_text(encoding="utf-8")
+    tree = ast.parse(modal)
+    calls = {node.name: [item.func.id for item in ast.walk(node) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)] for node in tree.body if isinstance(node, ast.FunctionDef)}
+    assert "collect_frozen_now" in calls["_after_load"] and "collect_frozen_now" in calls["_before_save"]
 
 
 def test_the_idle_is_busy_while_the_drag_or_an_order_lives():

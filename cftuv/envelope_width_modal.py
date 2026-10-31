@@ -38,6 +38,7 @@ from .envelope_width_adjust import (
     PHASE_CONFIRMED,
     WidthEventV1,
 )
+from .envelope_gc_pause import collect_frozen_now
 from .envelope_width_gpu_drag import REMOVED_ON_HISTORY, REMOVED_ON_LOAD, REMOVED_ON_SAVE, REMOVED_ON_UNREGISTER
 from .envelope_width_live import (
     GC_IDLE_POLL_SECONDS,
@@ -248,6 +249,7 @@ def _after_load(*_args) -> None:
     forget = getattr(descriptor, "forget_width_state", None)
     if forget is not None:
         forget()
+    collect_frozen_now()  # GC_NO_IDLE_COLLECT_V1: старая сцена ушла - замороженное собирается здесь, а не в простое
 
 
 def _strip_gpu(reason: str) -> None:
@@ -262,9 +264,10 @@ def _strip_gpu(reason: str) -> None:
 
 @persistent
 def _before_save(*_args) -> None:
-    """Запись файла (и Ctrl+S, и «Save As»): узлы перетаскивания в файл не попадают."""
+    """Запись файла (и Ctrl+S, и «Save As»): узлы перетаскивания в файл не попадают; замороженное собирается здесь (GC_NO_IDLE_COLLECT_V1)."""
 
     _strip_gpu(REMOVED_ON_SAVE)
+    collect_frozen_now()
 
 
 @persistent

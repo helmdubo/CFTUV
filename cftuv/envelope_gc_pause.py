@@ -36,6 +36,11 @@
 когда ни одного блока не открыто, вызывающий не занят (перетаскивание кончилось, заказы ширины и alpha применены либо названы) и с последнего выхода из паузы прошло `quiet_seconds`, всё
 замороженное возвращается сборщику (`gc.unfreeze()`) и одна полная сборка идёт здесь - рука ничего не ждёт. Таймер простоя - `envelope_width_live.collect_frozen_at_idle`.
 
+ПОЛНОЙ СБОРКИ В ПРОСТОЕ НЕТ (GC_NO_IDLE_COLLECT_V1). Замер `cover.008` w12 (5 тактов и 5 фиксаций): полная сборка в простое стоит ~0.5 с (обход ~0.78 млн объектов) и находит
+0 объектов мусора, а владелец чувствует её рывок через секунду после фиксации. Поэтому простой после перетаскивания НЕ собирает: выжившее остаётся замороженным. Полная сборка идёт
+только на записи и загрузке файла (`collect_frozen_now` в обработчиках `save_pre` и `load_post`) и в простое, когда частная память процесса выросла больше чем на `RSS_GUARD_BYTES` над
+памятью первой заморозки после последней сборки (страж от чужого мусора, унесённого заморозкой); процесс без замера памяти стража не имеет.
+
 Исходы названы: `GC_PAUSED_DURING_BUTTON_V1` и `GC_PAUSED_DURING_WIDTH_TICK_V1` - ответ от паузы не зависит (проверено равенством ответа в поле), меняется только
 время и пик памяти процесса, пока кнопка или тик идут; `GC_FROZEN_AFTER_BUTTON_V1` и `GC_FROZEN_AFTER_WIDTH_TICK_V1` - постоянное поколение держит замороженное (`gc.get_freeze_count()`)
 до простоя; `GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1` - простой вернул его сборщику.
@@ -54,6 +59,9 @@ GC_PAUSE_WIDTH_OUTCOME = "GC_PAUSED_DURING_WIDTH_TICK_V1"
 GC_FROZEN_OUTCOME = "GC_FROZEN_AFTER_BUTTON_V1"
 GC_FROZEN_WIDTH_OUTCOME = "GC_FROZEN_AFTER_WIDTH_TICK_V1"
 GC_IDLE_COLLECT_OUTCOME = "GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1"
+GC_NO_IDLE_COLLECT_OUTCOME = "GC_NO_IDLE_COLLECT_V1"
+#: Страж простоя (GC_NO_IDLE_COLLECT_V1): на сколько байт рабочая память процесса может вырасти над памятью первой заморозки, прежде чем простой соберёт замороженное.
+RSS_GUARD_BYTES = 256 * 1024 * 1024
 #: Сколько объектов может держать постоянное поколение, прежде чем кнопка перестанет замораживать и вернёт замороженное сборщику (клапан от неограниченного роста: см. модуль).
 FREEZE_VALVE_OBJECTS = 6_000_000
 
@@ -68,6 +76,8 @@ _FREEZE_ON_LAST = False
 _VALVE_ON_LAST = False
 #: Блоки что-то заморозили после последней сборки в простое (`collect_frozen_when_idle` вернёт это сборщику).
 _FROZEN_UNCOLLECTED = False
+#: Рабочая память процесса (байты) при первой заморозке после последней сборки, либо `None` (не замерить): от неё меряет страж простоя.
+_FROZEN_BASELINE_RSS = None
 #: Когда закрылся последний блок (`time.perf_counter`): простой отсчитывается от него.
 _LAST_EXIT = 0.0
 
@@ -112,17 +122,55 @@ def gc_paused(freeze: bool = False, *, valve: bool = True):
 def _freeze_or_release(valve: bool = True) -> None:
     """Накопленное - в постоянное поколение, пока оно не выше клапана; выше - замороженное возвращается сборщику (догонят обычные сборки). `valve=False` - без подсчёта (тик)."""
 
-    global _FROZEN_UNCOLLECTED
+    global _FROZEN_UNCOLLECTED, _FROZEN_BASELINE_RSS
     if valve and gc.get_freeze_count() > FREEZE_VALVE_OBJECTS:
         gc.unfreeze()
         _FROZEN_UNCOLLECTED = False
         return
     gc.freeze()
+    if not _FROZEN_UNCOLLECTED:
+        _FROZEN_BASELINE_RSS = rss_bytes()
     _FROZEN_UNCOLLECTED = True
 
 
+def rss_bytes():
+    """Рабочая память процесса в байтах (Windows: `WorkingSetSize`, Linux: `/proc/self/statm`), либо `None`, когда её не замерить."""
+
+    try:
+        import sys
+
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class _Counters(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [(name, ctypes.c_size_t) for name in (
+                    "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                    "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+
+            counters = _Counters()
+            counters.cb = ctypes.sizeof(counters)
+            # own library objects with typed signatures (the shared `ctypes.windll` is left as other code set it): the handle is pointer-wide
+            kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD)
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+                return None
+            return int(counters.WorkingSetSize)
+        import os
+
+        with open("/proc/self/statm", "rb") as handle:
+            return int(handle.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except Exception:  # noqa: BLE001 - нет замера: страж просто не срабатывает (сборка остаётся записи и загрузке)
+        return None
+
+
 def collect_frozen_when_idle(quiet_seconds: float, *, busy: bool = False) -> bool:
-    """GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1: в простое замороженное кнопкой и тиками возвращается сборщику, и одна полная сборка идёт здесь; `True` - собрано.
+    """GC_NO_IDLE_COLLECT_V1: простой после перетаскивания НЕ собирает - выжившее остаётся замороженным; полная сборка здесь идёт, только когда сработал страж памяти; `True` - собрано.
+
+    Страж: рабочая память процесса выше памяти первой заморозки после последней сборки больше чем на `RSS_GUARD_BYTES` (см. модуль). Без стража замороженное ждёт записи или
+    загрузки файла (`collect_frozen_now`).
 
     Простой - ни одного открытого блока, вызывающий не занят (`busy`: перетаскивание или неприменённый заказ) и `quiet_seconds` с последнего выхода из паузы (между счётом такта и его
     применением, между кнопкой и подготовкой в простое после неё - не простой). Занятость тоже заводит часы тишины заново (GC_IDLE_COLLECT_AFTER_APPLIED_V1): заказ занят, пока
@@ -136,6 +184,23 @@ def collect_frozen_when_idle(quiet_seconds: float, *, busy: bool = False) -> boo
             _LAST_EXIT = time.perf_counter()
             return False
         if _OPEN_BLOCKS or not _FROZEN_UNCOLLECTED or time.perf_counter() - _LAST_EXIT < quiet_seconds:
+            return False
+        baseline = _FROZEN_BASELINE_RSS
+        now = rss_bytes() if baseline is not None else None
+        if now is None or now - baseline <= RSS_GUARD_BYTES:
+            return False
+        _FROZEN_UNCOLLECTED = False
+    gc.unfreeze()
+    gc.collect()
+    return True
+
+
+def collect_frozen_now() -> bool:
+    """GC_NO_IDLE_COLLECT_V1: запись или загрузка файла - замороженное возвращается сборщику и одна полная сборка идёт сейчас; `False` - открыт блок паузы (сборка подождёт следующего повода)."""
+
+    global _FROZEN_UNCOLLECTED
+    with _LOCK:
+        if _OPEN_BLOCKS:
             return False
         _FROZEN_UNCOLLECTED = False
     gc.unfreeze()
@@ -196,9 +261,13 @@ __all__ = (
     "GC_FROZEN_OUTCOME",
     "GC_FROZEN_WIDTH_OUTCOME",
     "GC_IDLE_COLLECT_OUTCOME",
+    "GC_NO_IDLE_COLLECT_OUTCOME",
+    "RSS_GUARD_BYTES",
+    "collect_frozen_now",
     "GC_PAUSE_OUTCOME",
     "GC_PAUSE_WIDTH_OUTCOME",
     "collect_frozen_when_idle",
+    "rss_bytes",
     "gc_paused",
     "gc_paused_call",
     "gc_paused_function",
