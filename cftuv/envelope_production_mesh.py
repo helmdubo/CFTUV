@@ -72,10 +72,9 @@ from .envelope_production_weld import (
     COUNTER_WELD_SEAMS_MARKED,
     OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
-    seam_report_of_chains,
     weld_vertices,
 )
-from .envelope_mesh_assembly import cross_domain_seams, half_edge_conflicts, off_plane_after_offset
+from .envelope_mesh_assembly import cross_domain_seams, mesh_reports
 from .envelope_production_view import (
     OUTCOME_EMPTY_BATCH,
     OUTCOME_NON_FINITE,
@@ -260,11 +259,6 @@ def _domain_warnings(result) -> list:
     return found
 
 
-def _arrays_digest(arrays: dict) -> str:
-    text = json.dumps(arrays, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode("ascii")).hexdigest()
-
-
 def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshArraysV1:
     """Массивы меша по результатам домена. Не-MATERIALIZED домены — в `skipped`.
 
@@ -318,7 +312,12 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
     seam_pairs.update(folds)
     seams = sorted(seam_pairs)
     positions = list(weld.positions)
-    conflicts = half_edge_conflicts(faces) if reports else 0
+    if reports:
+        digest, seam, offset_counters, conflicts = mesh_reports(
+            positions, faces, uvs, face_domain, face_owner, seams, [view.boundary_chains for _result, view in entries]
+        )
+    else:
+        digest, seam, offset_counters, conflicts = "", (), (), 0
     warnings.extend(weld.warnings)
     if conflicts:
         warnings.append(
@@ -329,7 +328,6 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
                 "neighbouring domains wind against each other there",
             )
         )
-    seam = seam_report_of_chains([view.boundary_chains for _result, view in entries]) if reports else ()
     seam_found = dict(seam) if reports else {COUNTER_SEAM_T_JUNCTIONS: 0, COUNTER_SEAM_CLIP_VERTICES: 0}
     if seam_found[COUNTER_SEAM_T_JUNCTIONS] or seam_found[COUNTER_SEAM_CLIP_VERTICES]:
         warnings.append(
@@ -341,20 +339,6 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
                 "the seam may be open",
             )
         )
-    digest = (
-        _arrays_digest(
-            {
-                "positions": positions,
-                "faces": faces,
-                "uvs": uvs,
-                "face_domain": face_domain,
-                "face_owner": face_owner,
-                "seams": seams,
-            }
-        )
-        if reports
-        else ""
-    )
     return MeshArraysV1(
         positions=tuple(positions),
         faces=tuple(faces),
@@ -373,7 +357,7 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
             *(((OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),) if reports else ()),
             (COUNTER_WELD_SEAMS_MARKED, len(folds)),
         ),
-        offset_counters=off_plane_after_offset(positions, faces) if reports else (),
+        offset_counters=offset_counters,
         seam_counters=seam,
         domain_keys=tuple(domain_keys),
         domain_vertex_index=tuple(domain_vertex_index),

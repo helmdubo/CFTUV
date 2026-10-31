@@ -258,3 +258,83 @@ def test_three_normals_and_a_dependent_set_eliminate_as_the_oracle():
 def test_a_weld_the_port_does_not_carry_is_declined(domains):
     with pytest.raises(cftuv_native.NativePortUnsupported, match="mesh_assembly: "):
         cftuv_native.mesh_weld(domains, 0.01, LAW)
+
+
+# --------------------------------------------------------------------------
+# B3: the reports in one read (`mesh_reports`)
+# --------------------------------------------------------------------------
+
+
+def _chains(seed: int):
+    rng = random.Random(seed)
+    pool = [f"src:{index}" for index in range(rng.randint(2, 9))]
+    domains = []
+    for number in range(rng.randint(0, 5)):
+        chains = []
+        for index in range(rng.randint(0, 4)):
+            kind = rng.choice(("SOURCE", "SOURCE", "SOURCE", "WALL", "INTERFACE"))
+            run = [rng.choice(pool)]
+            for _ in range(rng.randint(0, 6)):
+                choice = rng.random()
+                run.append(rng.choice(pool) if choice < 0.55 else (f"clip:{rng.randint(0, 3)}" if choice < 0.7 else f"node:{rng.randint(0, 9)}"))
+            chains.append((f"boundary:{kind}:{number}:{index}", tuple(run)))
+        domains.append(tuple(sorted(chains)))
+    return domains
+
+
+def _reference_reports(positions, faces, uvs, face_domain, face_owner, seams, chains):
+    return (
+        mesh_checks.arrays_digest(positions, faces, uvs, face_domain, face_owner, seams),
+        mesh_checks.seam_report_numbers(chains),
+        mesh_checks.off_plane_measure(positions, faces),
+        mesh_checks.half_edge_conflicts(faces),
+    )
+
+
+@needs_native
+@pytest.mark.parametrize("seed", range(400))
+def test_random_reports_answer_as_the_oracle(seed):
+    positions, faces, uvs, face_domain = _mesh(seed)
+    rng = random.Random(seed)
+    if rng.random() < 0.3:  # numbers whose repr is not the shortest decimal of a short literal: exponents, tiny and huge values, -0.0
+        positions = [tuple(rng.choice((value, -0.0, 1e-17 * value, 1e22 * value, value / 3.0)) for value in point) for point in positions]
+    face_owner = [rng.randint(-3, 40) for _ in faces]
+    seams = sorted({tuple(sorted(rng.sample(range(len(positions)), 2))) for _ in range(rng.randint(0, 5))})
+    chains = _chains(seed)
+    expected = _reference_reports(positions, faces, uvs, face_domain, face_owner, seams, chains)
+    assert _exact(cftuv_native.mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains)) == _exact(expected)
+
+
+def test_the_random_chains_reach_every_branch_of_the_seam_report():
+    junctions = clips = 0
+    for seed in range(400):
+        found = mesh_checks.seam_report_numbers(_chains(seed))
+        junctions += found[0] > 0
+        clips += found[1] > 0
+    assert junctions and clips
+
+
+def _named(group):
+    return tuple(sorted((f"boundary:SOURCE:0:{number}", tuple(f"src:{key}" for key in keys)) for number, keys in enumerate(group)))
+
+
+def _places(genuine):
+    mine, theirs = [], []
+    for index in range(6):
+        a, b, m, c = (f"{index}{tag}" for tag in "abmc")
+        mine.append([a, b])
+        theirs.extend(([a, c, b] if genuine else [a, b], [b, m, a]))
+    return [_named(mine), _named(theirs)]
+
+
+@needs_native
+def test_the_t_junction_scenes_of_the_seam_report_answer_as_the_oracle():
+    """The scenes of the host seam tests: the hexagon inside a ring (walls003: a path around an edge is no T-junction) and six places, clean and genuine."""
+
+    hexagon = [[20, 19], [13, 14], [14, 21, 20], [19, 18, 13]]
+    ring = [[15, 14], [13, 12], [0, 23, 22, 15], [12, 17, 16, 1], [14, 21, 20, 19, 18, 13], [1, 4, 5, 6, 7, 0]]
+    scenes = {"walls003": [_named(hexagon), _named(ring)], "clean": _places(False), "genuine": _places(True)}
+    expected = {"walls003": (0, 0), "clean": (0, 0), "genuine": (6, 0)}
+    for name, chains in scenes.items():
+        assert mesh_checks.seam_report_numbers(chains) == expected[name], name
+        assert cftuv_native.mesh_reports([], [], [], [], [], [], chains)[1] == expected[name], name

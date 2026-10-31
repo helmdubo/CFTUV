@@ -124,6 +124,7 @@ __all__ = (
     "mesh_cross_seams",
     "mesh_half_edges",
     "mesh_off_plane",
+    "mesh_reports",
     "mesh_weld",
     "snapshot_check",
     "snapshot_check_raw_layouts",
@@ -395,6 +396,13 @@ def mesh_half_edges(faces):
 
     pin.require("mesh_assembly")
     return _mesh_answer(_core.mesh_half_edges(faces))
+
+
+def mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains):
+    """`(digest, (junctions, clip vertices), (worst, off), conflicts)` of the `mesh_checks` reports in one read; `NATIVE_REFUSALS` as `mesh_off_plane`."""
+
+    pin.require("mesh_assembly")
+    return _mesh_answer(_core.mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains))
 
 
 def mesh_weld(domains, offset, law):

@@ -64,6 +64,31 @@ def off_plane_after_offset(positions, faces) -> tuple:
     )
 
 
+def mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains) -> tuple:
+    """Отчёты собранного меша одним вызовом: `(дайджест массивов, отчёт шва по цепям, плоскость граней после смещения, полурёбер двух граней)`.
+
+    Порт читает массивы один раз (`cftuv_native.mesh_reports`); эталон — `mesh_checks.arrays_digest`, `seam_report_numbers`, `off_plane_measure`, `half_edge_conflicts`.
+    """
+
+    from .envelope_production_weld import COUNTER_SEAM_CLIP_VERTICES, COUNTER_SEAM_T_JUNCTIONS
+
+    found = native_answer("mesh_reports", positions, faces, uvs, face_domain, face_owner, seams, chains)
+    if found is None:
+        found = (
+            mesh_checks.arrays_digest(positions, faces, uvs, face_domain, face_owner, seams),
+            mesh_checks.seam_report_numbers(chains),
+            mesh_checks.off_plane_measure(positions, faces),
+            mesh_checks.half_edge_conflicts(faces),
+        )
+    digest, (junctions, clip_vertices), (worst, off), conflicts = found
+    return (
+        digest,
+        ((COUNTER_SEAM_T_JUNCTIONS, junctions), (COUNTER_SEAM_CLIP_VERTICES, clip_vertices)),
+        ((COUNTER_MAX_OFF_PLANE_AFTER_OFFSET, round(worst * NANOMETRES_PER_METRE)), (COUNTER_FACES_OFF_PLANE_AFTER_OFFSET, off)),
+        conflicts,
+    )
+
+
 def cross_domain_seams(faces, uvs, face_domain) -> tuple:
     """Рёбра меша между гранями РАЗНЫХ доменов, где UV разрывен (`mesh_checks.cross_domain_seams`)."""
 
@@ -88,6 +113,7 @@ __all__ = (
     "cross_domain_seams",
     "half_edge_conflicts",
     "mesh_assembly_backend",
+    "mesh_reports",
     "native_answer",
     "off_plane_after_offset",
 )

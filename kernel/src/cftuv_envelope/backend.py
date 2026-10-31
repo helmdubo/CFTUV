@@ -1490,7 +1490,7 @@ def snapshot_check_compute(snapshot, scope):
 
 
 def mesh_assembly_compute(operation: str, *arguments) -> tuple:
-    """`(ответ порта | None, откаты)`: операция сборки меша `cftuv_native.<operation>` (`mesh_off_plane`, `mesh_cross_seams`, `mesh_half_edges`, `mesh_weld`) над массивами главного процесса.
+    """`(ответ порта | None, откаты)`: операция сборки меша `cftuv_native.<operation>` (`mesh_off_plane`, `mesh_cross_seams`, `mesh_half_edges`, `mesh_weld`, `mesh_reports`) над массивами главного процесса.
 
     Сборка меша — не стадия воркера (MESH_ASSEMBLY_NATIVE_V1): заказ — среда хоста, журнал свой у каждого вызова. `None` — откат назван и записан в `откаты` (`{(исход, операция): [число, текст]}`, как `BackendLedgerV1.fallbacks`): расширения или операции нет, пин ушёл, порт отказал вход;
     вызывающий считает эталон `mesh_checks` на тех же массивах. Состояния у операций нет.

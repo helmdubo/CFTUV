@@ -3,7 +3,8 @@
 //! * `mesh_off_plane(positions, faces)`: `off_plane_measure`, `(worst metres, faces off by a nanometre)`;
 //! * `mesh_cross_seams(faces, uvs, face_domain)`: `cross_domain_seams`, the sorted edges between two faces of different domains with a UV jump;
 //! * `mesh_half_edges(faces)`: `half_edge_conflicts`, the directed edges of two faces;
-//! * `mesh_weld(domains, offset)`: `mesh_weld.weld_core` (slice B2), the welded positions with the miter offset and the numbers of the receipt.
+//! * `mesh_weld(domains, offset)`: `mesh_weld.weld_core` (slice B2), the welded positions with the miter offset and the numbers of the receipt;
+//! * `mesh_reports(...)`: the reports of the assembled mesh in one read (slice B3): `arrays_digest`, `seam_report_numbers`, `off_plane_measure`, `half_edge_conflicts`.
 //!
 //! CPython semantics, bit for bit: binary64 subtraction and sums left to right (Rust never contracts to FMA), `max` keeps the first of equals, `round` to
 //! even (`round_ties_even`), `!=` over UV numbers is numeric (`-0.0 == 0.0`). What the port does not carry it declines by a text (the shim raises
@@ -693,4 +694,266 @@ pub fn mesh_weld<'py>(py: Python<'py>, domains: &Bound<'py, PyAny>, offset: &Bou
         partners.into_any(),
     ];
     Ok(PyTuple::new(py, parts)?.into_any())
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// `mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains)` (slice B3): the reports of the assembled mesh in one read of the arrays —
+// `mesh_checks.arrays_digest` (the JSON of `json.dumps(sort_keys=True, separators=(",", ":"))`, floats by CPython's own `float.__repr__` through
+// `PyOS_double_to_string(x, 'r', 0, Py_DTSF_ADD_DOT_0)`), `seam_report_numbers`, `off_plane_measure` and `half_edge_conflicts`.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+
+fn float_repr(out: &mut Vec<u8>, value: f64) -> Result<(), Decline> {
+    // SAFETY: the GIL is held (the caller is a #[pyfunction]); the buffer is CPython's, freed with PyMem_Free after the copy.
+    unsafe {
+        let text = pyo3::ffi::PyOS_double_to_string(value, b'r' as std::ffi::c_char, 0, pyo3::ffi::Py_DTSF_ADD_DOT_0, std::ptr::null_mut());
+        if text.is_null() {
+            return Err("float.__repr__ failed".to_string());
+        }
+        out.extend_from_slice(std::ffi::CStr::from_ptr(text).to_bytes());
+        pyo3::ffi::PyMem_Free(text as *mut std::ffi::c_void);
+    }
+    Ok(())
+}
+
+fn json_ints<I: IntoIterator<Item = i64>>(out: &mut Vec<u8>, values: I) {
+    out.push(b'[');
+    let mut first = true;
+    for value in values {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.extend_from_slice(value.to_string().as_bytes());
+    }
+    out.push(b']');
+}
+
+fn json_floats(out: &mut Vec<u8>, values: &[f64]) -> Result<(), Decline> {
+    out.push(b'[');
+    for (at, value) in values.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        float_repr(out, *value)?;
+    }
+    out.push(b']');
+    Ok(())
+}
+
+/// `mesh_checks.arrays_digest` over read arrays.
+pub fn arrays_digest(positions: &[Point], faces: &[Vec<i64>], uvs: &[Uv], face_domain: &[i64], face_owner: &[i64], seams: &[(i64, i64)]) -> Result<String, Decline> {
+    use sha2::Digest;
+
+    let mut out: Vec<u8> = Vec::with_capacity(64 * (positions.len() + uvs.len()) + 16 * faces.len());
+    out.extend_from_slice(b"{\"face_domain\":");
+    json_ints(&mut out, face_domain.iter().copied());
+    out.extend_from_slice(b",\"face_owner\":");
+    json_ints(&mut out, face_owner.iter().copied());
+    out.extend_from_slice(b",\"faces\":[");
+    for (at, face) in faces.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        json_ints(&mut out, face.iter().copied());
+    }
+    out.extend_from_slice(b"],\"positions\":[");
+    for (at, point) in positions.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        json_floats(&mut out, point)?;
+    }
+    out.extend_from_slice(b"],\"seams\":[");
+    for (at, (a, b)) in seams.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        json_ints(&mut out, [*a, *b]);
+    }
+    out.extend_from_slice(b"],\"uvs\":[");
+    for (at, uv) in uvs.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        json_floats(&mut out, uv)?;
+    }
+    out.extend_from_slice(b"]}");
+    let digest = sha2::Sha256::digest(&out);
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// `_run_between`: a path along `anchors` from one end of `pair` to the other through `src:` keys the pair's domain does not hold.
+fn run_between(anchors: &[u32], pair: (u32, u32), own: &std::collections::HashSet<u32>) -> bool {
+    let inside = |key: u32| key == pair.0 || key == pair.1;
+    for (at, &key) in anchors.iter().enumerate() {
+        if !inside(key) {
+            continue;
+        }
+        for stop in at + 1..anchors.len() {
+            if anchors[stop] == key {
+                break;
+            }
+            if inside(anchors[stop]) {
+                let between = &anchors[at + 1..stop];
+                if !between.is_empty() && between.iter().all(|item| !own.contains(item)) {
+                    return true;
+                }
+                break;
+            }
+        }
+    }
+    false
+}
+
+/// `seam_report_numbers` over interned chains: per domain `(kind, keys)` with kind 0 SOURCE, 1 WALL, 2 other; keys as ids, `src`/`clip` flags per id.
+pub fn seam_numbers(domains: &[Vec<(u8, Vec<u32>)>], is_src: &[bool], is_clip: &[bool]) -> (u64, u64) {
+    use std::collections::{HashMap, HashSet};
+
+    let pair_of = |a: u32, b: u32| if a <= b { (a, b) } else { (b, a) };
+    let mut by_pair: HashMap<(u32, u32), Vec<i64>> = HashMap::new();
+    let mut clip_vertices = 0u64;
+    let mut anchored: Vec<(usize, Vec<u32>)> = Vec::new();
+    let mut held: HashMap<usize, HashSet<u32>> = HashMap::new();
+    for (number, chains) in domains.iter().enumerate() {
+        for (kind, keys) in chains {
+            if *kind > 1 {
+                continue;
+            }
+            let anchors: Vec<usize> = (0..keys.len()).filter(|&index| is_src[keys[index] as usize]).collect();
+            clip_vertices += keys.iter().filter(|key| is_clip[**key as usize]).count() as u64;
+            held.entry(number).or_default().extend(anchors.iter().map(|&index| keys[index]));
+            if *kind != 0 {
+                continue;
+            }
+            anchored.push((number, anchors.iter().map(|&index| keys[index]).collect()));
+            for window in anchors.windows(2) {
+                by_pair.entry(pair_of(keys[window[0]], keys[window[1]])).or_default().push((window[1] - window[0] - 1) as i64);
+            }
+        }
+    }
+    let mut junctions = by_pair
+        .values()
+        .filter(|counts| counts.len() > 1 && counts.iter().any(|count| *count != counts[0]))
+        .count() as u64;
+    // _anchors_between
+    let mut runs: HashMap<usize, Vec<&Vec<u32>>> = HashMap::new();
+    let mut consecutive: HashMap<usize, HashSet<(u32, u32)>> = HashMap::new();
+    let mut where_: HashMap<u32, HashSet<(usize, usize)>> = HashMap::new();
+    for (number, anchors) in &anchored {
+        let chains = runs.entry(*number).or_default();
+        for key in anchors {
+            where_.entry(*key).or_default().insert((*number, chains.len()));
+        }
+        chains.push(anchors);
+        consecutive.entry(*number).or_default().extend(anchors.windows(2).map(|window| pair_of(window[0], window[1])));
+    }
+    let empty: HashSet<u32> = HashSet::new();
+    let mut open_pairs: HashSet<(u32, u32)> = HashSet::new();
+    for (number, pairs) in &consecutive {
+        for &pair in pairs {
+            if pair.0 == pair.1 || open_pairs.contains(&pair) {
+                continue;
+            }
+            let (Some(first), Some(second)) = (where_.get(&pair.0), where_.get(&pair.1)) else { continue };
+            let own = held.get(number).unwrap_or(&empty);
+            for &(other, at) in first.intersection(second) {
+                if other != *number && !consecutive[&other].contains(&pair) && run_between(runs[&other][at], pair, own) {
+                    open_pairs.insert(pair);
+                    break;
+                }
+            }
+        }
+    }
+    junctions += open_pairs.len() as u64;
+    (junctions, clip_vertices)
+}
+
+fn read_int_list(sequence: &Bound<'_, PyAny>, what: &str) -> Result<Vec<i64>, Decline> {
+    items(sequence, what)?
+        .iter()
+        .map(|item| {
+            if !item.is_exact_instance_of::<pyo3::types::PyInt>() {
+                return Err(format!("{what} holds a value that is not an exact int"));
+            }
+            item.extract::<i64>().map_err(|_| format!("{what} holds an int outside i64"))
+        })
+        .collect()
+}
+
+type Chains = (Vec<Vec<(u8, Vec<u32>)>>, Vec<bool>, Vec<bool>);
+
+fn read_chains(chains: &Bound<'_, PyAny>) -> Result<Chains, Decline> {
+    let mut ids: HashMap<String, u32> = HashMap::new();
+    let (mut is_src, mut is_clip) = (Vec::new(), Vec::new());
+    let mut domains = Vec::new();
+    for domain in items(chains, "chains")? {
+        let mut found = Vec::new();
+        for chain in items(&domain, "the chains of a domain")? {
+            let parts = items(&chain, "a chain")?;
+            if parts.len() != 2 || !parts[0].is_exact_instance_of::<pyo3::types::PyString>() {
+                return Err("a chain is not a (name, keys) pair".to_string());
+            }
+            let name = parts[0].cast::<pyo3::types::PyString>().map_err(|_| "a chain name is not a str".to_string())?.to_str().map_err(|_| "a chain name is not UTF-8".to_string())?;
+            let kind = match name.split(':').nth(1) {
+                Some("SOURCE") => 0u8,
+                Some("WALL") => 1u8,
+                Some(_) => 2u8,
+                None => return Err("a chain name has no kind (Python's split raises)".to_string()),
+            };
+            let mut keys = Vec::new();
+            for key in items(&parts[1], "the keys of a chain")? {
+                if !key.is_exact_instance_of::<pyo3::types::PyString>() {
+                    return Err("a chain key is not an exact str".to_string());
+                }
+                let text = key.cast::<pyo3::types::PyString>().map_err(|_| "a chain key is not a str".to_string())?.to_str().map_err(|_| "a chain key is not UTF-8".to_string())?;
+                let next = ids.len() as u32;
+                let id = *ids.entry(text.to_string()).or_insert_with(|| {
+                    is_src.push(text.starts_with("src:"));
+                    is_clip.push(text.starts_with("clip:"));
+                    next
+                });
+                keys.push(id);
+            }
+            found.push((kind, keys));
+        }
+        domains.push(found);
+    }
+    Ok((domains, is_src, is_clip))
+}
+
+/// `(digest, (junctions, clip vertices), (worst, off), conflicts)` or the text of a decline.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn mesh_reports<'py>(
+    py: Python<'py>,
+    positions: &Bound<'py, PyAny>,
+    faces: &Bound<'py, PyAny>,
+    uvs: &Bound<'py, PyAny>,
+    face_domain: &Bound<'py, PyAny>,
+    face_owner: &Bound<'py, PyAny>,
+    seams: &Bound<'py, PyAny>,
+    chains: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let answer = || -> Result<(String, (u64, u64), (f64, u64), u64), Decline> {
+        let points = read_points(positions, "a position")?;
+        let loops = read_faces(faces)?;
+        let uv = items(uvs, "uvs")?.iter().map(|item| floats(item, 2, "a uv").map(|v| [v[0], v[1]])).collect::<Result<Vec<Uv>, Decline>>()?;
+        let domains = read_int_list(face_domain, "face_domain")?;
+        let owners = read_int_list(face_owner, "face_owner")?;
+        let mut pairs = Vec::new();
+        for seam in items(seams, "seams")? {
+            let pair = read_int_list(&seam, "a seam")?;
+            if pair.len() != 2 {
+                return Err("a seam is not a pair".to_string());
+            }
+            pairs.push((pair[0], pair[1]));
+        }
+        let (chain_domains, is_src, is_clip) = read_chains(chains)?;
+        let digest = arrays_digest(&points, &loops, &uv, &domains, &owners, &pairs)?;
+        Ok((digest, seam_numbers(&chain_domains, &is_src, &is_clip), off_plane(&points, &loops)?, half_edges(&loops)))
+    };
+    match answer() {
+        Ok(found) => Ok(found.into_pyobject(py)?.into_any()),
+        Err(reason) => declined(py, reason),
+    }
 }
