@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import sys
 import threading
 import time
@@ -341,8 +342,11 @@ def main() -> int:
     parser.add_argument("--worker-cprofile", action="store_true")
     parser.add_argument("--tick-freeze", default="on", choices=("on", "off"))
     parser.add_argument("--settle", default="on", choices=("on", "off"), help="on: after the cold press wait for the background snapshot byte check (run_idle) to end, so the ticks measure the steady state")
+    parser.add_argument("--byte-check", default="all", choices=("all", "product"), help="all: the full snapshot byte check (the field tools' reference); product: the button's default (timing)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if args.byte_check == "all":
+        os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
     root = Path(args.root).resolve()
     sys.path.insert(0, str(root / "tools"))
     import blender_tree_ab as T
