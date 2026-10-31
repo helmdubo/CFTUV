@@ -121,6 +121,9 @@ __all__ = (
     "skeleton_seam_table",
     "slot_counters",
     "slot_mode",
+    "mesh_cross_seams",
+    "mesh_half_edges",
+    "mesh_off_plane",
     "snapshot_check",
     "snapshot_check_raw_layouts",
     "warm_snapshot_check",
@@ -361,6 +364,36 @@ def snapshot_check(snapshot, scope=snapshot_check_op.SCOPE_ANALYSIS_AND_REFERENC
     """
 
     return snapshot_check_op.snapshot_check(_core, snapshot, scope)
+
+
+
+def _mesh_answer(answer):
+    """The answer of a `mesh_*` operation, or its decline (a `str` from the extension) as `NativePortUnsupported` before anything changed."""
+
+    if isinstance(answer, str):
+        raise NativePortUnsupported(f"mesh_assembly: {answer}")
+    return answer
+
+
+def mesh_off_plane(positions, faces):
+    """`(worst metres, faces off by a nanometre)` of `mesh_checks.off_plane_measure`; `NATIVE_REFUSALS` when the pin moved or the arrays are not carried."""
+
+    pin.require("mesh_assembly")
+    return _mesh_answer(_core.mesh_off_plane(positions, faces))
+
+
+def mesh_cross_seams(faces, uvs, face_domain):
+    """The sorted fold edges of `mesh_checks.cross_domain_seams`; `NATIVE_REFUSALS` as `mesh_off_plane`."""
+
+    pin.require("mesh_assembly")
+    return _mesh_answer(_core.mesh_cross_seams(faces, uvs, face_domain))
+
+
+def mesh_half_edges(faces):
+    """`mesh_checks.half_edge_conflicts`; `NATIVE_REFUSALS` as `mesh_off_plane`."""
+
+    pin.require("mesh_assembly")
+    return _mesh_answer(_core.mesh_half_edges(faces))
 
 
 def warm_snapshot_check() -> bool:

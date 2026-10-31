@@ -14,10 +14,9 @@ from pathlib import Path
 import pytest
 
 from cftuv import envelope_production_weld as weld
+from cftuv.envelope_mesh_assembly import cross_domain_seams, half_edge_conflicts
 from cftuv.envelope_production_weld import (
     DomainVerticesV1,
-    cross_domain_seams,
-    half_edge_conflicts,
     miter_offset,
     weld_vertices,
 )
@@ -334,7 +333,7 @@ def test_the_weld_module_never_merges_by_distance():
 
 
 def test_a_planar_face_has_no_off_plane_deviation_after_the_offset():
-    from cftuv.envelope_production_weld import off_plane_after_offset
+    from cftuv.envelope_mesh_assembly import off_plane_after_offset
 
     square = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
     counters = dict(off_plane_after_offset(square, [(0, 1, 2, 3), (0, 1, 2)]))
@@ -344,7 +343,7 @@ def test_a_planar_face_has_no_off_plane_deviation_after_the_offset():
 
 
 def test_a_quad_with_one_vertex_lifted_names_the_deviation_in_nanometres():
-    from cftuv.envelope_production_weld import off_plane_after_offset
+    from cftuv.envelope_mesh_assembly import off_plane_after_offset
 
     lifted = 0.004  # 4 мм: вершина одной нормали смещения дальше остальных
     quad = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, lifted), (0.0, 1.0, 0.0)]
@@ -356,7 +355,7 @@ def test_a_quad_with_one_vertex_lifted_names_the_deviation_in_nanometres():
 
 
 def test_triangles_and_degenerate_faces_measure_nothing():
-    from cftuv.envelope_production_weld import off_plane_after_offset
+    from cftuv.envelope_mesh_assembly import off_plane_after_offset
 
     points = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.5), (2.0, 0.0, 1.0), (3.0, 0.0, 1.5)]
     counters = dict(off_plane_after_offset(points, [(0, 1, 2), (0, 1, 2, 3)]))

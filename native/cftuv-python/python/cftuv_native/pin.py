@@ -167,6 +167,9 @@ DENSITY_FILES = (
 #: while that table is empty the stage stays `unavailable` whatever these digests say (`angular_op.status`).
 ANGULAR_FILES = ("contracts/analysis.py", "contracts/metric.py", "ids.py", "numeric.py", "reference/angle_measure.py", "reference/metric.py", "reference/planar_types.py")
 
+#: `mesh_checks` (MESH_ASSEMBLY_NATIVE_V1): the checks of the assembled decal mesh in the main process.
+MESH_ASSEMBLY_FILES = ("mesh_checks.py",)
+
 OPERATION_FILES = {
     "coverage": COVERAGE_FILES,
     "clip": CLIP_FILES,
@@ -179,6 +182,7 @@ OPERATION_FILES = {
     "radical_v2": RADICAL_V2_FILES,
     "density": DENSITY_FILES,
     "angular": ANGULAR_FILES,
+    "mesh_assembly": MESH_ASSEMBLY_FILES,
 }
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
@@ -202,6 +206,7 @@ PINS: dict = {
     "materialize/mesh.py": "34ebb2ac5b631d2da2151b1dcf4b7c8aa28d12b3d873115861d789e55695ea4b",
     "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
+    "mesh_checks.py": "55d5ef082c0c393faea038760eb02d6db9b3161cf0dbca0d7d3863bfa7a739eb",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
     "planar_metric.py": "eba51fedd37424c13be6e34350fe4d9b23e044f7807a7f071f430cdc72cb0f6a",
     "reference/angle_certificate_sign.py": "3114f1d3784f7ebfbda707455fe499fa9496d8b9a340ce692b584764824191be",

@@ -32,7 +32,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from .envelope_production_result import PLACEMENT_REBASED
-from .envelope_production_weld import WELD_LOCATION_PREFIX, cross_domain_seams, weld_vertices
+from .envelope_mesh_assembly import cross_domain_seams
+from .envelope_production_weld import WELD_LOCATION_PREFIX, weld_vertices
 from .envelope_width_preview_model import MeshImageV1, PreviewSampleV1, domain_sample_of, layout_digest_of, positions_and_uvs
 from .envelope_width_rebase import certificate_usable, rebased_view, view_of
 

@@ -590,89 +590,6 @@ def _cross(left, right):
     )
 
 
-def off_plane_after_offset(positions, faces) -> tuple:
-    """`((имя, число), ...)`: плоскость граней от четырёх вершин ПОСЛЕ смещения над поверхностью.
-
-    Плоскость грани — через её первую вершину с нормалью вектора площади (веер из первой вершины);
-    мера — наибольшее расстояние вершины грани от неё, метры. Грань нулевой площади ничего не меряет.
-    Возвращает наибольшее отклонение в нанометрах и число граней, у которых оно не меньше нанометра.
-    """
-
-    worst, off = 0.0, 0
-    for loop in faces:
-        if len(loop) < 4:
-            continue
-        points = [positions[index] for index in loop]
-        origin = points[0]
-        normal = (0.0, 0.0, 0.0)
-        for index in range(1, len(points) - 1):
-            part = _cross(
-                tuple(b - a for a, b in zip(origin, points[index])),
-                tuple(b - a for a, b in zip(origin, points[index + 1])),
-            )
-            normal = tuple(a + b for a, b in zip(normal, part))
-        length = math.sqrt(_dot(normal, normal))
-        if not length:
-            continue
-        deviation = max(
-            abs(_dot(tuple(b - a for a, b in zip(origin, point)), normal)) / length
-            for point in points[1:]
-        )
-        worst = max(worst, deviation)
-        # Разрешение записи — нанометр: шум округления binary64 (1e-16 м) гранью «вне плоскости» не числится.
-        off += int(round(deviation * NANOMETRES_PER_METRE) > 0)
-    return (
-        (COUNTER_MAX_OFF_PLANE_AFTER_OFFSET, round(worst * NANOMETRES_PER_METRE)),
-        (COUNTER_FACES_OFF_PLANE_AFTER_OFFSET, off),
-    )
-
-
-def _edge_uvs(faces, uvs, face_domain):
-    """`{ребро: [(грань, домен, uv у меньшей вершины, uv у большей)]}` по петлям меша."""
-
-    edges: dict = {}
-    cursor = 0
-    for number, loop in enumerate(faces):
-        size = len(loop)
-        for position in range(size):
-            first, second = loop[position], loop[(position + 1) % size]
-            uv_first = uvs[cursor + position]
-            uv_second = uvs[cursor + (position + 1) % size]
-            if first > second:
-                first, second, uv_first, uv_second = second, first, uv_second, uv_first
-            edges.setdefault((first, second), []).append(
-                (number, face_domain[number], uv_first, uv_second)
-            )
-        cursor += size
-    return edges
-
-
-def cross_domain_seams(faces, uvs, face_domain) -> tuple:
-    """Рёбра меша между гранями РАЗНЫХ доменов, где UV разрывен: шов на сваренной складке."""
-
-    return tuple(
-        sorted(
-            edge
-            for edge, sides in _edge_uvs(faces, uvs, face_domain).items()
-            if len(sides) == 2
-            and sides[0][1] != sides[1][1]
-            and (sides[0][2] != sides[1][2] or sides[0][3] != sides[1][3])
-        )
-    )
-
-
-def half_edge_conflicts(faces) -> int:
-    """Направленные рёбра, лежащие в двух гранях: так сваренные соседи с разным обходом."""
-
-    seen: dict = {}
-    for loop in faces:
-        size = len(loop)
-        for position in range(size):
-            half = (loop[position], loop[(position + 1) % size])
-            seen[half] = seen.get(half, 0) + 1
-    return sum(1 for count in seen.values() if count > 1)
-
-
 def weld_console_lines(counters) -> list:
     """Строки консоли о сварке и о законе конца стены по числам квитанции (`weld_counters`): пусто, когда сварки не было.
 
@@ -715,8 +632,6 @@ __all__ = (
     "WELD_LOCATION_PREFIX",
     "WallPlanV1",
     "WeldV1",
-    "cross_domain_seams",
-    "half_edge_conflicts",
     "miter_offset",
     "plan_wall_nodes",
     "weld_console_lines",

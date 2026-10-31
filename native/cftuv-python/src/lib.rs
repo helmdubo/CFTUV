@@ -18,6 +18,7 @@ mod canonical_json;
 mod materialize_hot;
 mod materialize_w1;
 mod memlog;
+mod mesh_assembly;
 mod pyobj;
 mod radical_v2;
 mod refusal;
@@ -721,5 +722,8 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;
     module.add_function(wrap_pyfunction!(skeleton_seams::skeleton_seam_run, module)?)?;
     module.add_function(wrap_pyfunction!(skeleton_seams::skeleton_seam_table, module)?)?;
+    module.add_function(wrap_pyfunction!(mesh_assembly::mesh_off_plane, module)?)?;
+    module.add_function(wrap_pyfunction!(mesh_assembly::mesh_cross_seams, module)?)?;
+    module.add_function(wrap_pyfunction!(mesh_assembly::mesh_half_edges, module)?)?;
     Ok(())
 }

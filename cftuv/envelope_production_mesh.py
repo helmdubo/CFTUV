@@ -72,12 +72,10 @@ from .envelope_production_weld import (
     COUNTER_WELD_SEAMS_MARKED,
     OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
-    cross_domain_seams,
-    half_edge_conflicts,
-    off_plane_after_offset,
     seam_report_of_chains,
     weld_vertices,
 )
+from .envelope_mesh_assembly import cross_domain_seams, half_edge_conflicts, off_plane_after_offset
 from .envelope_production_view import (
     OUTCOME_EMPTY_BATCH,
     OUTCOME_NON_FINITE,
