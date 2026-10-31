@@ -12,12 +12,12 @@ import os
 
 from cftuv_envelope import mesh_checks
 
-from .envelope_production_weld import (
-    COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
-    COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
-    NANOMETRES_PER_METRE,
-)
 
+#: Числа плоскости граней после смещения: наибольшее отклонение вершины от плоскости своей грани (нм) и
+#: число граней от четырёх вершин с отклонением больше нуля.
+COUNTER_MAX_OFF_PLANE_AFTER_OFFSET = "ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"
+COUNTER_FACES_OFF_PLANE_AFTER_OFFSET = "ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"
+NANOMETRES_PER_METRE = 10**9
 MESH_ASSEMBLY_ENVIRONMENT = "CFTUV_MESH_ASSEMBLY_BACKEND"
 MESH_ASSEMBLY_PYTHON = "PYTHON"
 MESH_ASSEMBLY_NATIVE = "NATIVE"
@@ -35,7 +35,7 @@ def mesh_assembly_backend() -> str:
     return text
 
 
-def _native(operation: str, *arguments):
+def native_answer(operation: str, *arguments):
     """Ответ порта либо `None` (заказан эталон или откат назван и записан)."""
 
     if mesh_assembly_backend() != MESH_ASSEMBLY_NATIVE:
@@ -56,7 +56,7 @@ def _native(operation: str, *arguments):
 def off_plane_after_offset(positions, faces) -> tuple:
     """`((имя, число), ...)`: наибольшее отклонение граней от четырёх вершин от своей плоскости ПОСЛЕ смещения, нанометры, и число граней от нанометра."""
 
-    found = _native("mesh_off_plane", positions, faces)
+    found = native_answer("mesh_off_plane", positions, faces)
     worst, off = mesh_checks.off_plane_measure(positions, faces) if found is None else found
     return (
         (COUNTER_MAX_OFF_PLANE_AFTER_OFFSET, round(worst * NANOMETRES_PER_METRE)),
@@ -67,23 +67,27 @@ def off_plane_after_offset(positions, faces) -> tuple:
 def cross_domain_seams(faces, uvs, face_domain) -> tuple:
     """Рёбра меша между гранями РАЗНЫХ доменов, где UV разрывен (`mesh_checks.cross_domain_seams`)."""
 
-    found = _native("mesh_cross_seams", faces, uvs, face_domain)
+    found = native_answer("mesh_cross_seams", faces, uvs, face_domain)
     return mesh_checks.cross_domain_seams(faces, uvs, face_domain) if found is None else found
 
 
 def half_edge_conflicts(faces) -> int:
     """Направленные рёбра двух граней (`mesh_checks.half_edge_conflicts`)."""
 
-    found = _native("mesh_half_edges", faces)
+    found = native_answer("mesh_half_edges", faces)
     return mesh_checks.half_edge_conflicts(faces) if found is None else found
 
 
 __all__ = (
+    "COUNTER_FACES_OFF_PLANE_AFTER_OFFSET",
+    "COUNTER_MAX_OFF_PLANE_AFTER_OFFSET",
+    "NANOMETRES_PER_METRE",
     "DEFAULT_MESH_ASSEMBLY_BACKEND",
     "FALLBACKS",
     "MESH_ASSEMBLY_ENVIRONMENT",
     "cross_domain_seams",
     "half_edge_conflicts",
     "mesh_assembly_backend",
+    "native_answer",
     "off_plane_after_offset",
 )

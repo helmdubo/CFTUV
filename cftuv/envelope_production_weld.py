@@ -76,8 +76,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-#: Только ссылки вершин ИСХОДНИКА сваривают: ссылка узла (`location:node:<k>`) принадлежит домену.
-WELD_LOCATION_PREFIX = "location:src:"
+from cftuv_envelope import mesh_weld
+from cftuv_envelope.mesh_weld import WELD_LOCATION_PREFIX, WallPlanV1, weld_core
 
 OUTCOME_WELD_POSITION_MISMATCH = "ADAPTER_WELD_POSITION_MISMATCH"
 OUTCOME_WELD_MITER_FALLBACK = "ADAPTER_WELD_MITER_FALLBACK"
@@ -85,11 +85,6 @@ OUTCOME_WELD_HALF_EDGE_CONFLICT = "ADAPTER_WELD_HALF_EDGE_CONFLICT"
 COUNTER_WELD_GROUPS = "ADAPTER_WELD_GROUPS"
 COUNTER_WELD_VERTICES_MERGED = "ADAPTER_WELD_VERTICES_MERGED"
 COUNTER_WELD_SEAMS_MARKED = "ADAPTER_WELD_SEAMS_MARKED"
-#: Числа плоскости граней после смещения: наибольшее отклонение вершины от плоскости своей грани (нм) и
-#: число граней от четырёх вершин с отклонением больше нуля.
-COUNTER_MAX_OFF_PLANE_AFTER_OFFSET = "ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"
-COUNTER_FACES_OFF_PLANE_AFTER_OFFSET = "ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"
-NANOMETRES_PER_METRE = 10**9
 #: Шов по цепям батчей (см. `seam_report`): пары соседних `src:` цепи источника с РАЗНЫМ числом вершин между
 #: ними в двух доменах (T-стык шва) и вершины `clip:` на цепях источника и стены.
 COUNTER_SEAM_T_JUNCTIONS = "ADAPTER_SEAM_T_JUNCTIONS"
@@ -104,6 +99,12 @@ MITER_LIMIT = 4.0
 #: нормали линейно зависимы; несовместность и невязка — не больше `MITER_RESIDUAL_EPSILON`.
 MITER_PIVOT_EPSILON = 1e-9
 MITER_RESIDUAL_EPSILON = 1e-9
+#: Закон `WALL_MITER_OFFSET_V1` (конец стены на линии сгиба; описание — в докстринге модуля). Синус наибольшего угла между направлениями стен двух
+#: доменов из общей вершины `src:`, при котором это одно ребро источника: позиции батча несут шум подъёма (до одной ячейки решётки, ~1 мм у изогнутого
+#: патча: узел лежит на ребре с отклонением ~4e-4 на длине 0.22, это 2e-3), а разные рёбра источника в одной вершине различаются на градусы.
+WALL_DIRECTION_SINE = 1e-2
+#: Закон сварки, который хост передаёт ядру (`cftuv_envelope.mesh_weld`) и порту: допуски — решения адаптера, не ядра.
+WELD_LAW = (MITER_LIMIT, MITER_PIVOT_EPSILON, MITER_RESIDUAL_EPSILON, WALL_DIRECTION_SINE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,300 +135,37 @@ class WeldV1:
     partners: tuple = ()
 
 
-def _dot(left, right) -> float:
-    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
-
-
-def _eliminate(rows, size):
-    """Метод Гаусса — Жордана с выбором ведущего: `(номера ведущих столбцов, строки)`."""
-
-    pivots = []
-    row = 0
-    for column in range(size):
-        if row == size:
-            break
-        best = max(range(row, size), key=lambda index: abs(rows[index][column]))
-        if abs(rows[best][column]) <= MITER_PIVOT_EPSILON:
-            continue
-        rows[row], rows[best] = rows[best], rows[row]
-        scale = rows[row][column]
-        rows[row] = [value / scale for value in rows[row]]
-        for other in range(size):
-            if other != row and rows[other][column]:
-                factor = rows[other][column]
-                rows[other] = [a - factor * b for a, b in zip(rows[other], rows[row])]
-        pivots.append(column)
-        row += 1
-    return pivots, rows
-
-
-def miter_offset(normals):
-    """`(вектор смещения при d = 1, множитель митры, причина)`: `n_i . o = 1` для всех нормалей.
-
-    `o` ищется в линейной оболочке нормалей (`o = sum a_i n_i`, `G a = 1`, `G` — матрица Грама), и
-    она единственна, когда система совместна. Равные побитово нормали дают сразу `n`. Отказ —
-    `(None, множитель | None, причина)`: система несовместна (почти противоположные либо
-    несходящиеся плоскости) либо множитель митры выше `MITER_LIMIT`.
-    """
-
-    first = normals[0]
-    if all(item == first for item in normals):
-        return first, 1.0, ""
-    size = len(normals)
-    rows = [[_dot(a, b) for b in normals] + [1.0] for a in normals]
-    pivots, rows = _eliminate(rows, size)
-    for row in range(len(pivots), size):
-        if abs(rows[row][size]) > MITER_RESIDUAL_EPSILON:
-            return None, None, "the offset planes do not meet in one point"
-    weights = [0.0] * size
-    for row, column in enumerate(pivots):
-        weights[column] = rows[row][size]
-    offset = tuple(
-        sum(weight * normal[axis] for weight, normal in zip(weights, normals))
-        for axis in range(3)
-    )
-    if any(abs(_dot(normal, offset) - 1.0) > MITER_RESIDUAL_EPSILON for normal in normals):
-        return None, None, "the offset planes do not meet in one point"
-    factor = math.sqrt(_dot(offset, offset))
-    if factor > MITER_LIMIT:
-        return None, factor, "the miter exceeds the limit"
-    return offset, factor, ""
-
-
-def _hex(point) -> tuple:
-    return tuple(float(axis).hex() for axis in point)
-
-
-def _groups_by_reference(domains):
-    found: dict = {}
-    for ordinal, domain in enumerate(domains):
-        for local, ref in enumerate(domain.refs):
-            if ref is not None and ref.startswith(WELD_LOCATION_PREFIX):
-                found.setdefault(ref, []).append((ordinal, local))
-    return {ref: members for ref, members in found.items() if len(members) > 1}
-
-
-def _plan(domains):
-    """`(класс сварки по (домен, вершина), множитель смещения класса, числа, находки)`."""
-
-    classes: dict = {}
-    miters: dict = {}
-    mismatches = fallbacks = 0
-    worst_gap = 0.0
-    worst_factor = 0.0
-    reasons: set = set()
-    for members in _groups_by_reference(domains).values():
-        by_position: dict = {}
-        for ordinal, local in members:
-            point = domains[ordinal].positions[local]
-            by_position.setdefault(_hex(point), []).append((ordinal, local))
-        if len(by_position) > 1:
-            mismatches += 1
-            points = [domains[o].positions[l] for o, l in (cls[0] for cls in by_position.values())]
-            worst_gap = max(
-                worst_gap, max(math.dist(a, b) for a in points for b in points)
-            )
-        for cls in by_position.values():
-            if len(cls) < 2:
-                continue
-            offset, factor, reason = miter_offset(
-                [domains[o].normals[l] for o, l in cls]
-            )
-            if offset is None:
-                fallbacks += 1
-                reasons.add(reason)
-                worst_factor = max(worst_factor, factor or 0.0)
-                continue
-            for member in cls:
-                classes[member] = cls[0]
-            miters[cls[0]] = offset
-    return classes, miters, (mismatches, worst_gap, fallbacks, worst_factor, reasons)
-
-
-#: Закон `WALL_MITER_OFFSET_V1` (конец стены на линии сгиба; описание — в докстринге модуля). Синус наибольшего угла между направлениями стен двух
-#: доменов из общей вершины `src:`, при котором это одно ребро источника: позиции батча несут шум подъёма (до одной ячейки решётки, ~1 мм у изогнутого
-#: патча: узел лежит на ребре с отклонением ~4e-4 на длине 0.22, это 2e-3), а разные рёбра источника в одной вершине различаются на градусы.
-WALL_DIRECTION_SINE = 1e-2
 OUTCOME_WALL_MITER_FALLBACK = "ADAPTER_WALL_MITER_FALLBACK"
 COUNTER_WALL_NODES_LIFTED = "ADAPTER_WALL_NODES_LIFTED"
 COUNTER_WALL_NODES_WELDED = "ADAPTER_WALL_NODES_WELDED"
 COUNTER_WALL_NODES_ALONE = "ADAPTER_WALL_NODES_ALONE"
 
 
-@dataclass(frozen=True, slots=True)
-class WallPlanV1:
-    """Итог закона конца стены: сдвиги узлов (при `d = 1`), слитые пары узлов и числа.
+def miter_offset(normals):
+    """`(вектор смещения при d = 1, множитель митры, причина)` под законом хоста (`mesh_weld.miter_offset`)."""
 
-    `lifts[(домен, вершина)]` — вектор смещения узла; `classes[(домен, вершина)]` — голова класса слитых узлов, `miters[голова]` — общий вектор
-    класса. Числа: смещённые узлы, слитые вершины (`len(classes) - len(miters)`), узлы без соседа, отказы митры с причинами и худшим множителем.
-    """
-
-    lifts: dict
-    classes: dict
-    miters: dict
-    lifted: int
-    alone: int
-    fallbacks: int
-    worst_factor: float
-    reasons: frozenset
-    #: `((домен, домен соседа), ...)`: смещение узла стены этого домена зависит от нормалей вершин ДОМЕНА-СОСЕДА (его нормаль в точке узла смешана вдоль его стены). Аффинность позиции узла от ширины
-    #: поэтому держится, лишь пока нормали соседа одни (плоский сосед); модель превью (`envelope_width_preview_model`) читает эти пары.
-    partners: tuple = ()
-
-    @property
-    def welded(self) -> int:
-        return len(self.classes) - len(self.miters)
-
-
-def _is_anchor(domain, local) -> bool:
-    ref = domain.refs[local]
-    return ref is not None and ref.startswith(WELD_LOCATION_PREFIX)
-
-
-def _normalised(vector):
-    length = math.sqrt(_dot(vector, vector))
-    return None if not length else (vector[0] / length, vector[1] / length, vector[2] / length)
-
-
-def _wall_heading(other, chain, at, direction):
-    """`(вершина за якорем, вектор от якоря, его длина)` первой стороны стены соседа, идущей тем же ребром, что `direction`, либо `None`."""
-
-    length = math.sqrt(_dot(direction, direction))
-    for step in (-1, 1):
-        position = at + step
-        if not 0 <= position < len(chain):
-            continue
-        heading = tuple(b - a for a, b in zip(other.positions[chain[at]], other.positions[chain[position]]))
-        reach = math.sqrt(_dot(heading, heading))
-        if not reach or not length:
-            continue
-        cross = _cross(direction, heading)
-        if _dot(direction, heading) > 0.0 and math.sqrt(_dot(cross, cross)) <= WALL_DIRECTION_SINE * length * reach:
-            return chain[position], heading, reach
-    return None
-
-
-def _wall_partner(domains, walls, table, ordinal, chain, at):
-    """`(домен соседа, его вершина за якорем, нормаль соседа в точке узла)` либо `None`: у узла нет соседа на стене.
-
-    Якорь узла — соседняя с ним по цепи вершина `src:`; сосед — домен, у которого стена выходит из той же вершины (одна ссылка, побитово равная позиция)
-    вдоль того же ребра. Нормаль соседа в точке узла — линейная по длине его стены между нормалью в якоре и нормалью за якорем (дальше конца — она сама).
-    """
-
-    domain = domains[ordinal]
-    for step in (-1, 1):
-        position = at + step
-        if not 0 <= position < len(chain) or not _is_anchor(domain, chain[position]):
-            continue
-        anchor = chain[position]
-        direction = tuple(b - a for a, b in zip(domain.positions[anchor], domain.positions[chain[at]]))
-        for other_ordinal, number, place in table.get(domain.refs[anchor], ()):
-            other = domains[other_ordinal]
-            other_chain = walls[other_ordinal][number]
-            if other_ordinal == ordinal or _hex(other.positions[other_chain[place]]) != _hex(domain.positions[anchor]):
-                continue
-            along = _wall_heading(other, other_chain, place, direction)
-            if along is None:
-                continue
-            beyond, heading, reach = along
-            share = min(1.0, _dot(direction, heading) / (reach * reach))
-            blended = _normalised(
-                tuple((1.0 - share) * a + share * b for a, b in zip(other.normals[other_chain[place]], other.normals[beyond]))
-            )
-            if blended is not None:
-                return other_ordinal, beyond, blended
-    return None
+    return mesh_weld.miter_offset(normals, WELD_LAW)
 
 
 def plan_wall_nodes(domains) -> WallPlanV1:
-    """Закон `WALL_MITER_OFFSET_V1`: сдвиги узлов стены на линию сгиба и слияние пар узлов с побитово равными позициями.
+    """Закон `WALL_MITER_OFFSET_V1` под законом хоста (`mesh_weld.plan_wall_nodes`)."""
 
-    `domains` — `DomainVerticesV1` с цепями стен (`walls`); домен без них ничего не даёт (поведение прежнее). Предел митры и допуски — те же, что у
-    `miter_offset`. Обход по номеру домена, цепям и местам в цепи: ответ от порядка множеств не зависит. Домен прежней раскладки
-    (воркер пула, поднятый до правки, присылает вершины без поля `walls`) стен не имеет: закон на нём не действует, как и без цепей.
-    """
-
-    walls = [getattr(domain, "walls", ()) for domain in domains]
-    table: dict = {}
-    for ordinal, domain in enumerate(domains):
-        for number, chain in enumerate(walls[ordinal]):
-            for at, local in enumerate(chain):
-                if _is_anchor(domain, local):
-                    table.setdefault(domain.refs[local], []).append((ordinal, number, at))
-    lifts: dict = {}
-    classes: dict = {}
-    miters: dict = {}
-    seen: set = set()
-    lifted = alone = fallbacks = 0
-    worst = 0.0
-    reasons: set = set()
-    partners: set = set()
-    for ordinal, domain in enumerate(domains):
-        for chain in walls[ordinal]:
-            for at, local in enumerate(chain):
-                if _is_anchor(domain, local) or (ordinal, local) in seen:
-                    continue
-                seen.add((ordinal, local))
-                partner = _wall_partner(domains, walls, table, ordinal, chain, at)
-                if partner is None:
-                    alone += 1
-                    continue
-                other_ordinal, beyond, blended = partner
-                other = domains[other_ordinal]
-                twin = (
-                    not _is_anchor(other, beyond)
-                    and (other_ordinal, beyond) not in seen
-                    and _hex(other.positions[beyond]) == _hex(domain.positions[local])
-                )
-                offset, factor, reason = miter_offset([domain.normals[local], other.normals[beyond] if twin else blended])
-                if offset is None:
-                    fallbacks += 1
-                    reasons.add(reason)
-                    worst = max(worst, factor or 0.0)
-                    continue
-                if not twin:
-                    lifts[(ordinal, local)] = offset
-                    partners.add((ordinal, other_ordinal))
-                    lifted += 1
-                    continue
-                head = (ordinal, local)
-                seen.add((other_ordinal, beyond))
-                classes[head] = classes[(other_ordinal, beyond)] = head
-                miters[head] = offset
-                lifted += 2
-    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons), tuple(sorted(partners)))
+    return mesh_weld.plan_wall_nodes(domains, WELD_LAW)
 
 
 def weld_vertices(domains, offset: float) -> WeldV1:
-    """Вершины меша из вершин доменов: сварка по ссылке при равных позициях, митра смещения."""
+    """Вершины меша из вершин доменов: сварка по ссылке при равных позициях, митра смещения (`cftuv_envelope.mesh_weld.weld_core`, нативно при заказе)."""
 
-    classes, miters, (mismatches, gap, fallbacks, factor, reasons) = _plan(domains)
-    merged = len(classes) - len(miters)
-    wall = plan_wall_nodes(domains)
-    classes = {**classes, **wall.classes}
-    miters = {**miters, **wall.miters}
-    positions: list = []
-    placed: dict = {}
-    index = []
-    for ordinal, domain in enumerate(domains):
-        mapping = []
-        for local, point in enumerate(domain.positions):
-            head = classes.get((ordinal, local))
-            if head is not None and head in placed:
-                mapping.append(placed[head])
-                continue
-            shift = miters[head] if head is not None else wall.lifts.get((ordinal, local), domain.normals[local])
-            positions.append(
-                (
-                    point[0] + offset * shift[0],
-                    point[1] + offset * shift[1],
-                    point[2] + offset * shift[2],
-                )
-            )
-            mapping.append(len(positions) - 1)
-            if head is not None:
-                placed[head] = len(positions) - 1
-        index.append(tuple(mapping))
+    from .envelope_mesh_assembly import native_answer  # not at the top: the seam report of this module also loads standalone (the hash-seed probe)
+
+    found = native_answer("mesh_weld", domains, offset, WELD_LAW)
+    (
+        positions, index, groups, merged, mismatches, gaps, fallbacks, factor, reasons,
+        lifted, welded, alone, wall_fallbacks, wall_factor, wall_reasons, partners,
+    ) = weld_core(domains, offset, WELD_LAW) if found is None else found
+    gap = 0.0
+    for points in gaps:
+        gap = max(gap, max(math.dist(a, b) for a in points for b in points))
     warnings = []
     if mismatches:
         warnings.append(
@@ -444,34 +182,34 @@ def weld_vertices(domains, offset: float) -> WeldV1:
                 None,
                 OUTCOME_WELD_MITER_FALLBACK,
                 f"{fallbacks} shared source vertices stay separate with their own offsets: "
-                f"{'; '.join(sorted(reasons))} (worst miter factor {factor:.6g}, "
+                f"{'; '.join(reasons)} (worst miter factor {factor:.6g}, "
                 f"limit {MITER_LIMIT:g})",
             )
         )
-    if wall.fallbacks:
+    if wall_fallbacks:
         warnings.append(
             (
                 None,
                 OUTCOME_WALL_MITER_FALLBACK,
-                f"{wall.fallbacks} wall end nodes keep their own offsets: {'; '.join(sorted(wall.reasons))} "
-                f"(worst miter factor {wall.worst_factor:.6g}, limit {MITER_LIMIT:g})",
+                f"{wall_fallbacks} wall end nodes keep their own offsets: {'; '.join(wall_reasons)} "
+                f"(worst miter factor {wall_factor:.6g}, limit {MITER_LIMIT:g})",
             )
         )
     return WeldV1(
-        positions=tuple(positions),
-        index=tuple(index),
+        positions=positions,
+        index=index,
         counters=(
-            (COUNTER_WELD_GROUPS, len(miters) - len(wall.miters)),
+            (COUNTER_WELD_GROUPS, groups),
             (COUNTER_WELD_VERTICES_MERGED, merged),
             (OUTCOME_WELD_POSITION_MISMATCH, mismatches),
             (OUTCOME_WELD_MITER_FALLBACK, fallbacks),
-            (COUNTER_WALL_NODES_LIFTED, wall.lifted),
-            (COUNTER_WALL_NODES_WELDED, wall.welded),
-            (COUNTER_WALL_NODES_ALONE, wall.alone),
-            (OUTCOME_WALL_MITER_FALLBACK, wall.fallbacks),
+            (COUNTER_WALL_NODES_LIFTED, lifted),
+            (COUNTER_WALL_NODES_WELDED, welded),
+            (COUNTER_WALL_NODES_ALONE, alone),
+            (OUTCOME_WALL_MITER_FALLBACK, wall_fallbacks),
         ),
         warnings=tuple(warnings),
-        partners=wall.partners,
+        partners=partners,
     )
 
 
@@ -579,14 +317,6 @@ def seam_report_of_chains(domains) -> tuple:
     return (
         (COUNTER_SEAM_T_JUNCTIONS, junctions),
         (COUNTER_SEAM_CLIP_VERTICES, clip_vertices),
-    )
-
-
-def _cross(left, right):
-    return (
-        left[1] * right[2] - left[2] * right[1],
-        left[2] * right[0] - left[0] * right[2],
-        left[0] * right[1] - left[1] * right[0],
     )
 
 

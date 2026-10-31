@@ -322,7 +322,9 @@ def test_a_directed_edge_used_twice_after_the_weld_is_counted():
 def test_the_weld_module_never_merges_by_distance():
     """Исполняемая форма запрета: сварка по ссылке и побитовому равенству, а не по расстоянию."""
 
-    source = Path(weld.__file__).read_text(encoding="utf-8")
+    from cftuv_envelope import mesh_weld
+
+    source = Path(weld.__file__).read_text(encoding="utf-8") + Path(mesh_weld.__file__).read_text(encoding="utf-8")
     for forbidden in ("remove_doubles", "merge_distance", "isclose", "hypot", "threshold"):
         assert forbidden not in source, forbidden
 

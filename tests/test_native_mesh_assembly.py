@@ -11,6 +11,7 @@ import random
 import struct
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -128,7 +129,7 @@ def test_the_host_answers_the_same_both_ways_and_names_a_fallback(monkeypatch, b
     # an int coordinate: the port declines, the oracle answers, and the fallback is named once per reason
     lifted = [(0, 0, 0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.5), (0.0, 1.0, 0.0)]
     assert assembly.off_plane_after_offset(lifted, [(0, 1, 2, 3)])[1] == ("ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET", 1)
-    assert list(assembly.FALLBACKS) == ([("NATIVE_PORT_UNSUPPORTED", "mesh_assembly")] if backend == "NATIVE" else [])
+    assert list(assembly.FALLBACKS) == ([("NATIVE_PORT_UNSUPPORTED", "mesh_off_plane")] if backend == "NATIVE" else [])
 
 
 def test_an_unknown_backend_is_refused_by_name(monkeypatch):
@@ -137,3 +138,120 @@ def test_an_unknown_backend_is_refused_by_name(monkeypatch):
     monkeypatch.setenv(assembly.MESH_ASSEMBLY_ENVIRONMENT, "RUST")
     with pytest.raises(ValueError, match="CFTUV_MESH_ASSEMBLY_BACKEND"):
         assembly.mesh_assembly_backend()
+
+
+# --------------------------------------------------------------------------
+# B2: the weld (`mesh_weld.weld_core`)
+# --------------------------------------------------------------------------
+
+
+#: The host's weld law; the B2 tests read it, not a copy of its numbers.
+from cftuv.envelope_production_weld import WELD_LAW as LAW  # noqa: E402
+
+
+def _exact(value):
+    """The value with every float as its hex (`-0.0` and `0.0` differ, as the bits of the mesh do)."""
+
+    if isinstance(value, float):
+        return value.hex()
+    if isinstance(value, (tuple, list)):
+        return tuple(_exact(item) for item in value)
+    return value
+
+
+def _unit(rng):
+    while True:
+        vector = tuple(rng.uniform(-1.0, 1.0) for _ in range(3))
+        length = math.sqrt(sum(item * item for item in vector))
+        if length > 0.1:
+            return tuple(item / length for item in vector)
+
+
+def _weld_scene(seed: int):
+    from cftuv.envelope_production_weld import DomainVerticesV1
+
+    rng = random.Random(seed)
+    anchors = [tuple(rng.uniform(-2.0, 2.0) for _ in range(3)) for _ in range(rng.randint(1, 6))]
+    directions = [_unit(rng) for _ in anchors]
+    shared = [_unit(rng) for _ in anchors]
+    domains = []
+    for ordinal in range(rng.randint(1, 5)):
+        positions, normals, refs, walls = [], [], [], []
+
+        def vertex(point, normal, ref):
+            positions.append(point)
+            normals.append(normal)
+            refs.append(ref)
+            return len(positions) - 1
+
+        for _ in range(rng.randint(0, 4)):
+            vertex(tuple(rng.uniform(-2.0, 2.0) for _ in range(3)), _unit(rng), rng.choice((None, f"location:node:{rng.randint(0, 9)}", "location:src:lonely")))
+        for number, point in enumerate(anchors):
+            if rng.random() < 0.3:
+                continue
+            if rng.random() < 0.15:  # a position one ulp away: the group does not weld (a mismatch)
+                point = (math.nextafter(point[0], 9.0), point[1], point[2])
+            choice = rng.random()
+            normal = shared[number] if choice < 0.5 else (tuple(-item for item in shared[number]) if choice < 0.6 else _unit(rng))
+            if rng.random() < 0.1:
+                normal = tuple(0.0 * item if index == 0 else item for index, item in enumerate(normal))  # a -0.0 against a 0.0
+            anchor = vertex(point, normal, f"location:src:host:{number}")
+            if rng.random() < 0.6:  # a wall out of the anchor along the shared direction (a twin when two domains place the node alike)
+                step = rng.choice((0.25, 0.5, 0.5))
+                heading = directions[number] if rng.random() < 0.85 else _unit(rng)
+                node = vertex(tuple(a + step * b for a, b in zip(point, heading)), _unit(rng) if rng.random() < 0.5 else shared[number], None if rng.random() < 0.8 else "location:node:9")
+                chain = [anchor, node] if rng.random() < 0.5 else [node, anchor]
+                if rng.random() < 0.3:
+                    chain.append(vertex(tuple(rng.uniform(-2.0, 2.0) for _ in range(3)), _unit(rng), None))
+                walls.append(tuple(chain))
+        domains.append(DomainVerticesV1(ordinal, tuple(positions), tuple(normals), tuple(refs), tuple(walls)))
+    return domains, rng.choice((0.0, 0.001, 0.0125, 1.0))
+
+
+@needs_native
+@pytest.mark.parametrize("seed", range(400))
+def test_random_welds_answer_as_the_oracle(seed):
+    from cftuv_envelope import mesh_weld
+
+    domains, offset = _weld_scene(seed)
+    assert _exact(cftuv_native.mesh_weld(domains, offset, LAW)) == _exact(mesh_weld.weld_core(domains, offset, LAW))
+
+
+def test_the_random_welds_reach_every_branch():
+    from cftuv_envelope import mesh_weld
+
+    seen = set()
+    for seed in range(400):
+        domains, offset = _weld_scene(seed)
+        answer = mesh_weld.weld_core(domains, offset, LAW)
+        (_positions, _index, groups, merged, mismatches, _gaps, fallbacks, _factor, _reasons, lifted, welded, alone, wall_fallbacks, *_rest) = answer
+        seen.update(name for name, value in (("groups", groups), ("merged", merged), ("mismatches", mismatches), ("fallbacks", fallbacks), ("lifted", lifted - 2 * welded), ("welded", welded), ("alone", alone), ("wall_fallbacks", wall_fallbacks)) if value)
+    assert seen == {"groups", "merged", "mismatches", "fallbacks", "lifted", "welded", "alone", "wall_fallbacks"}
+
+
+@needs_native
+def test_three_normals_and_a_dependent_set_eliminate_as_the_oracle():
+    from cftuv_envelope import mesh_weld
+
+    up, side, front = (0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)
+    tilted = (0.0, math.sqrt(0.5), math.sqrt(0.5))
+    for normals in ([up, side, front], [up, side, front, tilted], [up, up, side], [up, (0.0, 0.0, -1.0)], [up, (0.0, -0.0, 1.0)], [side, (math.nextafter(-1.0, 0.0), 0.0, 0.0)]):
+        from cftuv.envelope_production_weld import DomainVerticesV1
+
+        domains = [DomainVerticesV1(index, ((0.5, 0.5, 0.0),), (normal,), ("location:src:host:1",)) for index, normal in enumerate(normals)]
+        assert _exact(cftuv_native.mesh_weld(domains, 0.01, LAW)) == _exact(mesh_weld.weld_core(domains, 0.01, LAW))
+
+
+@needs_native
+@pytest.mark.parametrize(
+    "domains",
+    [
+        [SimpleNamespace(positions=((0, 0.0, 0.0),), normals=((0.0, 0.0, 1.0),), refs=(None,), walls=())],
+        [SimpleNamespace(positions=((0.0, 0.0, 0.0),), normals=((0.0, 0.0, 1.0),), refs=(7,), walls=())],
+        [SimpleNamespace(positions=((0.0, 0.0, 0.0),), normals=((0.0, 0.0, 1.0),), refs=(None,), walls=((0, 3),))],
+        [SimpleNamespace(positions=((0.0, 0.0, 0.0),), normals=(), refs=(None,), walls=())],
+    ],
+)
+def test_a_weld_the_port_does_not_carry_is_declined(domains):
+    with pytest.raises(cftuv_native.NativePortUnsupported, match="mesh_assembly: "):
+        cftuv_native.mesh_weld(domains, 0.01, LAW)

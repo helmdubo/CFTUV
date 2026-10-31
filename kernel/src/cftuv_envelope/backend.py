@@ -127,8 +127,6 @@ SNAPSHOT_CHECK_EXPORT = 1
 #: Восьмая целая операция: допуск плоской рамки домена (`planar_metric.build_rational_affine_planar_metric`, первая ступень на источнике, привязанном к решётке), принять или отказать.
 FRAME = "frame"
 DENSITY = "density"
-#: Сборка меша декали в главном процессе (`mesh_checks`; MESH_ASSEMBLY_NATIVE_V1): не стадия воркера, заказ — среда хоста, журнал — свой у каждого вызова.
-MESH_ASSEMBLY = "mesh_assembly"
 #: ANGULAR до приёмки включается только явным keyword-заказом.
 ANGULAR = "angular"
 #: `CHAIN_STATION_PLAN_V1` (`_chain_station.chain_station_plans`): пины утверждены гейтами (CHAIN_STATION_PINS_APPROVED_V1), продукт заказывает NATIVE по умолчанию; откат в Python назван.
@@ -1492,9 +1490,9 @@ def snapshot_check_compute(snapshot, scope):
 
 
 def mesh_assembly_compute(operation: str, *arguments) -> tuple:
-    """`(ответ порта | None, откаты)`: операция сборки меша `cftuv_native.<operation>` (`mesh_off_plane`, `mesh_cross_seams`, `mesh_half_edges`) над массивами главного процесса.
+    """`(ответ порта | None, откаты)`: операция сборки меша `cftuv_native.<operation>` (`mesh_off_plane`, `mesh_cross_seams`, `mesh_half_edges`, `mesh_weld`) над массивами главного процесса.
 
-    `None` — откат назван и записан в `откаты` (`{(исход, операция): [число, текст]}`, как `BackendLedgerV1.fallbacks`): расширения или операции нет, пин ушёл, порт отказал вход;
+    Сборка меша — не стадия воркера (MESH_ASSEMBLY_NATIVE_V1): заказ — среда хоста, журнал свой у каждого вызова. `None` — откат назван и записан в `откаты` (`{(исход, операция): [число, текст]}`, как `BackendLedgerV1.fallbacks`): расширения или операции нет, пин ушёл, порт отказал вход;
     вызывающий считает эталон `mesh_checks` на тех же массивах. Состояния у операций нет.
     """
 
@@ -1506,7 +1504,7 @@ def mesh_assembly_compute(operation: str, *arguments) -> tuple:
             raise _OperationAbsent(f"this cftuv_native wheel has no `{operation}` (it predates MESH_ASSEMBLY_NATIVE_V1)")
         return function(*arguments)
 
-    done, answer = _attempt(ledger, MESH_ASSEMBLY, call)
+    done, answer = _attempt(ledger, operation, call)
     return (answer if done else None), ledger.fallbacks
 
 
@@ -1696,7 +1694,6 @@ __all__ = (
     "SNAPSHOT_CHECK_ANALYSIS",
     "SNAPSHOT_CHECK_EXPORT",
     "FRAME",
-    "MESH_ASSEMBLY",
     "mesh_assembly_compute",
     "active_effective_alpha_backend",
     "active_materialize_backend",

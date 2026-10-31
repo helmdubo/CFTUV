@@ -10,11 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .envelope_production_weld import (
-    COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
-    COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
-    weld_console_lines,
-)
+from .envelope_mesh_assembly import COUNTER_FACES_OFF_PLANE_AFTER_OFFSET, COUNTER_MAX_OFF_PLANE_AFTER_OFFSET
+from .envelope_production_weld import weld_console_lines
 from .envelope_kernel_backend import backend_timing_suffix
 from .envelope_production_result import (
     PRODUCTION_CLIP_MEMO_HITS,
