@@ -429,6 +429,25 @@ def test_a_domain_that_called_no_native_operation_is_named_not_reached_in_the_li
     )
 
 
+def test_the_panel_line_names_not_reached_domains_apart_from_python_fallbacks():
+    """BACKEND_NOT_REACHED_SPLIT_V1: на тике ширины покрытие из шаблона считает `instantiate` под W1, у покрытия/резки нет ни одной операции (`NATIVE_NOT_REACHED`);
+    строка панели без причин не называет такие домены `python:` (откатом на Python, которого не было), а считает их отдельной частью `not reached:`."""
+
+    from cftuv_envelope.backend import BackendRecordV1
+
+    results = [_record("native", patch) for patch in range(5)]
+    results += [SimpleNamespace(patch_id=10 + patch, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 0, 0)) for patch in range(89)]
+    results.append(_record("python", 200, "NATIVE_PORT_STALE"))
+    summary = host_backend.backend_summary(results, "NATIVE", "PYTHON")
+    tally = summary.stage("coverage_clip")
+    assert (tally.native, tally.python, tally.not_reached) == (5, 90, 89)
+    assert host_backend.backend_timing_suffix(results, "NATIVE", "PYTHON") == " | native: coverage/clip 5 | python: coverage/clip 1 | not reached: coverage/clip 89"
+    # журнал с причинами - прежний счёт: исход назван в скобках
+    assert host_backend.backend_text(summary).startswith("native: coverage/clip 5 | python: coverage/clip 90 (NATIVE_NOT_REACHED: patch 10, 11")
+    only_unreached = results[:94]
+    assert host_backend.backend_timing_suffix(only_unreached, "NATIVE", "PYTHON") == " | native: coverage/clip 5 | not reached: coverage/clip 89"
+
+
 # --------------------------------------------------------------------------
 # 5. Внешний воркер берёт каталог нативного ядра у родителя
 # --------------------------------------------------------------------------

@@ -455,6 +455,9 @@ class StageTallyV1:
     """Счёт одной стадии по результатам прогона: домены, посчитанные в нём нативно либо откатом на Python, и названные исходы отката.
 
     `python` — домены, где стадия откатилась хоть раз (`python` и `mixed` записи). Домен, где стадия не считалась (подготовка из кэша, отказ до неё), в счёт не идёт.
+    `not_reached` — те из `python`, у которых единственный исход `NATIVE_NOT_REACHED`: стадия не позвала НИ ОДНОЙ операции, ни нативной, ни эталона (покрытие из
+    шаблона шага ширины считает `instantiate` под W1 материализации, резка из памяти стадии). Python их не считал; строка панели называет их отдельно
+    (BACKEND_NOT_REACHED_SPLIT_V1), а не откатом.
     """
 
     stage: str
@@ -463,6 +466,7 @@ class StageTallyV1:
     python: int = 0
     #: `((исход, (патчи, ...)), ...)` по имени исхода; патч входит в каждый исход, который у него был.
     outcomes: tuple = ()
+    not_reached: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,6 +483,10 @@ class BackendSummaryV1:
     @property
     def native_stages(self) -> tuple:
         return tuple(item for item in self.stages if item.requested == KERNEL_BACKEND_NATIVE)
+
+
+#: `cftuv_envelope.backend.BackendOutcomeV1.NATIVE_NOT_REACHED` (ядро здесь не импортируется на уровне модуля).
+_NOT_REACHED = "NATIVE_NOT_REACHED"
 
 
 def _outcome_list(patches: dict) -> tuple:
@@ -510,7 +518,7 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             getattr(recorded, "angular_requested", KERNEL_BACKEND_PYTHON),
             getattr(recorded, "chain_station_requested", KERNEL_BACKEND_PYTHON),
         )
-    counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
+    counts = {name: {"native": 0, "python": 0, "not_reached": 0} for name, _label in STAGES}
     patches = {name: {} for name, _label in STAGES}
     cached = memo_hits = 0
     for item in results:
@@ -538,10 +546,11 @@ def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_ba
             if not ran:
                 continue
             counts[name]["native" if ran == "native" else "python"] += 1
+            counts[name]["not_reached"] += tuple(outcomes) == (_NOT_REACHED,)
             for outcome in outcomes:
                 patches[name].setdefault(outcome, set()).add(int(item.patch_id))
     tallies = tuple(
-        StageTallyV1(name, getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]))
+        StageTallyV1(name, getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]), counts[name]["not_reached"])
         for name, _label in STAGES
     )
     return BackendSummaryV1(tallies, cached, memo_hits if orders.snap_embedding == KERNEL_BACKEND_NATIVE else 0)
@@ -558,18 +567,28 @@ def _outcomes_text(outcomes) -> str:
 
 
 def _tally_segments(summary: BackendSummaryV1, *, reasons: bool) -> list:
-    """Части строки по порядку: `native: ...`, `python: ...`, `ordered python: ...`; стадия без откатов в `python:` не попадает."""
+    """Части строки по порядку: `native: ...`, `python: ...`, `ordered python: ...`; стадия без откатов в `python:` не попадает.
+
+    Без причин (строка панели) домены `NATIVE_NOT_REACHED` (стадия не позвала ни одной операции) идут отдельной частью `not reached: ...`, а не в `python:`:
+    без имени исхода они читались бы откатом на Python, которого не было (BACKEND_NOT_REACHED_SPLIT_V1). С причинами счёт прежний: исход назван в скобках.
+    """
 
     labels = dict(STAGES)
     segments = []
     ordered = summary.native_stages
     if ordered:
         segments.append("native: " + ", ".join(f"{labels[item.stage]} {item.native}" for item in ordered))
-    fallen = [item for item in ordered if item.python]
+    if reasons:
+        fallen = [(item, item.python) for item in ordered if item.python]
+    else:
+        fallen = [(item, item.python - item.not_reached) for item in ordered if item.python - item.not_reached]
     if fallen:
         segments.append(
-            "python: " + ", ".join(f"{labels[item.stage]} {item.python}" + (_outcomes_text(item.outcomes) if reasons else "") for item in fallen)
+            "python: " + ", ".join(f"{labels[item.stage]} {count}" + (_outcomes_text(item.outcomes) if reasons else "") for item, count in fallen)
         )
+    unreached = [item for item in ordered if item.not_reached] if not reasons else []
+    if unreached:
+        segments.append("not reached: " + ", ".join(f"{labels[item.stage]} {item.not_reached}" for item in unreached))
     python_ordered = [labels[item.stage] for item in summary.stages if item.requested == KERNEL_BACKEND_PYTHON]
     if python_ordered:
         segments.append("ordered python: " + ", ".join(python_ordered))
@@ -600,7 +619,8 @@ def backend_console_lines(results, kernel_backend, skeleton_backend=None, embedd
 
 
 def backend_timing_suffix(results, kernel_backend, skeleton_backend=None, embedding_backend=None, *, density_backend=None) -> str:
-    """` | native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2, skeleton 4` в строку панели (без причин); пусто, пока все стадии `PYTHON`."""
+    """` | native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2, skeleton 4 | not reached: coverage/clip 89` в строку панели (без причин);
+    пусто, пока все стадии `PYTHON`. `not reached:` — домены без единой операции стадии (BACKEND_NOT_REACHED_SPLIT_V1), не откат."""
 
     summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend, density_backend=density_backend)
     if not summary.native_stages:
