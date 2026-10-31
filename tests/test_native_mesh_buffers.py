@@ -284,3 +284,35 @@ def test_the_header_is_read_as_decode_view_reads_it(monkeypatch):
     struct.pack_into("<H", failed, 6, 1)
     with pytest.raises(cftuv_native.NativePortUnsupported, match="failed view"):
         cftuv_native.mesh_assemble([bytes(failed)], [1], 0.01, WELD_LAW, False)
+
+@needs_native
+def test_the_preview_sample_reads_the_buffers_as_it_reads_the_tuples(monkeypatch):
+    """B4b: the image and the sample of the preview model from the buffers are the arrays they are from the tuples (`dtype`, numbers, layout digest), and no tuple is built."""
+
+    import numpy as np
+
+    from cftuv.envelope_production_export import deferred_result, produce_domain
+    from cftuv.envelope_width_preview_model import mesh_image_of, sample_of
+    from content_fixtures import cold_domain, with_revision
+    from envelope_fixture_bundles import quad_row_bundle
+
+    source = with_revision(quad_row_bundle(5, lifted_corner=1.0), "row")
+    results = []
+    for patch in range(5):
+        deferred, prepared, _revision, _request = cold_domain(source, patch, frozenset(range(5)), alpha=0.25)
+        results.append(deferred_result(produce_domain(patch, deferred.domain_id, prepared, "0.25")))
+    scenes = [(results, 0.001)] + [_scene(seed) for seed in range(40)]
+    for items, offset in scenes:
+        expected, found = _both(monkeypatch, items, offset)
+        for name in ("face_starts", "face_vertices", "face_domain", "face_owner", "seams"):
+            first, second = getattr(mesh_image_of(expected), name), getattr(mesh_image_of(found), name)
+            assert first.dtype == second.dtype and first.shape == second.shape and first.tobytes() == second.tobytes(), name
+        if items is results:
+            old, new = sample_of(items, expected, key=("k",), alpha_text="0.25"), sample_of(items, found, key=("k",), alpha_text="0.25")
+            assert new.positions.tobytes() == old.positions.tobytes() and new.uvs.tobytes() == old.uvs.tobytes() and new.positions.flags.writeable
+            assert new.layout_digest == old.layout_digest and new.arrays_digest == old.arrays_digest
+            assert [(item.vertices.dtype, item.vertices.tobytes()) for item in new.domains] == [(item.vertices.dtype, item.vertices.tobytes()) for item in old.domains]
+            for name in ("positions", "faces", "uvs", "face_domain", "face_owner", "seam_edges", "domain_vertex_index"):
+                with pytest.raises(AttributeError):
+                    object.__getattribute__(found, name)
+            assert isinstance(new.positions, np.ndarray)

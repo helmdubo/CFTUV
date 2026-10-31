@@ -217,8 +217,20 @@ class MeshImageV1:
 
 
 def mesh_image_of(arrays) -> MeshImageV1:
-    """Образ меша по массивам меша (`build_mesh_arrays`): те же числа, что кладёт в меш `_fill_mesh`, в numpy."""
+    """Образ меша по массивам меша (`build_mesh_arrays`): те же числа, что кладёт в меш `_fill_mesh`, в numpy.
 
+    У массивов нативной сборки (`arrays.buffers`, MESH_ASSEMBLY_BUFFERS_V1) образ берётся из буферов приведением к int32, без кортежей: те же числа и тот же `dtype`.
+    """
+
+    buffers = getattr(arrays, "buffers", None)
+    if buffers is not None:
+        return MeshImageV1(
+            face_starts=buffers.face_starts[:-1].astype(np.int32),
+            face_vertices=buffers.face_vertices.astype(np.int32),
+            face_domain=buffers.face_domain_array.astype(np.int32),
+            face_owner=buffers.face_owner_array.astype(np.int32),
+            seams=buffers.seams_array.astype(np.int32).reshape(-1, 2),
+        )
     faces = arrays.faces
     lengths = np.fromiter(map(len, faces), dtype=np.int32, count=len(faces))
     starts = np.zeros(len(faces), dtype=np.int32)
@@ -472,13 +484,14 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
     domains = []
     start = 0
     partners = tuple(getattr(arrays, "domain_partners", ()) or ())
+    buffers = getattr(arrays, "buffers", None)  # MESH_ASSEMBLY_BUFFERS_V1: числа из буферов нативной сборки, без кортежей (копии: образец свой)
     for number, (patch_id, domain_id) in enumerate(arrays.domain_keys):
         count = int(arrays.domain_loop_counts[number])
         domains.append(
             domain_sample_of(
                 by_key[(patch_id, domain_id)],
                 token=str(arrays.domain_tokens[number]),
-                vertices=np.asarray(arrays.domain_vertex_index[number], dtype=np.int32),
+                vertices=np.asarray(arrays.domain_vertex_index[number], dtype=np.int32) if buffers is None else buffers.domain_index(number).astype(np.int32),
                 loop_start=start,
                 loop_count=count,
                 partners=tuple(int(item) for item in partners[number]) if number < len(partners) else (),
@@ -486,8 +499,12 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
             )
         )
         start += count
-    positions = np.asarray(arrays.positions, dtype=np.float64).reshape(-1, 3)
-    uvs = np.asarray(arrays.uvs, dtype=np.float64).reshape(-1, 2)
+    if buffers is None:
+        positions = np.asarray(arrays.positions, dtype=np.float64).reshape(-1, 3)
+        uvs = np.asarray(arrays.uvs, dtype=np.float64).reshape(-1, 2)
+    else:
+        positions = np.array(buffers.positions_array, dtype=np.float64)
+        uvs = np.array(buffers.uvs_array, dtype=np.float64)
     image = mesh_image_of(arrays)
     if origins is None:
         origins = {int(item.patch_id): item for item in results if _has_slopes_to_move(item)}
@@ -500,7 +517,7 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
         domains=tuple(domains),
         arrays_digest=str(arrays.digest),
         source_revision=str(arrays.source_revision),
-        layout_digest=layout_digest_of(image, len(arrays.positions), len(arrays.uvs)),
+        layout_digest=layout_digest_of(image, int(positions.shape[0]), int(uvs.shape[0])),
         image=image,
         offset=float(getattr(arrays, "offset", 0.0) or 0.0),
         origins=origins,
