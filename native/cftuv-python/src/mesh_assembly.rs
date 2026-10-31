@@ -957,3 +957,377 @@ pub fn mesh_reports<'py>(
         Err(reason) => declined(py, reason),
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// `mesh_assemble(views, patch_ids, offset, law, reports)` (slice B4a, MESH_ASSEMBLY_BUFFERS_V1): the whole `build_mesh_arrays` of the materialized domains
+// straight from their VIEW_BYTES_V1 (`cftuv/envelope_view_bytes.py`, `_HEADER = "<4sHHq14I20s"`) into flat buffers — the parse (`decode_view`), the weld
+// (`weld_core`), the glue (`mesh_glue.glue_domains`), the fold seams (`cross_domain_seams`) and, when asked, the reports (`mesh_reports`), in one pass. The
+// views are read without the GIL; only the digest (CPython's own float repr) holds it. What `decode_view` or the oracles would not answer the same way is
+// declined by a text: a view that is not VIEW_BYTES_V1, a failed view, a truncated section, an offset run that goes backwards, an index outside its table,
+// a text that is not UTF-8 (or a token that is not ASCII), a non-finite position, normal, UV or welded position.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+
+const VIEW_MAGIC: &[u8; 4] = b"CFVB";
+const VIEW_VERSION: u16 = 1;
+const VIEW_FAILED: u16 = 1;
+const VIEW_HEADER_BYTES: usize = 4 + 2 + 2 + 8 + 14 * 4 + 20;
+
+/// One parsed VIEW_BYTES_V1: the arrays `decode_view` builds its tuples from, with the texts borrowed from the bytes.
+pub struct ParsedView<'a> {
+    pub positions: Vec<Point>,
+    pub normals: Vec<Point>,
+    pub uvs: Vec<Uv>,
+    pub owners: Vec<i64>,
+    pub faces: Vec<Vec<usize>>,
+    pub seams: Vec<(usize, usize)>,
+    /// `0` - `None`, else the number of the text + 1.
+    pub refs: Vec<u32>,
+    pub walls: Vec<Vec<usize>>,
+    pub chains: Vec<(usize, Vec<usize>)>,
+    pub texts: Vec<&'a str>,
+    pub revision: usize,
+    pub token: &'a str,
+}
+
+struct Reader<'a> {
+    data: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn take(&mut self, size: usize, what: &str) -> Result<&'a [u8], Decline> {
+        let end = self.at.checked_add(size).ok_or_else(|| format!("the {what} of a view overflow"))?;
+        if end > self.data.len() {
+            return Err(format!("the view bytes end inside the {what}"));
+        }
+        let part = &self.data[self.at..end];
+        self.at = end;
+        Ok(part)
+    }
+
+    fn f64s(&mut self, count: usize, what: &str) -> Result<Vec<f64>, Decline> {
+        let part = self.take(count.checked_mul(8).ok_or_else(|| format!("the {what} of a view overflow"))?, what)?;
+        Ok(part.chunks_exact(8).map(|chunk| f64::from_le_bytes(chunk.try_into().unwrap())).collect())
+    }
+
+    fn i64s(&mut self, count: usize, what: &str) -> Result<Vec<i64>, Decline> {
+        let part = self.take(count.checked_mul(8).ok_or_else(|| format!("the {what} of a view overflow"))?, what)?;
+        Ok(part.chunks_exact(8).map(|chunk| i64::from_le_bytes(chunk.try_into().unwrap())).collect())
+    }
+
+    fn u32s(&mut self, count: usize, what: &str) -> Result<Vec<u32>, Decline> {
+        let part = self.take(count.checked_mul(4).ok_or_else(|| format!("the {what} of a view overflow"))?, what)?;
+        Ok(part.chunks_exact(4).map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap())).collect())
+    }
+}
+
+fn finite_points(values: Vec<f64>, what: &str) -> Result<Vec<Point>, Decline> {
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{what} is not finite"));
+    }
+    Ok(values.chunks_exact(3).map(|chunk| [chunk[0], chunk[1], chunk[2]]).collect())
+}
+
+/// `(starts, flat)` into rows; the starts begin at 0, never go back and end at the flat length (else `decode_view`'s slices would differ).
+fn rows(starts: &[u32], flat: &[u32], bound: usize, what: &str) -> Result<Vec<Vec<usize>>, Decline> {
+    if starts.first() != Some(&0) || *starts.last().unwrap() as usize != flat.len() || starts.windows(2).any(|pair| pair[1] < pair[0]) {
+        return Err(format!("the starts of the {what} are not a run over its items"));
+    }
+    let mut found = Vec::with_capacity(starts.len() - 1);
+    for pair in starts.windows(2) {
+        let row = &flat[pair[0] as usize..pair[1] as usize];
+        if row.iter().any(|item| *item as usize >= bound) {
+            return Err(format!("an item of the {what} is outside its table"));
+        }
+        found.push(row.iter().map(|item| *item as usize).collect());
+    }
+    Ok(found)
+}
+
+/// One VIEW_BYTES_V1 parsed as `decode_view` reads it; `Err` declines.
+pub fn parse_view(data: &[u8]) -> Result<ParsedView<'_>, Decline> {
+    if data.len() < VIEW_HEADER_BYTES || &data[0..4] != VIEW_MAGIC || u16::from_le_bytes([data[4], data[5]]) != VIEW_VERSION {
+        return Err("not VIEW_BYTES_V1 bytes".to_string());
+    }
+    if u16::from_le_bytes([data[6], data[7]]) & VIEW_FAILED != 0 {
+        return Err("a failed view reached the assembly".to_string());
+    }
+    let count = |at: usize| u32::from_le_bytes(data[16 + 4 * at..20 + 4 * at].try_into().unwrap()) as usize;
+    let (vertices, faces, corners, loops, seams, walls, wall_items, chains, chain_items, strings, blob) =
+        (count(0), count(1), count(2), count(3), count(4), count(5), count(6), count(7), count(8), count(9), count(10));
+    let (revision, token_bytes) = (count(11), &data[72..92]);
+    let mut reader = Reader { data, at: VIEW_HEADER_BYTES };
+    let positions = finite_points(reader.f64s(3 * vertices, "positions")?, "a position")?;
+    let normals = finite_points(reader.f64s(3 * vertices, "normals")?, "a normal")?;
+    let uv_values = reader.f64s(2 * loops, "uvs")?;
+    if uv_values.iter().any(|value| !value.is_finite()) {
+        return Err("a uv is not finite".to_string());
+    }
+    let uvs = uv_values.chunks_exact(2).map(|chunk| [chunk[0], chunk[1]]).collect();
+    let owners = reader.i64s(faces, "owners")?;
+    let face_starts = reader.u32s(faces + 1, "face starts")?;
+    let face_corners = reader.u32s(corners, "face corners")?;
+    let seam_flat = reader.u32s(2 * seams, "seams")?;
+    let refs = reader.u32s(vertices, "vertex references")?;
+    let wall_starts = reader.u32s(walls + 1, "wall starts")?;
+    let wall_flat = reader.u32s(wall_items, "wall vertices")?;
+    let chain_names = reader.u32s(chains, "chain names")?;
+    let chain_starts = reader.u32s(chains + 1, "chain starts")?;
+    let chain_flat = reader.u32s(chain_items, "chain keys")?;
+    let offsets = reader.u32s(strings + 1, "text offsets")?;
+    let text_blob = reader.take(blob, "texts")?;
+    let mut texts = Vec::with_capacity(strings);
+    if offsets.windows(2).any(|pair| pair[1] < pair[0]) || offsets.iter().any(|offset| *offset as usize > blob) {
+        return Err("the text offsets are not a run over the texts".to_string());
+    }
+    for pair in offsets.windows(2) {
+        texts.push(std::str::from_utf8(&text_blob[pair[0] as usize..pair[1] as usize]).map_err(|_| "a text of a view is not UTF-8".to_string())?);
+    }
+    if revision >= strings || refs.iter().any(|item| *item as usize > strings) || chain_names.iter().any(|item| *item as usize >= strings) {
+        return Err("a text number of a view is outside its table".to_string());
+    }
+    let end = token_bytes.iter().rposition(|byte| *byte != 0).map_or(0, |at| at + 1);
+    let token = std::str::from_utf8(&token_bytes[..end]).ok().filter(|text| text.is_ascii() && !text.is_empty()).ok_or("the structure token is not ASCII or is empty (the host would compute it)")?;
+    let seams = seam_flat
+        .chunks_exact(2)
+        .map(|pair| if (pair[0] as usize) < vertices && (pair[1] as usize) < vertices { Ok((pair[0] as usize, pair[1] as usize)) } else { Err("a seam vertex is outside the domain".to_string()) })
+        .collect::<Result<Vec<_>, Decline>>()?;
+    let chain_rows = rows(&chain_starts, &chain_flat, strings, "chain keys")?;
+    Ok(ParsedView {
+        positions,
+        normals,
+        uvs,
+        owners,
+        faces: rows(&face_starts, &face_corners, vertices, "face corners")?,
+        seams,
+        refs,
+        walls: rows(&wall_starts, &wall_flat, vertices, "wall vertices")?,
+        chains: chain_names.iter().map(|name| *name as usize).zip(chain_rows).collect(),
+        texts,
+        revision,
+        token,
+    })
+}
+
+/// What `mesh_assemble` answers, before the reports' digest (which needs the GIL).
+pub struct Assembled {
+    pub weld: WeldAnswer,
+    pub faces: Vec<Vec<i64>>,
+    pub uvs: Vec<Uv>,
+    pub face_domain: Vec<i64>,
+    pub face_owner: Vec<i64>,
+    pub seams: Vec<(i64, i64)>,
+    pub folds: usize,
+    pub vertex_counts: Vec<usize>,
+    pub loop_counts: Vec<usize>,
+    /// `(junctions, clip vertices)`, `(worst, off)`, conflicts: only when the reports are asked.
+    pub reports: Option<((u64, u64), (f64, u64), u64)>,
+}
+
+/// The chains of the parsed views interned as `read_chains` does: the keys numbered in the order they are first met over all domains.
+fn intern_chains(views: &[ParsedView<'_>]) -> Result<Chains, Decline> {
+    let mut ids: HashMap<&str, u32> = HashMap::new();
+    let (mut is_src, mut is_clip) = (Vec::new(), Vec::new());
+    let mut domains = Vec::with_capacity(views.len());
+    for view in views {
+        let mut found = Vec::with_capacity(view.chains.len());
+        for (name, keys) in &view.chains {
+            let kind = match view.texts[*name].split(':').nth(1) {
+                Some("SOURCE") => 0u8,
+                Some("WALL") => 1u8,
+                Some(_) => 2u8,
+                None => return Err("a chain name has no kind (Python's split raises)".to_string()),
+            };
+            let mut numbers = Vec::with_capacity(keys.len());
+            for key in keys {
+                let text = view.texts[*key];
+                let next = ids.len() as u32;
+                let id = *ids.entry(text).or_insert_with(|| {
+                    is_src.push(text.starts_with("src:"));
+                    is_clip.push(text.starts_with("clip:"));
+                    next
+                });
+                numbers.push(id);
+            }
+            found.push((kind, numbers));
+        }
+        domains.push(found);
+    }
+    Ok((domains, is_src, is_clip))
+}
+
+/// `build_mesh_arrays` over parsed views (without the digest); `Err` declines.
+pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &Law, reports: bool) -> Result<Assembled, Decline> {
+    // read_weld_domains: the `location:src:` references numbered in the order they are first met
+    let mut ids: HashMap<&str, u32> = HashMap::new();
+    let mut domains = Vec::with_capacity(views.len());
+    for view in views {
+        let refs = view
+            .refs
+            .iter()
+            .map(|item| {
+                if *item == 0 {
+                    return None;
+                }
+                let text = view.texts[*item as usize - 1];
+                if !text.starts_with(WELD_LOCATION_PREFIX) {
+                    return None;
+                }
+                let next = ids.len() as u32;
+                Some(*ids.entry(text).or_insert(next))
+            })
+            .collect();
+        domains.push(WeldDomain { positions: view.positions.clone(), normals: view.normals.clone(), refs, walls: view.walls.clone() });
+    }
+    let weld = weld(&domains, offset, law);
+    if weld.positions.iter().any(|point| point.iter().any(|value| !value.is_finite())) {
+        return Err("a welded position is not finite".to_string());
+    }
+    // mesh_glue.glue_domains
+    let total_faces: usize = views.iter().map(|view| view.faces.len()).sum();
+    let mut faces: Vec<Vec<i64>> = Vec::with_capacity(total_faces);
+    let mut uvs: Vec<Uv> = Vec::with_capacity(views.iter().map(|view| view.uvs.len()).sum());
+    let (mut face_domain, mut face_owner) = (Vec::with_capacity(total_faces), Vec::with_capacity(total_faces));
+    let mut pairs: std::collections::BTreeSet<(i64, i64)> = std::collections::BTreeSet::new();
+    for ((view, mapping), patch_id) in views.iter().zip(&weld.index).zip(patch_ids) {
+        if view.owners.len() != view.faces.len() {
+            return Err("the face owners of a view are not one per face".to_string());
+        }
+        for face in &view.faces {
+            faces.push(face.iter().map(|local| mapping[*local] as i64).collect());
+        }
+        uvs.extend_from_slice(&view.uvs);
+        face_domain.extend(std::iter::repeat_n(*patch_id, view.faces.len()));
+        face_owner.extend_from_slice(&view.owners);
+        for (a, b) in &view.seams {
+            let (a, b) = (mapping[*a] as i64, mapping[*b] as i64);
+            pairs.insert(if a <= b { (a, b) } else { (b, a) });
+        }
+    }
+    let folds = cross_seams(&faces, &uvs, &face_domain)?;
+    let fold_count = folds.len();
+    pairs.extend(folds);
+    let seams: Vec<(i64, i64)> = pairs.into_iter().collect();
+    let found_reports = if reports {
+        let (chain_domains, is_src, is_clip) = intern_chains(views)?;
+        Some((seam_numbers(&chain_domains, &is_src, &is_clip), off_plane(&weld.positions, &faces)?, half_edges(&faces)))
+    } else {
+        None
+    };
+    Ok(Assembled {
+        vertex_counts: views.iter().map(|view| view.positions.len()).collect(),
+        loop_counts: views.iter().map(|view| view.uvs.len()).collect(),
+        weld,
+        faces,
+        uvs,
+        face_domain,
+        face_owner,
+        seams,
+        folds: fold_count,
+        reports: found_reports,
+    })
+}
+
+fn bytes_of<'py, T: Copy, const N: usize>(py: Python<'py>, values: impl ExactSizeIterator<Item = T>, to_bytes: impl Fn(T) -> [u8; N]) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+    let size = values.len() * N;
+    let mut values = values;
+    pyo3::types::PyBytes::new_with(py, size, |buffer| {
+        for chunk in buffer.chunks_exact_mut(N) {
+            chunk.copy_from_slice(&to_bytes(values.next().expect("the size was counted")));
+        }
+        Ok(())
+    })
+}
+
+/// The buffers of the assembled mesh, or the text of a decline.
+///
+/// `(positions f64x3, face starts u32 (F+1), face corners u32, uvs f64x2, face domain i64, face owner i64, seams u32x2, weld index u32 (the local
+/// vertices of every domain in turn), vertex counts, loop counts, tokens, revisions, weld numbers, folds, reports | None)`; the weld numbers are the
+/// tuple of `weld_core` without its positions and index, the reports `(digest, (junctions, clip vertices), (worst, off), conflicts)`.
+#[pyfunction]
+pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>, reports: bool) -> PyResult<Bound<'py, PyAny>> {
+    let read = || -> Result<(Vec<Bound<'py, pyo3::types::PyBytes>>, Vec<i64>, f64, Law), Decline> {
+        let numbers = floats(law, 4, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3] };
+        let data = items(views, "views")?
+            .into_iter()
+            .map(|item| item.cast_into::<pyo3::types::PyBytes>().map_err(|_| "a view is not bytes (it travels as an object)".to_string()))
+            .collect::<Result<Vec<_>, Decline>>()?;
+        let ids = read_int_list(patch_ids, "patch_ids")?;
+        if ids.len() != data.len() {
+            return Err("one patch id per view is expected".to_string());
+        }
+        Ok((data, ids, exact_float(offset, "the offset")?, law))
+    };
+    let (data, ids, offset, law) = match read() {
+        Ok(found) => found,
+        Err(reason) => return declined(py, reason),
+    };
+    let slices: Vec<&[u8]> = data.iter().map(|item| item.as_bytes()).collect();
+    let computed = py.detach(|| -> Result<(Assembled, Vec<String>, Vec<String>), Decline> {
+        let parsed = slices.iter().map(|bytes| parse_view(bytes)).collect::<Result<Vec<_>, Decline>>()?;
+        let tokens = parsed.iter().map(|view| view.token.to_string()).collect();
+        let revisions = parsed.iter().map(|view| view.texts[view.revision].to_string()).collect();
+        Ok((assemble(&parsed, &ids, offset, &law, reports)?, tokens, revisions))
+    });
+    let (answer, tokens, revisions) = match computed {
+        Ok(found) => found,
+        Err(reason) => return declined(py, reason),
+    };
+    let digest = if reports {
+        match arrays_digest(&answer.weld.positions, &answer.faces, &answer.uvs, &answer.face_domain, &answer.face_owner, &answer.seams) {
+            Ok(text) => Some(text),
+            Err(reason) => return declined(py, reason),
+        }
+    } else {
+        None
+    };
+    let mut face_starts: Vec<u32> = Vec::with_capacity(answer.faces.len() + 1);
+    face_starts.push(0);
+    for face in &answer.faces {
+        face_starts.push(face_starts.last().unwrap() + face.len() as u32);
+    }
+    let weld = &answer.weld;
+    let gaps = PyTuple::new(
+        py,
+        weld.gaps.iter().map(|points| PyTuple::new(py, points.iter().map(|point| point_tuple(py, point)).collect::<PyResult<Vec<_>>>()?)).collect::<PyResult<Vec<_>>>()?,
+    )?;
+    let numbers: Vec<Bound<'py, PyAny>> = vec![
+        weld.groups.into_pyobject(py)?.into_any(),
+        weld.merged.into_pyobject(py)?.into_any(),
+        weld.mismatches.into_pyobject(py)?.into_any(),
+        gaps.into_any(),
+        weld.fallbacks.into_pyobject(py)?.into_any(),
+        PyFloat::new(py, weld.factor).into_any(),
+        PyTuple::new(py, weld.reasons.iter().copied())?.into_any(),
+        weld.lifted.into_pyobject(py)?.into_any(),
+        weld.welded.into_pyobject(py)?.into_any(),
+        weld.alone.into_pyobject(py)?.into_any(),
+        weld.wall_fallbacks.into_pyobject(py)?.into_any(),
+        PyFloat::new(py, weld.wall_factor).into_any(),
+        PyTuple::new(py, weld.wall_reasons.iter().copied())?.into_any(),
+        PyTuple::new(py, weld.partners.iter().copied())?.into_any(),
+    ];
+    let found_reports = match (digest, answer.reports) {
+        (Some(digest), Some((seam, plane, conflicts))) => (digest, seam, plane, conflicts).into_pyobject(py)?.into_any(),
+        _ => py.None().into_bound(py),
+    };
+    let parts: Vec<Bound<'py, PyAny>> = vec![
+        bytes_of(py, weld.positions.iter().flat_map(|point| point.iter().copied()).collect::<Vec<f64>>().into_iter(), f64::to_le_bytes)?.into_any(),
+        bytes_of(py, face_starts.iter().copied(), u32::to_le_bytes)?.into_any(),
+        bytes_of(py, answer.faces.iter().flat_map(|face| face.iter().map(|item| *item as u32)).collect::<Vec<u32>>().into_iter(), u32::to_le_bytes)?.into_any(),
+        bytes_of(py, answer.uvs.iter().flat_map(|uv| uv.iter().copied()).collect::<Vec<f64>>().into_iter(), f64::to_le_bytes)?.into_any(),
+        bytes_of(py, answer.face_domain.iter().copied(), i64::to_le_bytes)?.into_any(),
+        bytes_of(py, answer.face_owner.iter().copied(), i64::to_le_bytes)?.into_any(),
+        bytes_of(py, answer.seams.iter().flat_map(|(a, b)| [*a as u32, *b as u32]).collect::<Vec<u32>>().into_iter(), u32::to_le_bytes)?.into_any(),
+        bytes_of(py, weld.index.iter().flat_map(|mapping| mapping.iter().map(|item| *item as u32)).collect::<Vec<u32>>().into_iter(), u32::to_le_bytes)?.into_any(),
+        PyTuple::new(py, answer.vertex_counts.iter().copied())?.into_any(),
+        PyTuple::new(py, answer.loop_counts.iter().copied())?.into_any(),
+        PyTuple::new(py, tokens)?.into_any(),
+        PyTuple::new(py, revisions)?.into_any(),
+        PyTuple::new(py, numbers)?.into_any(),
+        answer.folds.into_pyobject(py)?.into_any(),
+        found_reports,
+    ];
+    Ok(PyTuple::new(py, parts)?.into_any())
+}

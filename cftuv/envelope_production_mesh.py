@@ -61,10 +61,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import bpy
 import numpy as np
+
+from cftuv_envelope.mesh_glue import glue_domains
 
 from .envelope_production_weld import (
     COUNTER_SEAM_CLIP_VERTICES,
@@ -72,9 +74,20 @@ from .envelope_production_weld import (
     COUNTER_WELD_SEAMS_MARKED,
     OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
+    WELD_LAW,
+    weld_of_answer,
     weld_vertices,
 )
-from .envelope_mesh_assembly import cross_domain_seams, mesh_reports
+from .envelope_mesh_assembly import (
+    MESH_ASSEMBLY_NATIVE,
+    cross_domain_seams,
+    mesh_assembly_backend,
+    mesh_reports,
+    native_answer,
+    record_fallback,
+    report_counters,
+)
+from .envelope_view_bytes import view_bytes_failed
 from .envelope_production_view import (
     OUTCOME_EMPTY_BATCH,
     OUTCOME_NON_FINITE,
@@ -172,6 +185,125 @@ class MeshArraysV1:
     reports: bool = True
     #: Смещение декали над поверхностью (метры), с которым построены позиции: его читает модель превью ширины (предел ошибки кадра домена-развёртки, `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`). В дайджест не входит.
     offset: float = 0.0
+    #: MESH_ASSEMBLY_BUFFERS_V1: плоские массивы numpy нативной сборки (`MeshBuffersV1`) либо `None` (эталон). У массивов с буферами кортежи `positions`, `faces`, `uvs`, `face_domain`,
+    #: `face_owner`, `seam_edges` и `domain_vertex_index` не строятся, пока их не прочтут: первое чтение разворачивает их из буферов в те же кортежи (побитово), что строит эталон.
+    buffers: object = field(default=None, compare=False, repr=False)
+
+    def __getattr__(self, name):
+        if name not in _LAZY_ARRAYS:
+            raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+        value = getattr(self.buffers, name)()
+        object.__setattr__(self, name, value)
+        return value
+
+    @property
+    def vertex_count(self) -> int:
+        return len(self.positions) if self.buffers is None else self.buffers.vertex_count
+
+    @property
+    def face_count(self) -> int:
+        return len(self.faces) if self.buffers is None else self.buffers.face_count
+
+    @property
+    def loop_count(self) -> int:
+        return len(self.uvs) if self.buffers is None else self.buffers.loop_count
+
+    @property
+    def seam_count(self) -> int:
+        return len(self.seam_edges) if self.buffers is None else self.buffers.seam_count
+
+    def corner_counts(self) -> tuple:
+        """`(четырёхгранники, треугольники, многоугольники от пяти углов)`."""
+
+        if self.buffers is not None:
+            return self.buffers.corner_counts()
+        return (
+            sum(1 for loop in self.faces if len(loop) == 4),
+            sum(1 for loop in self.faces if len(loop) == 3),
+            sum(1 for loop in self.faces if len(loop) > 4),
+        )
+
+
+#: Поля `MeshArraysV1`, которые у массивов с буферами разворачиваются при первом чтении.
+_LAZY_ARRAYS = frozenset(("positions", "faces", "uvs", "face_domain", "face_owner", "seam_edges", "domain_vertex_index"))
+
+
+class MeshBuffersV1:
+    """Плоские массивы нативной сборки (`cftuv_native.mesh_assemble`), numpy поверх байтов ответа (без копии): то, что `_fill_mesh` кладёт в меш, и разворот в кортежи эталона.
+
+    `positions` float64 `(V, 3)`, `face_starts` uint32 `(F + 1)`, `face_vertices` uint32, `uvs` float64 `(L, 2)`, `face_domain` и `face_owner` int64 `(F)`, `seams` uint32 `(S, 2)`,
+    `index` uint32 — номера вершин меша для локальных вершин всех доменов подряд, `vertex_starts` — начало домена в `index`.
+    """
+
+    __slots__ = ("positions_array", "face_starts", "face_vertices", "uvs_array", "face_domain_array", "face_owner_array", "seams_array", "index_array", "vertex_starts")
+
+    def __init__(self, positions, face_starts, face_vertices, uvs, face_domain, face_owner, seams, index, vertex_counts):
+        self.positions_array = np.frombuffer(positions, dtype="<f8").reshape(-1, 3)
+        self.face_starts = np.frombuffer(face_starts, dtype="<u4")
+        self.face_vertices = np.frombuffer(face_vertices, dtype="<u4")
+        self.uvs_array = np.frombuffer(uvs, dtype="<f8").reshape(-1, 2)
+        self.face_domain_array = np.frombuffer(face_domain, dtype="<i8")
+        self.face_owner_array = np.frombuffer(face_owner, dtype="<i8")
+        self.seams_array = np.frombuffer(seams, dtype="<u4").reshape(-1, 2)
+        self.index_array = np.frombuffer(index, dtype="<u4")
+        starts = [0]
+        for count in vertex_counts:
+            starts.append(starts[-1] + int(count))
+        self.vertex_starts = tuple(starts)
+
+    @property
+    def vertex_count(self) -> int:
+        return int(self.positions_array.shape[0])
+
+    @property
+    def face_count(self) -> int:
+        return int(self.face_starts.shape[0]) - 1
+
+    @property
+    def loop_count(self) -> int:
+        return int(self.uvs_array.shape[0])
+
+    @property
+    def seam_count(self) -> int:
+        return int(self.seams_array.shape[0])
+
+    def face_sizes(self):
+        return np.diff(self.face_starts.astype(np.int64))
+
+    def corner_counts(self) -> tuple:
+        sizes = self.face_sizes()
+        return int((sizes == 4).sum()), int((sizes == 3).sum()), int((sizes > 4).sum())
+
+    def domain_index(self, number: int):
+        """Номера вершин меша локальных вершин домена `number` (uint32, вид без копии)."""
+
+        return self.index_array[self.vertex_starts[number]:self.vertex_starts[number + 1]]
+
+    # разворот в кортежи эталона (`MeshArraysV1.__getattr__`)
+    def positions(self) -> tuple:
+        return tuple(map(tuple, self.positions_array.tolist()))
+
+    def faces(self) -> tuple:
+        flat = self.face_vertices.tolist()
+        starts = self.face_starts.tolist()
+        return tuple(tuple(flat[a:b]) for a, b in zip(starts, starts[1:]))
+
+    def uvs(self) -> tuple:
+        return tuple(map(tuple, self.uvs_array.tolist()))
+
+    def face_domain(self) -> tuple:
+        return tuple(self.face_domain_array.tolist())
+
+    def face_owner(self) -> tuple:
+        return tuple(self.face_owner_array.tolist())
+
+    def seam_edges(self) -> tuple:
+        return tuple(map(tuple, self.seams_array.tolist()))
+
+    def domain_vertex_index(self) -> tuple:
+        flat = self.index_array.tolist()
+        starts = self.vertex_starts
+        return tuple(tuple(flat[a:b]) for a, b in zip(starts, starts[1:]))
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,51 +405,88 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
     определены ДО них, а отчёты читают их и пишут в свои поля), поэтому эти шесть массивов побитово те же (`tests/test_envelope_refresh_lean.py`).
     """
 
-    faces, uvs = [], []
-    face_domain, face_owner = [], []
-    domains, skipped, warnings = [], [], []
-    entries = []
-    revision = ""
+    ordered = sorted(results, key=lambda item: (item.patch_id, item.domain_id))
+    found = _native_mesh_arrays(ordered, offset, reports)
+    return _reference_mesh_arrays(ordered, offset, reports) if found is None else found
+
+
+#: MESH_ASSEMBLY_BUFFERS_V1: операция порта, которая собирает массивы меша из байтов видов одним вызовом.
+MESH_ASSEMBLE_OPERATION = "mesh_assemble"
+OUTCOME_VIEW_NOT_BYTES = "NATIVE_PORT_UNSUPPORTED"
+
+
+def _native_mesh_arrays(ordered, offset: float, reports: bool):
+    """Массивы меша нативной сборкой из байтов видов (`cftuv_native.mesh_assemble`) либо `None`: заказан эталон, у домена вид объектом, а не байтами (откат назван), или порт отказал по имени.
+
+    Отбор доменов, предупреждения доменов, закон топологии и ревизия — те же, что у эталона (`_reference_mesh_arrays`), и в том же порядке; вид-отказ узнаётся по флагу заголовка и разбирается
+    (в нём только тексты), материализованный вид не разбирается вовсе.
+    """
+
+    if mesh_assembly_backend() != MESH_ASSEMBLY_NATIVE:
+        return None
+    domains, skipped, warnings, pending = [], [], [], []
     laws: set[str] = set()
-    for result in sorted(results, key=lambda item: (item.patch_id, item.domain_id)):
+    for result in ordered:
         if not result.is_materialized:
-            skipped.append(
-                (result.patch_id, result.domain_id, result.outcome, result.detail)
+            skipped.append((result.patch_id, result.domain_id, result.outcome, result.detail))
+            continue
+        data = result.__dict__.get("view_bytes")
+        if data is None:
+            record_fallback(
+                (OUTCOME_VIEW_NOT_BYTES, MESH_ASSEMBLE_OPERATION), 1, "a domain result carries its view as an object, not as VIEW_BYTES_V1 bytes"
             )
+            return None
+        if view_bytes_failed(data):
+            skipped.append((result.patch_id, result.domain_id, *_domain_view(result).failure))
             continue
-        view = _domain_view(result)
-        if view.failure is not None:
-            skipped.append((result.patch_id, result.domain_id, *view.failure))
-            continue
-        entries.append((result, view))
+        pending.append(result)
         domains.append(result.patch_id)
         warnings.extend(_domain_warnings(result))
         laws.add(getattr(result, "decal_topology_law", ""))
-        revision = revision or view.source_revision
-    weld = weld_vertices([view.vertices for _result, view in entries], float(offset))
-    seam_pairs: set = set()
-    domain_keys, domain_vertex_index, domain_loop_counts, domain_tokens = [], [], [], []
-    for (result, view), index in zip(entries, weld.index):
-        _vertices, d_faces, d_uvs, d_owner, d_seams = view.arrays
-        faces.extend(tuple(index[item] for item in loop) for loop in d_faces)
-        uvs.extend(d_uvs)
-        face_domain.extend([result.patch_id] * len(d_faces))
-        face_owner.extend(d_owner)
-        seam_pairs.update(tuple(sorted((index[a], index[b]))) for a, b in d_seams)
-        domain_keys.append((result.patch_id, result.domain_id))
-        domain_vertex_index.append(tuple(index))
-        domain_loop_counts.append(len(d_uvs))
-        domain_tokens.append(structure_token(view))  # VIEW_BYTES_V1: у вида из байтов воркера токен уже в заголовке
-    folds = cross_domain_seams(faces, uvs, face_domain)
-    seam_pairs.update(folds)
-    seams = sorted(seam_pairs)
-    positions = list(weld.positions)
-    if reports:
-        digest, seam, offset_counters, conflicts = mesh_reports(
-            positions, faces, uvs, face_domain, face_owner, seams, [view.boundary_chains for _result, view in entries]
-        )
-    else:
-        digest, seam, offset_counters, conflicts = "", (), (), 0
+    answer = native_answer(
+        MESH_ASSEMBLE_OPERATION, [result.__dict__["view_bytes"] for result in pending], [result.patch_id for result in pending], float(offset), WELD_LAW, bool(reports)
+    )
+    if answer is None:
+        return None
+    (positions, face_starts, face_vertices, uvs, face_domain, face_owner, seams, index, vertex_counts, loop_counts, tokens, revisions, numbers, folds, found) = answer
+    buffers = MeshBuffersV1(positions, face_starts, face_vertices, uvs, face_domain, face_owner, seams, index, vertex_counts)
+    weld = weld_of_answer((None, None, *numbers))
+    digest, seam, offset_counters, conflicts = report_counters(found) if reports else ("", (), (), 0)
+    arrays = object.__new__(MeshArraysV1)
+    for name, value in (
+        ("domains", tuple(domains)),
+        ("skipped", tuple(skipped)),
+        ("warnings", _mesh_warnings(warnings, weld, conflicts, seam, reports)),
+        ("source_revision", next((text for text in revisions if text), "")),
+        ("digest", digest),
+        ("decal_topology_law", ",".join(sorted(item for item in laws if item))),
+        ("weld_counters", _weld_counters(weld, conflicts, folds, reports)),
+        ("offset_counters", offset_counters),
+        ("seam_counters", seam),
+        ("domain_keys", tuple((result.patch_id, result.domain_id) for result in pending)),
+        ("domain_loop_counts", tuple(loop_counts)),
+        ("domain_tokens", tuple(tokens)),
+        ("domain_partners", _partners_by_domain(weld.partners, len(pending))),
+        ("reports", reports),
+        ("offset", float(offset)),
+        ("buffers", buffers),
+    ):
+        object.__setattr__(arrays, name, value)
+    return arrays
+
+
+def _weld_counters(weld, conflicts: int, folds: int, reports: bool) -> tuple:
+    return (
+        *weld.counters,
+        *(((OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),) if reports else ()),
+        (COUNTER_WELD_SEAMS_MARKED, folds),
+    )
+
+
+def _mesh_warnings(warnings: list, weld, conflicts: int, seam: tuple, reports: bool) -> tuple:
+    """Предупреждения доменов и находки про весь меш: сварка, полурёбра двух граней, шов по цепям."""
+
+    warnings = list(warnings)
     warnings.extend(weld.warnings)
     if conflicts:
         warnings.append(
@@ -339,6 +508,49 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
                 "the seam may be open",
             )
         )
+    return tuple(warnings)
+
+
+def _reference_mesh_arrays(ordered, offset: float, reports: bool) -> MeshArraysV1:
+    """Эталон `build_mesh_arrays` (заказ `PYTHON` и откат нативной сборки): виды доменов разобраны в кортежи, склейка — `mesh_glue.glue_domains`."""
+
+    domains, skipped, warnings = [], [], []
+    entries = []
+    revision = ""
+    laws: set[str] = set()
+    for result in ordered:
+        if not result.is_materialized:
+            skipped.append(
+                (result.patch_id, result.domain_id, result.outcome, result.detail)
+            )
+            continue
+        view = _domain_view(result)
+        if view.failure is not None:
+            skipped.append((result.patch_id, result.domain_id, *view.failure))
+            continue
+        entries.append((result, view))
+        domains.append(result.patch_id)
+        warnings.extend(_domain_warnings(result))
+        laws.add(getattr(result, "decal_topology_law", ""))
+        revision = revision or view.source_revision
+    weld = weld_vertices([view.vertices for _result, view in entries], float(offset))
+    faces, uvs, face_domain, face_owner, seam_pairs = glue_domains(
+        [result.patch_id for result, _view in entries], [view.arrays[1:] for _result, view in entries], weld.index
+    )
+    domain_keys = [(result.patch_id, result.domain_id) for result, _view in entries]
+    domain_vertex_index = [tuple(index) for index in weld.index]
+    domain_loop_counts = [len(view.uvs) for _result, view in entries]
+    domain_tokens = [structure_token(view) for _result, view in entries]  # VIEW_BYTES_V1: у вида из байтов воркера токен уже в заголовке
+    folds = cross_domain_seams(faces, uvs, face_domain)
+    seam_pairs.update(folds)
+    seams = sorted(seam_pairs)
+    positions = list(weld.positions)
+    if reports:
+        digest, seam, offset_counters, conflicts = mesh_reports(
+            positions, faces, uvs, face_domain, face_owner, seams, [view.boundary_chains for _result, view in entries]
+        )
+    else:
+        digest, seam, offset_counters, conflicts = "", (), (), 0
     return MeshArraysV1(
         positions=tuple(positions),
         faces=tuple(faces),
@@ -348,15 +560,11 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
         seam_edges=tuple(seams),
         domains=tuple(domains),
         skipped=tuple(skipped),
-        warnings=tuple(warnings),
+        warnings=_mesh_warnings(warnings, weld, conflicts, seam, reports),
         source_revision=revision,
         digest=digest,
         decal_topology_law=",".join(sorted(item for item in laws if item)),
-        weld_counters=(
-            *weld.counters,
-            *(((OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),) if reports else ()),
-            (COUNTER_WELD_SEAMS_MARKED, len(folds)),
-        ),
+        weld_counters=_weld_counters(weld, conflicts, len(folds), reports),
         offset_counters=offset_counters,
         seam_counters=seam,
         domain_keys=tuple(domain_keys),
@@ -435,8 +643,13 @@ def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
 
     Один код и для нового датаблока, и для перезаписи на месте: равенство результата кнопки и живой ширины
     держится общим кодом записи, а не копией.
+
+    Массивы нативной сборки (`arrays.buffers`, MESH_ASSEMBLY_BUFFERS_V1) кладутся `foreach_set` из numpy, без кортежей: те же шаги, что у `from_pydata` (вершины, петли, грани,
+    плоская заливка, рёбра), и те же числа (float64 -> float32 тем же округлением к ближайшему, что у `foreach_set` по питоновским `float`).
     """
 
+    if arrays.buffers is not None:
+        return _fill_mesh_buffers(mesh, arrays.buffers)
     mesh.from_pydata([tuple(item) for item in arrays.positions], [], list(arrays.faces))
     mesh.update()
     layer = mesh.uv_layers.new(name=DECAL_UV_LAYER)
@@ -458,6 +671,28 @@ def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
                 edge.use_seam = True
                 marked += 1
     return marked
+
+
+def _fill_mesh_buffers(mesh, buffers: MeshBuffersV1) -> int:
+    """`_fill_mesh` по буферам нативной сборки (шаги `Mesh.from_pydata` Blender 4.5 без рёбер, затем `update`, слой UV, атрибуты граней, швы): число помеченных швов."""
+
+    vertex_count, face_count = buffers.vertex_count, buffers.face_count
+    mesh.vertices.add(vertex_count)
+    mesh.loops.add(int(buffers.face_vertices.shape[0]))
+    mesh.polygons.add(face_count)
+    mesh.vertices.foreach_set("co", buffers.positions_array.astype(np.float32).reshape(-1))
+    mesh.polygons.foreach_set("loop_start", buffers.face_starts[:-1].astype(np.int32))
+    mesh.polygons.foreach_set("vertices", buffers.face_vertices.astype(np.int32))
+    mesh.shade_flat()
+    if face_count:
+        mesh.update(calc_edges=True, calc_edges_loose=False)
+    mesh.update()
+    layer = mesh.uv_layers.new(name=DECAL_UV_LAYER)
+    layer.data.foreach_set("uv", buffers.uvs_array.astype(np.float32).reshape(-1))
+    for attribute_name, values in ((DECAL_DOMAIN_ATTRIBUTE, buffers.face_domain_array), (DECAL_OWNER_ATTRIBUTE, buffers.face_owner_array)):
+        attribute = mesh.attributes.new(name=attribute_name, type="INT", domain="FACE")
+        attribute.data.foreach_set("value", values.astype(np.int32))
+    return _mark_seams(mesh, buffers.seams_array, vertex_count)
 
 
 def _clear_mesh_in_place(mesh) -> None:
@@ -607,7 +842,7 @@ def _drop_stale_mesh(name: str) -> None:
 
 def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, marked,
              material_created, warnings):
-    seam_requested = len(arrays.seam_edges)
+    seam_requested = arrays.seam_count
     warnings = list(arrays.warnings) + list(warnings)
     if marked != seam_requested:
         warnings.append(
@@ -618,12 +853,13 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
                 f"{marked} marked on the mesh",
             )
         )
+    quads, triangles, polygons = arrays.corner_counts()
     return ProductionWriteReceiptV1(
         object_name=object_name,
         replaced=replaced,
-        vertices=len(arrays.positions),
-        faces=len(arrays.faces),
-        loops=len(arrays.uvs),
+        vertices=arrays.vertex_count,
+        faces=arrays.face_count,
+        loops=arrays.loop_count,
         seam_edges=marked,
         seam_edges_requested=seam_requested,
         uv_layer=DECAL_UV_LAYER,
@@ -638,9 +874,9 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         mesh_name=None if mesh is None else mesh.name,
         mesh_digest="" if mesh is None else mesh_content_digest(mesh),
         decal_topology_law=arrays.decal_topology_law,
-        quads=sum(1 for loop in arrays.faces if len(loop) == 4),
-        triangles=sum(1 for loop in arrays.faces if len(loop) == 3),
-        polygons=sum(1 for loop in arrays.faces if len(loop) > 4),
+        quads=quads,
+        triangles=triangles,
+        polygons=polygons,
         weld_counters=arrays.weld_counters,
         offset_counters=arrays.offset_counters,
         seam_counters=arrays.seam_counters,
@@ -700,7 +936,7 @@ def write_decal_object(
     existing, warnings = _find_decal(source_obj, name)
     if existing is not None:
         warnings = warnings + _reassert_placement(existing, source_obj)
-    if not arrays.faces:
+    if not arrays.face_count:
         blank = _blank_arrays(arrays)
         if existing is None:
             return _receipt(blank, offset, material_name, object_name=None,
@@ -782,7 +1018,7 @@ def rewrite_decal_mesh(
             (None, OUTCOME_MESH_SHARED, f"mesh {mesh.name!r} is shared by {users} objects: all of them changed")
         )
     _clear_mesh_in_place(mesh)
-    marked = _fill_mesh(mesh, arrays) if arrays.faces else 0
+    marked = _fill_mesh(mesh, arrays) if arrays.face_count else 0
     if not len(mesh.materials):
         material = bpy.data.materials.get(material_name)
         if material is None:
@@ -795,7 +1031,7 @@ def rewrite_decal_mesh(
     existing[DECAL_SOURCE_PROPERTY] = source_obj.name
     _record_width(mesh, width)
     return _receipt(
-        arrays if arrays.faces else _blank_arrays(arrays),
+        arrays if arrays.face_count else _blank_arrays(arrays),
         offset,
         material_name,
         object_name=existing.name,

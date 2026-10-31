@@ -160,10 +160,16 @@ def weld_vertices(domains, offset: float) -> WeldV1:
     from .envelope_mesh_assembly import native_answer  # not at the top: the seam report of this module also loads standalone (the hash-seed probe)
 
     found = native_answer("mesh_weld", domains, offset, WELD_LAW)
+    return weld_of_answer(weld_core(domains, offset, WELD_LAW) if found is None else found)
+
+
+def weld_of_answer(answer) -> WeldV1:
+    """`WeldV1` из кортежа `weld_core` (эталона, порта `mesh_weld` или чисел `mesh_assemble`, у которого позиции и номера — буферы): тексты находок пишет хост."""
+
     (
         positions, index, groups, merged, mismatches, gaps, fallbacks, factor, reasons,
         lifted, welded, alone, wall_fallbacks, wall_factor, wall_reasons, partners,
-    ) = weld_core(domains, offset, WELD_LAW) if found is None else found
+    ) = answer
     gap = 0.0
     for points in gaps:
         gap = max(gap, max(math.dist(a, b) for a in points for b in points))
@@ -292,5 +298,6 @@ __all__ = (
     "miter_offset",
     "plan_wall_nodes",
     "weld_console_lines",
+    "weld_of_answer",
     "weld_vertices",
 )

@@ -44,13 +44,19 @@ def native_answer(operation: str, *arguments):
 
     answer, fallbacks = mesh_assembly_compute(operation, *arguments)
     for key, (count, detail) in fallbacks.items():
-        slot = FALLBACKS.get(key)
-        if slot is None:
-            FALLBACKS[key] = [count, detail]
-            print(f"[CFTUV][Production] MESH ASSEMBLY: {key[1]} computed in Python ({key[0]}: {detail})")
-        else:
-            slot[0] += count
+        record_fallback(key, count, detail)
     return answer
+
+
+def record_fallback(key: tuple, count: int, detail: str) -> None:
+    """Откат `(исход, операция)` в `FALLBACKS`; первый на причину напечатан."""
+
+    slot = FALLBACKS.get(key)
+    if slot is None:
+        FALLBACKS[key] = [count, detail]
+        print(f"[CFTUV][Production] MESH ASSEMBLY: {key[1]} computed in Python ({key[0]}: {detail})")
+    else:
+        slot[0] += count
 
 
 def off_plane_after_offset(positions, faces) -> tuple:
@@ -70,8 +76,6 @@ def mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains) 
     Порт читает массивы один раз (`cftuv_native.mesh_reports`); эталон — `mesh_checks.arrays_digest`, `seam_report_numbers`, `off_plane_measure`, `half_edge_conflicts`.
     """
 
-    from .envelope_production_weld import COUNTER_SEAM_CLIP_VERTICES, COUNTER_SEAM_T_JUNCTIONS
-
     found = native_answer("mesh_reports", positions, faces, uvs, face_domain, face_owner, seams, chains)
     if found is None:
         found = (
@@ -80,6 +84,14 @@ def mesh_reports(positions, faces, uvs, face_domain, face_owner, seams, chains) 
             mesh_checks.off_plane_measure(positions, faces),
             mesh_checks.half_edge_conflicts(faces),
         )
+    return report_counters(found)
+
+
+def report_counters(found) -> tuple:
+    """`(дайджест, отчёт шва, плоскость граней, полурёбра)` из ответа `mesh_reports` (порта или эталона): числа в счётчики квитанции."""
+
+    from .envelope_production_weld import COUNTER_SEAM_CLIP_VERTICES, COUNTER_SEAM_T_JUNCTIONS
+
     digest, (junctions, clip_vertices), (worst, off), conflicts = found
     return (
         digest,
@@ -116,4 +128,6 @@ __all__ = (
     "mesh_reports",
     "native_answer",
     "off_plane_after_offset",
+    "record_fallback",
+    "report_counters",
 )

@@ -213,8 +213,17 @@ def decode_view(data: bytes):
     )
 
 
+def view_bytes_failed(data: bytes) -> bool:
+    """Байты вида-отказа (`failure`): флаг заголовка, без разбора; не байты этой версии - `ViewBytesUnsupported`."""
+
+    header = _HEADER.unpack_from(data, 0)
+    if header[0] != _MAGIC or header[1] != VIEW_BYTES_VERSION:
+        raise ViewBytesUnsupported(f"not VIEW_BYTES_V{VIEW_BYTES_VERSION} bytes")
+    return bool(header[2] & _FAILED)
+
+
 def _texts(offsets: array, blob: bytes) -> list:
     return [blob[a:b].decode("utf-8") for a, b in zip(offsets, offsets[1:])]
 
 
-__all__ = ("VIEW_BYTES_VERSION", "ViewBytesUnsupported", "cached_view", "decode_view", "encode_view", "put_view")
+__all__ = ("VIEW_BYTES_VERSION", "ViewBytesUnsupported", "cached_view", "decode_view", "encode_view", "put_view", "view_bytes_failed")

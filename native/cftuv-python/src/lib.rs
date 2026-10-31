@@ -727,5 +727,6 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_half_edges, module)?)?;
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_weld, module)?)?;
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_reports, module)?)?;
+    module.add_function(wrap_pyfunction!(mesh_assembly::mesh_assemble, module)?)?;
     Ok(())
 }
