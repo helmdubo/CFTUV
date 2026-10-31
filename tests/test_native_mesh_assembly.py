@@ -338,3 +338,14 @@ def test_the_t_junction_scenes_of_the_seam_report_answer_as_the_oracle():
     for name, chains in scenes.items():
         assert mesh_checks.seam_report_numbers(chains) == expected[name], name
         assert cftuv_native.mesh_reports([], [], [], [], [], [], chains)[1] == expected[name], name
+
+
+def test_the_default_backend_is_native_and_python_is_the_named_fallback(monkeypatch):
+    """MESH_ASSEMBLY_NATIVE_DEFAULT_V1: without the variable the product assembles natively; `PYTHON` isolates the frozen reference."""
+
+    from cftuv import envelope_mesh_assembly as assembly
+
+    monkeypatch.delenv(assembly.MESH_ASSEMBLY_ENVIRONMENT, raising=False)
+    assert assembly.DEFAULT_MESH_ASSEMBLY_BACKEND == "NATIVE" and assembly.mesh_assembly_backend() == "NATIVE"
+    monkeypatch.setenv(assembly.MESH_ASSEMBLY_ENVIRONMENT, "python")
+    assert assembly.mesh_assembly_backend() == "PYTHON"

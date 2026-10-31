@@ -1,7 +1,7 @@
 """Бэкенд сборки меша декали в главном процессе (MESH_ASSEMBLY_NATIVE_V1): проверки собранного меша — нативно или эталоном ядра.
 
-`CFTUV_MESH_ASSEMBLY_BACKEND` (`PYTHON` | `NATIVE`, по умолчанию `PYTHON`, пока весь `build_mesh_arrays` не перенесён) заказывает,
-кто считает. Эталон — `cftuv_envelope.mesh_checks`; нативный путь — `cftuv_envelope.backend.mesh_assembly_compute` (единственный
+`CFTUV_MESH_ASSEMBLY_BACKEND` (`PYTHON` | `NATIVE`, по умолчанию `NATIVE` — MESH_ASSEMBLY_NATIVE_DEFAULT_V1: сварка, проверки и отчёты
+`build_mesh_arrays` перенесены; `PYTHON` — замороженный эталон и именованный откат) заказывает, кто считает. Эталон — `cftuv_envelope.mesh_checks`; нативный путь — `cftuv_envelope.backend.mesh_assembly_compute` (единственный
 импортёр `cftuv_native`). Отказ порта не тихий: он назван исходом ядра (`NATIVE_PORT_UNSUPPORTED`, `NATIVE_PORT_STALE`, ...),
 сосчитан в `FALLBACKS` и один раз на причину напечатан; ответ тогда считает эталон, побитово тот же.
 """
@@ -21,7 +21,7 @@ NANOMETRES_PER_METRE = 10**9
 MESH_ASSEMBLY_ENVIRONMENT = "CFTUV_MESH_ASSEMBLY_BACKEND"
 MESH_ASSEMBLY_PYTHON = "PYTHON"
 MESH_ASSEMBLY_NATIVE = "NATIVE"
-DEFAULT_MESH_ASSEMBLY_BACKEND = MESH_ASSEMBLY_PYTHON
+DEFAULT_MESH_ASSEMBLY_BACKEND = MESH_ASSEMBLY_NATIVE
 #: `{(исход, операция): [число, текст первой причины]}` откатов нативной сборки на эталон за процесс.
 FALLBACKS: dict = {}
 
