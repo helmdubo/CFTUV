@@ -126,6 +126,8 @@ __all__ = (
     "mesh_half_edges",
     "mesh_off_plane",
     "mesh_reports",
+    "mesh_splice_rebuilt",
+    "mesh_splice_weld",
     "mesh_weld",
     "graph_pack",
     "graph_unpack",
@@ -422,6 +424,21 @@ def mesh_assemble(views, patch_ids, offset, law, reports):
     pin.require("mesh_assembly")
     return _mesh_answer(_core.mesh_assemble(views, patch_ids, offset, law, reports))
 
+
+def mesh_splice_weld(views, rebases, alpha, offset, law):
+    """COMPOSITE_SPLICE_NATIVE_V1: `weld_vertices` over the VIEW_BYTES_V1 of a composite group at the width of the tick (a rebase `(position slopes, loop slopes,
+    certificate alpha)` moves a served view first, `None` keeps it): `(positions f64x3, index u32, vertex counts, partners)`; `NATIVE_REFUSALS` as `mesh_off_plane`."""
+
+    pin.require("mesh_assembly")
+    return _mesh_answer(_core.mesh_splice_weld(views, rebases, alpha, offset, law))
+
+
+def mesh_splice_rebuilt(views, rebases, alpha, mappings, patch_ids):
+    """COMPOSITE_SPLICE_NATIVE_V1: the faces, owners, view seams and fold seams of the rebuilt views of a composite splice in the new numbering (`mappings`:
+    int64 bytes per view); `NATIVE_REFUSALS` as `mesh_off_plane`."""
+
+    pin.require("mesh_assembly")
+    return _mesh_answer(_core.mesh_splice_rebuilt(views, rebases, alpha, mappings, patch_ids))
 
 def graph_pack(value) -> bytes:
     """COMMIT_BATCH_PACK_V1: the object graph `value` as the bytes `graph_unpack` turns into the graph `pickle.loads(pickle.dumps(value))` builds (`graph_pack.rs`).

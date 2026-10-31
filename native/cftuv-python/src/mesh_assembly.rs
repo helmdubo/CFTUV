@@ -17,9 +17,9 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyList, PyTuple};
 
-type Decline = String;
+pub(crate) type Decline = String;
 
-fn exact_float(item: &Bound<'_, PyAny>, what: &str) -> Result<f64, Decline> {
+pub(crate) fn exact_float(item: &Bound<'_, PyAny>, what: &str) -> Result<f64, Decline> {
     if !item.is_exact_instance_of::<PyFloat>() {
         return Err(format!("{what} is not an exact float"));
     }
@@ -30,7 +30,7 @@ fn exact_float(item: &Bound<'_, PyAny>, what: &str) -> Result<f64, Decline> {
     Ok(value)
 }
 
-fn items<'py>(sequence: &Bound<'py, PyAny>, what: &str) -> Result<Vec<Bound<'py, PyAny>>, Decline> {
+pub(crate) fn items<'py>(sequence: &Bound<'py, PyAny>, what: &str) -> Result<Vec<Bound<'py, PyAny>>, Decline> {
     if let Ok(list) = sequence.cast::<PyList>() {
         return Ok(list.iter().collect());
     }
@@ -40,7 +40,7 @@ fn items<'py>(sequence: &Bound<'py, PyAny>, what: &str) -> Result<Vec<Bound<'py,
     Err(format!("{what} is not a list or a tuple"))
 }
 
-fn floats(item: &Bound<'_, PyAny>, size: usize, what: &str) -> Result<Vec<f64>, Decline> {
+pub(crate) fn floats(item: &Bound<'_, PyAny>, size: usize, what: &str) -> Result<Vec<f64>, Decline> {
     let parts = items(item, what)?;
     if parts.len() != size {
         return Err(format!("{what} has {} numbers, not {size}", parts.len()));
@@ -65,7 +65,7 @@ fn read_faces(faces: &Bound<'_, PyAny>) -> Result<Vec<Vec<i64>>, Decline> {
         .collect()
 }
 
-type Point = [f64; 3];
+pub(crate) type Point = [f64; 3];
 
 fn sub(a: &Point, b: &Point) -> Point {
     [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
@@ -131,7 +131,7 @@ pub fn off_plane(positions: &[Point], faces: &[Vec<i64>]) -> Result<(f64, u64), 
     Ok((worst, off))
 }
 
-type Uv = [f64; 2];
+pub(crate) type Uv = [f64; 2];
 
 /// `cross_domain_seams` over read arrays; `Err` declines.
 pub fn cross_seams(faces: &[Vec<i64>], uvs: &[Uv], face_domain: &[i64]) -> Result<Vec<(i64, i64)>, Decline> {
@@ -186,7 +186,7 @@ pub fn half_edges(faces: &[Vec<i64>]) -> u64 {
     seen.values().filter(|count| **count > 1).count() as u64
 }
 
-fn declined<'py>(py: Python<'py>, reason: Decline) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn declined<'py>(py: Python<'py>, reason: Decline) -> PyResult<Bound<'py, PyAny>> {
     Ok(pyo3::types::PyString::new(py, &reason).into_any())
 }
 
@@ -1156,9 +1156,8 @@ fn intern_chains(views: &[ParsedView<'_>]) -> Result<Chains, Decline> {
     Ok((domains, is_src, is_clip))
 }
 
-/// `build_mesh_arrays` over parsed views (without the digest); `Err` declines.
-pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &Law, reports: bool) -> Result<Assembled, Decline> {
-    // read_weld_domains: the `location:src:` references numbered in the order they are first met
+/// The weld input of parsed views as `read_weld_domains` reads the domain objects: the `location:src:` references numbered in the order they are first met.
+pub fn weld_domains(views: &[ParsedView<'_>]) -> Vec<WeldDomain> {
     let mut ids: HashMap<&str, u32> = HashMap::new();
     let mut domains = Vec::with_capacity(views.len());
     for view in views {
@@ -1179,6 +1178,12 @@ pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &
             .collect();
         domains.push(WeldDomain { positions: view.positions.clone(), normals: view.normals.clone(), refs, walls: view.walls.clone() });
     }
+    domains
+}
+
+/// `build_mesh_arrays` over parsed views (without the digest); `Err` declines.
+pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &Law, reports: bool) -> Result<Assembled, Decline> {
+    let domains = weld_domains(views);
     let weld = weld(&domains, offset, law);
     if weld.positions.iter().any(|point| point.iter().any(|value| !value.is_finite())) {
         return Err("a welded position is not finite".to_string());
@@ -1228,7 +1233,7 @@ pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &
     })
 }
 
-fn bytes_of<'py, T: Copy, const N: usize>(py: Python<'py>, values: impl ExactSizeIterator<Item = T>, to_bytes: impl Fn(T) -> [u8; N]) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+pub(crate) fn bytes_of<'py, T: Copy, const N: usize>(py: Python<'py>, values: impl ExactSizeIterator<Item = T>, to_bytes: impl Fn(T) -> [u8; N]) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
     let size = values.len() * N;
     let mut values = values;
     pyo3::types::PyBytes::new_with(py, size, |buffer| {

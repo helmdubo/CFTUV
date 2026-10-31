@@ -22,6 +22,9 @@
 (вместе со всем, что с ними связано прежним классом), остальные - прежние; нумерация вершин меша - та же, что у `build_mesh_arrays` (класс получает номер по первой записи в порядке доменов и вершин);
 грани и швы нетронутых доменов переходят срезами образа в новую нумерацию, перекладываемых - из их видов, швы складок на рёбрах перекладываемых вершин - заново (`cross_domain_seams` по их граням).
 Не вышло - имя: класс уходит за группу (`COMPOSITE_SPLICE_CLASS_OUTSIDE`), группа не устоялась (`COMPOSITE_SPLICE_UNSETTLED`), раскладку образца не прочесть (`COMPOSITE_SPLICE_LAYOUT_UNREADABLE`).
+
+НАТИВНО (COMPOSITE_SPLICE_NATIVE_V1, `envelope_composite_native`): сварка группы (обоих путей) и грани/швы перекладываемых доменов считаются из байтов видов, сдвиг обслуженных - в порту;
+виды питона (`rebased_view`) строятся только на откате, который назван. Ответ тот же побитово.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from . import envelope_composite_native as composite_native
 from .envelope_production_result import PLACEMENT_REBASED
 from .envelope_mesh_assembly import cross_domain_seams
 from .envelope_production_weld import WELD_LOCATION_PREFIX, weld_vertices
@@ -187,19 +191,46 @@ def _group_of(displayed: PreviewSampleV1, fresh: dict):
     return taken, sorted(group)
 
 
-def _weld_into(displayed: PreviewSampleV1, fresh: dict, taken: set, ordered: list, positions: np.ndarray, *, alpha: float, offset: float) -> int | str:
-    """Позиции вершин принимаемых доменов из сварки группы - в `positions` (нумерация меша на экране); число принятых вершин либо имя причины (сварка легла иначе, чем меш на экране)."""
+def _python_views(displayed: PreviewSampleV1, fresh: dict, ordered, views: dict, *, alpha: float) -> str:
+    """Виды группы на ширине такта путём питона (посчитанные - как есть, обслуженные - сдвинутые сертификатом) - в `views`; пусто либо имя причины."""
 
-    inputs = []
     for number in ordered:
+        if number in views:
+            continue
         if number in fresh:
-            inputs.append(fresh[number][1].vertices)
+            views[number] = fresh[number][1]
             continue
         origin = displayed.origins.get(displayed.domains[number].patch_id)
         if origin is None or not certificate_usable(origin):
             return COMPOSITE_HELD_NOT_RECOMPUTED  # домен группы не двигается моделью и не посчитан: сдвигать нечем
-        inputs.append(rebased_view(view_of(origin), origin.parametric, alpha).vertices)
-    weld = weld_vertices(inputs, offset)
+        views[number] = rebased_view(view_of(origin), origin.parametric, alpha)
+    return ""
+
+
+def _group_weld(displayed: PreviewSampleV1, fresh: dict, ordered: list, views: dict, *, alpha: float, offset: float):
+    """`(сварка группы, входы порта | None)` либо имя причины: COMPOSITE_SPLICE_NATIVE_V1 - нативно из байтов видов (`envelope_composite_native`), откат - путь питона (виды ложатся в `views`), ответ один."""
+
+    if composite_native.native_ordered():
+        inputs = composite_native.group_inputs(displayed, fresh, ordered)
+        if isinstance(inputs, str):
+            return inputs
+        if inputs is not None:
+            weld = composite_native.group_weld(inputs, ordered, alpha, offset)
+            if weld is not None:
+                return weld, inputs
+    reason = _python_views(displayed, fresh, ordered, views, alpha=alpha)
+    if reason:
+        return reason
+    return weld_vertices([views[number].vertices for number in ordered], offset), None
+
+
+def _weld_into(displayed: PreviewSampleV1, fresh: dict, taken: set, ordered: list, positions: np.ndarray, *, alpha: float, offset: float) -> int | str:
+    """Позиции вершин принимаемых доменов из сварки группы - в `positions` (нумерация меша на экране); число принятых вершин либо имя причины (сварка легла иначе, чем меш на экране)."""
+
+    welded = _group_weld(displayed, fresh, ordered, {}, alpha=alpha, offset=offset)
+    if isinstance(welded, str):
+        return welded
+    weld = welded[0]
     base_index = np.concatenate([displayed.domains[number].vertices for number in ordered]).astype(np.int64)
     weld_index = np.concatenate([np.asarray(item, dtype=np.int64) for item in weld.index])
     if not _same_partition(weld_index, base_index):
@@ -330,20 +361,13 @@ def _splice_group(displayed: PreviewSampleV1, fresh: dict, changed: set, owner, 
                 if ref is not None and ref.startswith(WELD_LOCATION_PREFIX):
                     group.update(refs_all.get(ref, ()))
         ordered = sorted(group)
-        for number in ordered:
-            if number in views:
-                continue
-            if number in fresh:
-                views[number] = fresh[number][1]
-                continue
-            origin = displayed.origins.get(displayed.domains[number].patch_id)
-            if origin is None or not certificate_usable(origin):
-                return COMPOSITE_HELD_NOT_RECOMPUTED  # домен группы не двигается моделью и не посчитан: сдвигать нечем
-            views[number] = rebased_view(view_of(origin), origin.parametric, alpha)
-        weld = weld_vertices([views[number].vertices for number in ordered], offset)
+        welded = _group_weld(displayed, fresh, ordered, views, alpha=alpha, offset=offset)
+        if isinstance(welded, str):
+            return welded
+        weld, inputs = welded
         grown = {ordered[int(own)] for own, other in weld.partners if ordered[int(other)] in taken and ordered[int(own)] not in taken}
         if not grown:
-            return taken, ordered, views, weld
+            return taken, ordered, views, weld, inputs
         taken |= grown
     return COMPOSITE_SPLICE_UNSETTLED
 
@@ -427,7 +451,41 @@ def _splice_numbering(labels, count: int, weld, positions):
     return new_of_pair, out, ~kept, old_to_new
 
 
-def _splice_faces(displayed: PreviewSampleV1, tables, rebuilt: set, views: dict, fresh: dict, vertices_of: dict, old_to_new):
+def _python_pieces(displayed: PreviewSampleV1, rebuilt: set, views: dict, fresh: dict, vertices_of: dict):
+    """`({номер: (длины граней, вершины граней в новой нумерации, владельцы вида | None)}, [швы видов], складки)` перекладываемых доменов из их видов путём питона (эталон `rebuilt_pieces`)."""
+
+    pieces: dict = {}
+    seam_parts = []
+    faces, uvs, face_domain = [], [], []
+    for number in sorted(rebuilt):
+        view = views[number]
+        index = vertices_of[number]
+        sizes = np.fromiter(map(len, view.faces), dtype=np.int64, count=len(view.faces))
+        local = np.fromiter((item for face in view.faces for item in face), dtype=np.int64, count=int(sizes.sum()))
+        pieces[number] = (sizes, index[local], np.asarray(view.owners, dtype=np.int32) if number in fresh else None)
+        if view.seams:
+            seam_parts.append(index[np.asarray(view.seams, dtype=np.int64).reshape(-1, 2)])
+        mapping = index.tolist()
+        faces.extend(tuple(mapping[item] for item in face) for face in view.faces)
+        uvs.extend(view.uvs)
+        face_domain.extend([displayed.domains[number].patch_id] * len(view.faces))
+    return pieces, seam_parts, np.asarray(cross_domain_seams(faces, uvs, face_domain), dtype=np.int64).reshape(-1, 2)
+
+
+def _rebuilt_pieces(displayed: PreviewSampleV1, rebuilt: set, views: dict, fresh: dict, vertices_of: dict, inputs, *, alpha: float):
+    """Грани, владельцы и швы перекладываемых доменов: нативно из байтов видов (COMPOSITE_SPLICE_NATIVE_V1), когда сварка группы шла нативно, иначе (и при откате) - из видов питона."""
+
+    if inputs is not None:
+        found = composite_native.rebuilt_pieces(inputs, rebuilt, alpha, vertices_of, lambda number: displayed.domains[number].patch_id)
+        if found is not None:
+            return found
+    reason = _python_views(displayed, fresh, sorted(rebuilt), views, alpha=alpha)
+    if reason:
+        return reason
+    return _python_pieces(displayed, rebuilt, views, fresh, vertices_of)
+
+
+def _splice_faces(displayed: PreviewSampleV1, tables, rebuilt: set, pieces: dict, fresh: dict, old_to_new):
     """`(длины граней, вершины граней, владельцы, домены граней)` меша после перекладки либо имя причины: нетронутые домены - срезами образа на экране в новой нумерации, перекладываемые - из видов."""
 
     image = displayed.image
@@ -453,26 +511,24 @@ def _splice_faces(displayed: PreviewSampleV1, tables, rebuilt: set, views: dict,
     for number in sorted(rebuilt):
         if not plain(cursor, number):
             return COMPOSITE_SPLICE_LAYOUT_UNREADABLE
-        faces = views[number].faces
-        sizes = np.fromiter(map(len, faces), dtype=np.int64, count=len(faces))
-        local = np.fromiter((item for face in faces for item in face), dtype=np.int64, count=int(sizes.sum()))
+        sizes, mapped, view_owners = pieces[number]
         if number in fresh:
-            own = np.asarray(views[number].owners, dtype=np.int32)
+            own = view_owners
         else:
             own = np.asarray(image.face_owner[int(first[number]) : int(last[number])], dtype=np.int32)
-            if own.size != len(faces):
+            if own.size != sizes.size:
                 return COMPOSITE_LAYOUT_CHANGED
         lengths.append(sizes)
-        corners.append(vertices_of[number][local])
+        corners.append(mapped)
         owners.append(own)
-        domains.append(np.full(len(faces), displayed.domains[number].patch_id, dtype=np.int32))
+        domains.append(np.full(sizes.size, displayed.domains[number].patch_id, dtype=np.int32))
         cursor = number + 1
     if not plain(cursor, len(displayed.domains)):
         return COMPOSITE_SPLICE_LAYOUT_UNREADABLE
     return tuple(np.concatenate(parts) if parts else np.zeros(0, dtype=np.int64) for parts in (lengths, corners, owners, domains))
 
 
-def _splice_seams(displayed: PreviewSampleV1, rebuilt: set, views: dict, vertices_of: dict, old_to_new, moved_mesh, moved_new):
+def _splice_seams(displayed: PreviewSampleV1, seam_parts: list, folds, old_to_new, moved_mesh, moved_new):
     """Швы после перекладки (пары `(меньшая, большая)` по возрастанию) либо имя причины.
 
     Швы, не задевающие перекладываемых вершин, - швы образа на экране в новой нумерации (швы складок между нетронутыми доменами остаются, как у составного образца). Задевающие -
@@ -484,19 +540,7 @@ def _splice_seams(displayed: PreviewSampleV1, rebuilt: set, views: dict, vertice
     kept = old_to_new[old[keep]]
     if kept.size and int(kept.min()) < 0:
         return COMPOSITE_SPLICE_LAYOUT_UNREADABLE
-    fresh_pairs = []
-    faces, uvs, face_domain = [], [], []
-    for number in sorted(rebuilt):
-        view = views[number]
-        index = vertices_of[number]
-        if view.seams:
-            fresh_pairs.append(index[np.asarray(view.seams, dtype=np.int64).reshape(-1, 2)])
-        mapping = index.tolist()
-        faces.extend(tuple(mapping[item] for item in face) for face in view.faces)
-        uvs.extend(view.uvs)
-        face_domain.extend([displayed.domains[number].patch_id] * len(view.faces))
-    fresh_pairs.append(np.asarray(cross_domain_seams(faces, uvs, face_domain), dtype=np.int64).reshape(-1, 2))
-    added = np.concatenate(fresh_pairs)
+    added = np.concatenate([*seam_parts, folds])
     added = added[moved_new[added[:, 0]] | moved_new[added[:, 1]]]
     pairs = np.concatenate([kept, added])
     low, high = np.minimum(pairs[:, 0], pairs[:, 1]), np.maximum(pairs[:, 0], pairs[:, 1])
@@ -519,7 +563,7 @@ def _splice(displayed: PreviewSampleV1, fresh: dict, changed: set, positions, *,
     chosen = _splice_group(displayed, fresh, changed, owner, flat, alpha=alpha, offset=offset)
     if isinstance(chosen, str):
         return chosen
-    taken, ordered, views, weld = chosen
+    taken, ordered, views, weld, inputs = chosen
     labelled = _splice_labels(displayed, taken, ordered, weld, multiplicity)
     if isinstance(labelled, str):
         return labelled
@@ -532,10 +576,14 @@ def _splice(displayed: PreviewSampleV1, fresh: dict, changed: set, positions, *,
     np.cumsum(sizes, out=new_offsets[1:])
     new_of_pair, positions_new, moved_new, old_to_new = _splice_numbering(_runs(count, labels, flat, offsets), displayed.vertex_count, weld, positions)
     vertices_of = {number: new_of_pair[new_offsets[number] : new_offsets[number + 1]] for number in rebuilt}
-    faces = _splice_faces(displayed, tables, rebuilt, views, fresh, vertices_of, old_to_new)
+    pieces = _rebuilt_pieces(displayed, rebuilt, views, fresh, vertices_of, inputs, alpha=alpha)
+    if isinstance(pieces, str):
+        return pieces
+    pieces, seam_parts, folds = pieces
+    faces = _splice_faces(displayed, tables, rebuilt, pieces, fresh, old_to_new)
     if isinstance(faces, str):
         return faces
-    seams = _splice_seams(displayed, rebuilt, views, vertices_of, old_to_new, moved_mesh, moved_new)
+    seams = _splice_seams(displayed, seam_parts, folds, old_to_new, moved_mesh, moved_new)
     if isinstance(seams, str):
         return seams
     lengths, corners, owners, face_domain = faces
