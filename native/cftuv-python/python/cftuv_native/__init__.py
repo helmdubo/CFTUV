@@ -127,6 +127,8 @@ __all__ = (
     "mesh_off_plane",
     "mesh_reports",
     "mesh_weld",
+    "graph_pack",
+    "graph_unpack",
     "snapshot_check",
     "snapshot_check_raw_layouts",
     "warm_snapshot_check",
@@ -419,6 +421,24 @@ def mesh_assemble(views, patch_ids, offset, law, reports):
 
     pin.require("mesh_assembly")
     return _mesh_answer(_core.mesh_assemble(views, patch_ids, offset, law, reports))
+
+
+def graph_pack(value) -> bytes:
+    """COMMIT_BATCH_PACK_V1: the object graph `value` as the bytes `graph_unpack` turns into the graph `pickle.loads(pickle.dumps(value))` builds (`graph_pack.rs`).
+
+    The oracle is pickle (stdlib), so there is no pin. A graph the packer does not carry is `NativePortUnsupported` with the reason, before anything changed.
+    """
+
+    found = _core.graph_pack(value)
+    if isinstance(found, str):
+        raise NativePortUnsupported(f"graph_pack: {found}")
+    return found
+
+
+def graph_unpack(data: bytes):
+    """The graph `graph_pack` wrote; `ValueError` for a buffer it did not write (a class that moved or changed its fields included)."""
+
+    return _core.graph_unpack(data)
 
 
 def warm_snapshot_check() -> bool:

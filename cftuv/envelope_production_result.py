@@ -8,11 +8,11 @@
 
 from __future__ import annotations
 
-import pickle
 import traceback
 import zlib
 from dataclasses import dataclass, field, fields, replace
 
+from .envelope_batch_pack import pack as pack_batch, unpack as unpack_batch
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
 from .envelope_view_bytes import cached_view, put_view
 from .surface_ir import HOST_DECAL_TOPOLOGY_POLICY, HostDecalTopologyPolicy
@@ -208,7 +208,7 @@ class ProductionDomainResultV1:
     ОТЛОЖЕННЫЙ РЕЗУЛЬТАТ (`deferred_result`, так отвечает воркер пула). Родитель читает из батча домена немногое (`view`: вершины,
     грани, UV, владельцы, швы, цепи шва - плоские кортежи, их разбор стоит копейки), а разворот графа записей батча - около
     0.4 с под GIL на `building` на каждом шаге ширины. Поэтому воркер присылает вид и всё тяжёлое одним куском байтов
-    (`heavy`: батч и нормали вершин, пикл под zlib), а `batch`, `vertex_normals` и `content_digest` читаются как прежде, но разворачиваются и
+    (`heavy`: батч и нормали вершин, буфер `envelope_batch_pack` под zlib - COMMIT_BATCH_PACK_V1, Rust либо пикл), а `batch`, `vertex_normals` и `content_digest` читаются как прежде, но разворачиваются и
     считаются при ПЕРВОМ чтении. Что прочитано, то равно eager-результату: батч запечатывается настоящим семантическим
     дайджестом, `content_digest` — sha256 канонических байтов того же батча (оба - чистые функции батча). Тихо не пропадает
     ничего: полей нет в `__dict__`, но чтение их достаёт, пикл несёт `heavy`, сравнение сравнивает прочитанное.
@@ -306,7 +306,7 @@ class ProductionDomainResultV1:
     def _thaw(self) -> None:
         """Разворачивает `heavy` в `batch` и `vertex_normals`; батч без дайджеста запечатывается настоящим."""
 
-        batch, vertex_normals = pickle.loads(zlib.decompress(self.__dict__["heavy"]))
+        batch, vertex_normals = unpack_batch(zlib.decompress(self.__dict__["heavy"]))
         if batch is not None:
             from cftuv_envelope.canonical import PENDING_SEMANTIC_DIGEST, sealed_geometry_batch
 
@@ -385,7 +385,7 @@ def deferred_result(result: ProductionDomainResultV1) -> ProductionDomainResultV
         return result
     state = dict(result.__dict__)
     put_view(state, result)
-    packed = pickle.dumps((state.pop("batch"), state.pop("vertex_normals")), protocol=PICKLE_PROTOCOL)
+    packed = pack_batch((state.pop("batch"), state.pop("vertex_normals")))  # COMMIT_BATCH_PACK_V1: порт либо пикл, распаковка узнаёт формат сама
     state["heavy"] = zlib.compress(packed, HEAVY_COMPRESSION_LEVEL)
     if not state.get("content_digest"):
         state.pop("content_digest", None)

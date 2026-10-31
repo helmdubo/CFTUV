@@ -1508,6 +1508,24 @@ def mesh_assembly_compute(operation: str, *arguments) -> tuple:
     return (answer if done else None), ledger.fallbacks
 
 
+def graph_pack_compute(operation: str, *arguments) -> tuple:
+    """`(посчитал ли порт, ответ, откаты)`: упаковка графа объектов `cftuv_native.<operation>` (`graph_pack`, `graph_unpack`; COMMIT_BATCH_PACK_V1) - батч домена, который воркер шлёт на COMMIT.
+
+    Эталон - pickle: `False` значит, что откат назван и записан в `откаты` (расширения или операции нет, порт отказал граф по имени), и вызывающий пиклит (распаковывает эталоном формата) сам.
+    """
+
+    ledger = BackendLedgerV1(KernelBackendV1.NATIVE.value)
+
+    def call(module):
+        function = getattr(module, operation, None)
+        if function is None:
+            raise _OperationAbsent(f"this cftuv_native wheel has no `{operation}` (it predates COMMIT_BATCH_PACK_V1)")
+        return function(*arguments)
+
+    done, answer = _attempt(ledger, operation, call)
+    return done, answer, ledger.fallbacks
+
+
 def warm_frame() -> bool:
     """Привязывает нативное чтение/построение рамки к живому ядру ДО первого домена (разовая цена процесса: дайджесты зеркалируемых функций и таблица классов); `False` - расширения или операции нет, либо пин ушёл.
 

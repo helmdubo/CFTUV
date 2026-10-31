@@ -13,6 +13,7 @@ mod density;
 mod effective_alpha;
 mod embedding;
 mod frame;
+mod graph_pack;
 mod assemble_hot;
 mod canonical_json;
 mod materialize_hot;
@@ -728,5 +729,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_weld, module)?)?;
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_reports, module)?)?;
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_assemble, module)?)?;
+    module.add_function(wrap_pyfunction!(graph_pack::graph_pack, module)?)?;
+    module.add_function(wrap_pyfunction!(graph_pack::graph_unpack, module)?)?;
     Ok(())
 }
