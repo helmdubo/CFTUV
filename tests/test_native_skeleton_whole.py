@@ -501,7 +501,8 @@ def test_the_result_is_made_of_ordinary_python_objects_that_pickle_and_compare_a
     assert type(actual.result) is type(expected.result) and actual.result == expected.result
     assert pickle.loads(pickle.dumps(actual.result)) == expected.result
     assert hash(actual.result.nodes[0]) == hash(expected.result.nodes[0])
-    node = actual.result.nodes[-1]
+    # the last node whose x is not zero (a zero `SqrtSumV1` has no terms; which record is picked depends on the corpus timings)
+    node = next((item for item in reversed(actual.result.nodes) if item.point.x.terms), actual.result.nodes[-1])
     assert type(node.time.dividend).__name__ == "Fraction" and type(node.point.x.terms[0][1]).__name__ in ("Fraction", "int")
     assert not hasattr(node, "__dict__")
 
