@@ -47,6 +47,11 @@ on:
       - "tests/blender/test_envelope_debug_bridge.py"
       - ".github/workflows/envelope-kernel.yml"
 
+# TEST_TIERS_V1: a local run of the kernel suite is the product mode; CI before merge runs the STRICT tier (the full canonicity audit of the
+# exact numbers and the second closure pass of determinism, kernel/tests/conftest.py). Pinned here, not left to `CI` alone (tests/test_architecture.py).
+env:
+  CFTUV_STRICT_TESTS: "1"
+
 jobs:
   kernel-hermetic:
     name: kernel-hermetic (py${{ matrix.python-version }}, shard ${{ matrix.shard }})

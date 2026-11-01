@@ -102,10 +102,12 @@ def built(name: str, clear_at_each_time: bool) -> Build:
 
 @pytest.fixture(autouse=True)
 def _audited_cold_state():
-    set_canonical_audit(True)
+    # the prices are compared with a child that audits: audited here too, and the tier of the session (TEST_TIERS_V1) given back after
+    previous = set_canonical_audit(True)
     reset_factorization_memory()
     yield
     reset_factorization_memory()
+    set_canonical_audit(previous)
 
 
 def test_the_corpus_is_eighty_six_cases():

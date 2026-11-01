@@ -8,6 +8,7 @@ import pytest
 from cftuv_envelope.exact_sqrt_sum import set_canonical_audit
 from ec0_adapter import load_projection
 from kernel_test_paths import installed_kernel_guard
+from kernel_test_tiers import strict_tier, tier_switches
 
 
 _WHEEL_GUARD = installed_kernel_guard() if os.environ.get("CFTUV_TEST_REQUIRE_WHEEL") == "1" else None
@@ -31,19 +32,17 @@ def pytest_runtest_teardown(item, nextitem):
     if _WHEEL_GUARD is not None:
         _WHEEL_GUARD.check()
 
-# Набор тестов ядра всегда гоняется с полным аудитом каноники сумм корней:
-# каждая величина, входящая в машину времён, проверяется на бесквадратность
-# независимо от памяти канонизации (`require_canonical`). Без аудита
-# `times_are_equal` и `compare_times == 0` расходятся на неканоническом входе
-# молча. `CFTUV_CANONICAL_AUDIT=0` выключает его только для замера цены самого
-# аудита; продуктовый путь аудит не включает никогда.
-set_canonical_audit(os.environ.get("CFTUV_CANONICAL_AUDIT", "1") != "0")
-
-# Набор тестов ядра всегда гоняется и с самопроверкой детерминизма замыкания пакета: второй проход замыкания на тех же
-# входах обязан дать то же множество контактов и ту же подпись (`symbolic_superlevel_coordinator`). Продукт её не
-# выполняет (она удваивала счёт замыкания), тест — выполняет, и тест, которому нужен путь продукта, снимает её явно
-# (`monkeypatch.delenv`). `CFTUV_SYMBOLIC_REPLAY_CHECK=0` снимает её со всего набора.
-os.environ.setdefault("CFTUV_SYMBOLIC_REPLAY_CHECK", "1")
+# TEST_TIERS_V1 (`kernel_test_tiers.py`): строгий уровень (CI до слияния: `CFTUV_STRICT_TESTS=1` или `CI`) гоняет набор с полным
+# аудитом каноники сумм корней (каждая величина машины времён проверяется на бесквадратность независимо от памяти канонизации:
+# без аудита `times_are_equal` и `compare_times == 0` расходятся на неканоническом входе молча) и с самопроверкой детерминизма
+# замыкания пакета (второй проход замыкания на тех же входах обязан дать то же множество контактов и ту же подпись,
+# `symbolic_superlevel_coordinator`). Локальный прогон по умолчанию — уровень продукта: обе проверки выключены, как в продукте.
+# Отдельные переключатели (`CFTUV_CANONICAL_AUDIT`, `CFTUV_SYMBOLIC_REPLAY_CHECK`) сильнее уровня; тест, которому нужен путь
+# продукта, по-прежнему снимает самопроверку явно (`monkeypatch.delenv`).
+_AUDIT, _REPLAY = tier_switches()
+set_canonical_audit(_AUDIT)
+if _REPLAY is not None:
+    os.environ.setdefault("CFTUV_SYMBOLIC_REPLAY_CHECK", _REPLAY)
 
 # `CFTUV_SYMBOLIC_BACKEND=SYMPY|SHADOW|NATIVE_EXACT` гоняет ВЕСЬ набор ядра под выбранным символьным
 # бэкендом (SHADOW с политикой RAISE: любое расхождение значений роняет тест, на котором случилось).
@@ -53,6 +52,10 @@ if _SYMBOLIC_BACKEND:
     from cftuv_envelope.reference import symbolic_backend as _symbolic_backend
 
     _symbolic_backend.set_backend_mode(_symbolic_backend.SymbolicBackendV1(_SYMBOLIC_BACKEND))
+
+
+def pytest_report_header(config):
+    return f"TEST_TIER {'STRICT' if strict_tier() else 'PRODUCT'} canonical_audit={_AUDIT} replay_check={os.environ.get('CFTUV_SYMBOLIC_REPLAY_CHECK', '')!r}"
 
 
 def pytest_sessionfinish(session, exitstatus):

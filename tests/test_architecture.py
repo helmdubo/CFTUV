@@ -2420,6 +2420,41 @@ def test_the_host_workflows_install_the_declared_requirements():
         assert "sympy==" not in text and "numpy==" not in text, f"{name}: версия зависимости прибита в workflow, а не в tests/requirements.txt"
 
 
+def _top_level_env(text: str) -> dict:
+    """The workflow-level `env:` block (the lines indented by two spaces right under a column-0 `env:`)."""
+
+    found, inside = {}, False
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith(" "):
+            inside = line.rstrip() == "env:"
+            continue
+        if inside and line.startswith("  ") and not line.startswith("   ") and ":" in line:
+            key, _, value = line.strip().partition(":")
+            found[key] = value.strip()
+    return found
+
+
+def test_ci_runs_the_strict_test_tier():
+    """TEST_TIERS_V1: a local run is the product tier, every CI workflow that runs pytest pins the STRICT tier at the workflow level
+    (the canonicity audit and the second closure pass of kernel/tests/conftest.py), and no step takes it back."""
+
+    workflows = sorted(_CI_WORKFLOWS.glob("*.yml"))
+    running = [path for path in workflows if "pytest" in path.read_text(encoding="utf-8")]
+    assert {path.name for path in running} >= {"envelope-kernel.yml", "native.yml", "host-suite.yml"}
+    for path in running:
+        text = path.read_text(encoding="utf-8")
+        assert _top_level_env(text).get("CFTUV_STRICT_TESTS") == '"1"', f"{path.name}: the workflow-level env does not pin CFTUV_STRICT_TESTS: \"1\" (TEST_TIERS_V1)"
+        settings = re.findall(r"CFTUV_STRICT_TESTS\s*[:=]\s*(\S+)", text)
+        assert settings == ['"1"'], f"{path.name}: CFTUV_STRICT_TESTS is set more than once or to another value: {settings}"
+        assert not re.search(r"env\s+(-i\b|-u\s+CFTUV_STRICT_TESTS|--ignore-environment)", text), f"{path.name}: a step runs the tests without the tier's environment"
+        for switch in ("CFTUV_CANONICAL_AUDIT", "CFTUV_SYMBOLIC_REPLAY_CHECK"):
+            assert not re.search(rf"{switch}\s*[:=]\s*\"?0", text), f"{path.name}: a step switches {switch} off under the strict tier"
+    conftest = (REPO_ROOT / "kernel" / "tests" / "conftest.py").read_text(encoding="utf-8")
+    assert "tier_switches()" in conftest and "set_canonical_audit(_AUDIT)" in conftest, "kernel/tests/conftest.py no longer takes its switches from the tier"
+
+
 def test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter():
     floor = re.search(r'requires-python\s*=\s*">=(\d+\.\d+)"', (REPO_ROOT / "kernel" / "pyproject.toml").read_text(encoding="utf-8"))
     assert floor is not None, "kernel/pyproject.toml без requires-python"

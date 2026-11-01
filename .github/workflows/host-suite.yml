@@ -38,6 +38,10 @@ on:
       - "AGENTS.md"
       - ".github/workflows/host-suite.yml"
 
+# TEST_TIERS_V1: CI runs the STRICT test tier (kernel/tests/conftest.py); pinned here, not left to `CI` alone (tests/test_architecture.py).
+env:
+  CFTUV_STRICT_TESTS: "1"
+
 jobs:
   host-tests:
     name: host-tests (${{ matrix.os }}, py${{ matrix.python-version }})
