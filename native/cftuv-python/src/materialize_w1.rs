@@ -25,7 +25,7 @@ use std::time::Instant;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PySet, PyString, PyTuple};
+use pyo3::types::{PyDict, PyFrozenSet, PyList, PySet, PyString, PyTuple};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_clip::faces::Pt;
@@ -37,7 +37,8 @@ use cftuv_core::rat::Rat;
 use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
 use cftuv_mesh::data::{ChordNames, Face, Law, Line, MeshInput, MeshOutput, Part, Run, Table};
-use cftuv_mesh::error::MeshError;
+use cftuv_mesh::error::{MeshError, MeshResult};
+use cftuv_mesh::stations::{chord_station_values, Chord, Frame, Value};
 use cftuv_mesh::mesh::{canonical_triangles, exact_mesh};
 use cftuv_mesh::tally::Tally;
 use cftuv_mesh::tessellate::{contour_polygons, fan_faces, Contour, Piece, PieceContext, UvMap};
@@ -664,6 +665,508 @@ impl Host {
             notes.append(line)?;
         }
         Ok((built, status, detail, counts.as_array(), articles, changed, [tables_ns, arguments_ns, compute_ns, building_ns, log_ns, out.phase_ns[0], out.phase_ns[1], out.phase_ns[2]]))
+    }
+}
+
+// --------------------------------------------------------------------------
+// station_values of the clip stage (chords and anchors)
+// --------------------------------------------------------------------------
+
+/// What the call of the clip stage reads of the Python objects: the frames of the faces, the new vertices by key number, the chords, the key objects.
+type ChordRead<'py> = (Vec<Frame>, Vec<Vec<(u32, Point)>>, Vec<HashMap<u32, Chord, FxBuild>>, Vec<Bound<'py, PyAny>>);
+
+fn frame_of(classes: &Classes, runs: &mut HashMap<usize, Rc<Run>, FxBuild>, frame_face: &Bound<'_, PyAny>, region: u32) -> Read<Frame> {
+    let names = &classes.names;
+    let run_object = field(frame_face, &names.run)?;
+    let address = run_object.as_ptr() as usize;
+    let run = match runs.get(&address) {
+        Some(run) => run.clone(),
+        None => {
+            let run = Rc::new(run_of(classes, &run_object)?);
+            runs.insert(address, run.clone());
+            run
+        }
+    };
+    let fan = field(frame_face, &names.fan_station)?;
+    let fan_station = if fan.is_none() { None } else { Some(sum_of(&classes.pool, &fan, "fan_station")?) };
+    let line = line_of(classes, &field(frame_face, &names.line)?)?;
+    Ok(Frame { region, line, run, fan_station })
+}
+
+/// The number of a key string, interned in the order met; the object is kept for the result.
+fn key_number<'py>(index: &mut HashMap<String, u32, FxBuild>, objects: &mut Vec<Bound<'py, PyAny>>, key: Bound<'py, PyAny>) -> Read<u32> {
+    let name = text_of(&key, "a vertex key")?;
+    if let Some(found) = index.get(&name) {
+        return Ok(*found);
+    }
+    let found = u32::try_from(objects.len()).map_err(|_| Fail::Unsupported("more than 2^32 keys".to_string()))?;
+    index.insert(name, found);
+    objects.push(key);
+    Ok(found)
+}
+
+fn read_chord_inputs<'py>(classes: &Classes, frame_faces: &Bound<'py, PyAny>, regions: &Bound<'py, PyAny>, lists: &Bound<'py, PyAny>, chords: &Bound<'py, PyAny>) -> Read<ChordRead<'py>> {
+    let pool = &classes.pool;
+    let items = frame_faces.cast::<PyList>().map_err(|_| Fail::Unsupported("frame_faces must be a list".to_string()))?;
+    let numbers = regions.cast::<PyList>().map_err(|_| Fail::Unsupported("regions must be a list".to_string()))?;
+    let lists = lists.cast::<PyList>().map_err(|_| Fail::Unsupported("the cycles of the clip must be a list".to_string()))?;
+    let chords = chords.cast::<PyList>().map_err(|_| Fail::Unsupported("chords must be a list".to_string()))?;
+    if numbers.len() != items.len() || lists.len() != items.len() || chords.len() != items.len() {
+        return unsupported("frame_faces, regions, the cycles of the clip and chords must have one length");
+    }
+    let mut runs: HashMap<usize, Rc<Run>, FxBuild> = HashMap::default();
+    let mut index: HashMap<String, u32, FxBuild> = HashMap::default();
+    let mut objects: Vec<Bound<'py, PyAny>> = Vec::new();
+    let mut frames = Vec::with_capacity(items.len());
+    let mut cycles = Vec::with_capacity(items.len());
+    let mut edges = Vec::with_capacity(items.len());
+    for (((frame_face, number), cycle), face_chords) in items.iter().zip(numbers.iter()).zip(lists.iter()).zip(chords.iter()) {
+        let number = exact_int(pool, &number, "a layout region")?;
+        let number = u32::try_from(&number).map_err(|_| Fail::Unsupported("a layout region beyond 32 bits".to_string()))?;
+        frames.push(frame_of(classes, &mut runs, &frame_face, number)?);
+        let Ok(cycle) = cycle.cast_exact::<PyList>() else {
+            return unsupported("a cycle of the clip must be a list");
+        };
+        let mut entries = Vec::with_capacity(cycle.len());
+        for entry in cycle.iter() {
+            let Ok(pair) = entry.cast_exact::<PyTuple>() else {
+                return unsupported("a cycle entry must be (key, point)");
+            };
+            if pair.len() != 2 {
+                return unsupported("a cycle entry must be (key, point)");
+            }
+            let key = key_number(&mut index, &mut objects, pair.get_item(0)?)?;
+            entries.push((key, point_of(pool, &pair.get_item(1)?)?));
+        }
+        cycles.push(entries);
+        let Ok(face_chords) = face_chords.cast_exact::<PyDict>() else {
+            return unsupported("the chords of a face must be a dict");
+        };
+        let mut found: HashMap<u32, Chord, FxBuild> = HashMap::default();
+        for (key, chord) in face_chords.iter() {
+            let Ok(chord) = chord.cast_exact::<PyTuple>() else {
+                return unsupported("a chord must be (u, v, point u, point v)");
+            };
+            if chord.len() != 4 {
+                return unsupported("a chord must be (u, v, point u, point v)");
+            }
+            let key = key_number(&mut index, &mut objects, key)?;
+            let u = key_number(&mut index, &mut objects, chord.get_item(0)?)?;
+            let v = key_number(&mut index, &mut objects, chord.get_item(1)?)?;
+            found.insert(key, Chord { u, v, u_point: point_of(pool, &chord.get_item(2)?)?, v_point: point_of(pool, &chord.get_item(3)?)? });
+        }
+        edges.push(found);
+    }
+    Ok((frames, cycles, edges, objects))
+}
+
+/// `anchors[(region, key)]` read now: the fact as a native value, `None` when the slot is missing.
+fn anchor_of<'py>(pool: &Pool, anchors: &Bound<'py, PyDict>, region: u32, key: &Bound<'py, PyAny>) -> Read<Option<Value>> {
+    let py = anchors.py();
+    let slot = PyTuple::new(py, [int_from_ibig(py, pool, &IBig::from(u64::from(region)))?, key.clone()])?;
+    let Some(fact) = anchors.get_item(slot)? else {
+        return Ok(None);
+    };
+    let Ok(pair) = fact.cast_exact::<PyTuple>() else {
+        return unsupported("a fact must be a tuple (s, r)");
+    };
+    if pair.len() != 2 {
+        return unsupported("a fact must be a tuple (s, r)");
+    }
+    Ok(Some(Rc::new((sum_of(pool, &pair.get_item(0)?, "a fact")?, sum_of(pool, &pair.get_item(1)?, "a fact")?))))
+}
+
+impl Host {
+    /// One `station_values(frame_faces, lists, layout, table, lattice_alpha, budget, tally, chords=chords, anchors=anchors)` of the clip stage
+    /// (`clip.cut_domain`). The answer is the exact-mesh answer with `(facts or None, tally items)` as the result: `facts` the dict of the oracle in its order,
+    /// the tally items what the oracle adds to the caller's Counter (also when it refused afterwards).
+    #[allow(clippy::too_many_arguments)]
+    pub fn chord_stations<'py>(
+        &mut self,
+        py: Python<'py>,
+        session: &mut Session,
+        frame_faces: &Bound<'py, PyAny>,
+        regions: &Bound<'py, PyAny>,
+        lists: &Bound<'py, PyAny>,
+        chords: &Bound<'py, PyAny>,
+        anchors: &Bound<'py, PyAny>,
+        table: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: &Tables<'py>,
+        forced: Option<Forced>,
+    ) -> PyResult<Answer<'py>> {
+        let given = budget.map_or([0; 6], |(_, articles)| articles);
+        let started = Instant::now();
+        let table_native = match self.table(table) {
+            Ok(table) => table,
+            Err(Fail::Py(error)) => return Err(error),
+            Err(Fail::Unsupported(text)) => return Ok(unsupported_answer(py, &text, given)?),
+        };
+        let tables_ns = nanos(started);
+        let began = Instant::now();
+        let classes = self.classes()?;
+        let pool = &classes.pool;
+        let Ok(anchors) = anchors.cast_exact::<PyDict>() else {
+            return Ok(unsupported_answer(py, "anchors must be a dict", given)?);
+        };
+        let (frames, cycles, edges, objects) = match read_chord_inputs(classes, frame_faces, regions, lists, chords) {
+            Ok(read) => read,
+            Err(Fail::Py(error)) => return Err(error),
+            Err(Fail::Unsupported(text)) => return Ok(unsupported_answer(py, &text, given)?),
+        };
+        let sync_value = match sync {
+            Some(bytes) => Some(Reader::new(bytes, true).get_value().map_err(|error| PyValueError::new_err(format!("the memory sync is not in the wire format: {error}")))?),
+            None => None,
+        };
+        let (cap, articles) = match budget {
+            Some((cap, articles)) => (cap, Some(articles)),
+            None => (None, None),
+        };
+        let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let arguments_ns = nanos(began);
+
+        let computing = Instant::now();
+        let mut python_error: Option<PyErr> = None;
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let mut counts = SignCounts::default();
+            let mut tally = Tally::new();
+            let mut lookup = |region: u32, key: u32| -> MeshResult<Option<Value>> {
+                match anchor_of(pool, anchors, region, &objects[key as usize]) {
+                    Ok(found) => Ok(found),
+                    Err(Fail::Unsupported(text)) => Err(MeshError::Unsupported(text)),
+                    Err(Fail::Py(error)) => {
+                        python_error = Some(error);
+                        Err(MeshError::Unsupported("reading an anchor raised".to_string()))
+                    }
+                }
+            };
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
+            let mut result = chord_station_values(&mut ctx, &frames, &cycles, &edges, &mut lookup, &table_native, &mut tally).map(|stations| {
+                stations.slots.iter().zip(stations.facts.iter()).map(|(slot, value)| (*slot, value.clone())).collect::<Vec<((u32, u32), Value)>>()
+            });
+            if let Some(knob) = forced {
+                assert!(!knob.panics(), "forced by the test knob");
+                if let Some(error) = knob.exact_error() {
+                    result = Err(MeshError::Exact(error));
+                } else if knob.clip_error().is_some() {
+                    result = Err(MeshError::Unsupported("forced by the test knob".to_string()));
+                }
+            }
+            let articles = run.budget_mut().articles();
+            (result, tally, counts, articles, session.memory.take_log())
+        }));
+        let compute_ns = nanos(computing);
+        let (result, tally, counts, articles, log) = match outcome {
+            Ok(done) => done,
+            Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.chord_stations: native panic: {}", panic_text(&panic)))),
+        };
+        if let Some(error) = python_error {
+            return Err(error);
+        }
+        let keys: Vec<cftuv_mesh::data::Key> =
+            objects.iter().map(|object| cftuv_mesh::data::Key { name: object.extract::<String>().unwrap_or_default(), first: (0, 0) }).collect();
+        let failure = match &result {
+            Ok(_) => None,
+            Err(error) => Some(error_status(py, pool, error, &keys)?),
+        };
+        if let Some((status, detail)) = &failure {
+            if is_native_only(*status) {
+                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [tables_ns, arguments_ns, compute_ns, 0, 0, 0, 0, 0]));
+            }
+        }
+        let building = Instant::now();
+        let mut tally_items = Vec::new();
+        for (name, value) in tally.items() {
+            tally_items.push(PyTuple::new(py, [PyString::new(py, name).into_any(), int_from_ibig(py, pool, &IBig::from(value))?])?);
+        }
+        let tally_items = PyTuple::new(py, tally_items)?.into_any();
+        let (built, status, detail) = match (&result, failure) {
+            (Ok(facts), _) => {
+                let found = PyDict::new(py);
+                let mut cache: HashMap<usize, Bound<'py, PyAny>, FxBuild> = HashMap::default();
+                for ((region, key), value) in facts {
+                    let slot = PyTuple::new(py, [int_from_ibig(py, pool, &IBig::from(u64::from(*region)))?, objects[*key as usize].clone()])?;
+                    let address = Rc::as_ptr(value) as usize;
+                    let pair = match cache.get(&address) {
+                        Some(pair) => pair.clone(),
+                        None => {
+                            let pair = PyTuple::new(py, [sqrt_sum_to_py(py, pool, &value.0)?, sqrt_sum_to_py(py, pool, &value.1)?])?.into_any();
+                            cache.insert(address, pair.clone());
+                            pair
+                        }
+                    };
+                    found.set_item(slot, pair)?;
+                }
+                (Some(PyTuple::new(py, [found.into_any(), tally_items])?.into_any()), 0, None)
+            }
+            (Err(_), Some((status, detail))) => (Some(PyTuple::new(py, [py.None().into_bound(py), tally_items])?.into_any()), status, detail),
+            (Err(_), None) => return Err(PyRuntimeError::new_err("cftuv_native: refused stations without an outcome code")),
+        };
+        let building_ns = nanos(building);
+        let applying = Instant::now();
+        let changed = apply_log(py, pool, &classes.insort, tables, log)?;
+        let log_ns = nanos(applying);
+        Ok((built, status, detail, counts.as_array(), articles, changed, [tables_ns, arguments_ns, compute_ns, building_ns, log_ns, 0, 0, 0]))
+    }
+}
+
+// --------------------------------------------------------------------------
+// the clip stage around the clip (CLIP_STAGE_NATIVE_V1): the seam edges and the triangles of the emitted pieces
+// --------------------------------------------------------------------------
+
+/// One emitted polygon of `piece_triangles`: a triangle as it is, or a contour to ear-clip (its points by number in the converted table).
+enum Emitted<'py> {
+    Triangle(Vec<Bound<'py, PyAny>>),
+    Contour(Vec<Bound<'py, PyAny>>, Vec<usize>),
+}
+
+fn polygon_keys<'py>(polygon: &Bound<'py, PyAny>) -> Read<Vec<Bound<'py, PyAny>>> {
+    if let Ok(tuple) = polygon.cast_exact::<PyTuple>() {
+        return Ok(tuple.iter().collect());
+    }
+    if let Ok(list) = polygon.cast_exact::<PyList>() {
+        return Ok(list.iter().collect());
+    }
+    unsupported("an emitted polygon must be a tuple or a list of keys")
+}
+
+impl Host {
+    /// `clip.piece_triangles(polygons, points, budget)`: the triangles (keys) of the emitted pieces, a triangle as it is and every other polygon by the exact ear
+    /// triangulation of its chart points. The answer is the exact-mesh answer with the list of key triples as the result; a polygon without a triangulation is
+    /// status 11 with `("no_piece_triangulation", vertices)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn piece_triangles<'py>(
+        &mut self,
+        py: Python<'py>,
+        session: &mut Session,
+        polygons: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: &Tables<'py>,
+        forced: Option<Forced>,
+    ) -> PyResult<Answer<'py>> {
+        let given = budget.map_or([0; 6], |(_, articles)| articles);
+        let started = Instant::now();
+        let classes = self.classes()?;
+        let pool = &classes.pool;
+        let read = (|| -> Read<(Vec<Emitted<'py>>, Vec<Point>)> {
+            let Ok(faces) = polygons.cast_exact::<PyList>() else {
+                return unsupported("polygons must be a list");
+            };
+            let Ok(points) = points.cast_exact::<PyDict>() else {
+                return unsupported("points must be a dict");
+            };
+            let mut index: HashMap<String, usize, FxBuild> = HashMap::default();
+            let mut table: Vec<Point> = Vec::new();
+            let mut emitted = Vec::new();
+            for face in faces.iter() {
+                for polygon in face.try_iter()? {
+                    let keys = polygon_keys(&polygon?)?;
+                    if keys.len() == 3 {
+                        emitted.push(Emitted::Triangle(keys));
+                        continue;
+                    }
+                    let mut numbers = Vec::with_capacity(keys.len());
+                    for key in &keys {
+                        let name = text_of(key, "a piece key")?;
+                        let number = match index.get(&name) {
+                            Some(found) => *found,
+                            None => {
+                                let Some(point) = points.get_item(key)? else {
+                                    return unsupported("a piece key without a point (KeyError in the oracle)");
+                                };
+                                table.push(point_of(pool, &point)?);
+                                index.insert(name, table.len() - 1);
+                                table.len() - 1
+                            }
+                        };
+                        numbers.push(number);
+                    }
+                    emitted.push(Emitted::Contour(keys, numbers));
+                }
+            }
+            Ok((emitted, table))
+        })();
+        let (emitted, table) = match read {
+            Ok(read) => read,
+            Err(Fail::Py(error)) => return Err(error),
+            Err(Fail::Unsupported(text)) => return Ok(unsupported_answer(py, &text, given)?),
+        };
+        let sync_value = match sync {
+            Some(bytes) => Some(Reader::new(bytes, true).get_value().map_err(|error| PyValueError::new_err(format!("the memory sync is not in the wire format: {error}")))?),
+            None => None,
+        };
+        let (cap, articles) = match budget {
+            Some((cap, articles)) => (cap, Some(articles)),
+            None => (None, None),
+        };
+        let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let arguments_ns = nanos(started);
+        let computing = Instant::now();
+        // per contour: its ears, or the number of its vertices when it has none (the oracle's refusal, after which nothing is asked)
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let mut counts = SignCounts::default();
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
+            let mut ears: Vec<Vec<[usize; 3]>> = Vec::new();
+            let mut result: Result<Option<usize>, MeshError> = Ok(None);
+            for item in &emitted {
+                let Emitted::Contour(_, numbers) = item else { continue };
+                let contour: Vec<Pt> = numbers.iter().map(|number| (&table[*number].0, &table[*number].1)).collect();
+                match cftuv_clip::tessellate::triangulate_exact(&mut ctx, &contour) {
+                    Ok(Some(found)) => ears.push(found),
+                    Ok(None) => {
+                        result = Ok(Some(numbers.len()));
+                        break;
+                    }
+                    Err(error) => {
+                        result = Err(MeshError::from(error));
+                        break;
+                    }
+                }
+            }
+            if let Some(knob) = forced {
+                assert!(!knob.panics(), "forced by the test knob");
+                if let Some(error) = knob.exact_error() {
+                    result = Err(MeshError::Exact(error));
+                } else if knob.clip_error().is_some() {
+                    result = Err(MeshError::Unsupported("forced by the test knob".to_string()));
+                }
+            }
+            let articles = run.budget_mut().articles();
+            (result, ears, counts, articles, session.memory.take_log())
+        }));
+        let compute_ns = nanos(computing);
+        let (result, ears, counts, articles, log) = match outcome {
+            Ok(done) => done,
+            Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.piece_triangles: native panic: {}", panic_text(&panic)))),
+        };
+        let classes = self.classes()?;
+        let pool = &classes.pool;
+        let (built, status, detail) = match &result {
+            Ok(None) => {
+                let mut found = Vec::new();
+                let mut contours = ears.iter();
+                for item in &emitted {
+                    match item {
+                        Emitted::Triangle(keys) => found.push(PyTuple::new(py, keys)?),
+                        Emitted::Contour(keys, _) => {
+                            for [a, b, c] in contours.next().expect("one answer per contour") {
+                                found.push(PyTuple::new(py, [&keys[*a], &keys[*b], &keys[*c]])?);
+                            }
+                        }
+                    }
+                }
+                (Some(PyList::new(py, found)?.into_any()), 0, None)
+            }
+            Ok(Some(vertices)) => {
+                let detail = PyTuple::new(py, [PyString::new(py, "no_piece_triangulation").into_any(), int_from_ibig(py, pool, &IBig::from(*vertices as u64))?])?;
+                (None, STATUS_REFUSAL, Some(detail))
+            }
+            Err(error) => {
+                let (status, detail) = error_status(py, pool, error, &[])?;
+                if is_native_only(status) {
+                    return Ok((None, status, detail, [0; 5], given, 0, [0, arguments_ns, compute_ns, 0, 0, 0, 0, 0]));
+                }
+                (None, status, detail)
+            }
+        };
+        let applying = Instant::now();
+        let changed = apply_log(py, pool, &classes.insort, tables, log)?;
+        let log_ns = nanos(applying);
+        Ok((built, status, detail, counts.as_array(), articles, changed, [0, arguments_ns, compute_ns, 0, log_ns, 0, 0, 0]))
+    }
+
+    /// `clip.seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)` with `regions[i]` the layout region of face `i`: the frozenset of the key pairs of the
+    /// boundary edges of the polygons that are not a front (`edge_kind` not `RIM`), built as the oracle builds it (`frozenset` of a set filled in its order), or
+    /// `None` when the port declines (a missing fact, a class it does not carry).
+    pub fn seam_edges<'py>(&self, py: Python<'py>, polygons: &Bound<'py, PyAny>, regions: &Bound<'py, PyAny>, facts: &Bound<'py, PyAny>, lattice_alpha: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let pool = &self.classes()?.pool;
+        let found = (|| -> Read<Bound<'py, PyAny>> {
+            let Ok(faces) = polygons.cast_exact::<PyList>() else {
+                return unsupported("polygons must be a list");
+            };
+            let Ok(regions) = regions.cast_exact::<PyList>() else {
+                return unsupported("regions must be a list");
+            };
+            let Ok(facts) = facts.cast_exact::<PyDict>() else {
+                return unsupported("facts must be a dict");
+            };
+            let front = SqrtSum::rational(&rat_of(pool, lattice_alpha, "lattice_alpha")?);
+            // `count` and `owner` by the unordered pair of key numbers, in the order of first insertion
+            let mut numbers: HashMap<String, u32, FxBuild> = HashMap::default();
+            let mut objects: Vec<Bound<'py, PyAny>> = Vec::new();
+            let mut slots: HashMap<(u32, u32), usize, FxBuild> = HashMap::default();
+            let mut pairs: Vec<((u32, u32), u32, usize)> = Vec::new();
+            // (first oriented edge, count, owner): the pair object of the oracle is the frozenset of the first edge met
+            for (index, face) in faces.iter().enumerate() {
+                for polygon in face.try_iter()? {
+                    let keys = polygon_keys(&polygon?)?;
+                    let mut ids = Vec::with_capacity(keys.len());
+                    for key in &keys {
+                        let name = text_of(key, "a polygon key")?;
+                        let id = match numbers.get(&name) {
+                            Some(id) => *id,
+                            None => {
+                                let id = objects.len() as u32;
+                                numbers.insert(name, id);
+                                objects.push(key.clone());
+                                id
+                            }
+                        };
+                        ids.push(id);
+                    }
+                    for position in 0..ids.len() {
+                        let (a, b) = (ids[position], ids[(position + 1) % ids.len()]);
+                        let pair = (a.min(b), a.max(b));
+                        match slots.get(&pair) {
+                            Some(at) => {
+                                pairs[*at].1 += 1;
+                                pairs[*at].2 = index;
+                            }
+                            None => {
+                                slots.insert(pair, pairs.len());
+                                pairs.push(((a, b), 1, index));
+                            }
+                        }
+                    }
+                }
+            }
+            let r_of = |region: &Bound<'py, PyAny>, key: &Bound<'py, PyAny>| -> Read<SqrtSum> {
+                let slot = PyTuple::new(py, [region.clone(), key.clone()])?;
+                let Some(fact) = facts.get_item(slot)? else {
+                    return unsupported("a vertex of a boundary edge without a fact (KeyError in the oracle)");
+                };
+                let Ok(fact) = fact.cast_exact::<PyTuple>() else {
+                    return unsupported("a fact must be a tuple (s, r)");
+                };
+                if fact.len() != 2 {
+                    return unsupported("a fact must be a tuple (s, r)");
+                }
+                Ok(sum_of(pool, &fact.get_item(1)?, "the r of a fact")?)
+            };
+            let found = PySet::empty(py)?;
+            for ((a, b), number, owner) in &pairs {
+                if *number != 1 || a == b {
+                    continue;
+                }
+                let region = regions.get_item(*owner)?;
+                let (first, second) = (&objects[*a as usize], &objects[*b as usize]);
+                let (ra, rb) = (r_of(&region, first)?, r_of(&region, second)?);
+                // `edge_kind`: SOURCE (r = 0 at both ends) and WALL are seams, RIM (r = alpha at both ends) is not
+                let rim = !(ra.is_zero() && rb.is_zero()) && ra.sub(&front).is_zero() && rb.sub(&front).is_zero();
+                if !rim {
+                    found.add(PyFrozenSet::new(py, [first, second])?)?;
+                }
+            }
+            Ok(py.get_type::<PyFrozenSet>().call1((found,))?)
+        })();
+        match found {
+            Ok(found) => Ok(Some(found)),
+            Err(Fail::Unsupported(_)) => Ok(None),
+            Err(Fail::Py(error)) => Err(error),
+        }
     }
 }
 

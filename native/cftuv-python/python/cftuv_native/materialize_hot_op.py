@@ -20,6 +20,10 @@ every input it does not carry; the dispatcher then runs the oracle on the same s
   key; every refusal of the oracle is declined (no budget, no memory).
 * `instantiate(mirror, template, partition, alpha, work_budget)`: `coverage_template.instantiate` (MATERIALIZE_INSTANTIATE_NATIVE_V1), the coverage of a width step from
   its template; the checks and the recorded price stay here (the price last, as the oracle pays it), the template is converted once per template and partition.
+* `side_inputs(mirror, ...)` and `clip_slope_values(mirror, ...)`: `parametric._side_inputs` and `parametric._clip_slope_values` (SIDE_CUT_NATIVE_V1), the points, contours
+  and facts of a side cut of the drag certificate and the slopes of the clip by the exact second differences of three cuts (no budget, no memory).
+* `clip_memo_key(mirror, inputs, triangles, policy)`: `clip_memo.clip_key` (CLIP_MEMO_KEY_NATIVE_V1), the key of the clip memory: the same canonical record in one walk and
+  its sha256; a value the record does not know is declined (the oracle raises `ClipKeyUnsupported`).
 
 What the shim reads LIVE: the chord budget (`silhouette.CHORD_BUDGET`), the copy mark of a cut vertex (`audit.CUT_RIGHT_COPY_MARK`), the classes the result is built from.
 
@@ -73,6 +77,15 @@ SHAPE_FUNCTIONS = (
     ("materialize/parametric.py", "_leaves_edge", "acec677466c6d2118eb6717340894bdc577d8709513d3a46f1137610e0f7c26b"),
     ("materialize/parametric.py", "_edge_slope", "f4e0c47d0e77b3d0de7dd7e286176c4e8e2635b6f0cbca59b64e78ff8da26cd9"),
     ("materialize/parametric.py", "_float", "abc9aec9ec1dd0eaffeb28d2a35cd0071154b3abbd4774cb26b7ab48f105bb03"),
+    # `side_cut.rs` (SIDE_CUT_NATIVE_V1): the inputs of a side cut of the drag certificate and the slopes by the second differences of three cuts
+    ("materialize/parametric.py", "_side_inputs", "d4eb39bc2c4f25b4644df50d0d2b3dfcdb809de08e54b37384c3c8e15abebde1"),
+    ("materialize/parametric.py", "_shifted", "bdfdfa36b0ef692eeb3603fde1c27087c7516095c899d6cadb6d337ceb33a43f"),
+    ("materialize/parametric.py", "_nonzero", "909b4d4dd820499ea94615e15057f5e2511577a76b1304a678f4f68aa89be7cd"),
+    ("materialize/parametric.py", "_clip_slope_values", "afa6a31a0b6bbfdcd44f77073762c3e1b397111b3b4d0d9382e65973915b0f73"),
+    ("materialize/parametric.py", "_second_difference_slope", "35f4028876adcf1fe5893070031868dd9ceac156d66804042292e735c19d78d2"),
+    # `memo_key.rs` (CLIP_MEMO_KEY_NATIVE_V1): the canonical record of the arguments of the clip stage and its sha256
+    ("materialize/clip_memo.py", "_encode", "6cd672b25eb43d40bd99adfb7ddfdb4b8663c56140bcb32cbfb9f1592103cd61"),
+    ("materialize/clip_memo.py", "clip_key", "8a0f14000dad1c0d924f5b1c431959814cdfe2524ec2d34474d4a1f4cf01f021"),
 )
 
 #: The classes `assemble_batch` builds, in the order of `assemble_hot.rs` `CLASS_NAMES`: `(module, name)`.
@@ -203,6 +216,7 @@ def bind(mirror) -> None:
         mirror._session.bind_hot(exact.SqrtSumV1, Fraction, point)
         mirror._session.bind_assemble(table, decimal.Decimal, _metric_default())
         mirror._session.bind_canonical(ids.OpaqueId, enum.Enum, decimal.Decimal, _record_plan)
+        mirror._session.bind_memo_key(Fraction, enum.Enum, _field_names)
     except TypeError as error:
         if "raw slot access was forced" in str(error):
             raise
@@ -216,6 +230,51 @@ def _record_plan(kind):
     from cftuv_envelope.schema import is_wire_default_field
 
     return tuple((item.name, is_wire_default_field(item), item.default if is_wire_default_field(item) else None) for item in dataclasses.fields(kind))
+
+
+def _field_names(kind):
+    """The names of `dataclasses.fields(kind)` in their order (what `clip_memo._encode` reads of a dataclass)."""
+
+    return tuple(item.name for item in dataclasses.fields(kind))
+
+
+def side_inputs(mirror, points_before, cycles_before, facts_before, key_slope, fact_slope, shift):
+    """`parametric._side_inputs(...)` (`side_cut.rs`, SIDE_CUT_NATIVE_V1): the points, contours and facts of a side cut of the drag certificate."""
+
+    _begin(mirror)
+    found = mirror._session.side_inputs(points_before, cycles_before, facts_before, key_slope, fact_slope, shift)
+    if found is None:
+        raise pin.NativePortUnsupported("side_inputs: an input the port does not carry")
+    return tuple(found)
+
+
+def clip_slope_values(mirror, cut, up, down, facts_before, facts_after, facts_up, facts_down, delta):
+    """`parametric._clip_slope_values(...)` (`side_cut.rs`, SIDE_CUT_NATIVE_V1): the slopes of the clip nodes and of the facts the clip added; a second difference
+    that is not exactly zero is the oracle's `ParametricRefusal` with its name."""
+
+    _begin(mirror)
+    found = mirror._session.clip_slope_values(cut.points, up.points, down.points, cut.snapped, up.snapped, down.snapped, facts_before, facts_after, facts_up, facts_down, delta)
+    if found is None:
+        raise pin.NativePortUnsupported("clip_slope_values: an input the port does not carry")
+    status, point_slopes, fact_slopes = found
+    if status:
+        from cftuv_envelope.materialize import parametric
+
+        raise parametric.ParametricRefusal(parametric.PARAM_CLIP_NODE if status == 1 else parametric.PARAM_CLIP_FACT)
+    return point_slopes, fact_slopes
+
+
+def clip_memo_key(mirror, inputs, triangles, policy):
+    """`clip_memo.clip_key(inputs, triangles, policy)` (`memo_key.rs`, CLIP_MEMO_KEY_NATIVE_V1): the same hexdigest, or `NativePortUnsupported` for a value the port does not walk
+    (the oracle then raises `ClipKeyUnsupported` as it does). The prefix (the schema and the code identity of the kernel) is the oracle's own."""
+
+    _begin(mirror)
+    from cftuv_envelope.materialize import clip_memo
+
+    done, found = mirror._session.clip_memo_key(f"{clip_memo.CLIP_MEMO_SCHEMA};{clip_memo.kernel_code_identity()};", policy, tuple(triangles), inputs)
+    if not done:
+        raise pin.NativePortUnsupported(f"clip_memo_key: {found}")
+    return found
 
 
 def canonical_json_bytes(mirror, value):

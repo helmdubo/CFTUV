@@ -50,6 +50,7 @@ from enum import Enum
 from fractions import Fraction
 from pathlib import Path
 
+from .. import backend
 from ..exact_sqrt_sum import (
     factorization_memory_delta,
     factorization_memory_marker,
@@ -264,7 +265,7 @@ def run_clip(compute, plane, budget, policy, **inputs):
     if not memo.enabled:
         return compute(plane, budget, **inputs), OFF
     try:
-        key = clip_key(inputs, plane.triangles, policy)
+        key = backend.clip_key_compute(clip_key, inputs, plane.triangles, policy)
     except (ClipKeyUnsupported, AttributeError):
         memo.bypassed += 1
         return compute(plane, budget, **inputs), BYPASS

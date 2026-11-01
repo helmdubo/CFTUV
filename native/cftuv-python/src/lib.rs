@@ -19,10 +19,12 @@ mod canonical_json;
 mod materialize_hot;
 mod materialize_w1;
 mod memlog;
+mod memo_key;
 mod mesh_assembly;
 mod pyobj;
 mod radical_v2;
 mod refusal;
+mod side_cut;
 mod skeleton;
 mod skeleton_seams;
 mod snapshot_check;
@@ -129,6 +131,8 @@ struct Session {
     hot: materialize_hot::Host,
     /// `codec.canonical_json_bytes` (`canonical_json.rs`): the bound classes and the kind of every class met.
     canonical: canonical_json::Host,
+    /// `clip_memo.clip_key` (`memo_key.rs`): the bound classes and the kind of every class met.
+    memo_key: memo_key::Host,
 }
 
 #[pymethods]
@@ -141,7 +145,7 @@ impl Session {
             Some(text) => pyobj::SlotMode::parse(text).map_err(|why| pyobj::refuse(format!("Session(slots=...): {why}")))?,
             None => pyobj::process_mode(),
         };
-        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default(), canonical: canonical_json::Host::default() })
+        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots, w1: materialize_w1::Host::default(), hot: materialize_hot::Host::default(), canonical: canonical_json::Host::default(), memo_key: memo_key::Host::default() })
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -397,6 +401,53 @@ impl Session {
         outcome
     }
 
+    /// `mesh.station_values` of the clip stage (`clip.cut_domain`: the new vertices with `chords` and `anchors`): the answer of `w1_exact_mesh` with
+    /// `(facts or None, tally items)` as the result.
+    #[allow(clippy::too_many_arguments)]
+    fn w1_chord_stations<'py>(
+        &mut self,
+        py: Python<'py>,
+        frame_faces: &Bound<'py, PyAny>,
+        regions: &Bound<'py, PyAny>,
+        lists: &Bound<'py, PyAny>,
+        chords: &Bound<'py, PyAny>,
+        anchors: &Bound<'py, PyAny>,
+        table: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_w1::Answer<'py>> {
+        let forced = self.forced.take();
+        let outcome = self.w1.chord_stations(py, &mut self.inner, frame_faces, regions, lists, chords, anchors, table, sync, budget, &tables, forced);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// `clip.piece_triangles(polygons, points, budget)` (CLIP_STAGE_NATIVE_V1): the answer of `w1_exact_mesh` with the list of key triples as the result.
+    fn w1_piece_triangles<'py>(
+        &mut self,
+        py: Python<'py>,
+        polygons: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<materialize_w1::Answer<'py>> {
+        let forced = self.forced.take();
+        let outcome = self.w1.piece_triangles(py, &mut self.inner, polygons, points, sync, budget, &tables, forced);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// `clip.seam_edges` (CLIP_STAGE_NATIVE_V1) with the layout region of every face: the oracle's frozenset, or `None` (declined).
+    fn w1_seam_edges<'py>(&self, py: Python<'py>, polygons: &Bound<'py, PyAny>, regions: &Bound<'py, PyAny>, facts: &Bound<'py, PyAny>, lattice_alpha: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.w1.seam_edges(py, polygons, regions, facts, lattice_alpha)
+    }
+
     /// Test-only seam of the tessellation of ONE contour (`kind` 0: `mesh._contour_polygons`, 1: `mesh._fan_faces`): the same answer as `w1_exact_mesh` with `(polygons, tally items)` as the result.
     #[allow(clippy::too_many_arguments)]
     fn w1_seam<'py>(
@@ -519,6 +570,52 @@ impl Session {
     /// `codec.canonical_json_bytes(value)` under a Decimal context of `precision` digits: `(True, bytes)` or `(False, why the port declined)`.
     fn canonical_json<'py>(&mut self, py: Python<'py>, value: &Bound<'py, PyAny>, precision: usize) -> PyResult<(bool, Bound<'py, PyAny>)> {
         self.canonical.encode(py, value, precision)
+    }
+
+    /// `parametric._side_inputs` (`side_cut.rs`, SIDE_CUT_NATIVE_V1): `(points, cycles, facts)` of a side cut of the drag certificate, or `None` (declined).
+    #[allow(clippy::too_many_arguments)]
+    fn side_inputs<'py>(
+        &self,
+        py: Python<'py>,
+        points_before: &Bound<'py, PyAny>,
+        cycles_before: &Bound<'py, PyAny>,
+        facts_before: &Bound<'py, PyAny>,
+        key_slope: &Bound<'py, PyAny>,
+        fact_slope: &Bound<'py, PyAny>,
+        shift: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyTuple>>> {
+        self.hot.side_inputs(py, points_before, cycles_before, facts_before, key_slope, fact_slope, shift)
+    }
+
+    /// `parametric._clip_slope_values` (`side_cut.rs`, SIDE_CUT_NATIVE_V1) on the `points` and `snapped` of the three cuts: `(status, point_slopes, fact_slopes)`, or
+    /// `None` (declined); status 1 and 2 are the oracle's refusals `PARAM_CLIP_NODE` and `PARAM_CLIP_FACT`.
+    #[allow(clippy::too_many_arguments)]
+    fn clip_slope_values<'py>(
+        &self,
+        py: Python<'py>,
+        cut_points: &Bound<'py, PyAny>,
+        up_points: &Bound<'py, PyAny>,
+        down_points: &Bound<'py, PyAny>,
+        cut_snapped: &Bound<'py, PyAny>,
+        up_snapped: &Bound<'py, PyAny>,
+        down_snapped: &Bound<'py, PyAny>,
+        facts_before: &Bound<'py, PyAny>,
+        facts_after: &Bound<'py, PyAny>,
+        facts_up: &Bound<'py, PyAny>,
+        facts_down: &Bound<'py, PyAny>,
+        delta: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<side_cut::Slopes<'py>>> {
+        self.hot.clip_slope_values(py, [cut_points, up_points, down_points, cut_snapped, up_snapped, down_snapped], facts_before, facts_after, facts_up, facts_down, delta)
+    }
+
+    /// Binds `fractions.Fraction`, `enum.Enum` and the shim's function of the field names of a dataclass (`memo_key.rs`).
+    fn bind_memo_key(&mut self, py: Python<'_>, fraction: &Bound<'_, pyo3::types::PyType>, enumeration: &Bound<'_, pyo3::types::PyType>, fields: &Bound<'_, PyAny>) {
+        self.memo_key.bind(py, fraction, enumeration, fields)
+    }
+
+    /// `clip_memo.clip_key`: `(True, hexdigest)` of `prefix` and the records of `policy`, `triangles` and every argument in `inputs`, or `(False, why the port declined)`.
+    fn clip_memo_key<'py>(&mut self, py: Python<'py>, prefix: &str, policy: &Bound<'py, PyAny>, triangles: &Bound<'py, PyAny>, inputs: &Bound<'py, pyo3::types::PyDict>) -> PyResult<(bool, Bound<'py, PyAny>)> {
+        self.memo_key.key(py, prefix, policy, triangles, inputs)
     }
 
     /// Hands the class table of the ASSEMBLE entry point over (`(name, class, field names)` rows, `decimal.Decimal`, the default metric space of `LocalCoordinateV1`).

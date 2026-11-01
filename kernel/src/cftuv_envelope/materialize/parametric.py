@@ -644,16 +644,23 @@ def _shifted(point, slope, delta: Fraction):
     return point if slope is None else (point[0] + slope[0].scaled(delta), point[1] + slope[1].scaled(delta))
 
 
-def _side_cut(inputs, delta: Fraction, key_slope, fact_slope_of):
+def _side_inputs(points_before, cycles_before, facts_before, key_slope, fact_slope, shift: Fraction):
+    """`(точки, контуры, факты)` стадии резки при alpha решётки, сдвинутой на `shift` (единицы решётки): точки и факты до резки по их наклонам."""
+
+    points = {key: _shifted(point, key_slope.get(key), shift) for key, point in points_before.items()}
+    cycles = [[(key, points[key]) for key, _point in cycle] for cycle in cycles_before]
+    facts = {}
+    for slot, (s, r) in facts_before.items():
+        slope = _nonzero(fact_slope.get(slot))
+        facts[slot] = (s, r) if slope is None else (s + slope[0].scaled(shift), r + slope[1].scaled(shift))
+    return points, cycles, facts
+
+
+def _side_cut(inputs, delta: Fraction, key_slope, fact_slope):
     """`(резка, факты)` при alpha решётки, сдвинутой на `delta` (метры): стадия резки по сдвинутым точкам и фактам, мимо памяти резки."""
 
     shift = delta * inputs.scale
-    points = {key: _shifted(point, key_slope.get(key), shift) for key, point in inputs.points_before.items()}
-    cycles = [[(key, points[key]) for key, _point in cycle] for cycle in inputs.cycles]
-    facts = {}
-    for slot, (s, r) in inputs.facts_before.items():
-        slope = fact_slope_of(slot)
-        facts[slot] = (s, r) if slope is None else (s + slope[0].scaled(shift), r + slope[1].scaled(shift))
+    points, cycles, facts = backend.side_inputs_compute(_side_inputs, inputs.points_before, inputs.cycles, inputs.facts_before, key_slope, fact_slope, shift)
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
     with _SIDE_CUT_LOCK, clip_memo_disabled():
         clipped = cut_domain(
@@ -684,7 +691,33 @@ def _second_difference_slope(low, middle, high, delta_lattice: Fraction, name: s
     return up.scaled(1 / delta_lattice)
 
 
-def _clip_slopes(inputs, interval, key_slope, fact_slope_of):
+def _clip_slope_values(cut, up, down, facts_before, facts_after, facts_up, facts_down, delta: Fraction):
+    """`(наклоны точек узлов резки, наклоны фактов, дописанных резкой)` по трём резкам (`cut` и боковые `up`, `down` на `delta` единиц решётки); отказ - `ParametricRefusal`."""
+
+    point_slopes: dict = {}
+    for source, source_up, source_down in (
+        (cut.points, up.points, down.points),
+        (cut.snapped, up.snapped, down.snapped),
+    ):
+        for key, point in source.items():
+            axes = tuple(
+                _second_difference_slope(source_down[key][axis], point[axis], source_up[key][axis], delta, PARAM_CLIP_NODE)
+                for axis in range(2)
+            )
+            if axes != _ZERO_PAIR:
+                point_slopes[key] = axes
+    fact_slopes: dict = {}
+    for slot, (s, r) in facts_after.items():
+        if slot in facts_before:
+            continue
+        up_fact, down_fact = facts_up[slot], facts_down[slot]
+        fact_slopes[slot] = tuple(
+            _second_difference_slope(down_fact[axis], (s, r)[axis], up_fact[axis], delta, PARAM_CLIP_FACT) for axis in range(2)
+        )
+    return point_slopes, fact_slopes
+
+
+def _clip_slopes(inputs, interval, key_slope, fact_slope):
     """`(наклоны точек узлов резки, наклоны фактов, дописанных резкой)` по трём точным значениям стадии резки; отказ - `ParametricRefusal`."""
 
     step = _step_for(inputs.alpha, interval)
@@ -694,8 +727,8 @@ def _clip_slopes(inputs, interval, key_slope, fact_slope_of):
     last = None
     for _attempt in range(_STEP_ATTEMPTS):
         try:
-            up, facts_up = _side_cut(inputs, step, key_slope, fact_slope_of)
-            down, facts_down = _side_cut(inputs, -step, key_slope, fact_slope_of)
+            up, facts_up = _side_cut(inputs, step, key_slope, fact_slope)
+            down, facts_down = _side_cut(inputs, -step, key_slope, fact_slope)
         except MaterializationRefusal as refusal:
             last = ParametricRefusal(PARAM_CLIP_REFUSED, refusal.outcome.value)
             step /= 2
@@ -708,28 +741,9 @@ def _clip_slopes(inputs, interval, key_slope, fact_slope_of):
         break
     if last is not None:
         raise last
-    delta = step * inputs.scale
-    point_slopes: dict = {}
-    for source, source_up, source_down in (
-        (inputs.cut.points, up.points, down.points),
-        (inputs.cut.snapped, up.snapped, down.snapped),
-    ):
-        for key, point in source.items():
-            axes = tuple(
-                _second_difference_slope(source_down[key][axis], point[axis], source_up[key][axis], delta, PARAM_CLIP_NODE)
-                for axis in range(2)
-            )
-            if axes != _ZERO_PAIR:
-                point_slopes[key] = axes
-    fact_slopes: dict = {}
-    for slot, (s, r) in inputs.facts_after.items():
-        if slot in inputs.facts_before:
-            continue
-        up_fact, down_fact = facts_up[slot], facts_down[slot]
-        fact_slopes[slot] = tuple(
-            _second_difference_slope(down_fact[axis], (s, r)[axis], up_fact[axis], delta, PARAM_CLIP_FACT) for axis in range(2)
-        )
-    return point_slopes, fact_slopes
+    return backend.clip_slope_values_compute(
+        _clip_slope_values, inputs.cut, up, down, inputs.facts_before, inputs.facts_after, facts_up, facts_down, step * inputs.scale
+    )
 
 
 # --------------------------------------------------------------------------
@@ -832,7 +846,7 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
     clip_points: dict = {}
     clip_facts: dict = {}
     if inputs.cut is not None:
-        clip_points, clip_facts = _clip_slopes(inputs, interval, key_slope, lambda slot: _nonzero(fact_slope.get(slot)))
+        clip_points, clip_facts = _clip_slopes(inputs, interval, key_slope, fact_slope)
 
     def point_slope(key):
         found = clip_points.get(key)

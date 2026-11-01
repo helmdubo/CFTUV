@@ -741,7 +741,7 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
         plane,
         positions,
         [triangle for face in canonical for triangle in face]
-        + ([] if cut is None else piece_triangles(cut.polygons, points, budget)),
+        + ([] if cut is None else backend.piece_triangles_compute(piece_triangles, cut.polygons, points, budget)),
         host_positions_of(prepared.context.snapshot),
         source_step_of(prepared.context.frame),
         polygons if cut is None else cut.polygons,
