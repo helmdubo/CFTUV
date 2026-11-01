@@ -76,6 +76,8 @@ lean-тактом, а подтверждение всегда COMMIT; сверк
 
 from __future__ import annotations
 
+import threading
+
 from dataclasses import dataclass, field, replace
 
 from .envelope_alpha_preview import (
@@ -132,6 +134,8 @@ LEAN_DRAG_ENDED = "WIDTH_REFRESH_LEAN_DRAG_ENDED"
 #: Классы обновления, которые заказывает перетаскивание (не зафиксированный ответ): их применяет `_apply_lean`. Инкрементальный (WIDTH_REFRESH_INCREMENTAL_V1) - заказ lean-такта, который политика сверки
 #: (`envelope_width_incremental.verification_reason`) сама делает полным, когда сверка пора; в обоих случаях результат - lean-такт, а полный ответ даёт подтверждение.
 DRAG_GRADES = (REFRESH_LEAN, REFRESH_INCREMENTAL)
+#: LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: прогон и хвост такта - один за раз: такт, стартовавший мимо вытесненного, ждёт его конца здесь.
+_TICK_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -804,44 +808,46 @@ def _begin(controller, request):
     @gc_paused_function  # GC_PAUSED_DURING_WIDTH_TICK_V1: пауза сборщика стоит ровно на счёте тика (поток живёт секунды), а не на простое между тиками; сборщик общий на процесс
     def compute(cancel):
         plan = plan_tick(grade, displayed, previous, state, alpha, stream)  # WIDTH_REFRESH_INCREMENTAL_V1: какие домены обслужит сертификат (`None` - тик не инкрементальный)
-        try:
-            run = run_production(
-                controller,
-                bundle,
-                selected,
-                alpha,
-                source_object_key=object_key,
-                source_data_key=data_key,
-                density=density,
-                developable_stretch_budget=budget,
-                silhouette_uv_slide=slide,
-                domain_pool=pool,
-                cancel=cancel,
-                quiesce=False,
-                kernel_backend=kernel_backend,
-                skeleton_backend=skeleton_backend,
-                embedding_backend=embedding_backend,
-                density_backend=density_backend,
+        # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: планировщик не ждёт вытесненный такт - прогон и хвост ждут его здесь (один счёт за раз), без захода главного потока.
+        with _TICK_LOCK:
+            try:
+                run = run_production(
+                    controller,
+                    bundle,
+                    selected,
+                    alpha,
+                    source_object_key=object_key,
+                    source_data_key=data_key,
+                    density=density,
+                    developable_stretch_budget=budget,
+                    silhouette_uv_slide=slide,
+                    domain_pool=pool,
+                    cancel=cancel,
+                    quiesce=False,
+                    kernel_backend=kernel_backend,
+                    skeleton_backend=skeleton_backend,
+                    embedding_backend=embedding_backend,
+                    density_backend=density_backend,
+                    lean=lean,
+                    skipped=None if plan is None else plan.served,
+                )
+            except ProductionCancelled as exc:
+                raise PreviewCancelled(str(exc)) from exc
+            # LIVE_DRAG_STALE_TICK_PREEMPTED_V1: отмена (такт вытеснен шагом руки другой ширины) пришла, пока пул дочитывал ушедшие задачи - хвост сборки (образец, раскладка группы, модель)
+            # ради выброшенного результата не считается.
+            if cancel is not None and cancel.is_set():
+                raise PreviewCancelled("PRODUCTION_CANCELLED: the order was superseded after the pool")
+            return finish_live_run(
+                run,
+                alpha=alpha,
+                offset=offset,
+                key=key,
+                displayed=displayed,
+                previous=previous,
+                trust=trust,
                 lean=lean,
-                skipped=None if plan is None else plan.served,
+                plan=plan,
             )
-        except ProductionCancelled as exc:
-            raise PreviewCancelled(str(exc)) from exc
-        # LIVE_DRAG_STALE_TICK_PREEMPTED_V1: отмена (такт вытеснен шагом руки другой ширины) пришла, пока пул дочитывал ушедшие задачи - хвост сборки (образец, раскладка группы, модель)
-        # ради выброшенного результата не считается.
-        if cancel is not None and cancel.is_set():
-            raise PreviewCancelled("PRODUCTION_CANCELLED: the order was superseded after the pool")
-        return finish_live_run(
-            run,
-            alpha=alpha,
-            offset=offset,
-            key=key,
-            displayed=displayed,
-            previous=previous,
-            trust=trust,
-            lean=lean,
-            plan=plan,
-        )
 
     return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None))
 
@@ -995,6 +1001,7 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             settle=lambda request, now: settle_hold(controller.width_live_drag, request, now, drag_active=controller.width_drag_active),
             defer=lambda request, live: settle_defer(controller.width_live_drag, request, same_layout_of(controller.width_displayed, live.sample)),
             preempt=lambda running, waiting, now: preempt_stale(controller.width_live_drag, running, waiting, now, drag_active=controller.width_drag_active),
+            start_past_preempted=True,
         )
         controller.width_live = scheduler
     return scheduler

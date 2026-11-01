@@ -43,7 +43,8 @@
 - оседание (LIVE_DRAG_SETTLE_ON_PAUSE_V1, `settle`): готовый потоковый результат, который `settle(заказ, сейчас)` держит (рука движется), ждёт в `settling`
   и применяется на первом шаге, где `settle` его отпустил; более новый результат заменяет ждавший (`stale`), снятие (`supersede`, `retire_stream`) его выбрасывает;
 - вытеснение (LIVE_DRAG_STALE_TICK_PREEMPTED_V1, `preempt`): ждущее потоковое значение, для которого `preempt(в полёте, ждущее, сейчас)` сказал «полёт не ляжет», отменяет полёт кооперативно
-  (пул дочитывает ушедшие задачи, новых не берёт); вернувшийся полёт - отменой или значением - выброшен (`stale`) и назван (`preempted`), следующий стартует последним значением.
+  (пул дочитывает ушедшие задачи, новых не берёт); вернувшийся полёт - отменой или значением - выброшен (`stale`) и назван (`preempted`), следующий стартует последним значением;
+  с `start_past_preempted` (LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1) следующий стартует тем же шагом, а вытесненный дожидается в `_draining` (один счёт в пуле держит `begin`).
 
 ОТМЕНА ПЕРЕД ТЯЖЁЛЫМ СИНХРОННЫМ ПУТЁМ. Кнопки считают на главном потоке на тех же
 подготовках (их память растёт от покрытий), поэтому `quiesce` останавливает полёт и
@@ -248,8 +249,13 @@ class AlphaPreviewScheduler:
         settle: Callable[[PreviewRequestV1, float], bool] | None = None,
         defer: Callable[[PreviewRequestV1, object], bool] | None = None,
         preempt: Callable[[PreviewRequestV1, PreviewRequestV1, float], bool] | None = None,
+        start_past_preempted: bool = False,
     ) -> None:
         self._label = label
+        #: LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: вытесненный полёт не ждут - он уходит в `_draining` (его возврат выброшен и назван `preempted`), а ждущий стартует тем же шагом;
+        #: что новый счёт не летит в пул вместе с вытесненным, держит `begin` (его поток ждёт конца вытесненного), а не планировщик. `False` - ждущий стартует после возврата полёта.
+        self._start_past_preempted = bool(start_past_preempted)
+        self._draining: list = []
         #: LIVE_DRAG_STALE_TICK_PREEMPTED_V1: в полёте потоковый счёт, а ждёт новое потоковое значение - `preempt(в полёте, ждущее, сейчас) -> True` отменяет полёт (его результат
         #: не ляжет никогда: связное перетаскивание кладёт только такт ширины покоя), и ждущий стартует, как только пул дочитает ушедшие задачи; номер отменённого - `_preempted`.
         self._preempt = preempt
@@ -306,11 +312,11 @@ class AlphaPreviewScheduler:
     def busy(self) -> bool:
         """Есть заказ, который ещё не дошёл до применения или названного исхода."""
 
-        return self._pending is not None or self._job is not None or self._settling is not None
+        return self._pending is not None or self._job is not None or self._settling is not None or bool(self._draining)
 
     @property
     def in_flight(self) -> bool:
-        return self._job is not None
+        return self._job is not None or bool(self._draining)
 
     @property
     def status_text(self) -> str:
@@ -371,6 +377,7 @@ class AlphaPreviewScheduler:
         """Один шаг: принять готовый счёт, стартовать назревший. Следующий шаг либо `None`."""
 
         try:
+            self._collect_draining()
             self._collect()
             self._preempt_if_due()
             self._release_settled()
@@ -415,6 +422,34 @@ class AlphaPreviewScheduler:
             return
         self._preempted = running.sequence
         self._job.cancel()
+        if self._start_past_preempted:
+            # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: полёт не ждут - `_start_if_due` этого же шага стартует ждущий.
+            self._draining.append((running, self._job))
+            self._job = None
+            self._job_request = None
+
+    def _collect_draining(self) -> None:
+        """LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: вернувшийся вытесненный полёт - отменой или значением - выброшен (`stale`) и назван (`preempted`); ошибка - `failed`."""
+
+        if not self._draining:
+            return
+        left = []
+        for request, job in self._draining:
+            if not job.finished:
+                left.append((request, job))
+                continue
+            try:
+                job.result()
+            except PreviewCancelled:
+                pass
+            except Exception as exc:  # noqa: BLE001 - причина идёт в статус и консоль
+                self._counts["failed"] += 1
+                self._report_failure(f"{self._label}={request.alpha:.4g} compute", exc)
+                continue
+            if request.sequence > self._retired_through:
+                self._counts["preempted"] += 1
+                self._discard_as_stale(request)
+        self._draining = left
 
     def _collect(self) -> None:
         job = self._job
@@ -562,6 +597,8 @@ class AlphaPreviewScheduler:
         self._counts["started"] += 1
 
     def _next_delay(self) -> float | None:
+        if self._job is None and self._draining and self._pending is None and self._settling is None:
+            return min(self._poll, STREAM_POLL_SECONDS)  # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: ждём возврата вытесненного
         if self._job is not None:
             return min(self._poll, STREAM_POLL_SECONDS) if self._job_request is not None and self._job_request.stream else self._poll
         if self._pending is not None:
@@ -606,6 +643,9 @@ class AlphaPreviewScheduler:
             self._retired_through = max(self._retired_through, request.sequence)
             self._job.cancel()
             hit = True
+        for drained, _job in self._draining:  # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: вытесненный полёт снят так же, как полёт: его возврат - `cancelled`, без второго счёта
+            self._retired_through = max(self._retired_through, drained.sequence)
+            hit = True
         if self._settling is not None:  # LIVE_DRAG_SETTLE_ON_PAUSE_V1: ждавший остановки руки результат не ляжет
             self._settling = None
             hit = True
@@ -619,6 +659,9 @@ class AlphaPreviewScheduler:
         """`supersede` и ожидание конца полёта: после возврата поток счёта не пишет в подготовки."""
 
         had_work = self.supersede(reason)
+        for _request, drained in self._draining:  # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: вытесненный полёт тоже дописывает подготовки - ждём и его
+            drained.join(self._quiesce_timeout)
+        self._collect_draining()
         job = self._job
         if job is not None:
             job.join(self._quiesce_timeout)
