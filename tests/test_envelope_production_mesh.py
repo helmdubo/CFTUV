@@ -831,19 +831,51 @@ def test_a_rebuild_is_idempotent_one_object_one_mesh_one_material(fake_bpy, row_
     assert fake_bpy.data.objects.get(first.object_name) is decal
 
 
-def test_an_existing_material_is_reused_and_never_overwritten(fake_bpy, row_results):
+@pytest.mark.parametrize(
+    "material_name, collision",
+    (("CFTUV_Decal", None), ("  Material Probe  ", None),
+     ("  Material Probe  ", "Material Probe"), ("   ", None)),
+)
+def test_an_existing_material_is_reused_and_never_overwritten(fake_bpy, row_results, material_name, collision):
     source = _source(fake_bpy)
-    owner_made = fake_bpy.data.materials.new("CFTUV_Decal")
+    owner_made = fake_bpy.data.materials.new(material_name)
     owner_made.owner_setting = "kept"
+    if collision is not None:
+        fake_bpy.data.materials.new(collision)
+    count = len(fake_bpy.data.materials)
 
     receipt = write_decal_object(
-        source, row_results, offset=0.0, material_name="CFTUV_Decal"
+        source, row_results, offset=0.0,
+        material_name=writer.resolve_decal_material_name(material_name, fake_bpy.data.materials),
     )
 
     decal = fake_bpy.data.objects.get(receipt.object_name)
     assert decal.data.materials == [owner_made]
     assert owner_made.owner_setting == "kept"
-    assert not receipt.material_created and len(fake_bpy.data.materials) == 1
+    assert receipt.material_name == material_name
+    assert not receipt.material_created and len(fake_bpy.data.materials) == count
+
+
+@pytest.mark.parametrize(
+    "typed_name, existing_name, expected_name",
+    (("  New Material  ", None, "New Material"),
+     ("  Existing  ", "Existing", "Existing"),
+     ("", None, "CFTUV_Decal"), (" \t ", None, "CFTUV_Decal")),
+)
+def test_a_new_material_name_is_trimmed_and_blank_uses_the_default(fake_bpy, row_results, typed_name, existing_name, expected_name):
+    if existing_name is not None:
+        fake_bpy.data.materials.new(existing_name)
+    count = len(fake_bpy.data.materials)
+    material_name = writer.resolve_decal_material_name(typed_name, fake_bpy.data.materials)
+    assert material_name == expected_name and len(fake_bpy.data.materials) == count
+
+    receipt = write_decal_object(_source(fake_bpy), row_results, offset=0.0, material_name=material_name)
+
+    decal = fake_bpy.data.objects.get(receipt.object_name)
+    assert decal.data.materials == [fake_bpy.data.materials.get(expected_name)]
+    assert receipt.material_name == expected_name
+    assert receipt.material_created is (existing_name is None)
+    assert len(fake_bpy.data.materials) == 1
 
 
 def test_the_seams_of_the_interface_chains_reach_the_mesh_edges(fake_bpy):

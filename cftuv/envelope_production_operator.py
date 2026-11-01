@@ -56,6 +56,7 @@ from .envelope_production_mesh import (
     DEFAULT_DECAL_OFFSET,
     ProductionWriteError,
     build_mesh_arrays,
+    resolve_decal_material_name,
     write_decal_object,
 )
 from .envelope_pool_prewarm import cancel_pool_prewarm, schedule_pool_prewarm
@@ -343,8 +344,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 source_obj,
                 run.results,
                 offset=offset,
-                material_name=str(mesh_settings.material_name).strip()
-                or DEFAULT_DECAL_MATERIAL,
+                material_name=resolve_decal_material_name(mesh_settings.material_name, bpy.data.materials),
                 width=float(settings.envelope_debug_alpha),
                 arrays=arrays,
             )

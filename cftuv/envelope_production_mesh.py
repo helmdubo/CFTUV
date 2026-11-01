@@ -760,6 +760,15 @@ def _clear_mesh_in_place(mesh) -> None:
             mesh.attributes.remove(attribute)
 
 
+def resolve_decal_material_name(value: str, materials) -> str:
+    """Существующее имя сохраняется точно; только новое имя очищается от краевых пробелов."""
+
+    material_name = str(value)
+    if materials.get(material_name) is not None:
+        return material_name
+    return material_name.strip() or DEFAULT_DECAL_MATERIAL
+
+
 def _material_slot(mesh, material_name: str):
     material = bpy.data.materials.get(material_name)
     created = material is None
@@ -1225,6 +1234,7 @@ __all__ = (
     "rebuild_mesh_from_image",
     "record_decal_width",
     "rewrite_decal_mesh",
+    "resolve_decal_material_name",
     "write_decal_object",
     "write_preview_geometry",
 )

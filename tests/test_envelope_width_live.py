@@ -135,7 +135,7 @@ class _Decal(_Props):
 class _FakeBpy(types.ModuleType):
     def __init__(self, *, settings, mesh_settings, objects) -> None:
         super().__init__("bpy")
-        self.data = types.SimpleNamespace(objects=objects)
+        self.data = types.SimpleNamespace(objects=objects, materials={})
         self.context = types.SimpleNamespace(
             scene=types.SimpleNamespace(
                 hotspotuv_settings=settings, hotspotuv_decal_mesh=mesh_settings
@@ -442,7 +442,7 @@ def test_the_compute_closure_reads_no_bpy_in_the_thread(monkeypatch):
     world = _World(monkeypatch)
     objects = world.objects
     tripwire = _Tripwire()
-    tripwire.data = types.SimpleNamespace(objects=objects)  # главный поток читает объекты в `_begin`
+    tripwire.data = types.SimpleNamespace(objects=objects, materials={})  # главный поток читает объекты в `_begin` и материалы в `target_of`
     monkeypatch.setitem(sys.modules, "bpy", tripwire)
     target = live.target_of(world.settings, world.mesh_settings, world.record)
     request = types.SimpleNamespace(alpha=0.4, payload=target)
@@ -519,6 +519,11 @@ def test_a_commit_at_a_width_that_is_not_positive_is_refused_before_the_pool_and
 
 def test_five_changes_give_five_previews_and_one_exact_result_equal_to_a_direct_run(monkeypatch):
     world = _World(monkeypatch)
+    material_name = "  Material Probe  "
+    world.mesh_settings.material_name = material_name
+    world.fake.data.materials = {
+        name: types.SimpleNamespace(name=name) for name in (material_name, material_name.strip())
+    }
     drag = (0.30, 0.31, 0.32, 0.33, 0.34)
 
     serials = []
@@ -541,7 +546,7 @@ def test_five_changes_give_five_previews_and_one_exact_result_equal_to_a_direct_
     assert (counters.requested, counters.coalesced, counters.applied) == (5, 4, 1)
     assert len(world.written) == 1
     results, offset, material, width = world.written[0]
-    assert width == drag[-1] and offset == OFFSET and material == "CFTUV_Decal"
+    assert width == drag[-1] and offset == OFFSET and material == material_name
     reference = _direct(quad_row_bundle(ROW), EnvelopeDebugSessionController(), drag[-1])
     assert _digest(results) == _digest(reference.results)  # побитово равно прямому прогону холодной сессии
     assert world.controller.width_preview is None  # точный результат применён: превью снято

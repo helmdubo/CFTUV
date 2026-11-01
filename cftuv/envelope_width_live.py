@@ -1137,13 +1137,17 @@ def request_drag_tick(context, controller, width: float) -> bool:
 
 
 def target_of(settings, mesh_settings, record: LastProductionBuildV1) -> WidthLiveTargetV1:
+    import bpy
+
+    from .envelope_production_mesh import resolve_decal_material_name
+
     return WidthLiveTargetV1(
         record.source_name,
         int(getattr(settings, "envelope_debug_workers", 0) or 0),
         settings.envelope_debug_fan_density,
         int(settings.envelope_debug_max_stretch),
         float(mesh_settings.offset),
-        str(mesh_settings.material_name).strip() or "CFTUV_Decal",
+        resolve_decal_material_name(mesh_settings.material_name, bpy.data.materials),
         float(settings.envelope_debug_dissolve_uv_tolerance),
     )
 
