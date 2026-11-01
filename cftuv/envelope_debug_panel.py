@@ -30,7 +30,10 @@ def draw_decal_mesh_rows(layout) -> None:
     draw_decal_width_rows(layout)
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")
-    row.prop(mesh_settings, "material_name", text="")
+    row.prop_search(
+        mesh_settings, "material_name", bpy.data, "materials",
+        text="", results_are_suggestions=True,
+    )
     draw_kernel_backend_row(layout, mesh_settings)
     if mesh_settings.status:
         layout.label(text=mesh_settings.status)

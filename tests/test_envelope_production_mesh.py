@@ -939,17 +939,21 @@ class _Layout:
     def prop(self, _data, name, **_kwargs):
         self.calls.append(("prop", name))
 
+    def prop_search(self, data, name, search_data, search_property, **kwargs):
+        self.calls.append(("prop_search", data, name, search_data, search_property, kwargs))
+
     def label(self, *, text, icon=None):
         self.calls.append(("label", text))
 
 
-def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatch):
+def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatch, fake_bpy):
     from cftuv import envelope_width_live
     from cftuv.envelope_debug_panel import draw_decal_mesh_rows
 
     # Ширина здесь доступна: что она делает с активным объектом, проверяет тест ниже и тесты живой ширины.
     monkeypatch.setattr(envelope_width_live, "width_problem", lambda _context: "")
     bpy_module = sys.modules["bpy"]
+    monkeypatch.setattr(bpy_module, "data", fake_bpy.data, raising=False)
     mesh_settings = SimpleNamespace(
         status="MATERIALIZED 2 / refused 1 (X)", timing="Decal warm 0.10 s"
     )
@@ -964,7 +968,11 @@ def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatc
     draw_decal_mesh_rows(layout)
 
     assert ("operator", "hotspotuv.build_envelope_decal_mesh", "Build Decal Mesh") in layout.calls
-    assert ("prop", "offset") in layout.calls and ("prop", "material_name") in layout.calls
+    assert ("prop", "offset") in layout.calls
+    assert (
+        "prop_search", mesh_settings, "material_name", fake_bpy.data, "materials",
+        {"text": "", "results_are_suggestions": True},
+    ) in layout.calls
     assert ("label", "MATERIALIZED 2 / refused 1 (X)") in layout.calls
     assert ("label", "Decal warm 0.10 s") in layout.calls
     mesh_settings.status = mesh_settings.timing = ""
@@ -979,12 +987,13 @@ def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatc
     assert absent.calls == []
 
 
-def test_the_width_rows_are_disabled_and_name_the_reason_when_the_active_object_has_no_own_decal(monkeypatch):
+def test_the_width_rows_are_disabled_and_name_the_reason_when_the_active_object_has_no_own_decal(monkeypatch, fake_bpy):
     """Поле «Decal width» отключено, а вместо статуса стоит причина: «Build Decal Mesh first for <объект>»."""
 
     from cftuv import envelope_width_live
     from cftuv.envelope_debug_panel import draw_decal_mesh_rows
 
+    monkeypatch.setattr(sys.modules["bpy"], "data", fake_bpy.data, raising=False)
     monkeypatch.setattr(
         sys.modules["bpy"],
         "context",
