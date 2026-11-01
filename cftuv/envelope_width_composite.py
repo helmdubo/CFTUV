@@ -38,7 +38,8 @@ from . import envelope_composite_native as composite_native
 from .envelope_production_result import PLACEMENT_REBASED
 from .envelope_mesh_assembly import cross_domain_seams
 from .envelope_production_weld import WELD_LOCATION_PREFIX, weld_vertices
-from .envelope_width_preview_model import MeshImageV1, PreviewSampleV1, domain_sample_of, layout_digest_of, positions_and_uvs
+from .envelope_width_preview_model import MeshImageV1, PreviewSampleV1, domain_sample_of, layout_digest_of, positions_and_uvs, relocated_domain
+from .envelope_view_bytes import view_parts
 from .envelope_width_rebase import certificate_usable, rebased_view, view_of
 
 COMPOSITE_DOMAIN_SET_CHANGED = "INCREMENTAL_COMPOSITE_DOMAIN_SET_CHANGED"
@@ -66,6 +67,40 @@ class CompositeV1:
     seconds: float
     #: COMPOSITE_SPLICE_V1: имя причины, по которой раскладка группы переложена (`INCREMENTAL_COMPOSITE_LAYOUT_CHANGED` / `..._WELD_CHANGED`), пусто - раскладка образца на экране.
     spliced: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class FreshViewV1:
+    """Что составной образец читает у вида домена (VIEW_PARTS_V1): у вида байтами - окна на байты без разбора в кортежи (`view_parts`), у вида объектом - из него."""
+
+    vertex_count: int
+    uvs: np.ndarray
+    owners: np.ndarray
+    refs: tuple
+    token: str
+
+
+def fresh_view_of(result) -> FreshViewV1 | None:
+    """Части вида результата домена (запомнены на результате) либо `None`: вида нет либо он назвал отказ. Полный разбор (`view_of`) - только у вида объектом."""
+
+    found = result.__dict__.get("view_parts")
+    if found is not None:
+        return found
+    data = result.__dict__.get("view_bytes")
+    if data is not None:
+        parts = view_parts(data)
+        if parts is None:
+            return None
+        found = FreshViewV1(parts[0], parts[1], parts[2].astype(np.int32), parts[3], parts[4])
+    else:
+        view = view_of(result)
+        if view is None or view.failure is not None or view.vertices is None:
+            return None
+        found = FreshViewV1(
+            len(view.vertices.positions), np.asarray(view.uvs, dtype=np.float64).reshape(-1, 2), np.asarray(view.owners, dtype=np.int32), view.vertices.refs, structure_token_of(view)
+        )
+    result.__dict__["view_parts"] = found  # производное поле результата, как `view` (`cached_view`): второе чтение не разбирает байты
+    return found
 
 
 def structure_token_of(view) -> str:
@@ -110,8 +145,8 @@ def _reference_index(displayed: PreviewSampleV1, fresh: dict) -> dict:
     if found is None:
         built: dict = {}
         for number, domain in enumerate(displayed.domains):
-            view = fresh[number][1] if number in fresh else view_of(displayed.origins[domain.patch_id])
-            for ref in view.vertices.refs:
+            view = fresh[number][1] if number in fresh else fresh_view_of(displayed.origins[domain.patch_id])
+            for ref in view.refs:
                 if ref is not None and ref.startswith(WELD_LOCATION_PREFIX):
                     built.setdefault(ref, []).append(number)
         found = cache["reference_index"] = {ref: tuple(value) for ref, value in built.items() if len(value) > 1}
@@ -148,11 +183,11 @@ def _fresh_domains(displayed: PreviewSampleV1, results, changed: set | None = No
             continue
         if number is None:
             return COMPOSITE_DOMAIN_SET_CHANGED
-        view = view_of(result)
-        if view is None or view.failure is not None or view.vertices is None:
+        view = fresh_view_of(result)
+        if view is None:
             return COMPOSITE_NO_VIEW
         domain = displayed.domains[number]
-        if len(view.vertices.positions) != domain.vertices.shape[0] or len(view.uvs) != domain.loop_count or structure_token_of(view) != domain.token:
+        if view.vertex_count != domain.vertices.shape[0] or view.uvs.shape[0] != domain.loop_count or view.token != domain.token:
             if changed is None:
                 return COMPOSITE_LAYOUT_CHANGED
             changed.add(number)
@@ -164,9 +199,9 @@ def _refs_of(displayed: PreviewSampleV1, fresh: dict, number: int):
     """Ссылки вершин домена: из нового вида посчитанного, из вида прежнего результата обслуженного; `None` - результата для сдвига нет."""
 
     if number in fresh:
-        return fresh[number][1].vertices.refs
+        return fresh[number][1].refs
     origin = displayed.origins.get(displayed.domains[number].patch_id)
-    return None if origin is None else view_of(origin).vertices.refs
+    return None if origin is None else fresh_view_of(origin).refs
 
 
 def _group_of(displayed: PreviewSampleV1, fresh: dict):
@@ -198,7 +233,7 @@ def _python_views(displayed: PreviewSampleV1, fresh: dict, ordered, views: dict,
         if number in views:
             continue
         if number in fresh:
-            views[number] = fresh[number][1]
+            views[number] = view_of(fresh[number][0])
             continue
         origin = displayed.origins.get(displayed.domains[number].patch_id)
         if origin is None or not certificate_usable(origin):
@@ -264,7 +299,7 @@ def _rows_after(displayed: PreviewSampleV1, fresh: dict, alpha_text: str):
         else:
             origins.pop(domain.patch_id, None)
         faces = np.flatnonzero(image.face_domain == domain.patch_id)
-        fresh_owners = np.asarray(view.owners, dtype=np.int32)
+        fresh_owners = view.owners
         if faces.size != fresh_owners.size:
             return COMPOSITE_LAYOUT_CHANGED
         if not np.array_equal(image.face_owner[faces], fresh_owners):
@@ -323,8 +358,8 @@ def _reference_all(displayed: PreviewSampleV1, fresh: dict, changed: set) -> dic
                     if number in changed:
                         continue
                     raise KeyError(domain.patch_id)
-                view = view_of(origin)
-            for ref in view.vertices.refs:
+                view = fresh_view_of(origin)
+            for ref in view.refs:
                 if ref is not None and ref.startswith(WELD_LOCATION_PREFIX):
                     found.setdefault(ref, []).append(number)
         cache["reference_all"] = found
@@ -571,7 +606,7 @@ def _splice(displayed: PreviewSampleV1, fresh: dict, changed: set, positions, *,
     count = len(displayed.domains)
     sizes = np.diff(offsets)
     for number in changed:
-        sizes[number] = len(fresh[number][1].vertices.positions)
+        sizes[number] = fresh[number][1].vertex_count
     new_offsets = np.zeros(count + 1, dtype=np.int64)
     np.cumsum(sizes, out=new_offsets[1:])
     new_of_pair, positions_new, moved_new, old_to_new = _splice_numbering(_runs(count, labels, flat, offsets), displayed.vertex_count, weld, positions)
@@ -593,7 +628,7 @@ def _splice(displayed: PreviewSampleV1, fresh: dict, changed: set, positions, *,
     image = MeshImageV1(face_starts=face_starts, face_vertices=corners.astype(np.int32), face_domain=face_domain.astype(np.int32), face_owner=owners.astype(np.int32), seams=seams)
     loop_offsets = np.fromiter((item.loop_start for item in displayed.domains), dtype=np.int64, count=count)
     loop_offsets = np.append(loop_offsets, displayed.loop_count)
-    uvs_new = _runs(count, {number: np.asarray(view.uvs, dtype=np.float64).reshape(-1, 2) for number, (_result, view) in fresh.items()}, uvs, loop_offsets)
+    uvs_new = _runs(count, {number: view.uvs for number, (_result, view) in fresh.items()}, uvs, loop_offsets)
     renumbered = _rows_to_renumber(displayed, tables, changed, new_of_pair, new_offsets)
     domains, origins = _splice_rows(displayed, fresh, changed, taken, ordered, weld, new_of_pair, new_offsets, str(alpha), renumbered)
     sample = replace(
@@ -628,25 +663,28 @@ def _splice_rows(displayed: PreviewSampleV1, fresh: dict, changed: set, taken: s
     rows = []
     origins = dict(displayed.origins)
     numbers = new_of_pair.astype(np.int32)
+    bounds = new_offsets.tolist()
+    moved = renumbered.tolist()
     loop_start = 0
     for number, domain in enumerate(displayed.domains):
-        if number not in fresh and number not in taken and not renumbered[number] and domain.loop_start == loop_start:
+        if not moved[number] and domain.loop_start == loop_start and number not in fresh and number not in taken:
             rows.append(domain)
             loop_start += domain.loop_count
             continue
-        vertices = numbers[new_offsets[number] : new_offsets[number + 1]]
+        vertices = numbers[bounds[number] : bounds[number + 1]]
         mine = tuple(partners.get(number, ())) if number in taken else domain.partners
         if number in fresh:
             result, view = fresh[number]
-            token = structure_token_of(view) if number in changed else domain.token
-            rows.append(domain_sample_of(result, token=token, vertices=vertices, loop_start=loop_start, loop_count=len(view.uvs), partners=mine, alpha_text=alpha_text))
+            token = view.token if number in changed else domain.token
+            loops = int(view.uvs.shape[0])
+            rows.append(domain_sample_of(result, token=token, vertices=vertices, loop_start=loop_start, loop_count=loops, partners=mine, alpha_text=alpha_text))
             if certificate_usable(result):
                 origins[domain.patch_id] = result
             else:
                 origins.pop(domain.patch_id, None)
-            loop_start += len(view.uvs)
+            loop_start += loops
             continue
-        rows.append(replace(domain, vertices=vertices, loop_start=loop_start, partners=mine))
+        rows.append(relocated_domain(domain, vertices, loop_start, mine))
         loop_start += domain.loop_count
     return tuple(rows), origins
 
@@ -673,7 +711,7 @@ def compose_sample(displayed: PreviewSampleV1, model, results, *, alpha: float, 
         positions, uvs = positions.copy(), uvs.copy()
     for number, (_result, view) in fresh.items():
         domain = displayed.domains[number]
-        uvs[domain.loop_start : domain.loop_start + domain.loop_count] = np.asarray(view.uvs, dtype=np.float64)
+        uvs[domain.loop_start : domain.loop_start + domain.loop_count] = view.uvs
     adopted = group_size = 0
     if fresh:
         chosen = _group_of(displayed, fresh)

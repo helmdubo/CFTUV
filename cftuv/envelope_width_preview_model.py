@@ -65,6 +65,7 @@ import math
 from dataclasses import dataclass, field, replace
 from itertools import chain
 from fractions import Fraction
+from operator import attrgetter
 
 import numpy as np
 
@@ -195,6 +196,20 @@ class DomainSampleV1:
     #: Ширина, при которой посчитаны нормали смещения домена (`normals_alpha` его результата, а без неё ширина сертификата); `nan` - ширина образца. Образец инкрементального такта (`envelope_width_composite`) хранит строки обслуженных доменов как были, поэтому у домена-развёртки
     #: нормали заморожены на ширине ПРЕЖНЕГО прогона, а не образца: досягаемость приближённого кадра (`_display_reach`) считается от неё.
     normal_alpha: float = float("nan")
+
+
+_DOMAIN_FIELDS = DomainSampleV1.__slots__
+_DOMAIN_VALUES = attrgetter(*_DOMAIN_FIELDS)
+_AT_VERTICES, _AT_LOOP_START, _AT_PARTNERS = (_DOMAIN_FIELDS.index(name) for name in ("vertices", "loop_start", "partners"))
+
+
+def relocated_domain(domain: DomainSampleV1, vertices, loop_start: int, partners: tuple) -> DomainSampleV1:
+    """Строка домена на новом месте в меше (номера вершин, начало петель, соседи по стене), всё прочее - те же объекты: то же, что `replace(domain, vertices=..., loop_start=..., partners=...)`,
+    без его разбора полей на каждый вызов (ROWS_RELOCATED_V1: перекладка составного образца переносит так сотни строк за такт)."""
+
+    values = list(_DOMAIN_VALUES(domain))
+    values[_AT_VERTICES], values[_AT_LOOP_START], values[_AT_PARTNERS] = vertices, loop_start, partners
+    return DomainSampleV1(*values)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -778,11 +793,71 @@ def _display_reach(offset: float, rate: float, alpha: float) -> float:
     return min(DISPLAY_APPROXIMATE_REACH_RATIO, DISPLAY_APPROXIMATE_ERROR_LIMIT / (per_width * alpha))
 
 
+#: PREVIEW_MODEL_NATIVE_V1: операция порта `build_model` (`cftuv_native.preview_model_build`, `native/cftuv-python/src/preview_model.rs`), имена исходов и числа закона - отсюда.
+PREVIEW_MODEL_OPERATION = "preview_model_build"
+_NATIVE_NAMES = (
+    DOMAIN_MODELLED, DOMAIN_NOT_MATERIALIZED, DOMAIN_NO_INTERVAL, DOMAIN_WELD_PARTNER, DOMAIN_WELD_DISAGREES, DOMAIN_DISPLAY_APPROXIMATE,
+    DOMAIN_QUARANTINED, DOMAIN_ABANDONED, DOMAIN_NO_CERTIFICATE, INTERVAL_CERTIFIED, TRUST_QUARANTINED, TRUST_ABANDONED,
+)
+_NATIVE_LAW = (READMIT_NOMINAL_REACH_RATIO, DISPLAY_APPROXIMATE_REACH_RATIO, DISPLAY_APPROXIMATE_ERROR_LIMIT, DISPLAY_APPROXIMATE_ERROR_SAFETY, WELD_SLOPE_TOLERANCE)
+
+
 def build_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> PreviewModelV1 | PreviewRefusalV1:
     """Модель базы из аффинных сертификатов её доменов; отказ — именем. Ничего не подбирается и других прогонов не нужно.
 
     `ledger` — журнал доверия сессии: домены в карантине (или снятые) построены, но придержаны; вернувшиеся двигаются в сжатой области.
+
+    PREVIEW_MODEL_NATIVE_V1: модель строит порт (`_native_model`: строки доменов читаются в Rust, те же операции binary64 в том же порядке), эталон - `python_model`; заказан эталон
+    (`CFTUV_MESH_ASSEMBLY_BACKEND=PYTHON`) либо порт отказал вход - ответ эталона, откат назван (`envelope_mesh_assembly.FALLBACKS`).
     """
+
+    found = _native_model(base, ledger)
+    return python_model(base, ledger) if found is None else found
+
+
+def _native_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None):
+    """Модель (либо отказ без модели) порта, `None` - откат (заказан эталон, колеса нет, порт отказал вход: названо в `FALLBACKS`)."""
+
+    from .envelope_mesh_assembly import native_answer
+
+    trust = ledger.entries if ledger is not None and ledger.key == base.key else None
+    uvs = np.ascontiguousarray(base.uvs, dtype=np.float64)
+    answer = native_answer(PREVIEW_MODEL_OPERATION, base.domains, int(base.vertex_count), uvs, float(base.alpha), float(base.offset), trust, _NATIVE_NAMES, _NATIVE_LAW)
+    if answer is None:
+        return None
+    rows, entries = answer[0], answer[1]
+    if "entries" not in base.cache:
+        domain, vertex, bounds, total, order, starts, groups = (np.frombuffer(item, dtype=np.int64) for item in entries)
+        base.cache["entries"] = _EntriesV1(domain=domain, vertex=vertex, bounds=bounds, total=total, order=order, starts=starts, groups=groups)
+    if len(answer) == 2:
+        return PreviewRefusalV1(REFUSED_NO_MODELLED_DOMAIN, ", ".join(f"{name}={value}" for name, value in sorted(_reasons(rows).items())))
+    a1, e1, vlow, vhigh, dlow, dhigh, quarantined, vertex_quarantined, shadow_low, shadow_high, approximate, held_back, any_approximate = answer[2:]
+
+    def floats(data, width: int = 0):
+        values = np.frombuffer(data, dtype=np.float64)
+        return values.reshape(-1, width) if width else values
+
+    flags = lambda data: np.frombuffer(data, dtype=bool)  # noqa: E731
+    return PreviewModelV1(
+        base=base,
+        a1=floats(a1, 3),
+        e1=floats(e1, 2),
+        vlow=floats(vlow),
+        vhigh=floats(vhigh),
+        loop_counts=np.asarray([item.loop_count for item in base.domains], dtype=np.int32),
+        dlow=floats(dlow),
+        dhigh=floats(dhigh),
+        rows=rows,
+        quarantined=flags(quarantined) if held_back else None,
+        vertex_quarantined=flags(vertex_quarantined) if held_back else None,
+        shadow_low=floats(shadow_low) if held_back else None,
+        shadow_high=floats(shadow_high) if held_back else None,
+        approximate=flags(approximate) if any_approximate else None,
+    )
+
+
+def python_model(base: PreviewSampleV1, ledger: TrustLedgerV1 | None = None) -> PreviewModelV1 | PreviewRefusalV1:
+    """`build_model` путём питона: замороженный эталон порта PREVIEW_MODEL_NATIVE_V1 (его исходник и исходники функций, которые он зовёт, сверяет по отпечатку `tests/test_native_preview_model.py`)."""
 
     count_v, count_l, count_d = base.vertex_count, base.loop_count, len(base.domains)
     loop_counts = np.asarray([item.loop_count for item in base.domains], dtype=np.int32)

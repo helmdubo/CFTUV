@@ -26,6 +26,7 @@ mod refusal;
 mod skeleton;
 mod skeleton_seams;
 mod snapshot_check;
+mod preview_model;
 mod splice;
 mod view;
 
@@ -759,6 +760,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(mesh_assembly::mesh_assemble, module)?)?;
     module.add_function(wrap_pyfunction!(splice::mesh_splice_weld, module)?)?;
     module.add_function(wrap_pyfunction!(splice::mesh_splice_rebuilt, module)?)?;
+    module.add_function(wrap_pyfunction!(preview_model::preview_model_build, module)?)?;
     module.add_function(wrap_pyfunction!(graph_pack::graph_pack, module)?)?;
     module.add_function(wrap_pyfunction!(graph_pack::graph_unpack, module)?)?;
     Ok(())

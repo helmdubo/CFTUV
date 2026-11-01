@@ -626,11 +626,27 @@ def _read_layout(mesh, corner, start) -> bytes:
     return digest.digest()
 
 
-def capture_ownership(controller, decal, sample) -> MeshOwnershipV1 | None:
+class OwnershipShapeMismatch(Exception):
+    """Число граней или углов меша не то, что у образа, по которому он записан (OWNERSHIP_LAYOUT_FROM_IMAGE_V1): владения нет."""
+
+
+def _image_layout(image) -> bytes:
+    """Отпечаток раскладки (`_read_layout`) меша, записанного по образу `image`: те же байты int32 углов граней и начал граней, что вернул бы `foreach_get`."""
+
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(memoryview(np.ascontiguousarray(image.face_vertices, dtype=np.int32)))
+    digest.update(memoryview(np.ascontiguousarray(image.face_starts, dtype=np.int32)))
+    return digest.digest()
+
+
+def capture_ownership(controller, decal, sample, *, written=None) -> MeshOwnershipV1 | None:
     """Точный путь записал меш декали `decal` под образец `sample`: владение (тождество, размеры, поколение, отпечаток раскладки) в сессию.
 
     Зовёт тот, кто писал меш, СРАЗУ после записи (кнопка и применение живой ширины: тест архитектуры). Сбой чтения называется
     (`PREVIEW_MESH_OWNERSHIP_CAPTURE_FAILED:<тип>`) и владения не оставляет: кадр тогда молчит, названный `PREVIEW_MESH_OWNERSHIP_UNKNOWN`.
+
+    `written` (OWNERSHIP_LAYOUT_FROM_IMAGE_V1, lean-кадр живой ширины) - образ, по которому раскладка меша только что записана (пересборка) либо с которым она равна по отпечатку раскладки
+    образца: отпечаток считается по нему, а не читается из меша обратно; размеры меша - те же, что у образа, иначе владения нет (`PREVIEW_MESH_OWNERSHIP_CAPTURE_FAILED:OwnershipShapeMismatch`).
     """
 
     controller.width_mesh_owner = None
@@ -641,7 +657,12 @@ def capture_ownership(controller, decal, sample) -> MeshOwnershipV1 | None:
         corner = np.empty(len(mesh.loops), dtype=np.int32)
         start = np.empty(len(mesh.polygons), dtype=np.int32)
         started = time.perf_counter()
-        layout = _read_layout(mesh, corner, start)
+        if written is None:
+            layout = _read_layout(mesh, corner, start)
+        elif corner.shape[0] != written.face_vertices.shape[0] or start.shape[0] != written.face_count:
+            raise OwnershipShapeMismatch("the mesh does not have the faces of the image it was written from")
+        else:
+            layout = _image_layout(written)
         finished = time.perf_counter()
         generation = int(controller.width_layout_generation) + 1
         owner = MeshOwnershipV1(
@@ -1053,7 +1074,7 @@ def lean_exact_now(controller, live, *, reframe_to: float | None = None) -> str:
         drop_model(controller, exc.outcome)
         return exc.outcome
     note_exact_display(controller, live)
-    owner = capture_ownership(controller, decal, sample)
+    owner = capture_ownership(controller, decal, sample, written=sample.image)
     if owner is not None and same_layout and reframe_to is not None:
         owner.holds_base = False  # числа образца не писались: меш держит прежний кадр, его тут же заменит кадр к курсору
     _gpu_after_exact(controller, decal)

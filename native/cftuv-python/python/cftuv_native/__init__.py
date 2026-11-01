@@ -128,6 +128,7 @@ __all__ = (
     "mesh_off_plane",
     "mesh_reports",
     "mesh_splice_rebuilt",
+    "preview_model_build",
     "mesh_splice_weld",
     "mesh_weld",
     "graph_pack",
@@ -440,6 +441,14 @@ def mesh_splice_rebuilt(views, rebases, alpha, mappings, patch_ids):
 
     pin.require("mesh_assembly")
     return _mesh_answer(_core.mesh_splice_rebuilt(views, rebases, alpha, mappings, patch_ids))
+
+
+def preview_model_build(domains, vertex_count, uvs, alpha0, offset, trust, names, law):
+    """PREVIEW_MODEL_NATIVE_V1: `envelope_width_preview_model.build_model` over the rows of a sample (the host's Python is the oracle, its digest is pinned by the host:
+    `tests/test_native_preview_model.py`): `(rows, entries, arrays..., held back, approximate)` or `(rows, entries)` when no domain is modelled; `NATIVE_REFUSALS` as `mesh_off_plane`."""
+
+    return _mesh_answer(_core.preview_model_build(domains, vertex_count, uvs, alpha0, offset, trust, names, law))
+
 
 def graph_pack(value) -> bytes:
     """COMMIT_BATCH_PACK_V1: the object graph `value` as the bytes `graph_unpack` turns into the graph `pickle.loads(pickle.dumps(value))` builds (`graph_pack.rs`).

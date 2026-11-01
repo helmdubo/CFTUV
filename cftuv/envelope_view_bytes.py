@@ -213,6 +213,33 @@ def decode_view(data: bytes):
     )
 
 
+def view_parts(data: bytes):
+    """Что читает составной образец у вида байтами, БЕЗ разбора в кортежи (`decode_view`): `(число вершин, UV (L, 2) float64, владельцы граней int64, ссылки вершин, токен структуры)`;
+    `None` - вид-отказ. Числа - те же binary64 и целые (окна `np.frombuffer` на те же байты, только чтение), ссылки - те же строки (`None` - без ссылки)."""
+
+    import numpy as np
+
+    header = _HEADER.unpack_from(data, 0)
+    if header[0] != _MAGIC or header[1] != VIEW_BYTES_VERSION:
+        raise ViewBytesUnsupported(f"not VIEW_BYTES_V{VIEW_BYTES_VERSION} bytes")
+    (_magic, _version, flags, _patch_id, count, faces, corners, loops, seams, walls, wall_items, chains, chain_items, strings, blob, _revision, _outcome, _detail, token) = header
+    if flags & _FAILED:
+        return None
+    at = _HEADER.size + 8 * 6 * count
+    uvs = np.frombuffer(data, dtype="<f8", count=2 * loops, offset=at).reshape(-1, 2)
+    at += 16 * loops
+    owners = np.frombuffer(data, dtype="<i8", count=faces, offset=at)
+    at += 8 * faces + 4 * (faces + 1 + corners + 2 * seams)
+    refs = np.frombuffer(data, dtype="<u4", count=count, offset=at)
+    at += 4 * (count + walls + 1 + wall_items + chains + chains + 1 + chain_items)
+    offsets = np.frombuffer(data, dtype="<u4", count=strings + 1, offset=at)
+    text_at = at + 4 * (strings + 1)
+    lookup: dict = {0: None}
+    for number in set(refs.tolist()) - {0}:
+        lookup[number] = data[text_at + int(offsets[number - 1]) : text_at + int(offsets[number])].decode("utf-8")
+    return int(count), uvs, owners, tuple(map(lookup.__getitem__, refs.tolist())), token.rstrip(b"\0").decode("ascii")
+
+
 def view_bytes_failed(data: bytes) -> bool:
     """Байты вида-отказа (`failure`): флаг заголовка, без разбора; не байты этой версии - `ViewBytesUnsupported`."""
 
@@ -226,4 +253,4 @@ def _texts(offsets: array, blob: bytes) -> list:
     return [blob[a:b].decode("utf-8") for a, b in zip(offsets, offsets[1:])]
 
 
-__all__ = ("VIEW_BYTES_VERSION", "ViewBytesUnsupported", "cached_view", "decode_view", "encode_view", "put_view", "view_bytes_failed")
+__all__ = ("VIEW_BYTES_VERSION", "ViewBytesUnsupported", "cached_view", "decode_view", "encode_view", "put_view", "view_bytes_failed", "view_parts")

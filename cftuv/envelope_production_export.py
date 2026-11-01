@@ -655,10 +655,26 @@ class ProductionRunV1:
         return tuple(item for item in self.results if not item.is_materialized)
 
     def counter(self, name: str):
-        for item in self.profile.counters:
-            if item.name == name and item.patch_domain_id is None:
-                return item.value
-        return None
+        return _run_counters(self.profile).get(name)
+
+
+#: `(профиль, {имя: значение})` счётчиков прогона без домена, последнего прочитанного: строка панели читает десяток счётчиков подряд, а счётчиков у прогона - тысячи (с доменными).
+_LAST_COUNTERS: tuple = (None, {})
+
+
+def _run_counters(profile) -> dict:
+    """Счётчики прогона без домена по имени; у повторного имени - первое, как у прежнего обхода."""
+
+    global _LAST_COUNTERS
+    cached = _LAST_COUNTERS
+    if cached[0] is profile:
+        return cached[1]
+    found: dict = {}
+    for item in profile.counters:
+        if item.patch_domain_id is None and item.name not in found:
+            found[item.name] = item.value
+    _LAST_COUNTERS = (profile, found)
+    return found
 
 
 _FROM_SETTINGS = object()
