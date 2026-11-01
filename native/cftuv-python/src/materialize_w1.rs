@@ -514,6 +514,26 @@ impl Host {
         self.classes.as_ref().map(|classes| classes.pool.raw_layouts())
     }
 
+    /// CERTIFICATE_SIDE_CUTS_NATIVE_V1 (`certificate.rs`): the converted table and the frames of `frame_faces` (layout region `regions[i]` for face `i`), or why the port
+    /// does not carry them (`Err(Ok(text))`); a Python error is `Err(Err(error))`.
+    pub(crate) fn certificate_frames(&mut self, table: &Bound<'_, PyAny>, frame_faces: &Bound<'_, PyList>, regions: &[u32]) -> Result<(Arc<Table>, Vec<Frame>), Result<String, PyErr>> {
+        let lift = |fail: Fail| match fail {
+            Fail::Py(error) => Err(error),
+            Fail::Unsupported(text) => Ok(text),
+        };
+        let table = self.table(table).map_err(lift)?;
+        let classes = self.classes.as_ref().ok_or_else(|| Ok("the materialize_w1 classes were not bound".to_string()))?;
+        if regions.len() != frame_faces.len() {
+            return Err(Ok("frame_faces and regions must have one length".to_string()));
+        }
+        let mut runs: HashMap<usize, Rc<Run>, FxBuild> = HashMap::default();
+        let mut frames = Vec::with_capacity(regions.len());
+        for (frame_face, region) in frame_faces.iter().zip(regions) {
+            frames.push(frame_of(classes, &mut runs, &frame_face, *region).map_err(lift)?);
+        }
+        Ok((table, frames))
+    }
+
     /// The converted table (read now when this table object is new to the session).
     fn table(&mut self, table: &Bound<'_, PyAny>) -> Read<Arc<Table>> {
         let id = table.as_ptr() as usize;

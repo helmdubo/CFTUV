@@ -195,7 +195,7 @@ PINS: dict = {
     "exact_sqrt_sum.py": "80abe9927dd193609d32b53103aa6dd663a6bec963549fa90896c0c354fb1741",
     "exact_sqrt_sum_fused.py": "1f7f7d50a56159090eb5c33633221c7ff69cb5a02f4a0e373df949b887e9a9a4",
     "float_filter.py": "ab188717ec92dd5ed45425af9a9f98f7c4e663af82bf01b8ea7e3177775b6346",
-    "materialize/clip.py": "427465fb7deb48e971337a0923926ba97e154d229f5329b10916bb93b78b67d8",
+    "materialize/clip.py": "f94af475c176a640c22098518218e3515e7ebdbd5cfa724ff87ef99469268632",
     "materialize/clip_cells.py": "26e94d1cea663dd21ee1468618fec57b43bb341b5e57bd8ad6e3d866320cd6bf",
     "materialize/clip_snap.py": "1f8997b3dfd6df0585475b6bb6cfcbf110888e6099da8b3120d18b6dcebe1374",
     "materialize/coalesce.py": "6a3f21b7ff98750686ad4fb6c6c14aa550068c8c8d44dd216efc4cfb21669c25",

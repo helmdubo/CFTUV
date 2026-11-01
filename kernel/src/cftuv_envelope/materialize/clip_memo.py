@@ -255,14 +255,15 @@ def memo_disabled():
         MEMO.enabled = before
 
 
-def run_clip(compute, plane, budget, policy, **inputs):
+def run_clip(compute, plane, budget, policy, use_memo=True, **inputs):
     """`(результат compute, статус)`: резка домена через память.
 
-    `compute(plane, budget, **inputs)` — стадия; каждый именованный аргумент входит в ключ, и стадия получает ровно их.
+    `compute(plane, budget, **inputs)` — стадия; каждый именованный аргумент входит в ключ, и стадия получает ровно их. `use_memo=False` — мимо памяти
+    (CLIP_MEMO_MODE_PER_CALL_V1: режим вызова, флаг процесса `MEMO.enabled` при этом не трогается).
     """
 
     memo = MEMO
-    if not memo.enabled:
+    if not use_memo or not memo.enabled:
         return compute(plane, budget, **inputs), OFF
     try:
         key = backend.clip_key_compute(clip_key, inputs, plane.triangles, policy)

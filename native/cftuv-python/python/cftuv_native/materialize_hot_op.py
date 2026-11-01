@@ -83,6 +83,15 @@ SHAPE_FUNCTIONS = (
     ("materialize/parametric.py", "_nonzero", "909b4d4dd820499ea94615e15057f5e2511577a76b1304a678f4f68aa89be7cd"),
     ("materialize/parametric.py", "_clip_slope_values", "afa6a31a0b6bbfdcd44f77073762c3e1b397111b3b4d0d9382e65973915b0f73"),
     ("materialize/parametric.py", "_second_difference_slope", "35f4028876adcf1fe5893070031868dd9ceac156d66804042292e735c19d78d2"),
+    # `certificate.rs` (CERTIFICATE_SIDE_CUTS_NATIVE_V1): the attempts of the side cuts, one side cut (`clip.py` is pinned whole by the clip pin) and the structure they are checked by
+    ("materialize/parametric.py", "_clip_slopes_at", "56e1e3dacc7411b70bf79586b6eab4d51ccf9c55bc839cedc9824887cd3ff45f"),
+    ("materialize/parametric.py", "_side_cut", "4d860299ce2fbf694b077881e7accbc8c75ef443da3a6f1d1e54a22730eb526b"),
+    ("materialize/parametric.py", "_shape", "cb51e212669bcd803a7d685f108a49eff33ddcc80d641c1738585f3efa9fa06b"),
+    # `certificate.rs` (CERTIFICATE_CORE_NATIVE_V1): the arrays of the certificate after the slopes, the slope of a lifted position, the rate of the offset normal, the floats of the facts
+    ("materialize/parametric.py", "_certificate_tail", "a19249f389acb46977f142575710fcb46f22f9136f4d83b379e5d175c027d033"),
+    ("materialize/parametric.py", "_triangle_slope", "dec93f4d28a914f60d15b39939ea046c88d2fac7f2928ebb78d7bb5052e28a6c"),
+    ("materialize/parametric.py", "_normal_rate", "bce13bb8aee78ce793e145a643702c44d666ec599d9ade72b54ecb43b9bfe1f3"),
+    ("materialize/parametric.py", "_fact_floats", "254f0e604fdc86afe9ce01579b02808876fb1f727725ca4cf11e9b3b59934229"),
     # `memo_key.rs` (CLIP_MEMO_KEY_NATIVE_V1): the canonical record of the arguments of the clip stage and its sha256
     ("materialize/clip_memo.py", "_encode", "6cd672b25eb43d40bd99adfb7ddfdb4b8663c56140bcb32cbfb9f1592103cd61"),
     ("materialize/clip_memo.py", "clip_key", "8a0f14000dad1c0d924f5b1c431959814cdfe2524ec2d34474d4a1f4cf01f021"),

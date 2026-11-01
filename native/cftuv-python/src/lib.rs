@@ -5,6 +5,7 @@
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
 mod angular;
+mod certificate;
 mod chain_station;
 mod clip;
 mod clip_seams;
@@ -609,6 +610,110 @@ impl Session {
         self.hot.clip_slope_values(py, [cut_points, up_points, down_points, cut_snapped, up_snapped, down_snapped], facts_before, facts_after, facts_up, facts_down, delta)
     }
 
+    /// The side cuts of the drag certificate in one call (`certificate.rs`, CERTIFICATE_SIDE_CUTS_NATIVE_V1): `(status, detail, point slopes, fact slopes, sign-counter deltas,
+    /// changed-tables bits, (read, compute, build, memory log) nanoseconds, attempts)`. Status 12 is a decline of the port: nothing of the call is applied and the session's
+    /// mirror is reset, so the caller runs the Python chain on the same state. Needs `bind_clip`, `bind_w1` and `bind_hot`.
+    #[allow(clippy::too_many_arguments)]
+    fn certificate_side_slopes<'py>(
+        &mut self,
+        py: Python<'py>,
+        triangles: &Bound<'py, PyAny>,
+        points_before: &Bound<'py, PyAny>,
+        cycles: &Bound<'py, PyAny>,
+        facts_before: &Bound<'py, PyAny>,
+        key_slope: &Bound<'py, PyAny>,
+        fact_slope: &Bound<'py, PyAny>,
+        frame_faces: &Bound<'py, PyAny>,
+        regions: &Bound<'py, PyAny>,
+        fans: &Bound<'py, PyAny>,
+        flows: &Bound<'py, PyAny>,
+        polygons: &Bound<'py, PyAny>,
+        law: u8,
+        by_faces: bool,
+        inert: &Bound<'py, PyAny>,
+        table: &Bound<'py, PyAny>,
+        lattice_alpha: &Bound<'py, PyAny>,
+        scale: &Bound<'py, PyAny>,
+        step: &Bound<'py, PyAny>,
+        attempts: u32,
+        cut: &Bound<'py, PyAny>,
+        facts_after: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<certificate::Answer<'py>> {
+        let forced = self.forced.take();
+        let args = certificate::SideArgs {
+            triangles, points_before, cycles, facts_before, key_slope, fact_slope, frame_faces, regions, fans, flows, polygons, law, by_faces, inert, table, lattice_alpha, scale, step,
+            attempts, cut, facts_after,
+        };
+        let outcome = certificate::side_slopes(py, &mut self.inner, &mut self.clip, &mut self.w1, &args, sync, &tables, forced);
+        if outcome.as_ref().map_or(true, |answer| answer.0 == certificate::STATUS_DECLINED) {
+            self.reset_memory();
+        }
+        outcome
+    }
+    /// The certificate after the slopes of the facts in one call (`certificate.rs`, CERTIFICATE_CORE_NATIVE_V1): the side cuts when `side` is given (the arguments of
+    /// `certificate_side_slopes` from `points_before` to `facts_after`, as a tuple), then the arrays of the batch. `(status, detail, (position slopes, loop slopes, limits, floors)
+    /// float64 bytes, normal rate, (vertices, loops, moving, clip node slopes, clip fact slopes), sign-counter deltas, changed-tables bits, nanoseconds, attempts)`; status 12 is a
+    /// decline of the port (nothing applied, the session's mirror reset).
+    #[allow(clippy::too_many_arguments)]
+    fn certificate_core<'py>(
+        &mut self,
+        py: Python<'py>,
+        triangles: &Bound<'py, PyAny>,
+        side: Option<Bound<'py, PyTuple>>,
+        vertices: &Bound<'py, PyAny>,
+        faces: &Bound<'py, PyAny>,
+        points_after: &Bound<'py, PyAny>,
+        key_slope: &Bound<'py, PyAny>,
+        lifted_names: &Bound<'py, PyAny>,
+        reach: &Bound<'py, PyAny>,
+        window: (f64, f64),
+        developable: bool,
+        scale: &Bound<'py, PyAny>,
+        fact_floats: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<certificate::CoreAnswer<'py>> {
+        let forced = self.forced.take();
+        let items: Option<Vec<Bound<'py, PyAny>>> = match &side {
+            Some(tuple) if tuple.len() == 20 => Some(tuple.iter().collect()),
+            Some(_) => return Err(PyValueError::new_err("certificate_core: `side` is the 20 arguments of the side cuts")),
+            None => None,
+        };
+        let side_args = match &items {
+            Some(item) => Some(certificate::SideArgs {
+                triangles,
+                points_before: &item[0],
+                cycles: &item[1],
+                facts_before: &item[2],
+                key_slope: &item[3],
+                fact_slope: &item[4],
+                frame_faces: &item[5],
+                regions: &item[6],
+                fans: &item[7],
+                flows: &item[8],
+                polygons: &item[9],
+                law: item[10].extract::<u8>()?,
+                by_faces: item[11].extract::<bool>()?,
+                inert: &item[12],
+                table: &item[13],
+                lattice_alpha: &item[14],
+                scale: &item[15],
+                step: &item[16],
+                attempts: item[17].extract::<u32>()?,
+                cut: &item[18],
+                facts_after: &item[19],
+            }),
+            None => None,
+        };
+        let array_args = certificate::ArrayArgs { vertices, faces, points_after, key_slope, lifted_names, reach, window, developable, scale, fact_floats };
+        let outcome = certificate::core(py, &mut self.inner, &mut self.clip, &mut self.w1, triangles, side_args.as_ref(), &array_args, sync, &tables, forced);
+        if outcome.as_ref().map_or(true, |answer| answer.0 == certificate::STATUS_DECLINED) {
+            self.reset_memory();
+        }
+        outcome
+    }
     /// Binds `fractions.Fraction`, `enum.Enum` and the shim's function of the field names of a dataclass (`memo_key.rs`).
     fn bind_memo_key(&mut self, py: Python<'_>, fraction: &Bound<'_, pyo3::types::PyType>, enumeration: &Bound<'_, pyo3::types::PyType>, fields: &Bound<'_, PyAny>) {
         self.memo_key.bind(py, fraction, enumeration, fields)

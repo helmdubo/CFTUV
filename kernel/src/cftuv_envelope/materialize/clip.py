@@ -1588,13 +1588,15 @@ def cut_domain(
     by_faces=False,
     tally=None,
     inert=frozenset(),
+    use_memo=True,
 ) -> ClippedV1:
     """Стадия резки домена: грани тесселяции -> куски; факты `(s, r)` новых вершин дописываются в `facts`.
 
     `points` — `{ключ: точка}` вершин до резки. Станции и `r` новой вершины — те же аффинные
     функции карты, что у остальных вершин её грани (точно); второй ответ на вершину региона —
     отказ, как у `station_values`. `inert` — пары граней источника, по рёбрам которых резка не режет (план станций цепей, закон по
-    граням); входит в ключ памяти как любой другой аргумент резки.
+    граням); входит в ключ памяти как любой другой аргумент резки. `use_memo=False` - резка мимо памяти резки (CLIP_MEMO_MODE_PER_CALL_V1: параметр
+    вызова, а не флаг процесса; так идут боковые резки сертификата).
     """
 
     seam = backend.seam_edges_compute(seam_edges, frame_faces, polygons, facts, layout, lattice_alpha)
@@ -1605,6 +1607,7 @@ def cut_domain(
         plane,
         budget,
         clip_policy(),
+        use_memo=use_memo,
         points=points,
         cycles=cycles,
         polygons=polygons,

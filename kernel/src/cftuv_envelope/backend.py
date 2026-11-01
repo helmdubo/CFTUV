@@ -1353,6 +1353,54 @@ def clip_slope_values_compute(oracle, cut, up, down, facts_before, facts_after, 
     return answer if done else oracle(*arguments)
 
 
+def _on_bound_surface(inputs):
+    """The certificate's port reads the triangles of a bound surface; a flat domain (`PlaneLiftV1`) is the oracle's by rule, not a named refusal per domain."""
+
+    from .materialize.lift_surface import BoundSurfaceLiftV1
+
+    return type(inputs.plane) is BoundSurfaceLiftV1
+
+
+def certificate_side_slopes_compute(oracle, inputs, step, key_slope, fact_slope):
+    """`oracle(inputs, step, key_slope, fact_slope)` (`materialize.parametric._clip_slopes_at`), посчитанное заказанным бэкендом (CERTIFICATE_SIDE_CUTS_NATIVE_V1):
+    боковые резки, проверка структуры и вторые разности сертификата одним нативным вызовом (`certificate.rs`), промежуточное в Python не выходит. Те же наклоны
+    узлов и фактов резки (порядок словарей не часть ответа) либо тот же отказ `ParametricRefusal` по имени; память канонизации и `SIGN_COUNTS` - как у эталона,
+    нормали боковых подъёмов и статьи одноразовых бюджетов не воспроизводятся (их никто не читает). Нужны и резка, и W1 нативные; вход, который порт не несёт, -
+    эталон по имени, на нетронутом состоянии."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native or not ledger.coverage_clip_native or not _on_bound_surface(inputs):
+        return oracle(inputs, step, key_slope, fact_slope)
+
+    def call(module):
+        if not hasattr(module, "certificate_side_slopes"):
+            raise _OperationAbsent("this cftuv_native wheel has no `certificate_side_slopes` (it predates CERTIFICATE_SIDE_CUTS_NATIVE_V1)")
+        return module.certificate_side_slopes(inputs, step, key_slope, fact_slope)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(inputs, step, key_slope, fact_slope)
+
+
+def certificate_core_compute(oracle, inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable):
+    """`oracle(inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable)` (`materialize.parametric._certificate_tail`), посчитанное
+    заказанным бэкендом (CERTIFICATE_CORE_NATIVE_V1): боковые резки, наклоны узлов и фактов резки и массивы сертификата по батчу одним нативным вызовом. Тот же
+    `ParametricCertificateV1` (числа, пределы, скорость нормали, счётчики) либо тот же `ParametricRefusal` по имени; наклоны позиций на нативной дороге не берутся из
+    памяти наклонов (метка памяти считает факты). Точный режим, подъём не на треугольники источника и вход, который порт не несёт, - эталон по имени."""
+
+    arguments = (inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable)
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native or not ledger.coverage_clip_native or request.exact or not _on_bound_surface(inputs):
+        return oracle(*arguments)
+
+    def call(module):
+        if not hasattr(module, "certificate_core"):
+            raise _OperationAbsent("this cftuv_native wheel has no `certificate_core` (it predates CERTIFICATE_CORE_NATIVE_V1)")
+        return module.certificate_core(inputs, batch, interval, request, key_slope, fact_slope, fact_floats, developable)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(*arguments)
+
+
 def seam_edges_compute(oracle, frame_faces, polygons, facts, layout, lattice_alpha):
     """`oracle(frame_faces, polygons, facts, layout, lattice_alpha)` (`materialize.clip.seam_edges`), посчитанное заказанным бэкендом W1 (CLIP_STAGE_NATIVE_V1): то же
     множество пар ключей граничных рёбер, которые не фронт. Ни бюджета, ни памяти; вход, который порт не несёт (нет факта - `KeyError` эталона), - эталон по имени."""

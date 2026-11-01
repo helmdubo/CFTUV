@@ -426,3 +426,160 @@ def seam_edges(mirror, frame_faces, polygons, facts, layout, lattice_alpha):
     if found is None:
         raise pin.NativePortUnsupported("seam_edges: an input the port does not carry")
     return found
+
+
+#: `certificate.rs` statuses of an oracle refusal (CERTIFICATE_SIDE_CUTS_NATIVE_V1) and the decline of the port.
+CERTIFICATE_STATUS_DECLINED = 12
+CERTIFICATE_REFUSALS = {21: "PARAM_CLIP_NODE", 22: "PARAM_CLIP_FACT", 23: "PARAM_CLIP_STRUCTURE_CHANGED", 24: "PARAM_CLIP_REFUSED"}
+
+
+def certificate_side_slopes(mirror, inputs, step, key_slope, fact_slope):
+    """`parametric._clip_slopes_at(inputs, step, key_slope, fact_slope)` (CERTIFICATE_SIDE_CUTS_NATIVE_V1, `certificate.rs`): the side cuts of the drag certificate, their structure
+    against the domain's cut and the second differences in ONE native call; the inputs are read once and nothing in between crosses the boundary.
+
+    Returns `(point slopes, fact slopes)` (the order of the dicts is not part of the answer: the certificate looks slopes up by key), or raises the oracle's `ParametricRefusal`
+    by name (`PARAM_CLIP_REFUSED` carries the value of the clip's `MaterializationOutcome`). The memory tables and `SIGN_COUNTS` end as the Python side cuts leave them; the offset
+    normals of the side lifts, the articles of the throwaway unlimited budgets and the throwaway tally are not reproduced (no answer reads them). A decline of the port
+    (`NativePortUnsupported`: a plane that is not a bound surface, an input or an outcome the port leaves to the oracle) applies nothing, so the caller runs the oracle on the same state.
+    """
+
+    from . import materialize_hot_op
+
+    materialize_hot_op._begin(mirror)
+    if type(inputs.plane) is not materialize_hot_op._bound_surface():
+        raise pin.NativePortUnsupported(f"certificate_side_slopes: the side clip runs on a BoundSurfaceLiftV1, not a {type(inputs.plane).__name__}")
+    if inputs.cut is None:
+        raise pin.NativePortUnsupported("certificate_side_slopes: the domain has no cut")
+    started = perf_counter_ns()
+    if not mirror._clip_bound:
+        mirror._bind_clip()
+    exact, sync, slow, real = _clip_stage(mirror)
+    _exact_module, _mesh, _frames, _coalesce, _stations, _time, admit, laws = _kernel()
+    from cftuv_envelope.materialize import parametric
+
+    law = inputs.law
+    code = 0 if law is laws.PLANAR_POLYGONS_V1 else 1 if law is laws.QUAD_STRIPS_V1 else 2
+    frame_faces = inputs.frame_faces
+    layout = inputs.layout
+    regions = [layout.region_of(frame_face) for frame_face in frame_faces]
+    fans = [item.is_fan for item in frame_faces]
+    flows = [getattr(item, "flow_key", None) is not None for item in frame_faces]
+    called = perf_counter_ns()
+    try:
+        status, detail, point_slopes, fact_slopes, counts, bits, native, attempts = mirror._session.certificate_side_slopes(
+            inputs.plane.triangles, inputs.points_before, inputs.cycles, inputs.facts_before, key_slope, fact_slope, frame_faces, regions, fans, flows, inputs.polygons, code,
+            bool(inputs.by_faces), inputs.inert, inputs.table, inputs.lattice_alpha, inputs.scale, step, parametric._STEP_ATTEMPTS, inputs.cut, inputs.facts_after,
+            None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), real,
+        )
+    except BaseException:
+        mirror.invalidate()
+        raise
+    returned = perf_counter_ns()
+    if status == CERTIFICATE_STATUS_DECLINED:
+        mirror.invalidate()
+        mirror.last_certificate_timings = (called - started, returned - called, 0, *native, attempts)
+        raise pin.NativePortUnsupported(f"certificate_side_slopes: {detail}")
+    mirror._settle_counts(exact, counts)
+    mirror._remember(exact, bits, slow)
+    mirror.last_certificate_timings = (called - started, returned - called, perf_counter_ns() - returned, *native, attempts)
+    if status == 0:
+        return point_slopes, fact_slopes
+    name = CERTIFICATE_REFUSALS.get(status)
+    if name is None:
+        raise cost.NativeMirrorError(f"the native certificate side cuts answered the status {status}")
+    if status == 24:
+        raise parametric.ParametricRefusal(parametric.PARAM_CLIP_REFUSED, admit.MaterializationOutcome[detail].value)
+    raise parametric.ParametricRefusal(getattr(parametric, name))
+
+#: `certificate.rs` statuses of the arrays' oracle refusals (CERTIFICATE_CORE_NATIVE_V1).
+CORE_REFUSALS = {31: "PARAM_LIFT_UNSUPPORTED", 32: "PARAM_LIFT_ON_EDGE", 33: "PARAM_FACT_UNRESOLVED"}
+
+
+def certificate_core(mirror, inputs, batch, interval, request, key_slope, fact_slope, fact_floats, developable):
+    """`parametric._certificate_tail(...)` on a bound surface outside the exact mode (CERTIFICATE_CORE_NATIVE_V1, `certificate.rs`): the side cuts of the domain's cut, the slopes
+    of the clip and the arrays of the batch (positions, loops, limits, floors, the rate of the offset normal) in ONE native call that reads the batch once.
+
+    Returns the oracle's `ParametricCertificateV1` (the `memo` label is set by the caller), or raises the oracle's `ParametricRefusal` by name. The positions are computed, not taken
+    from the slope memory (the label counts the facts). Effects as `certificate_side_slopes`; a decline of the port applies nothing.
+    """
+
+    from array import array
+
+    from . import materialize_hot_op
+    from cftuv_envelope.materialize import parametric
+
+    materialize_hot_op._begin(mirror)
+    if type(inputs.plane) is not materialize_hot_op._bound_surface():
+        raise pin.NativePortUnsupported(f"certificate_core: the arrays are read on a BoundSurfaceLiftV1, not a {type(inputs.plane).__name__}")
+    started = perf_counter_ns()
+    if not mirror._clip_bound:
+        mirror._bind_clip()
+    exact, sync, slow, real = _clip_stage(mirror)
+    scale = inputs.scale
+    side = None
+    if inputs.cut is not None:
+        step = parametric._step_for(inputs.alpha, interval)
+        if step is None:
+            raise parametric.ParametricRefusal(parametric.PARAM_WINDOW_NOT_CERTIFIED)
+        _exact_module, _mesh, _frames, _coalesce, _stations, _time, _admit, laws = _kernel()
+        law = inputs.law
+        frame_faces = inputs.frame_faces
+        layout = inputs.layout
+        side = (
+            inputs.points_before, inputs.cycles, inputs.facts_before, key_slope, fact_slope, frame_faces, [layout.region_of(item) for item in frame_faces],
+            [item.is_fan for item in frame_faces], [getattr(item, "flow_key", None) is not None for item in frame_faces], inputs.polygons,
+            0 if law is laws.PLANAR_POLYGONS_V1 else 1 if law is laws.QUAD_STRIPS_V1 else 2, bool(inputs.by_faces), inputs.inert, inputs.table, inputs.lattice_alpha, scale,
+            step, parametric._STEP_ATTEMPTS, inputs.cut, inputs.facts_after,
+        )
+    limits = parametric._cut_point_limits(request.templates, scale)
+    reach = {}
+    if limits:
+        for key, slope in key_slope.items():
+            if slope is not None:
+                found = limits.get(id(slope[0]))
+                if found is not None:
+                    reach[key] = found
+    window = (float(interval.low), float("inf") if interval.high is None else float(interval.high))
+    called = perf_counter_ns()
+    try:
+        status, detail, columns, rate, sizes, counts, bits, native, attempts = mirror._session.certificate_core(
+            inputs.plane.triangles, side, batch.vertices, batch.faces, inputs.points_after, key_slope, inputs.lifted_names, reach, window, bool(developable), scale, fact_floats,
+            None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), real,
+        )
+    except BaseException:
+        mirror.invalidate()
+        raise
+    returned = perf_counter_ns()
+    if status == CERTIFICATE_STATUS_DECLINED:
+        mirror.invalidate()
+        mirror.last_certificate_timings = (called - started, returned - called, 0, *native, attempts)
+        raise pin.NativePortUnsupported(f"certificate_core: {detail}")
+    mirror._settle_counts(exact, counts)
+    mirror._remember(exact, bits, slow)
+    mirror.last_certificate_timings = (called - started, returned - called, perf_counter_ns() - returned, *native, attempts)
+    if status:
+        if status == 24:
+            _exact_module, _mesh, _frames, _coalesce, _stations, _time, admit, _laws = _kernel()
+            raise parametric.ParametricRefusal(parametric.PARAM_CLIP_REFUSED, admit.MaterializationOutcome[detail].value)
+        name = CERTIFICATE_REFUSALS.get(status) or CORE_REFUSALS.get(status)
+        if name is None:
+            raise cost.NativeMirrorError(f"the native certificate answered the status {status}")
+        raise parametric.ParametricRefusal(getattr(parametric, name), detail or "")
+    positions, loops, upper, lower = (array("d", item) for item in columns)
+    vertex_count, loop_count, moving, nodes, facts = sizes
+    return parametric.ParametricCertificateV1(
+        parametric.PARAMETRIC_LAW,
+        inputs.alpha,
+        scale,
+        (),
+        "",
+        vertex_count,
+        loop_count,
+        positions,
+        loops,
+        (("PARAMETRIC_MOVING_VERTICES", moving), ("PARAMETRIC_CLIP_NODE_SLOPES", nodes), ("PARAMETRIC_CLIP_FACT_SLOPES", facts)),
+        None,
+        approximate_rate=rate,
+        vertex_limit_widths=upper,
+        vertex_floor_widths=lower,
+    )

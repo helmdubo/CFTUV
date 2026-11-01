@@ -192,7 +192,7 @@ fn flags_of(value: &Bound<'_, PyAny>) -> PyResult<Option<Vec<bool>>> {
 
 /// `inert`: an iterable of pairs of face names (`frozenset[frozenset[str]]`). A pair that is not two items is skipped, as `_plan_groups` skips it;
 /// an item that is no `str` is a named refusal (the oracle would compare it to the face names and sort it with a name).
-fn inert_of(value: &Bound<'_, PyAny>) -> PyResult<Vec<(String, String)>> {
+pub(crate) fn inert_of(value: &Bound<'_, PyAny>) -> PyResult<Vec<(String, String)>> {
     // `None` is as falsy as the empty frozenset: the oracle's `if inert` takes the same branch
     if value.is_none() {
         return Ok(Vec::new());
@@ -615,6 +615,13 @@ impl Host {
     /// `(crossing hits, crossings stored, crossing entries, value hits, lift hits)` of the cross-call cache.
     pub fn warm_stats(&self) -> (u64, u64, usize, u64, u64) {
         (self.warm.hits, self.warm.stored, self.warm.len(), self.warm.value_hits, self.warm.lift_hits)
+    }
+
+    /// CERTIFICATE_SIDE_CUTS_NATIVE_V1 (`certificate.rs`): the converted plane of `triangles`, the session's cross-call cache, the bound pool and `bisect.insort`.
+    pub(crate) fn certificate_parts(&mut self, py: Python<'_>, triangles: &Bound<'_, PyAny>) -> PyResult<(&Plane, &mut Warm, &Pool, &Py<PyAny>)> {
+        let index = self.prepare(py, triangles)?;
+        let classes = self.classes.as_ref().ok_or_else(|| PyRuntimeError::new_err("cftuv_native: the clip classes were not bound (`bind_clip`)"))?;
+        Ok((&self.planes[index].plane, &mut self.warm, &classes.pool, &classes.insort))
     }
 
     /// Index of the prepared plane (converted now when this tuple of triangles is new to the session).

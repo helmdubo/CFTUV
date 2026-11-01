@@ -705,7 +705,8 @@ def test_the_affine_certificate_is_computed_after_the_answer_and_never_inside_it
         assert earlier in where, f"_materialize_domain не зовёт {earlier}"
         assert where["certificate_of"] > where[earlier], f"сертификат считается раньше {earlier}: он мог бы сдвинуть ответ"
     source = (materialize / "parametric.py").read_text(encoding="utf-8")
-    assert "unlimited_reference_budget" in source and "clip_memo_disabled" in source, "боковые резки идут мимо памяти резки и на своём бюджете"
+    assert "unlimited_reference_budget" in source and "use_memo=False" in source, "боковые резки идут мимо памяти резки и на своём бюджете"
+    assert "clip_memo_disabled" not in source and "_SIDE_CUT_LOCK" not in source, "мимо памяти - параметр вызова, а не флаг процесса под замком (CLIP_MEMO_MODE_PER_CALL_V1)"
 
 
 def test_a_model_frame_is_computed_and_written_only_by_the_preview_and_never_enters_a_committed_result():

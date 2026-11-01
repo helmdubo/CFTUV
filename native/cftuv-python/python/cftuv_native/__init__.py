@@ -573,6 +573,18 @@ def clip_slope_values(cut, up, down, facts_before, facts_after, facts_up, facts_
     return materialize_hot_op.clip_slope_values(default_mirror(), cut, up, down, facts_before, facts_after, facts_up, facts_down, delta)
 
 
+def certificate_side_slopes(inputs, step, key_slope, fact_slope):
+    """`parametric._clip_slopes_at(inputs, step, key_slope, fact_slope)`: the side cuts of the drag certificate in one native call (see `materialize_w1_op.certificate_side_slopes`)."""
+
+    return materialize_w1_op.certificate_side_slopes(default_mirror(), inputs, step, key_slope, fact_slope)
+
+
+def certificate_core(inputs, batch, interval, request, key_slope, fact_slope, fact_floats, developable):
+    """`parametric._certificate_tail(...)`: the side cuts, the slopes and the arrays of the drag certificate in one native call (see `materialize_w1_op.certificate_core`)."""
+
+    return materialize_w1_op.certificate_core(default_mirror(), inputs, batch, interval, request, key_slope, fact_slope, fact_floats, developable)
+
+
 def clip_memo_key(inputs, triangles, policy):
     """`clip_memo.clip_key(inputs, triangles, policy)`, the same hexdigest (see `materialize_hot_op.clip_memo_key`)."""
 

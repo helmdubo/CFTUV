@@ -58,7 +58,7 @@ from operator import attrgetter
 
 from ..exact_sqrt_sum import SqrtSumV1, unlimited_reference_budget
 from .clip import cut_domain
-from .clip_memo import kernel_code_identity, memo_disabled as clip_memo_disabled
+from .clip_memo import kernel_code_identity
 from .frames import MaterializationRefusal
 from .lift import PlaneLiftV1, enclosure_midpoint, ENCLOSURE_BITS
 from .memo import memo_enabled, memo_of
@@ -106,8 +106,6 @@ _FLOAT_ZERO3 = (0.0, 0.0, 0.0)
 #: резки в боковых точках не совпала с базой. Шаг круглый (степень двойки): коэффициенты точных величин не раздуваются.
 _STEP_FRACTION = 16
 _STEP_ATTEMPTS = 3
-#: Боковые резки идут мимо памяти резки (`clip_memo.memo_disabled` переключает флаг процесса): один сертификат в процессе за раз, чтобы чужая резка не увидела выключенную память.
-_SIDE_CUT_LOCK = threading.Lock()
 
 MEMO_SWITCH = "CFTUV_PARAMETRIC_MEMO"
 #: Метки памяти наклонов у сертификата: все наклоны из памяти, все посчитаны, часть из памяти; память выключена; точный режим; у подготовки нет памяти; сертификат отказал раньше первого обращения.
@@ -662,23 +660,24 @@ def _side_cut(inputs, delta: Fraction, key_slope, fact_slope):
     shift = delta * inputs.scale
     points, cycles, facts = backend.side_inputs_compute(_side_inputs, inputs.points_before, inputs.cycles, inputs.facts_before, key_slope, fact_slope, shift)
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
-    with _SIDE_CUT_LOCK, clip_memo_disabled():
-        clipped = cut_domain(
-            inputs.plane,
-            budget,
-            frame_faces=inputs.frame_faces,
-            cycles=cycles,
-            points=points,
-            polygons=inputs.polygons,
-            facts=facts,
-            layout=inputs.layout,
-            table=inputs.table,
-            lattice_alpha=inputs.lattice_alpha + shift,
-            law=inputs.law,
-            by_faces=inputs.by_faces,
-            tally=Counter(),
-            inert=inputs.inert,
-        )
+    # CLIP_MEMO_MODE_PER_CALL_V1: the side cut passes by the clip memory by its own argument, not by the process-wide switch (no lock; no other cut sees it)
+    clipped = cut_domain(
+        inputs.plane,
+        budget,
+        frame_faces=inputs.frame_faces,
+        cycles=cycles,
+        points=points,
+        polygons=inputs.polygons,
+        facts=facts,
+        layout=inputs.layout,
+        table=inputs.table,
+        lattice_alpha=inputs.lattice_alpha + shift,
+        law=inputs.law,
+        by_faces=inputs.by_faces,
+        tally=Counter(),
+        inert=inputs.inert,
+        use_memo=False,
+    )
     return clipped, facts
 
 
@@ -723,6 +722,14 @@ def _clip_slopes(inputs, interval, key_slope, fact_slope):
     step = _step_for(inputs.alpha, interval)
     if step is None:
         raise ParametricRefusal(PARAM_WINDOW_NOT_CERTIFIED)
+    # CERTIFICATE_SIDE_CUTS_NATIVE_V1: the side cuts, the structure check and the second differences in one native call (`certificate.rs`), the intermediates stay
+    # native; an input the port does not carry is the oracle `_clip_slopes_at` by name
+    return backend.certificate_side_slopes_compute(_clip_slopes_at, inputs, step, key_slope, fact_slope)
+
+
+def _clip_slopes_at(inputs, step: Fraction, key_slope, fact_slope):
+    """`_clip_slopes` from the step of `_step_for` on: up to `_STEP_ATTEMPTS` pairs of side cuts (the step halved after a refused cut or a changed structure), then the second differences."""
+
     base_shape = _shape(inputs.cut)
     last = None
     for _attempt in range(_STEP_ATTEMPTS):
@@ -836,13 +843,21 @@ def certificate_of(inputs: ParametricInputsV1, batch, interval, request: Paramet
 
 
 def _certificate(inputs, batch, interval, request, prepared, coverage, developable: bool = False, source: _SlopeSource | None = None) -> ParametricCertificateV1:
-    scale = inputs.scale
-    normal_rate = 0.0
     source = _SlopeSource(None) if source is None else source
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
     # Точки до резки: наклоны покрытия по ключу вершины (`key_slopes_of`, MATERIALIZE_CERTIFICATE_NATIVE_V1); факты до резки: формулы граней (из памяти наклонов, PARAMETRIC_SLOPE_MEMO_V1).
     key_slope = backend.key_slopes_compute(key_slopes_of, prepared, coverage, request.templates, inputs.points_before)
     fact_slope, fact_floats = source.facts(inputs.frame_faces, inputs.cycles, inputs.layout, key_slope, inputs.rungs, budget)
+    # CERTIFICATE_CORE_NATIVE_V1: the side cuts, the slopes and the arrays of the batch in one native call (`certificate.rs`); the exact mode, another lift and an input the
+    # port does not carry are the oracle `_certificate_tail` by name (the positions are not memoized on the native road: the label counts the facts)
+    return backend.certificate_core_compute(_certificate_tail, inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable)
+
+
+def _certificate_tail(inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable: bool) -> ParametricCertificateV1:
+    """`_certificate` after the slopes of the points and of the facts before the cut: the slopes of the clip, then the arrays in the order of the batch."""
+
+    scale = inputs.scale
+    normal_rate = 0.0
     clip_points: dict = {}
     clip_facts: dict = {}
     if inputs.cut is not None:

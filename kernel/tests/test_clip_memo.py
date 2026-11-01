@@ -154,9 +154,9 @@ def _watched(monkeypatch):
     seen: list = []
     original = clip.run_clip
 
-    def spy(compute, plane, budget, policy, **inputs):
+    def spy(compute, plane, budget, policy, use_memo=True, **inputs):
         seen.append((plane, budget, policy, inputs))
-        return original(compute, plane, budget, policy, **inputs)
+        return original(compute, plane, budget, policy, use_memo=use_memo, **inputs)
 
     monkeypatch.setattr(clip, "run_clip", spy)
     return seen
