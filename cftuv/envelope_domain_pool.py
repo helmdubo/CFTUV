@@ -87,6 +87,7 @@ from operator import attrgetter
 from .envelope_gc_pause import freeze_loaded_worker, gc_paused
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_pool_affinity import AFFINITY_NOT_EVALUATED, apply_worker_affinity
+from .envelope_slots_pickle import dumps as slots_dumps
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
@@ -393,7 +394,7 @@ class DomainPoolRunV1:
 
 
 def encode_frame(value) -> bytes:
-    payload = pickle.dumps(value, protocol=PICKLE_PROTOCOL)
+    payload = slots_dumps(value)  # SLOTS_DATACLASS_PICKLE_V1
     return FRAME_HEADER.pack(len(payload)) + payload
 
 
@@ -639,7 +640,7 @@ def _packed_cold_reply(task: DomainTaskV1, result: DomainTaskResultV1) -> Domain
 
     if task.cold is None or result.prepared is None or result.production is None:
         return result
-    blob = pickle.dumps(result.prepared, protocol=PICKLE_PROTOCOL)
+    blob = slots_dumps(result.prepared)
     key = blob_key(blob)
     if not key:
         return result

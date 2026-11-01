@@ -630,7 +630,7 @@ def test_the_first_width_step_after_a_cold_press_pickles_nothing_even_past_the_c
     reference = _production_run(bundle, alpha=0.4, workers=0)[0]
     _cold, controller = _production_run(bundle, alpha=0.25)
     assert len(controller.content_store) == 2 and len(controller.preparation_blobs) == ROW  # кэш подготовок держит все пять - и пиклы всех пяти
-    monkeypatch.setattr(envelope_queue_pool, "pickle", SimpleNamespace(dumps=lambda *a, **k: pytest.fail("the parent pickled a preparation")))
+    monkeypatch.setattr(envelope_queue_pool, "slots_dumps", lambda *a, **k: pytest.fail("the parent pickled a preparation"))
 
     warm, _ = _production_run(bundle, controller, alpha=0.4)
 

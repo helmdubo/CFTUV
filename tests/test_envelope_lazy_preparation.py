@@ -82,7 +82,7 @@ def test_the_handle_is_never_serialised_and_never_pretends_to_be_the_preparation
 def test_the_blob_of_a_handle_is_its_own_bytes_and_the_pickler_is_never_called(monkeypatch):
     handle = handle_of("a", "k-a")
     blobs = PreparationBlobsV1()
-    monkeypatch.setattr(envelope_queue_pool.pickle, "dumps", lambda *a, **k: pytest.fail("a handle's blob must not be pickled again"))
+    monkeypatch.setattr(envelope_queue_pool, "slots_dumps", lambda *a, **k: pytest.fail("a handle's blob must not be pickled again"))
 
     assert blobs.blob_of(handle) is handle.blob and blobs.key_of(handle) == "k-a" and len(blobs) == 1
     blobs.discard(handle)

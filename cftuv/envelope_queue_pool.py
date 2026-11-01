@@ -41,11 +41,11 @@ __reduce__`), а покрытие пересланной подготовки п
 
 from __future__ import annotations
 
-import pickle
 import time
 from dataclasses import dataclass, replace
 
 from .envelope_lazy_preparation import LazyPreparationV1, canonical
+from .envelope_slots_pickle import dumps as slots_dumps
 from .envelope_worker_store import prepared_of
 from .envelope_queue_export import (
     POOL_COVERAGE_DISPATCHED,
@@ -115,7 +115,7 @@ class PreparationBlobsV1:
             if type(prepared) is LazyPreparationV1:
                 item = [prepared, prepared.blob, prepared.key or None]  # пикл у ручки уже есть: перепикливать нечего
             else:
-                item = [prepared, pickle.dumps(prepared, protocol=PICKLE_PROTOCOL), None]
+                item = [prepared, slots_dumps(prepared), None]  # SLOTS_DATACLASS_PICKLE_V1: тот же пикл, что снимает воркер
             self._items[id(prepared)] = item
         return item
 
