@@ -565,6 +565,79 @@ def test_esc_during_a_preempted_flight_drops_everything_once_and_the_pool_is_fre
     assert h.applied == [(0.40, ("scene", 0.40))]
 
 
+def _not_awaiting(threshold=0.03):
+    asked: list = []
+
+    def preempt(running, waiting, now):
+        asked.append((running.sequence, waiting.sequence))
+        return running.alpha != waiting.alpha and now - waiting.requested_at >= threshold
+
+    return Harness(preempt=preempt, start_past_preempted=True), asked
+
+
+def test_with_start_past_preempted_the_rest_value_starts_in_the_same_step_and_the_preempted_return_is_named():
+    """LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: вытесненный полёт не ждут - ждущий стартует тем же шагом; вернувшийся вытесненный выброшен (`stale`) и назван (`preempted`)."""
+
+    h, asked = _not_awaiting()
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.0).step()
+    first = h.jobs[0]
+    h.at(0.01).scheduler.request(0.35, stream=True)
+    h.at(0.02).step()
+    assert not first.cancelled and len(h.jobs) == 1
+    h.at(0.05).step()
+    assert first.cancelled and [item.alpha for item in h.begun] == [0.30, 0.35]  # тем же шагом
+    assert h.scheduler.in_flight and h.scheduler.busy
+    second = h.jobs[1]
+    second.finished = True  # новый вернулся раньше вытесненного: ложится
+    h.at(0.06).step()
+    assert h.applied == [(0.35, ("scene", 0.35))]
+    assert h.scheduler.busy and h.step() is not None  # вытесненный ещё не вернулся: опрос идёт
+    first.error, first.finished = PreviewCancelled("pool stopped"), True
+    h.at(0.07).step()
+    assert not h.scheduler.busy and h.applied == [(0.35, ("scene", 0.35))]
+    counters = h.scheduler.counters
+    assert (counters.started, counters.applied, counters.stale, counters.preempted, counters.cancelled, counters.failed) == (2, 1, 1, 1, 0, 0)
+    assert asked.count((1, 2)) == 2
+
+
+def test_with_start_past_preempted_a_preempted_value_is_dropped_esc_is_counted_once_and_quiesce_waits_for_it():
+    h, _asked = _not_awaiting(threshold=0.0)
+    h.at(0.0).scheduler.request(0.30, stream=True)
+    h.at(0.0).step()
+    h.at(0.01).scheduler.request(0.35, stream=True)
+    h.at(0.01).step()
+    first, second = h.jobs
+    assert first.cancelled and not second.cancelled
+    first.finished = True  # отмена опоздала: значение посчитано - не ложится
+    h.at(0.02).step()
+    assert h.applied == []
+    assert (h.scheduler.counters.stale, h.scheduler.counters.preempted) == (1, 1)
+
+    esc, _ = _not_awaiting(threshold=0.0)
+    esc.at(0.0).scheduler.request(0.30, stream=True)
+    esc.at(0.0).step()
+    esc.at(0.01).scheduler.request(0.35, stream=True)
+    esc.at(0.01).step()
+    assert esc.scheduler.retire_stream("drag cancelled") is True
+    for job in esc.jobs:
+        job.error, job.finished = PreviewCancelled("pool stopped"), True
+    esc.at(0.02).step()
+    counters = esc.scheduler.counters
+    assert esc.applied == [] and not esc.scheduler.busy
+    assert (counters.cancelled, counters.stale, counters.preempted) == (1, 0, 0)
+
+    q, _ = _not_awaiting(threshold=0.0)
+    q.at(0.0).scheduler.request(0.30, stream=True)
+    q.at(0.0).step()
+    q.at(0.01).scheduler.request(0.35, stream=True)
+    q.at(0.01).step()
+    for job in q.jobs:
+        job.finished = True
+    assert q.scheduler.quiesce("Build Decal Mesh") is True
+    assert all(job.joined for job in q.jobs) and not q.scheduler.busy
+
+
 def test_settle_skips_the_debounce_and_drains_to_the_applied_result():
     h = Harness()
     h.at(0.0).scheduler.request(0.30)

@@ -923,6 +923,37 @@ class _WorkerGone(RuntimeError):
 _GONE = object()
 
 
+class _Wake:
+    """Побудка потока прогона `run` в очереди ответов воркера (CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1): ждущий ответа поток прогона `run` её берёт, прочие читатели пропускают."""
+
+    __slots__ = ("run",)
+
+    def __init__(self, run) -> None:
+        self.run = run
+
+
+def _settle_owed(worker, last_worker: dict) -> bool:
+    """CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: ответы задач отменённого прогона, что воркер ещё должен, прочитаны и выброшены (`worker.discarded`; зеркало памяти воркера и привязка - как у
+    принятого ответа, пикл не пересылается). `False` - воркер умер либо ответил не на ту задачу: он назван умершим, долг снят (его прогон отменён, ответов никто не ждёт)."""
+
+    scratch = _PoolCounter()
+    while worker.owed:
+        task, _frame, kind = worker.owed[0]
+        try:
+            reply = _received(worker, worker.receive(), scratch)
+        except _WorkerGone:
+            reply = None
+        if not isinstance(reply, DomainTaskResultV1) or reply.task_id != task.task_id:
+            worker.dead = True
+            worker.owed.clear()
+            return False
+        worker.owed.popleft()
+        worker.discarded += 1
+        if not _needs_the_blob(worker, task, kind, reply, scratch) and task.affinity:
+            last_worker[task.affinity] = worker.index
+    return True
+
+
 class _Worker:
     """Один подпроцесс и два потока-читателя его труб."""
 
@@ -940,6 +971,8 @@ class _Worker:
         self.unpickle_cpu = 0.0
         self.unpickle_wall = 0.0
         self._stdout_closed = False
+        #: CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: неотвеченные задачи отменённого прогона (как `_Lane.flying`) - их ответы выбрасывает следующий читатель (`_settle_owed`); сколько выброшено.
+        self.owed, self.discarded = deque(), 0
         self._inbox: queue.Queue = queue.Queue()
         self._stderr_tail: deque = deque(maxlen=STDERR_TAIL_LINES)
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -1003,11 +1036,20 @@ class _Worker:
         except (OSError, ValueError) as exc:
             raise _WorkerGone(f"{self.describe()} ({type(exc).__name__})") from exc
 
-    def receive(self, timeout: float | None = None):
-        try:
-            item = self._inbox.get(timeout=timeout)
-        except queue.Empty as exc:
-            raise _WorkerGone(f"{self.describe()} (no reply in {timeout} s)") from exc
+    def wake(self, run) -> None:
+        self._inbox.put(_Wake(run))
+
+    def receive(self, timeout: float | None = None, *, woken_by=None):
+        """Следующий ответ; побудка (`_Wake`) прогона `woken_by` возвращается как есть, прочие пропускаются."""
+        while True:
+            try:
+                item = self._inbox.get(timeout=timeout)
+            except queue.Empty as exc:
+                raise _WorkerGone(f"{self.describe()} (no reply in {timeout} s)") from exc
+            if not isinstance(item, _Wake):
+                break
+            if woken_by is not None and item.run is woken_by:
+                return item
         if isinstance(item, _WorkerGone):
             raise _WorkerGone(f"{item}; {self.describe()}")
         if item is _GONE:
@@ -1107,6 +1149,11 @@ def _checked_identity(host: dict, reply) -> dict:
 #: момента отправки не зависит (родитель принимает ответы по номеру задачи), порядок ответов одного воркера - порядок отправки. Заменяет EARLY_DISPATCH_BEFORE_UNPICKLE_V1
 #: (следующая холодная задача уходила из потока-читателя после байтов ответа): теперь все отправки воркеру делает один поток - его поток воркера.
 PIPELINE_DEPTH = 2
+
+#: CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: отменённый прогон не ждёт ответов ушедших задач - они долг воркера, и их читает следующий прогон (каждый воркер - перед своей первой задачей), так что
+#: следующий прогон стартует на воркере, как только ЭТОТ воркер вернул свои, а не когда вернули все (выключен - прогон дочитывает ушедшие сам, как прежде).
+HAND_OVER_CANCELLED = True
+CANCEL_WATCH_SECONDS = 0.05  # сторож отмены проверяет конец прогона с этим шагом; побудка по отмене - сразу (`Event.wait`)
 
 #: HEAD_STREAMED_FIRST_ROUND_V1: выключатель отбора кандидатов первого круга (см. `split_first_round`); выключен - полный порядок до старта, как прежде.
 STREAMED_HEAD = True
@@ -1430,6 +1477,9 @@ class _Run:
             threading.Thread(target=self.feed, args=(worker,), daemon=True) for worker in self.participants if not (idle and worker.index not in self.started)
         ]
         ordering_failure = None
+        done = threading.Event()
+        if self.cancel is not None and HAND_OVER_CANCELLED:
+            threading.Thread(target=self._watch, args=(done,), daemon=True).start()
         try:
             for thread in threads:
                 thread.start()
@@ -1442,6 +1492,7 @@ class _Run:
             for thread in threads:
                 thread.join()
         finally:
+            done.set()
             self.pending.release()
         return ordering_failure
 
@@ -1473,6 +1524,20 @@ class _Run:
     def _cancelled(self) -> bool:
         return self.cancel is not None and self.cancel.is_set()
 
+    def _hand_over(self, worker: _Worker, lane: _Lane) -> None:
+        """CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: неотвеченные задачи отменённого прогона - долг воркера, их ответы выбросит следующий читатель."""
+        worker.owed.extend(lane.flying)
+        lane.flying.clear()
+
+    def _watch(self, done: threading.Event) -> None:
+        """CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: отмена будит потоки воркеров, ждущие ответа (`_Wake`): прогон кончается, не дожидаясь ушедших задач."""
+        while not done.is_set():
+            if self.cancel.wait(CANCEL_WATCH_SECONDS):
+                if not done.is_set():
+                    for worker in self.participants:
+                        worker.wake(self)
+                return
+
     def feed(self, worker: _Worker) -> None:
         """Поток воркера: держит в его трубе до `PIPELINE_DEPTH` задач (PIPELINED_LANES_V1) и принимает ответы по порядку отправки.
 
@@ -1482,7 +1547,13 @@ class _Run:
 
         lane = self.lanes[worker.index]
         first = self.started.get(worker.index)
+        if getattr(worker, "owed", None) and not _settle_owed(worker, self.last_worker):  # CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: долг отменённого прогона - до первой своей задачи
+            if first is not None:
+                self.results[first[0].task_id] = DomainTaskResultV1(first[0].task_id, error=f"worker died: {worker.describe()} (reading the replies of a cancelled run)")
+            return
         while True:
+            if HAND_OVER_CANCELLED and lane.flying and self._cancelled():
+                return self._hand_over(worker, lane)
             if not lane.flying:
                 if self._cancelled():
                     return
@@ -1516,7 +1587,10 @@ class _Run:
 
         task, frame, kind = lane.flying[0]
         try:
-            reply = _received(worker, worker.receive(), self.counted)
+            reply = worker.receive(woken_by=self) if HAND_OVER_CANCELLED and self.cancel is not None else worker.receive()
+            if isinstance(reply, _Wake):  # CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: отмена - ушедшие задачи становятся долгом воркера
+                return bool(self._hand_over(worker, lane))
+            reply = _received(worker, reply, self.counted)
         except _WorkerGone as exc:
             worker.dead = True
             self.lose(lane, f"worker died: {exc}")
@@ -1745,6 +1819,11 @@ class DomainPool:
     #: Пул принимает `late` (`LateTasksV1`): вызывающий достраивает остаток задач, пока воркеры считают (SCAN_BEHIND_THE_POOL_V1).
     streams_late = True
 
+    @property
+    def discarded_replies(self) -> int:
+        """CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: сколько ответов задач отменённых прогонов выброшено живыми воркерами пула."""
+        return sum(item.discarded for item in self._workers)
+
     def run(self, tasks, cancel=None, late=None) -> DomainPoolRunV1:
         """Считает задачи воркерами, тяжёлые первыми, и собирает ответы.
 
@@ -1790,6 +1869,10 @@ class DomainPool:
                     pending.discard(index)
                 sent = []
                 for worker in batch:
+                    if getattr(worker, "owed", None) and not _settle_owed(worker, self._last_worker):  # CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: долг отменённого прогона - до шага
+                        failures[worker.index] = f"worker died reading the replies of a cancelled run: {worker.describe()}"
+                        pending.discard(worker.index)
+                        continue
                     try:
                         worker.send(frame)
                         sent.append(worker)

@@ -29,6 +29,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from collections import Counter
@@ -333,8 +334,60 @@ class Recorder:
         if gpu is not None:
             for name in ("set_width", "install"):
                 self.wrap(gpu, name, lambda original, name=name: self._timed(original, self.nodes, name))
+        self._install_trace(live)
         bpy.app.handlers.depsgraph_update_post.append(self._deps)
         self.handle = bpy.types.SpaceView3D.draw_handler_add(self._draw, (), "WINDOW", "POST_PIXEL")
+
+    def _install_trace(self, live) -> None:
+        """The pause path call for call (`trace`): every tick's start on the main thread (`_begin`, with its job: thread start / end, cancelled or not), the pool run and the tail in
+        the thread (`run_production`, `finish_live_run`), every pre-emption question and its answer (`preempt_stale`)."""
+
+        import cftuv.envelope_production_export as export
+
+        self.trace, self.jobs = [], []
+
+        def begin(original):
+            def wrapper(controller, request):
+                started = time.perf_counter()
+                job = original(controller, request)
+                self.jobs.append((int(request.sequence), float(request.alpha), bool(request.stream), float(request.requested_at), started, time.perf_counter(), job))
+                return job
+
+            return wrapper
+
+        def preempt(original):
+            def wrapper(*args, **kwargs):
+                started = time.perf_counter()
+                answer = original(*args, **kwargs)
+                if answer:
+                    running, waiting = args[1], args[2]
+                    self.trace.append((started, "PREEMPT", int(running.sequence), int(waiting.sequence)))
+                return answer
+
+            return wrapper
+
+        def span(name):
+            def around(original):
+                def wrapper(*args, **kwargs):
+                    started, cpu = time.perf_counter(), time.thread_time()
+                    try:
+                        return original(*args, **kwargs)
+                    finally:
+                        self.trace.append((started, name, time.perf_counter(), threading.current_thread().name, time.thread_time() - cpu))
+
+                return wrapper
+
+            return around
+
+        self.wrap(live, "_begin", begin)
+        if hasattr(live, "preempt_stale"):
+            self.wrap(live, "preempt_stale", preempt)
+        self.wrap(live, "finish_live_run", span("TAIL"))
+        self.wrap(export, "run_production", span("RUN"))
+
+    def trace_rows(self) -> dict:
+        jobs = [(seq, alpha, stream, requested, begun, begin_end, float(getattr(job, "started_at", 0.0)), float(getattr(job, "finished_at", 0.0))) for seq, alpha, stream, requested, begun, begin_end, job in self.jobs]
+        return {"jobs": jobs, "trace": self.trace}
 
     def _deps(self, *_args) -> None:
         self.deps.append(time.perf_counter())
@@ -764,7 +817,7 @@ class Driver:
         except Exception:  # noqa: BLE001
             self.report["failure"] = (failure or "") + "\nanalysis: " + traceback.format_exc()
         self.report["raw"] = {"draws": self.recorder.draws, "frames": self.recorder.frames, "applies": self.recorder.applies, "events": self.recorder.events,
-                              "writes": self.recorder.writes, "nodes": self.recorder.nodes, "shots": self.recorder.shots, "deps": len(self.recorder.deps), "release_at": self.release_at}
+                              "writes": self.recorder.writes, "nodes": self.recorder.nodes, "shots": self.recorder.shots, "deps": len(self.recorder.deps), "release_at": self.release_at, **self.recorder.trace_rows()}
         Path(self.args.out).write_text(json.dumps(self.report, indent=1, default=str) + "\n", encoding="utf-8")
         print("[CFTUV][gui-drag]", json.dumps(self.report.get("summary"), default=str), flush=True)
         print("GUI_DRAG_OK" if self.report["failure"] is None else "GUI_DRAG_FAILED", flush=True)

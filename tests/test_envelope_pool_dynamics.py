@@ -448,7 +448,7 @@ def test_a_worker_that_dies_names_the_running_task_and_the_one_queued_behind_it_
     assert all(run.results[task_id].snapshot == ("echo", task_id, f"d{task_id}") for task_id in set(run.results) - dead)
 
 
-def test_cancel_lets_the_tasks_in_flight_finish_and_takes_no_new_ones(_stub_workers):
+def test_cancel_takes_no_new_tasks_and_answers_only_what_was_done(_stub_workers):
     pool = DomainPool(2)
     cancel = threading.Event()
     count = 60
@@ -465,8 +465,50 @@ def test_cancel_lets_the_tasks_in_flight_finish_and_takes_no_new_ones(_stub_work
         pool.close()
 
     assert 0 < len(run.results) < count
-    assert seconds < 0.3 + 0.5  # идущие дочитываются (две по 20 мс), новые не берутся
+    assert seconds < 0.3 + 0.5  # новые не берутся; ушедшие - долг воркеров (CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1)
     assert all(not result.error and result.snapshot == ("echo", task_id, f"d{task_id}") for task_id, result in run.results.items())
+
+
+def test_a_cancelled_run_does_not_wait_for_its_tasks_in_flight_and_the_next_run_reads_and_drops_their_replies(_stub_workers):
+    """CANCELLED_REPLIES_READ_BY_THE_NEXT_RUN_V1: отменённый прогон кончается, не дожидаясь ушедших задач (по 0.4 с); их ответы читает и выбрасывает следующий прогон, и его ответы - его задачам."""
+
+    pool = DomainPool(2)
+    cancel = threading.Event()
+    pool.ensure_started()
+    timer = threading.Timer(0.1, cancel.set)
+    try:
+        timer.start()
+        started = time.perf_counter()
+        cancelled = pool.run([_task(index, "0.4") for index in range(8)], cancel=cancel)
+        seconds = time.perf_counter() - started
+        owed = sum(len(worker.owed) for worker in pool._workers)
+        after = pool.run([_task(index, "0.0") for index in range(6)])
+        discarded = pool.discarded_replies
+        idle = pool.run([_task(index, "0.0") for index in range(2)])
+    finally:
+        timer.cancel()
+        pool.close()
+
+    assert cancelled.results == {} and seconds < 0.35  # ни одна медленная не дочитывалась
+    assert 2 <= owed <= 2 * pool_module.PIPELINE_DEPTH and discarded == owed
+    assert sorted(after.results) == list(range(6)) and sorted(idle.results) == [0, 1]
+    assert all(not result.error and result.snapshot == ("echo", task_id, f"d{task_id}") for task_id, result in (*after.results.items(), *idle.results.items()))
+
+
+def test_with_the_hand_over_switched_off_a_cancelled_run_reads_its_tasks_in_flight_itself(_stub_workers, monkeypatch):
+    monkeypatch.setattr(pool_module, "HAND_OVER_CANCELLED", False)
+    pool = DomainPool(2)
+    cancel = threading.Event()
+    pool.ensure_started()
+    timer = threading.Timer(0.1, cancel.set)
+    try:
+        timer.start()
+        run = pool.run([_task(index, "0.3") for index in range(8)], cancel=cancel)
+        owed = sum(len(worker.owed) for worker in pool._workers)
+    finally:
+        timer.cancel()
+        pool.close()
+    assert owed == 0 and len(run.results) >= 2
 
 
 # --------------------------------------------------------------------------
