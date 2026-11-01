@@ -84,7 +84,7 @@ from collections import deque
 from dataclasses import dataclass, field, fields, replace
 from operator import attrgetter
 
-from .envelope_gc_pause import gc_paused
+from .envelope_gc_pause import freeze_loaded_worker, gc_paused
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
 from .envelope_pool_affinity import AFFINITY_NOT_EVALUATED, apply_worker_affinity
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
@@ -900,7 +900,9 @@ def worker_main() -> None:
     # первой задаче.
     importlib.import_module(".envelope_queue_pool", __package__)
     importlib.import_module(".envelope_production_export", __package__)
-    write_frame(channel, ("ready", os.getpid(), warm_worker_identities()))
+    warmed = warm_worker_identities()
+    freeze_loaded_worker()  # GC_WORKER_FROZEN_AT_READY_V1: загруженное живёт с процессом, сборки поколения 2 его больше не обходят
+    write_frame(channel, ("ready", os.getpid(), warmed))
     while True:
         task = decode_task(read_frame(source))
         if task is None:

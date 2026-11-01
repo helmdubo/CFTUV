@@ -169,10 +169,30 @@ class GcTrace:
 
 
 def working_set_bytes() -> tuple:
-    """`(working set, peak working set)` of THIS process in bytes (Windows); `(0, 0)` where the tool cannot read it."""
+    """`(working set, peak working set)` of THIS process in bytes (Windows); `(0, 0)` where the tool cannot read it.
+
+    The bindings are made once: a `Structure` class and two `WinDLL` per call are ~50 objects of cyclic garbage, and the 5 ms sampler made them while the tick paused the collector, so
+    the tick froze them (~180 objects per lean tick, ~1000 per full one: the drag looked like a leak of the product).
+    """
 
     if os.name != "nt":
         return (0, 0)
+    import ctypes
+
+    counters_class, current_process, memory_info = _working_set_probe()
+    counters = counters_class()
+    counters.cb = ctypes.sizeof(counters_class)
+    if not memory_info(current_process(), ctypes.byref(counters), counters.cb):
+        return (0, 0)
+    return (int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize))
+
+
+_PROBE = []
+
+
+def _working_set_probe():
+    if _PROBE:
+        return _PROBE[0]
     import ctypes
     from ctypes import wintypes
 
@@ -184,11 +204,8 @@ def working_set_bytes() -> tuple:
     kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
-    counters = Counters()
-    counters.cb = ctypes.sizeof(Counters)
-    if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
-        return (0, 0)
-    return (int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize))
+    _PROBE.append((Counters, kernel32.GetCurrentProcess, psapi.GetProcessMemoryInfo))
+    return _PROBE[0]
 
 
 class MemorySampler:

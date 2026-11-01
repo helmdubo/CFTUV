@@ -60,6 +60,7 @@ GC_FROZEN_OUTCOME = "GC_FROZEN_AFTER_BUTTON_V1"
 GC_FROZEN_WIDTH_OUTCOME = "GC_FROZEN_AFTER_WIDTH_TICK_V1"
 GC_IDLE_COLLECT_OUTCOME = "GC_FROZEN_DURING_DRAG_COLLECTED_AT_IDLE_V1"
 GC_NO_IDLE_COLLECT_OUTCOME = "GC_NO_IDLE_COLLECT_V1"
+GC_WORKER_FROZEN_OUTCOME = "GC_WORKER_FROZEN_AT_READY_V1"
 #: Страж простоя (GC_NO_IDLE_COLLECT_V1): на сколько байт рабочая память процесса может вырасти над памятью первой заморозки, прежде чем простой соберёт замороженное.
 RSS_GUARD_BYTES = 256 * 1024 * 1024
 #: Сколько объектов может держать постоянное поколение, прежде чем кнопка перестанет замораживать и вернёт замороженное сборщику (клапан от неограниченного роста: см. модуль).
@@ -133,29 +134,44 @@ def _freeze_or_release(valve: bool = True) -> None:
     _FROZEN_UNCOLLECTED = True
 
 
+#: `(Counters class, GetCurrentProcess, GetProcessMemoryInfo)` of Windows, bound once (RSS_PROBE_WITHOUT_CYCLES_V1): a class and two `WinDLL` per call were ~50 objects of
+#: cyclic garbage per call, every 0.5 s of idle (`collect_frozen_when_idle`), and the next tick froze what the young collections had not reached yet.
+_WINDOWS_PROBE = None
+
+
+def _windows_probe():
+    global _WINDOWS_PROBE
+    if _WINDOWS_PROBE is None:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Counters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [(name, ctypes.c_size_t) for name in (
+                "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+
+        # own library objects with typed signatures (the shared `ctypes.windll` is left as other code set it): the handle is pointer-wide
+        kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD)
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+        _WINDOWS_PROBE = (_Counters, kernel32.GetCurrentProcess, psapi.GetProcessMemoryInfo)
+    return _WINDOWS_PROBE
+
+
 def rss_bytes():
-    """Рабочая память процесса в байтах (Windows: `WorkingSetSize`, Linux: `/proc/self/statm`), либо `None`, когда её не замерить."""
+    """Рабочая память процесса в байтах (Windows: `WorkingSetSize`, Linux: `/proc/self/statm`), либо `None`, когда её не замерить. Циклического мусора вызов не оставляет."""
 
     try:
         import sys
 
         if sys.platform == "win32":
             import ctypes
-            from ctypes import wintypes
 
-            class _Counters(ctypes.Structure):
-                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [(name, ctypes.c_size_t) for name in (
-                    "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
-                    "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
-
-            counters = _Counters()
+            counters_class, current_process, memory_info = _windows_probe()
+            counters = counters_class()
             counters.cb = ctypes.sizeof(counters)
-            # own library objects with typed signatures (the shared `ctypes.windll` is left as other code set it): the handle is pointer-wide
-            kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
-            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-            psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD)
-            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
-            if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            if not memory_info(current_process(), ctypes.byref(counters), counters.cb):
                 return None
             return int(counters.WorkingSetSize)
         import os
@@ -193,6 +209,19 @@ def collect_frozen_when_idle(quiet_seconds: float, *, busy: bool = False) -> boo
     gc.unfreeze()
     gc.collect()
     return True
+
+
+def freeze_loaded_worker() -> int:
+    """GC_WORKER_FROZEN_AT_READY_V1: воркер пула, загрузив ядро и прогрев привязки, перед «готов» собирает один раз и уносит загруженное в постоянное поколение; число замороженных.
+
+    Модули, классы, таблицы и привязки воркера живут, пока жив процесс (~0.1 млн объектов на `cover.008`), а каждая сборка поколения 2 обходила их заново (~1/3 её цены на холодной кнопке).
+    Мусора среди них нет: сборка идёт перед заморозкой, в старте воркера (прогрев пула прячет его). Задачи замороженного не трогают: их выжившее собирает обычный ход сборок, пауза задачи
+    (`serve_task`) без заморозки.
+    """
+
+    gc.collect()
+    gc.freeze()
+    return gc.get_freeze_count()
 
 
 def collect_frozen_now() -> bool:
@@ -262,11 +291,13 @@ __all__ = (
     "GC_FROZEN_WIDTH_OUTCOME",
     "GC_IDLE_COLLECT_OUTCOME",
     "GC_NO_IDLE_COLLECT_OUTCOME",
+    "GC_WORKER_FROZEN_OUTCOME",
     "RSS_GUARD_BYTES",
     "collect_frozen_now",
     "GC_PAUSE_OUTCOME",
     "GC_PAUSE_WIDTH_OUTCOME",
     "collect_frozen_when_idle",
+    "freeze_loaded_worker",
     "rss_bytes",
     "gc_paused",
     "gc_paused_call",

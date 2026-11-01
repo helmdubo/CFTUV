@@ -732,3 +732,51 @@ def test_a_failed_job_hands_its_error_over_once_with_the_compute_trace_and_close
         assert "deep_failure" in text and "domain 7 failed" in text
 
     assert _cycle_garbage_after(failed) == 0
+
+
+# --------------------------------------------------------------------------
+# RSS_PROBE_WITHOUT_CYCLES_V1 и GC_WORKER_FROZEN_AT_READY_V1
+# --------------------------------------------------------------------------
+
+
+def test_the_memory_probe_of_the_idle_timer_leaves_no_cyclic_garbage():
+    """Таймер простоя меряет память каждые 0.5 с, пока замороженное ждёт: класс и две `WinDLL` на вызов были ~50 объектов циклического мусора, и следующий тик замораживал их."""
+
+    from cftuv import envelope_gc_pause as pause
+
+    pause.rss_bytes()
+    gc.collect()
+    gc.disable()
+    for _ in range(20):
+        pause.rss_bytes()
+    assert gc.collect() == 0
+
+
+def test_a_worker_freezes_what_it_loaded_after_one_collection(_unfrozen):
+    """GC_WORKER_FROZEN_AT_READY_V1: сборка перед заморозкой - мусор старта не уходит в постоянное поколение, загруженное уходит."""
+
+    from cftuv import envelope_gc_pause as pause
+
+    assert pause.GC_WORKER_FROZEN_OUTCOME == "GC_WORKER_FROZEN_AT_READY_V1"
+    gc.disable()
+    loop = []
+    loop.append(loop)
+    del loop
+    frozen = pause.freeze_loaded_worker()
+    assert frozen == gc.get_freeze_count() > 0
+    gc.unfreeze()
+    assert gc.collect() == 0  # цикл собран до заморозки, а не унесён в неё
+
+
+def test_the_worker_freezes_its_load_before_ready_and_its_tasks_never():
+    """Воркер замораживает один раз, между прогревом и кадром «готов»; задача идёт под паузой без заморозки (её выжившее собирает обычный ход сборок)."""
+
+    tree = ast.parse(POOL.read_text(encoding="utf-8"))
+    loop = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "worker_main")
+    calls = [item for item in ast.walk(loop) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id in {"warm_worker_identities", "freeze_loaded_worker", "write_frame"}]
+    order = [item.func.id for item in sorted(calls, key=lambda item: (item.lineno, item.col_offset))]
+    assert order[-3:] == ["warm_worker_identities", "freeze_loaded_worker", "write_frame"]
+    callers = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and any(isinstance(item, ast.Name) and item.id == "freeze_loaded_worker" for item in ast.walk(node))]
+    assert callers == ["worker_main"]
+    pauses = [item for item in ast.walk(tree) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == "gc_paused"]
+    assert pauses and all(not item.args and not item.keywords for item in pauses)
