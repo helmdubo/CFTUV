@@ -211,12 +211,12 @@ def test_the_capability_is_pinned_reported_and_not_a_rust_only_stage():
     assert pin.PINS["reference/radical_v2.py"] == digest
     import ast
 
-    architecture = ast.parse((ROOT / "tests" / "test_architecture.py").read_text(encoding="utf-8"))
-    rust_only = next(ast.literal_eval(node.value) for node in architecture.body if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "RUST_ONLY_OPERATIONS")
+    del ast
+    rust_only = pin.RUST_PRODUCT_OPERATIONS  # the one list (CONTRACT_PARITY_V1): `tests/test_architecture.py` reads it as `RUST_ONLY_OPERATIONS`
     assert "radical_v2" not in rust_only, "radical_v2 is a capability, not a stage the product runs: its oracle may still move"
 
 
-def test_a_moved_oracle_stales_the_capability_and_dependent_density_and_refuses_by_name():
+def test_a_moved_oracle_stales_the_capability_and_refuses_by_name_and_is_drift_for_density():
     pin = cftuv_native.pin
     original = pin.read_source
 
@@ -229,8 +229,9 @@ def test_a_moved_oracle_stales_the_capability_and_dependent_density_and_refuses_
     try:
         status = cftuv_native.native_status()
         assert status["radical_v2"] == "stale(reference/radical_v2.py)"
-        assert status["density"] == "stale(reference/radical_v2.py)"
-        assert all(status[name] == "available" for name in status if name not in ("radical_v2", "density", "angular")), status
+        # REFERENCE_DRIFT_NOT_A_REFUSAL_V1: Density is a Rust-product stage; the same moved file is drift there, named, and the stage stays available
+        assert status["density"] == "available" and status[pin.REFERENCE_DRIFT_KEY] == "density: reference/radical_v2.py"
+        assert all(status[name] == "available" for name in status if name not in ("radical_v2", "angular", pin.REFERENCE_DRIFT_KEY)), status
         with pytest.raises(cftuv_native.NativePortStale, match="radical_v2.py"):
             cftuv_native.radical_v2_eval([("zero",)])
     finally:
