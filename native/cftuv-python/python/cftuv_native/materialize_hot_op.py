@@ -11,7 +11,11 @@ every input it does not carry; the dispatcher then runs the oracle on the same s
   the oracle's text. `HALF_EDGE_SHARED_IN_ONE_DIRECTION` (the chains of a mesh whose half-edge two faces own) is declined: the oracle names it with its own text.
 * `source_lift(mirror, plane, positions, triangles, host_positions, step, polygons, points, budget, reverse)`: `domain._sourced` (the law `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` and the
   check of the emitted faces), the triangulations exact and priced on the domain's budget.
-* `lift_vertices(mirror, points, plane)`: `({key: PlaneLiftV1.lift(point)}, {key: (None, None)})` for a `PlaneLiftV1` (no budget, no memory); any other lift is declined.
+* `lift_vertices(mirror, points, plane)`: `({key: PlaneLiftV1.lift(point)}, {key: (None, None)})` for a `PlaneLiftV1` (no budget, no memory); on a `BoundSurfaceLiftV1`
+  (SURFACE_LIFT_NATIVE_V1) `locate` and `lift_known` of every point (`cost.CostMirror.surface_lift`: the signs on the plane's budget, its counters and offset normals as the
+  oracle leaves them; a point in no triangle, the continuation `_nearest`, is declined); any other lift is declined.
+* `surface_vertex_facts(mirror, plane, items, floats)`: `parametric._surface_vertex_facts_of` (SURFACE_LIFT_NATIVE_V1), the exact facts of the moving vertices of the drag
+  certificate on a `BoundSurfaceLiftV1` (no budget, no memory).
 * `key_slopes(mirror, prepared, coverage, templates, points)`: `parametric.key_slopes_of` (MATERIALIZE_CERTIFICATE_NATIVE_V1), the slopes of the points before the cut by vertex
   key; every refusal of the oracle is declined (no budget, no memory).
 * `instantiate(mirror, template, partition, alpha, work_budget)`: `coverage_template.instantiate` (MATERIALIZE_INSTANTIATE_NATIVE_V1), the coverage of a width step from
@@ -63,6 +67,12 @@ SHAPE_FUNCTIONS = (
     ("wavefront/coverage_template.py", "_points_of", "4a0465f75a900ef340458215730800e046cb04b558745e95b6b89cb023ab1b99"),
     ("wavefront/coverage_template.py", "CutPointV1.at", "2cb3b2d55838c62c42d884c17d0ea4b06aba9b75f77723525e9df6f1759f4643"),
     ("materialize/parametric.py", "_point_identity", "8188dff341887f3c478f25367ce54b6c741f0606116a1f86de3f8ef9887a13e1"),
+    # `cftuv_clip::surface::vertex_facts` (SURFACE_LIFT_NATIVE_V1): the exact facts of a moving vertex the certificate reads (`lift_surface.py` and `lift.py` are pinned whole)
+    ("materialize/parametric.py", "_surface_vertex_facts", "4196a9024edf90fbad9b15d322f86902ff9feaa4373f1dad8183ec376d84fd9a"),
+    ("materialize/parametric.py", "_surface_vertex_facts_of", "ede368b06d2d35d57d6ebc624e0d355203b074585fec5727a9634ff787dc8adb"),
+    ("materialize/parametric.py", "_leaves_edge", "acec677466c6d2118eb6717340894bdc577d8709513d3a46f1137610e0f7c26b"),
+    ("materialize/parametric.py", "_edge_slope", "f4e0c47d0e77b3d0de7dd7e286176c4e8e2635b6f0cbca59b64e78ff8da26cd9"),
+    ("materialize/parametric.py", "_float", "abc9aec9ec1dd0eaffeb28d2a35cd0071154b3abbd4774cb26b7ab48f105bb03"),
 )
 
 #: The classes `assemble_batch` builds, in the order of `assemble_hot.rs` `CLASS_NAMES`: `(module, name)`.
@@ -294,13 +304,31 @@ def warm(mirror) -> bool:
     return True
 
 
+def _bound_surface():
+    from cftuv_envelope.materialize.lift_surface import BoundSurfaceLiftV1
+
+    return BoundSurfaceLiftV1
+
+
+def surface_vertex_facts(mirror, plane, items, floats):
+    """`[parametric._surface_vertex_facts(triangle, point, slope, floats) ...]` for `(triangle name, point, slope)` items on a `BoundSurfaceLiftV1` (SURFACE_LIFT_NATIVE_V1)."""
+
+    _begin(mirror)
+    if type(plane) is not _bound_surface():
+        raise pin.NativePortUnsupported(f"surface_vertex_facts: the port reads a BoundSurfaceLiftV1, not a {type(plane).__name__}")
+    return mirror.surface_vertex_facts(plane, items, floats)
+
+
 def lift_vertices(mirror, points, plane):
     """`assemble.lift_vertices(points, plane)` for a `PlaneLiftV1`: `({key: position}, {key: (None, None)})`; any other lift, or an input the port does not carry, is declined."""
 
     _begin(mirror)
     _silhouette, _assemble, _audit, lift, _exact, _point = _kernel()
+    if type(plane) is _bound_surface():
+        # SURFACE_LIFT_NATIVE_V1: `locate` and `lift_known` of every point on the source triangles (`cost.CostMirror.surface_lift`)
+        return mirror.surface_lift(plane, points)
     if type(plane) is not lift.PlaneLiftV1:
-        raise pin.NativePortUnsupported(f"lift_vertices: the port lifts on a PlaneLiftV1, not a {type(plane).__name__}")
+        raise pin.NativePortUnsupported(f"lift_vertices: the port lifts on a PlaneLiftV1 or a BoundSurfaceLiftV1, not a {type(plane).__name__}")
     positions = mirror._session.hot_plane_lift(points, plane.origin, plane.basis_a, plane.basis_b, plane.scale)
     if positions is None:
         raise pin.NativePortUnsupported("lift_vertices: an input the port does not carry (a point that is not a pair of SqrtSumV1, a coordinate that is not a finite float, a zero scale)")

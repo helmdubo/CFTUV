@@ -48,6 +48,7 @@ use cftuv_clip::geometry::{clip_geometry, ClipInput};
 use cftuv_clip::plane::{ChartPoint, Plane, Triangle};
 use cftuv_clip::point::Point;
 use cftuv_clip::stage::NormalWrite;
+use cftuv_clip::surface;
 use cftuv_clip::warm::Warm;
 use cftuv_core::codec::Reader;
 use cftuv_core::exact::ExactCtx;
@@ -750,4 +751,150 @@ impl Host {
         let result_ns = building_ns + nanos(committing);
         Ok((result, status, detail, counts.as_array(), articles, changed, [plane_ns, arguments_ns, compute_ns, result_ns, log_ns]))
     }
+
+    /// `assemble.lift_vertices(points, plane)` on a `BoundSurfaceLiftV1` (SURFACE_LIFT_NATIVE_V1, `cftuv_clip::surface`): `(positions, names)`
+    /// dicts in the order of `points`, the counters `locate` gained `(LOCATIONS, CANDIDATES, PREDICATES, ON_EDGE)`, the sign counts, the
+    /// articles and the changed tables. Only a complete answer is applied (the memory log on the real tables, then the normal writes into
+    /// `normals`, in call order); ANY failure (a point the port does not locate, an exhaustion, an overflow) is a refusal of the port: nothing
+    /// of the call is applied, and the host runs the oracle on the very same state (the oracle then answers or raises with its own effects).
+    #[allow(clippy::too_many_arguments)]
+    pub fn surface_lift<'py>(
+        &mut self,
+        py: Python<'py>,
+        session: &mut Session,
+        triangles: &Bound<'py, PyAny>,
+        points: &Bound<'py, PyDict>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        normals: &Bound<'py, PyDict>,
+        tables: &Tables<'py>,
+    ) -> PyResult<SurfaceAnswer<'py>> {
+        let index = self.prepare(py, triangles)?;
+        let classes = self.classes()?;
+        let pool = &classes.pool;
+        let mut named = Vec::with_capacity(points.len());
+        let mut keys = Vec::with_capacity(points.len());
+        for (key, value) in points.iter() {
+            let pair = value.cast::<PyTuple>().map_err(|_| refuse("a point must be a tuple of two SqrtSumV1"))?;
+            if pair.len() != 2 {
+                return Err(refuse("a point must be a tuple of two SqrtSumV1"));
+            }
+            named.push((String::new(), (sqrt_sum_from_py(pool, &pair.get_item(0)?)?, sqrt_sum_from_py(pool, &pair.get_item(1)?)?)));
+            keys.push(key);
+        }
+        let sync_value = match sync {
+            Some(bytes) => Some(Reader::new(bytes, true).get_value().map_err(|error| PyValueError::new_err(format!("the memory sync is not in the wire format: {error}")))?),
+            None => None,
+        };
+        let (cap, articles) = match budget {
+            Some((cap, articles)) => (cap, Some(articles)),
+            None => (None, None),
+        };
+        let given = articles.unwrap_or([0; 6]);
+        let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let prepared = &self.planes[index];
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let mut counts = SignCounts::default();
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
+            let ran = surface::lift_points(&mut ctx, &prepared.plane, &named);
+            let articles = run.budget_mut().articles();
+            (ran, counts, articles, session.memory.take_log())
+        }));
+        let (ran, counts, articles, log) = match outcome {
+            Ok(done) => done,
+            Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.surface_lift: native panic: {}", panic_text(&panic)))),
+        };
+        let (lifted, tally) = match ran {
+            Ok(found) => found,
+            Err(error) => {
+                let detail = match &error {
+                    ClipError::Unsupported(text) => text.clone(),
+                    other => format!("{other:?}"),
+                };
+                return Ok((None, STATUS_UNSUPPORTED, Some(PyTuple::new(py, [PyString::new(py, &detail)])?), [0; 4], [0; 5], given, 0));
+            }
+        };
+        // new objects only, nothing of the host is written yet
+        let positions = PyDict::new(py);
+        let sources = PyDict::new(py);
+        let mut written = Vec::new();
+        let slots = &classes.names;
+        for (key, item) in keys.iter().zip(&lifted) {
+            let floats = [PyFloat::new(py, item.position[0]).into_any(), PyFloat::new(py, item.position[1]).into_any(), PyFloat::new(py, item.position[2]).into_any()];
+            let position = match &classes.local_raw {
+                Some(raw) => raw.build(py, &classes.local_point, floats)?,
+                None => {
+                    note_attr_build();
+                    let position = alloc(py, &classes.local_point)?;
+                    for (slot, value) in [(&slots.x, &floats[0]), (&slots.y, &floats[1]), (&slots.z, &floats[2])] {
+                        set_slot(&position, slot, value)?;
+                    }
+                    position
+                }
+            };
+            let normal = match &item.normal {
+                Some(values) => {
+                    let normal = PyTuple::new(py, values.iter().map(|value| PyFloat::new(py, *value)))?;
+                    written.push((PyTuple::new(py, item.position.iter().map(|value| PyFloat::new(py, *value)))?, normal.clone()));
+                    normal.into_any()
+                }
+                None => py.None().into_bound(py),
+            };
+            let name = match prepared.names.get(&item.triangle) {
+                Some(found) => found.bind(py).clone().into_any(),
+                None => PyString::new(py, &item.triangle).into_any(),
+            };
+            positions.set_item(key, position)?;
+            sources.set_item(key, PyTuple::new(py, [name, normal])?)?;
+        }
+        // commit: the memory log on the real tables, then the normal writes in call order
+        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
+        commit_normals(Some(normals), &written)?;
+        let found = PyTuple::new(py, [positions.into_any(), sources.into_any()])?.into_any();
+        Ok((Some(found), 0, None, [tally.locations, tally.candidates, tally.predicates, tally.on_edge], counts.as_array(), articles, changed))
+    }
+
+    /// `parametric._surface_vertex_facts` for each `(triangle name, point, slope)` of `items` (SURFACE_LIFT_NATIVE_V1, `cftuv_clip::surface::vertex_facts`):
+    /// a list of `(leaves, values, slopes)` (`values`/`slopes`: three floats each when `floats`, else `None`). Pure exact arithmetic: no budget,
+    /// no memory, no counter. `None` for the whole call when a name is not a triangle of the plane or a float overflows (the oracle answers then).
+    pub fn surface_vertex_facts<'py>(&mut self, py: Python<'py>, triangles: &Bound<'py, PyAny>, items: &Bound<'py, PyAny>, floats: bool) -> PyResult<Option<Bound<'py, PyList>>> {
+        let index = self.prepare(py, triangles)?;
+        let classes = self.classes()?;
+        let pool = &classes.pool;
+        let prepared = &self.planes[index];
+        let pair_of = |value: &Bound<'py, PyAny>| -> PyResult<Point> {
+            let pair = value.cast::<PyTuple>().map_err(|_| refuse("a point must be a tuple of two SqrtSumV1"))?;
+            if pair.len() != 2 {
+                return Err(refuse("a point must be a tuple of two SqrtSumV1"));
+            }
+            Ok((sqrt_sum_from_py(pool, &pair.get_item(0)?)?, sqrt_sum_from_py(pool, &pair.get_item(1)?)?))
+        };
+        let mut out = Vec::new();
+        for item in items.try_iter()? {
+            let item = item?;
+            let triple = tuple_of(&item, 3, "a vertex item")?;
+            let name = text_of(&triple.get_item(0)?, "a triangle name")?;
+            let Some(found) = prepared.plane.triangles.iter().position(|triangle| triangle.name == name) else {
+                return Ok(None);
+            };
+            let point = pair_of(&triple.get_item(1)?)?;
+            let slope = pair_of(&triple.get_item(2)?)?;
+            let Ok((leaves, numbers)) = surface::vertex_facts(&prepared.plane, found, &point, &slope, floats) else {
+                return Ok(None);
+            };
+            let numbers = match numbers {
+                Some((values, slopes)) => PyTuple::new(
+                    py,
+                    [PyTuple::new(py, values.iter().map(|value| PyFloat::new(py, *value)))?.into_any(), PyTuple::new(py, slopes.iter().map(|value| PyFloat::new(py, *value)))?.into_any()],
+                )?
+                .into_any(),
+                None => py.None().into_bound(py),
+            };
+            out.push(PyTuple::new(py, [pyo3::types::PyBool::new(py, leaves).to_owned().into_any(), numbers])?);
+        }
+        Ok(Some(PyList::new(py, out)?))
+    }
 }
+
+/// `(result or None, status, detail, counters (LOCATIONS, CANDIDATES, PREDICATES, ON_EDGE), sign counts, articles, changed tables)` of `surface_lift`.
+pub type SurfaceAnswer<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 4], [u64; 5], [u64; 6], u8);

@@ -735,6 +735,63 @@ class CostMirror:
             self._raise_clip(status, detail, counts, articles, budget, outcomes, refusal)
         return result
 
+    # ---- the lift of points on a bound surface (SURFACE_LIFT_NATIVE_V1) ---------------------------------------------
+
+    def surface_lift(self, plane, points):
+        """`assemble.lift_vertices(points, plane)` on a `BoundSurfaceLiftV1`: `({key: position}, {key: (triangle name, offset normal or None)})`.
+
+        `locate` (window, box prefilter, `_inside` with its signs paid on `plane._budget`) and `lift_known` run in Rust (`cftuv_clip::surface`); the
+        counters `locate` moves (`LOCATIONS`, `CANDIDATES`, `PREDICATES`, `ON_EDGE`) go into `plane._tally`, the normal writes into
+        `plane._normal_by_position` in point order, the articles into the plane's budget, `SIGN_COUNTS` and the memory tables as the oracle leaves them.
+        A point in no triangle (the continuation `_nearest`), an exhaustion and every other failure are a refusal of the PORT (`NativePortUnsupported`):
+        nothing is applied and the caller runs the oracle on the same state, which then answers or raises with its own effects.
+        """
+
+        pin.require("clip")
+        if not self._clip_bound:
+            self._bind_clip()
+        from cftuv_envelope.materialize import lift_surface
+
+        normals = getattr(plane, "_normal_by_position", None)
+        tally = getattr(plane, "_tally", None)
+        if type(normals) is not dict or type(tally) is not dict:
+            raise pin.NativePortUnsupported("surface_lift: the plane has no `_normal_by_position` / `_tally` dict")
+        budget = plane._budget
+        exact = _exact()
+        sync, slow = self._sync_in(exact)
+        state = None if budget is None else (budget.cap, budget.spent_by_article())
+        real = (exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO)
+        try:
+            result, status, detail, gained, counts, articles, bits = self._session.surface_lift(
+                plane.triangles, points, None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, normals, real,
+            )
+        except BaseException:
+            self.invalidate()
+            raise
+        if status or result is None:
+            # a refusal of the port: the extension applied nothing and forgot its mirror
+            self.invalidate()
+            raise pin.NativePortUnsupported(f"surface_lift: {detail[0] if detail else status}")
+        self._settle_counts(exact, counts)
+        self._settle_articles(exact, budget, articles)
+        self._remember(exact, bits, slow)
+        for name, delta in zip((lift_surface.LOCATIONS, lift_surface.CANDIDATES, lift_surface.PREDICATES, lift_surface.ON_EDGE), gained):
+            if delta:
+                tally[name] += delta
+        return result
+
+    def surface_vertex_facts(self, plane, items, floats: bool):
+        """`[parametric._surface_vertex_facts(triangle, point, slope, floats) for (name, point, slope) in items]` (SURFACE_LIFT_NATIVE_V1): pure exact arithmetic,
+        no cost; `NativePortUnsupported` when the port does not answer the call (a name the plane does not hold, a float that overflows)."""
+
+        pin.require("clip")
+        if not self._clip_bound:
+            self._bind_clip()
+        found = self._session.surface_vertex_facts(plane.triangles, items, bool(floats))
+        if found is None:
+            raise pin.NativePortUnsupported("surface_vertex_facts: an item the port does not answer")
+        return found
+
     # ---- the whole skeleton operation ---------------------------------------------------------------------------------
 
     def build_skeleton(self, polygon, *, split_search=None, work_budget=None, dense_hydration=False):

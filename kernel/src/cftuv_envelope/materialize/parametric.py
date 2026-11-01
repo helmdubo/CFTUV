@@ -325,20 +325,42 @@ def _triangle_slope(triangle, slope, scale: int) -> tuple:
     )
 
 
-def _normal_rate(plane, triangle, point, slope, scale: int) -> float:
+def _surface_vertex_facts(plane, triangle, point, slope, floats: bool) -> tuple:
+    """Точные факты движущейся вершины в её треугольнике источника (SURFACE_LIFT_NATIVE_V1, нативный порт - `cftuv_clip::surface::vertex_facts`): `(уходит ли с ребра, числа)`.
+
+    `уходит` - `_leaves_edge`; `числа` (только при `floats`, иначе `None`) - `(float трёх значений ориентации, float их трёх наклонов)` (`values_in`, `_edge_slope`, `_float`):
+    всё, что `_normal_rate` берёт из точной арифметики. Чистая функция: ни знаков, ни бюджета, ни памяти.
+    """
+
+    leaves = _leaves_edge(triangle, point, slope)
+    if not floats:
+        return leaves, None
+    values = plane.values_in(triangle, point)
+    slopes = [_edge_slope(triangle.chart[index], triangle.chart[(index + 1) % 3], slope) for index in range(3)]
+    return leaves, (tuple(_float(item) for item in values), tuple(_float(item) for item in slopes))
+
+
+def _surface_vertex_facts_of(plane, items, floats: bool) -> list:
+    """`_surface_vertex_facts` каждого `(имя треугольника, точка, наклон)` из `items` по порядку (эталон `backend.surface_vertex_compute`)."""
+
+    triangles = {item.name: item for item in plane.triangles}
+    return [_surface_vertex_facts(plane, triangles[name], point, slope, floats) for name, point, slope in items]
+
+
+def _normal_rate(triangle, numbers, scale: int) -> float:
     """Скорость поворота нормали смещения вершины по ширине, `|d n / d alpha|` (1/м), первый порядок: нормаль - нормированная смесь `N = sum w_k n_k` трёх нормалей углов треугольника (закон
     `SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`, веса `w_k = e_k / twice_area` те же, что в `lift_known`), веса аффинны по ширине, поэтому `N' = sum w'_k n_k`, а `n' = (N' - n (n . N')) / |N|`.
 
+    `numbers` - числа точных фактов вершины (`_surface_vertex_facts`: float значений ориентации и их наклонов).
     Это float-оценка для ПРЕДЕЛА ошибки кадра хоста (`PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`), а не часть ответа: ответов она не решает. Нулевая смесь - бесконечная скорость (ядро такую нормаль отказывает).
     """
 
     if not triangle.normals:
         return 0.0
     divisor = float(triangle.twice_area)
-    values = plane.values_in(triangle, point)
-    slopes = [_edge_slope(triangle.chart[index], triangle.chart[(index + 1) % 3], slope) for index in range(3)]
-    weights = [_float(values[index]) / divisor for index in (1, 2, 0)]
-    rates = [_float(slopes[index]) * scale / divisor for index in (1, 2, 0)]
+    values, slopes = numbers
+    weights = [values[index] / divisor for index in (1, 2, 0)]
+    rates = [slopes[index] * scale / divisor for index in (1, 2, 0)]
     mixed = [sum(w * n[axis] for w, n in zip(weights, triangle.normals)) for axis in range(3)]
     moved = [sum(r * n[axis] for r, n in zip(rates, triangle.normals)) for axis in range(3)]
     length = math.sqrt(sum(item * item for item in mixed))
@@ -826,6 +848,9 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
     unbounded = (-math.inf, math.inf)
     exact_points, exact_point_slopes, exact_positions, exact_position_slopes = [], [], [], []
     moving_vertices = 0
+    # Точные факты движущихся вершин в треугольниках источника - одним вызовом диспетчера (SURFACE_LIFT_NATIVE_V1), по порядку вершин до первой без
+    # треугольника (на ней цикл ниже отказывает, дальше факты не нужны); цикл читает их по номеру движущейся вершины.
+    surface_facts = () if triangles is None else _moving_surface_facts(inputs, vertices, point_slope, plane, triangles, developable)
     for vertex in vertices:
         key = vertex.vert_key.value
         point = inputs.points_after[key]
@@ -845,11 +870,12 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
                 triangle = triangles.get(name)
                 if triangle is None:
                     raise ParametricRefusal(PARAM_LIFT_UNSUPPORTED, f"vertex {key}: no source triangle")
-                if _leaves_edge(triangle, point, slope):
+                leaves, numbers = surface_facts[moving_vertices - 1]
+                if leaves:
                     raise ParametricRefusal(PARAM_LIFT_ON_EDGE, f"vertex {key}")
                 values, floats = source.position(plane, triangle, name, slope, scale)
                 if developable:
-                    normal_rate = max(normal_rate, _normal_rate(plane, triangle, point, slope, scale))
+                    normal_rate = max(normal_rate, _normal_rate(triangle, numbers, scale))
             position_slopes.extend(floats)
             positions_exact = values
         if request.exact:
@@ -911,6 +937,22 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
         vertex_limit_widths=limits,
         vertex_floor_widths=floors,
     )
+
+
+def _moving_surface_facts(inputs, vertices, point_slope, plane, triangles, developable: bool):
+    """`_surface_vertex_facts` движущихся вершин `vertices` по порядку, до первой, у которой нет треугольника источника (`backend.surface_vertex_compute`)."""
+
+    items = []
+    for vertex in vertices:
+        key = vertex.vert_key.value
+        slope = point_slope(key)
+        if slope is None:
+            continue
+        name = inputs.lifted_names.get(key, (None, None))[0]
+        if name not in triangles:
+            break
+        items.append((name, inputs.points_after[key], slope))
+    return backend.surface_vertex_compute(_surface_vertex_facts_of, plane, items, bool(developable))
 
 
 def _cut_point_limits(templates, scale: int) -> dict:

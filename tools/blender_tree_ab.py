@@ -486,7 +486,7 @@ def compare_incremental_press(label: str, a: dict, b: dict, allowed: tuple, out:
     }
 
 
-def compare_runs(base: dict, branch: dict, allowed: tuple = (), compare_keys: bool = True, load=_load_dump) -> Comparison:
+def compare_runs(base: dict, branch: dict, allowed: tuple = (), compare_keys: bool = True, load=_load_dump, own_natives: bool = False) -> Comparison:
     """Two reports of the SAME case and worker count (`base`, `branch`): every difference of the product's answer, named."""
 
     out = Comparison()
@@ -510,6 +510,10 @@ def compare_runs(base: dict, branch: dict, allowed: tuple = (), compare_keys: bo
             continue
         _compare_press(label, base["presses"][label], branch["presses"][label], tuple(allowed), out, compare_keys)
     for key in ("selection_sha256_16", "native_build_id"):
+        if key == "native_build_id" and own_natives:
+            # each side named its own extension (--base-native-path / --branch-native-path): the builds differ by construction
+            out.notes.append(f"native_build_id: base {base.get(key)}, branch {branch.get(key)} (each side its own extension)")
+            continue
         if base.get(key) != branch.get(key):
             out.differences.append(f"{key}: base {base.get(key)} != branch {branch.get(key)} (the runs did not start from the same inputs)")
     return out
@@ -633,8 +637,10 @@ def worker_command(blender: str, scene: Path, tree: Tree, case: Case, workers: i
                "--case", case.name, "--scene-kind", case.scene, "--mesh", case.mesh, "--alpha", repr(case.alpha), "--density", case.density, "--stretch", str(case.stretch),
                "--offset", repr(case.offset), "--workers", str(workers), "--presses", presses, "--step-width", repr(options.step_width), "--kernel-backend", options.kernel_backend,
                "--gc-pause", options.gc_pause, "--origin-check", options.origin_check, "--out", str(out)]
-    if options.native_path:
-        command += ["--native-path", options.native_path]
+    # a side may name its own extension (a native change whose shim pins functions the other tree does not have); else the common one
+    native_path = getattr(options, f"{tree.label}_native_path", "") or options.native_path
+    if native_path:
+        command += ["--native-path", native_path]
     if options.expect_native_build_id:
         command += ["--expect-native-build-id", options.expect_native_build_id]
     if options.prime_byte_check:
@@ -688,6 +694,8 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--presses", default="cold,step,step")
     parser.add_argument("--step-width", type=float, default=STEP_WIDTH)
     parser.add_argument("--native-path", default="")
+    parser.add_argument("--base-native-path", default="", help="the extension of the BASE tree only (else --native-path)")
+    parser.add_argument("--branch-native-path", default="", help="the extension of the BRANCH tree only (else --native-path)")
     parser.add_argument("--expect-native-build-id", default="")
     parser.add_argument("--kernel-backend", default="NATIVE", choices=("NATIVE", "PYTHON"))
     parser.add_argument("--gc-pause", default="auto", choices=("auto", "on", "off"), help="the cold press (and, in a tree with GC_PAUSED_DURING_WIDTH_TICK_V1, every step, tick and confirm) under gc_paused() as the product does (auto: when the tree has it)")
@@ -868,7 +876,7 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
         for workers in workers_list:
             try:
                 reports, seconds = run_pair(case, workers, trees, scenes, blender, options, work_dir, environment, ours, log)
-                comparison = compare_runs(reports["base"], reports["branch"], tuple(options.allow_counter), not options.keys_may_differ)
+                comparison = compare_runs(reports["base"], reports["branch"], tuple(options.allow_counter), not options.keys_may_differ, own_natives=bool(options.base_native_path or options.branch_native_path))
             except Exception:  # noqa: BLE001 - a harness error is a named failure of the case, not a crash of the matrix
                 comparison = Comparison(differences=["HARNESS ERROR " + traceback.format_exc()[-600:]])
                 reports, seconds = {}, {}

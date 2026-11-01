@@ -33,5 +33,6 @@ pub mod regions;
 pub mod seam;
 pub mod snap;
 pub mod stage;
+pub mod surface;
 pub mod tessellate;
 pub mod warm;

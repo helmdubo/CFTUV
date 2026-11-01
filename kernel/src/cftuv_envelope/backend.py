@@ -1424,18 +1424,42 @@ def key_slopes_compute(oracle, prepared, coverage, templates, points):
     return answer if done else oracle(prepared, coverage, templates, points)
 
 
-def lift_vertices_compute(oracle, points, plane):
-    """`oracle(points, plane)` (`materialize.assemble.lift_vertices`), посчитанное заказанным бэкендом W1 на точной плоскости (`PlaneLiftV1`); иной подъём — эталон по имени."""
+def surface_vertex_compute(oracle, plane, items, floats):
+    """`oracle(plane, items, floats)` (`parametric._surface_vertex_facts_of`), посчитанное заказанным бэкендом W1 (SURFACE_LIFT_NATIVE_V1): тот же список
+    `(уходит ли с ребра, числа)` движущихся вершин сертификата; подъём не на треугольники источника и вход, который порт не несёт, — эталон по имени."""
 
-    from .materialize.lift import PlaneLiftV1
+    from .materialize.lift_surface import BoundSurfaceLiftV1
 
     ledger = _SCOPE.get()
-    if ledger is None or not ledger.materialize_native or type(plane) is not PlaneLiftV1:
+    if ledger is None or not ledger.materialize_native or type(plane) is not BoundSurfaceLiftV1 or not items:
+        return oracle(plane, items, floats)
+
+    def call(module):
+        if not hasattr(module, "surface_vertex_facts"):
+            raise _OperationAbsent("this cftuv_native wheel has no `surface_vertex_facts` (it predates SURFACE_LIFT_NATIVE_V1)")
+        return module.surface_vertex_facts(plane, items, floats)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(plane, items, floats)
+
+
+def lift_vertices_compute(oracle, points, plane):
+    """`oracle(points, plane)` (`materialize.assemble.lift_vertices`), посчитанное заказанным бэкендом W1 на точной плоскости (`PlaneLiftV1`) либо на треугольниках
+    источника (`BoundSurfaceLiftV1`, SURFACE_LIFT_NATIVE_V1: нахождение и подъём каждой точки, счётчики, нормали и цена знаков - как у эталона); иной подъём — эталон по имени."""
+
+    from .materialize.lift import PlaneLiftV1
+    from .materialize.lift_surface import BoundSurfaceLiftV1
+
+    ledger = _SCOPE.get()
+    surface = type(plane) is BoundSurfaceLiftV1
+    if ledger is None or not ledger.materialize_native or not (surface or type(plane) is PlaneLiftV1):
         return oracle(points, plane)
 
     def call(module):
         if not hasattr(module, "lift_vertices"):
             raise _OperationAbsent("this cftuv_native wheel has no `lift_vertices` (it predates the materialize_hot operation)")
+        if surface and not hasattr(module, "surface_vertex_facts"):
+            raise _OperationAbsent("this cftuv_native wheel lifts no bound surface (it predates SURFACE_LIFT_NATIVE_V1)")
         return module.lift_vertices(points, plane)
 
     done, answer = _attempt(ledger, MATERIALIZE_W1, call)

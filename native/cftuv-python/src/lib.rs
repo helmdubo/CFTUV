@@ -262,6 +262,33 @@ impl Session {
         outcome
     }
 
+    /// `assemble.lift_vertices(points, plane)` on a bound surface (SURFACE_LIFT_NATIVE_V1, `clip.rs` `surface_lift`): the plane's triangles, the points,
+    /// the memory sync, the plane's budget (cap and articles), its `_normal_by_position` and the real tables, as `clip_geometry` takes them. A refusal of
+    /// the port (status 12) applies nothing and resets the session's mirror.
+    #[allow(clippy::too_many_arguments)]
+    fn surface_lift<'py>(
+        &mut self,
+        py: Python<'py>,
+        triangles: &Bound<'py, PyAny>,
+        points: &Bound<'py, pyo3::types::PyDict>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        normals: &Bound<'py, pyo3::types::PyDict>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<clip::SurfaceAnswer<'py>> {
+        let outcome = self.clip.surface_lift(py, &mut self.inner, triangles, points, sync, budget, normals, &tables);
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
+    /// `parametric._surface_vertex_facts` per `(triangle name, point, slope)` (SURFACE_LIFT_NATIVE_V1): a list of `(leaves, (values, slopes) or None)`, or `None`
+    /// when the port does not answer the call (the oracle then does). No cost, no memory.
+    fn surface_vertex_facts<'py>(&mut self, py: Python<'py>, triangles: &Bound<'py, PyAny>, items: &Bound<'py, PyAny>, floats: bool) -> PyResult<Option<Bound<'py, pyo3::types::PyList>>> {
+        self.clip.surface_vertex_facts(py, triangles, items, floats)
+    }
+
     /// Hands the kernel classes to `build_skeleton`: `SqrtSumV1`, `Fraction`, then `SkeletonV1`, `SkeletonNodeV1`, `EventTimeV1`, `EventPointV1`, `ProofObligationV1`, then the tables
     /// `{value: member}` of `SkeletonOutcome`, `EventKind`, `ProofStatus`, `ProofObligationBranch`, `ProofObligationDisposition`, `CandidateRefusal`.
     #[allow(clippy::too_many_arguments)]

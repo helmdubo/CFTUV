@@ -90,6 +90,7 @@ __all__ = (
     "canonical_triangles",
     "last_w1_timings",
     "lift_vertices",
+    "surface_vertex_facts",
     "source_lift",
     "warm_materialize_hot",
     "last_snapshot_check_timings",
@@ -563,9 +564,15 @@ def key_slopes(prepared, coverage, templates, points):
 
 
 def lift_vertices(points, plane):
-    """`materialize.assemble.lift_vertices(points, plane)` on a `PlaneLiftV1`, native (see `materialize_hot_op.py`)."""
+    """`materialize.assemble.lift_vertices(points, plane)` on a `PlaneLiftV1` or a `BoundSurfaceLiftV1` (SURFACE_LIFT_NATIVE_V1), native (see `materialize_hot_op.py`)."""
 
     return materialize_hot_op.lift_vertices(default_mirror(), points, plane)
+
+
+def surface_vertex_facts(plane, items, floats):
+    """`[parametric._surface_vertex_facts(triangle, point, slope, floats) for (name, point, slope) in items]` on a `BoundSurfaceLiftV1` (SURFACE_LIFT_NATIVE_V1, see `materialize_hot_op.py`)."""
+
+    return materialize_hot_op.surface_vertex_facts(default_mirror(), plane, items, floats)
 
 
 def source_lift(plane, positions, triangles, host_positions, step, polygons, points, budget, reverse):
