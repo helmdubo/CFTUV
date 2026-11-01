@@ -719,6 +719,8 @@ BackendRecordV1.__setstate__ = _backend_record_setstate
 def _merged_fallbacks(first: tuple, second: tuple) -> tuple:
     """Откаты двух записей: `(исход, операция)` один раз, счёт складывается, текст — первой причины."""
 
+    if not first and not second:
+        return ()  # обычный домен: откатов нет ни в одной записи (родитель сливает записи каждого домена на каждом нажатии)
     slots: dict = {}
     for outcome, operation, count, detail in (*first, *second):
         slot = slots.setdefault((outcome, operation), [0, detail])

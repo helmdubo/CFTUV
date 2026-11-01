@@ -90,6 +90,15 @@ LAPS = (
     ("cftuv.envelope_production_export", "_dispatch", "dispatch"),
     ("cftuv.envelope_width_mesh_preview", "build_model", "tail.model"),
     ("cftuv.envelope_width_mesh_preview", "deviation", "tail.deviation"),
+    ("cftuv.envelope_production_mesh", "_native_mesh_arrays", "arrays.native"),
+    ("cftuv.envelope_production_mesh", "_domain_warnings", "arrays.domain_warnings"),
+    ("cftuv.envelope_production_mesh", "_clear_mesh_in_place", "apply.clear"),
+    ("cftuv.envelope_production_mesh", "_fill_mesh", "apply.fill"),
+    ("cftuv.envelope_width_live", "capture_ownership", "apply.ownership"),
+    ("cftuv.envelope_width_live", "note_exact_display", "apply.note"),
+    ("cftuv.envelope_production_export", "receipt_console_lines", "apply.console"),
+    ("cftuv.envelope_production_export", "_domain_results", "domain_results"),
+    ("cftuv.envelope_production_export", "_complete_ready", "complete_ready"),
 )
 
 

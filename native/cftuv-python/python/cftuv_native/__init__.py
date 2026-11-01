@@ -420,12 +420,12 @@ def mesh_weld(domains, offset, law):
     return _mesh_answer(_core.mesh_weld(domains, offset, law))
 
 
-def mesh_assemble(views, patch_ids, offset, law, reports):
+def mesh_assemble(views, patch_ids, offset, law, reports, digest=True):
     """The buffers of `build_mesh_arrays` straight from the VIEW_BYTES_V1 of the materialized domains (MESH_ASSEMBLY_BUFFERS_V1): the parse, the weld, the glue
     (`mesh_glue.glue_domains`), the fold seams and, when `reports`, the reports in one pass; `NATIVE_REFUSALS` as `mesh_off_plane`."""
 
     pin.require("mesh_assembly")
-    return _mesh_answer(_core.mesh_assemble(views, patch_ids, offset, law, reports))
+    return _mesh_answer(_core.mesh_assemble(views, patch_ids, offset, law, reports, digest))
 
 
 def mesh_splice_weld(views, rebases, alpha, offset, law):

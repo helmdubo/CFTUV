@@ -455,7 +455,11 @@ def test_the_compute_closure_reads_no_bpy_in_the_thread(monkeypatch):
     reference = _direct(quad_row_bundle(ROW), EnvelopeDebugSessionController(), 0.4)
     assert _digest(finished.run.results) == _digest(reference.results)
     # Массивы меша, образец и сертификат строит ТОТ ЖЕ поток (главный поток их только применяет), и массивы те же, что у писателя.
-    assert finished.arrays.digest == _digest(reference.results) and finished.sample.arrays_digest == finished.arrays.digest
+    # MESH_DIGEST_OFF_CONFIRM_V1: дайджест массивов поток не считает (его никто не читает), остальное - то же, что у писателя.
+    assert finished.arrays.digest == "" and finished.sample.arrays_digest == ""
+    expected = production_mesh.build_mesh_arrays(reference.results, OFFSET)
+    assert (finished.arrays.positions, finished.arrays.faces, finished.arrays.uvs, finished.arrays.seam_edges) == (expected.positions, expected.faces, expected.uvs, expected.seam_edges)
+    assert (finished.arrays.offset_counters, finished.arrays.seam_counters, finished.arrays.warnings) == (expected.offset_counters, expected.seam_counters, expected.warnings)
 
 
 def test_the_live_compute_carries_the_dissolve_tolerance_the_button_built_with(monkeypatch):

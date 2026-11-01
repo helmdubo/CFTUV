@@ -329,6 +329,8 @@ class ProductionWriteReceiptV1:
     source_revision: str
     arrays_digest: str
     mesh_name: str | None
+    #: `mesh_content_digest` записанного меша; пусто у перезаписи живой ширины (MESH_DIGEST_OFF_CONFIRM_V1: его никто в продукте не читает, а на `cover.008` это 75 мс
+    #: стены фиксации; кому нужен отпечаток лежащего в Blender, считает `mesh_content_digest(mesh)` сам).
     mesh_digest: str
     #: Закон топологии записанных доменов и состав граней меша по числу углов:
     #: треугольники, четырёхгранники и многоугольники (грани длиннее 4 пишет
@@ -391,7 +393,7 @@ def _domain_warnings(result) -> list:
     return found
 
 
-def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshArraysV1:
+def build_mesh_arrays(results, offset: float, *, reports: bool = True, digest: bool = True) -> MeshArraysV1:
     """Массивы меша по результатам домена. Не-MATERIALIZED домены — в `skipped`.
 
     Домены идут по номеру патча, вершины внутри домена — по ключу батча:
@@ -406,8 +408,8 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True) -> MeshAr
     """
 
     ordered = sorted(results, key=lambda item: (item.patch_id, item.domain_id))
-    found = _native_mesh_arrays(ordered, offset, reports)
-    return _reference_mesh_arrays(ordered, offset, reports) if found is None else found
+    found = _native_mesh_arrays(ordered, offset, reports, digest)
+    return _reference_mesh_arrays(ordered, offset, reports, digest) if found is None else found
 
 
 #: MESH_ASSEMBLY_BUFFERS_V1: операция порта, которая собирает массивы меша из байтов видов одним вызовом.
@@ -415,7 +417,7 @@ MESH_ASSEMBLE_OPERATION = "mesh_assemble"
 OUTCOME_VIEW_NOT_BYTES = "NATIVE_PORT_UNSUPPORTED"
 
 
-def _native_mesh_arrays(ordered, offset: float, reports: bool):
+def _native_mesh_arrays(ordered, offset: float, reports: bool, digest: bool = True):
     """Массивы меша нативной сборкой из байтов видов (`cftuv_native.mesh_assemble`) либо `None`: заказан эталон, у домена вид объектом, а не байтами (откат назван), или порт отказал по имени.
 
     Отбор доменов, предупреждения доменов, закон топологии и ревизия — те же, что у эталона (`_reference_mesh_arrays`), и в том же порядке; вид-отказ узнаётся по флагу заголовка и разбирается
@@ -444,7 +446,8 @@ def _native_mesh_arrays(ordered, offset: float, reports: bool):
         warnings.extend(_domain_warnings(result))
         laws.add(getattr(result, "decal_topology_law", ""))
     answer = native_answer(
-        MESH_ASSEMBLE_OPERATION, [result.__dict__["view_bytes"] for result in pending], [result.patch_id for result in pending], float(offset), WELD_LAW, bool(reports)
+        MESH_ASSEMBLE_OPERATION, [result.__dict__["view_bytes"] for result in pending], [result.patch_id for result in pending], float(offset), WELD_LAW, bool(reports),
+        *(() if digest else (False,)),
     )
     if answer is None:
         return None
@@ -511,7 +514,7 @@ def _mesh_warnings(warnings: list, weld, conflicts: int, seam: tuple, reports: b
     return tuple(warnings)
 
 
-def _reference_mesh_arrays(ordered, offset: float, reports: bool) -> MeshArraysV1:
+def _reference_mesh_arrays(ordered, offset: float, reports: bool, with_digest: bool = True) -> MeshArraysV1:
     """Эталон `build_mesh_arrays` (заказ `PYTHON` и откат нативной сборки): виды доменов разобраны в кортежи, склейка — `mesh_glue.glue_domains`."""
 
     domains, skipped, warnings = [], [], []
@@ -549,6 +552,7 @@ def _reference_mesh_arrays(ordered, offset: float, reports: bool) -> MeshArraysV
         digest, seam, offset_counters, conflicts = mesh_reports(
             positions, faces, uvs, face_domain, face_owner, seams, [view.boundary_chains for _result, view in entries]
         )
+        digest = digest if with_digest else ""  # MESH_DIGEST_OFF_CONFIRM_V1: without the arrays digest, the other reports the same
     else:
         digest, seam, offset_counters, conflicts = "", (), (), 0
     return MeshArraysV1(
@@ -886,7 +890,7 @@ def _drop_stale_mesh(name: str) -> None:
 
 
 def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, marked,
-             material_created, warnings):
+             material_created, warnings, digest: bool = True):
     seam_requested = arrays.seam_count
     warnings = list(arrays.warnings) + list(warnings)
     if marked != seam_requested:
@@ -917,7 +921,7 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         source_revision=arrays.source_revision,
         arrays_digest=arrays.digest,
         mesh_name=None if mesh is None else mesh.name,
-        mesh_digest="" if mesh is None else mesh_content_digest(mesh),
+        mesh_digest="" if mesh is None or not digest else mesh_content_digest(mesh),
         decal_topology_law=arrays.decal_topology_law,
         quads=quads,
         triangles=triangles,
@@ -1085,6 +1089,7 @@ def rewrite_decal_mesh(
         marked=marked,
         material_created=False,
         warnings=warnings,
+        digest=False,  # MESH_DIGEST_OFF_CONFIRM_V1
     )
 
 

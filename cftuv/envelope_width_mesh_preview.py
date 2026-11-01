@@ -434,7 +434,8 @@ def finish_live_run(run, *, alpha, offset, key, displayed, previous, trust=None,
             return LiveRunV1(run, None, composite.sample, _model_or_refusal(composite.sample, trust), None, trust, (), done)
         plan = replace(plan, fallback=composite)  # составить не вышло: путь этапа A (результаты ВСЕХ доменов: сдвинутые обслуженные и посчитанные), причина названа
         run = replace(run, results=(*run.results, *rebase_served(plan, displayed, alpha).values()))
-    arrays = build_mesh_arrays(run.results, offset, reports=not lean)
+    # MESH_DIGEST_OFF_CONFIRM_V1: дайджест массивов (sha256 JSON всех чисел меша, ~25 мс на `cover.008`) живой ширине не нужен: его не читает ни запись, ни модель, ни квитанция.
+    arrays = build_mesh_arrays(run.results, offset, reports=not lean, digest=False)
     sample = build_sample(run.results, arrays, key, alpha, _composite_origins(displayed, run.results, plan) if incremental else None)
     check = None
     events: tuple = ()

@@ -1249,8 +1249,10 @@ pub(crate) fn bytes_of<'py, T: Copy, const N: usize>(py: Python<'py>, values: im
 /// `(positions f64x3, face starts u32 (F+1), face corners u32, uvs f64x2, face domain i64, face owner i64, seams u32x2, weld index u32 (the local
 /// vertices of every domain in turn), vertex counts, loop counts, tokens, revisions, weld numbers, folds, reports | None)`; the weld numbers are the
 /// tuple of `weld_core` without its positions and index, the reports `(digest, (junctions, clip vertices), (worst, off), conflicts)`.
+/// `digest=False` (MESH_DIGEST_OFF_CONFIRM_V1, the commit of the live width): the reports without `arrays_digest` (an empty text in its place; the other reports the same).
 #[pyfunction]
-pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>, reports: bool) -> PyResult<Bound<'py, PyAny>> {
+#[pyo3(signature = (views, patch_ids, offset, law, reports, digest=true))]
+pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>, reports: bool, digest: bool) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<(Vec<Bound<'py, pyo3::types::PyBytes>>, Vec<i64>, f64, Law), Decline> {
         let numbers = floats(law, 4, "the weld law")?;
         let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3] };
@@ -1279,7 +1281,9 @@ pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids:
         Ok(found) => found,
         Err(reason) => return declined(py, reason),
     };
-    let digest = if reports {
+    let digest = if reports && !digest {
+        Some(String::new())
+    } else if reports {
         match arrays_digest(&answer.weld.positions, &answer.faces, &answer.uvs, &answer.face_domain, &answer.face_owner, &answer.seams) {
             Ok(text) => Some(text),
             Err(reason) => return declined(py, reason),

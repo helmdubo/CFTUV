@@ -60,6 +60,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import math
 from dataclasses import dataclass, field, replace
@@ -586,6 +587,13 @@ def _has_slopes_to_move(result) -> bool:
     return result.is_materialized and certificate is not None and not certificate.markers and certificate.vertex_count > 0
 
 
+@functools.lru_cache(maxsize=16)
+def _alpha_of(alpha_text: str) -> Fraction:
+    """`Fraction(alpha_text)`, разобранная один раз на текст ширины: образец сверяет с ней сертификат КАЖДОГО домена (~1000 разборов строки на нажатие `cover.008`)."""
+
+    return Fraction(alpha_text)
+
+
 def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str) -> tuple:
     """`(наклоны позиций, наклоны произведений uv * alpha, причины)` сертификата домена; чисел нет, когда сертификата нет, он назвал причину, он выпущен на другой ширине, чем образец, либо не сошёлся по размерам с видом домена."""
 
@@ -593,7 +601,7 @@ def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str)
         return None, None, (DOMAIN_NO_CERTIFICATE,)
     if certificate.markers:
         return None, None, tuple(certificate.markers)
-    if certificate.alpha != Fraction(alpha_text):
+    if certificate.alpha != _alpha_of(alpha_text):
         return None, None, (DOMAIN_ALPHA_MISMATCH,)
     if certificate.vertex_count != vertices or certificate.loop_count != loops:
         return None, None, (DOMAIN_SHAPE_MISMATCH,)
