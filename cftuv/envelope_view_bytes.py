@@ -131,10 +131,19 @@ def _pack(patch_id: int, flags: int, counts: tuple, revision: int, outcome: int,
 
 def put_view(state: dict, result) -> None:
     """Вид результата домена в состояние его копии (`deferred_result`, `lean_result`): байтами (`view_bytes`; `view` разберёт первое чтение), а вид, который байты
-    не повторили бы точно, - объектом (`view`), как прежде: читатели получают тот же вид."""
+    не повторили бы точно, - объектом (`view`), как прежде: читатели получают тот же вид.
+
+    VIEW_BYTES_NATIVE_V1: байты считает порт (`native_view_bytes`), эталон - этот же путь питона; отказ порта (вид-отказ писателя, вход, который порт не читает как питон)
+    назван в журнале сборки меша, и вид считает питон.
+    """
 
     from .envelope_production_view import build_domain_view, structure_token
 
+    data = native_view_bytes(result)
+    if data is not None:
+        state["view_bytes"] = data
+        state.pop("view", None)
+        return
     view = build_domain_view(result)
     try:
         state["view_bytes"] = encode_view(view, "" if view.failure is not None else structure_token(view))
@@ -142,6 +151,20 @@ def put_view(state: dict, result) -> None:
         state["view"] = view
         return
     state.pop("view", None)
+
+
+#: VIEW_BYTES_NATIVE_V1: операция порта (`cftuv_native.domain_view_bytes`, `native/cftuv-python/src/domain_view.rs`); эталон - `build_domain_view`, `structure_token` и `encode_view`.
+VIEW_BYTES_OPERATION = "domain_view_bytes"
+
+
+def native_view_bytes(result) -> bytes | None:
+    """Байты вида порта либо `None` (заказан эталон, расширения нет, порт отказал вход по имени: откат записан в журнал сборки меша, вид считает питон)."""
+
+    from .envelope_mesh_assembly import native_answer
+
+    return native_answer(
+        VIEW_BYTES_OPERATION, result.batch, result.normal, getattr(result, "vertex_normals", ()), getattr(result, "source_normal", None), result.patch_id
+    )
 
 
 def cached_view(result):

@@ -129,6 +129,7 @@ __all__ = (
     "mesh_reports",
     "mesh_splice_rebuilt",
     "preview_model_build",
+    "domain_view_bytes",
     "mesh_splice_weld",
     "mesh_weld",
     "graph_pack",
@@ -781,3 +782,16 @@ def angular_patch(patch):
 def warm_angular(*, binding_inputs, dependencies):
     """Warm checked bindings using caller-supplied actual host dependencies."""
     return angular_op.warm(_core,binding_inputs=binding_inputs,dependencies=dependencies)
+
+
+def domain_view_bytes(batch, normal, vertex_normals, source_normal, patch_id):
+    """VIEW_BYTES_NATIVE_V1: `envelope_view_bytes.encode_view(build_domain_view(result), structure_token(view))` of a materialized domain, read from its batch in one pass
+    (`domain_view.rs`; the host's Python is the oracle, its digest is pinned by the host: `tests/test_native_domain_view.py`). A view the oracle would refuse to the writer or
+    the encoder would not repeat, and an input the port does not read like Python, is `NativePortUnsupported` with the reason, before anything changed."""
+
+    import hashlib
+
+    found = _core.domain_view_bytes(batch, normal, vertex_normals, source_normal, patch_id, hashlib.blake2b)
+    if isinstance(found, str):
+        raise NativePortUnsupported(f"domain_view_bytes: {found}")
+    return found

@@ -176,6 +176,7 @@ def test_a_view_the_bytes_cannot_carry_travels_as_an_object(monkeypatch):
     built = build_domain_view(eager)
     odd = dataclasses.replace(built, owners=tuple(float(item) for item in built.owners))
     monkeypatch.setattr(view_module, "build_domain_view", lambda result: odd)
+    monkeypatch.setenv("CFTUV_MESH_ASSEMBLY_BACKEND", "PYTHON")  # путь питона (VIEW_BYTES_NATIVE_V1: порт читает батч сам)
 
     deferred = deferred_result(eager)
     assert "view_bytes" not in deferred.__dict__ and deferred.view is odd
