@@ -870,6 +870,15 @@ def warm_worker_identities() -> dict:
     return {"outcome": outcome, "seconds": time.perf_counter() - started}
 
 
+def load_worker_modules() -> None:
+    """Модули воркера до «готов» (ядро по файлам, выгрузка, покрытие, продукт); ответ - их объекты, и тот же список поднимает родитель (`warm_parent_for_replies`)."""
+
+    importlib.import_module(".envelope_queue_export", __package__).load_queue_kernel()
+    importlib.import_module(".envelope_export_input", __package__).load_export_modules()
+    importlib.import_module(".envelope_queue_pool", __package__)
+    importlib.import_module(".envelope_production_export", __package__)
+
+
 def worker_main() -> None:
     """Цикл воркера: задача на входе, ответ на выходе, до конца stdin."""
 
@@ -884,9 +893,6 @@ def worker_main() -> None:
         # сразу, а не после секунд импорта (и не как «воркер упал»).
         identity = {**describe_environment(), "sys_path": list(sys.path)}
         write_frame(channel, ("hello", identity))
-    from .envelope_export_input import load_export_modules
-    from .envelope_queue_export import load_queue_kernel
-
     # Живой след стадий пишет в stdout, то есть в stderr воркера: читать его
     # некому, а профиль кнопки получает те же секунды значением, ответом.
     # `from . import x` не годится: под чужим именем пакета (`bl_ext.*`) он
@@ -894,12 +900,7 @@ def worker_main() -> None:
     importlib.import_module(
         ".envelope_debug_profile", __package__
     ).LIVE_STAGE_TRACE = False
-    load_queue_kernel()
-    load_export_modules()
-    # Склейка покрытия и продуктовый путь поднимаются до «готов», а не на
-    # первой задаче.
-    importlib.import_module(".envelope_queue_pool", __package__)
-    importlib.import_module(".envelope_production_export", __package__)
+    load_worker_modules()
     warmed = warm_worker_identities()
     freeze_loaded_worker()  # GC_WORKER_FROZEN_AT_READY_V1: загруженное живёт с процессом, сборки поколения 2 его больше не обходят
     write_frame(channel, ("ready", os.getpid(), warmed))
@@ -1781,6 +1782,7 @@ class DomainPool:
                 break
         if started:
             self._affinity = apply_worker_affinity([item.process.pid for item in started], self.requested)
+            importlib.import_module(".envelope_pool_prewarm", __package__).warm_parent_for_replies()  # пока воркеры поднимаются, не на первом прогоне
         for position, worker in enumerate(started):
             try:
                 reply = worker.receive(timeout=READY_TIMEOUT_SECONDS)

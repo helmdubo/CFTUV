@@ -14,9 +14,11 @@
 * Отказ старта - не ошибка аддона: строка консоли с именем, а кнопка на первом нажатии назовёт тот же отказ сама (`ENVELOPE_DOMAIN_POOL_UNAVAILABLE`).
 * Выключатель на машине: переменная окружения `CFTUV_POOL_PREWARM=0` (бездействующие воркеры держат около 100 МБ каждый).
 
-ОТПЕЧАТОК КОДА. Тот же поток после старта воркеров считает отпечаток кода процесса (`envelope_content_key.code_identity`: sha256 по ~290 файлам ядра и
-хоста, 0.1-0.2 с родителя): ключ содержимого домена и память пролога несут его, и первое нажатие сеанса иначе платило бы им до первой задачи пула. Это
-кэш на процесс (`lru_cache`), результат тот же, что считало бы нажатие; отказ - строка с именем, нажатие посчитает отпечаток само.
+ОТПЕЧАТОК КОДА. Старт воркеров (любой: этот прогрев, `DomainPool.warm`, кнопка, поднимающая пул сама) считает отпечаток кода процесса
+(`envelope_content_key.code_identity`: sha256 по ~290 файлам ядра и хоста, 0.1-0.2 с родителя), пока воркеры поднимаются: ключ содержимого домена и
+память пролога несут его, и первое нажатие сеанса иначе платило бы им до первой задачи пула. Это кэш на процесс (`lru_cache`, новый код аддона - новый
+модуль и новый кэш), результат тот же, что считало бы нажатие; отказ - строка с именем, нажатие посчитает отпечаток само. Там же родитель поднимает
+модули ответа воркера (`warm_reply_modules`).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ PREWARM_DELAY_SECONDS = 2.0
 PREWARM_SWITCH = "CFTUV_POOL_PREWARM"
 PREWARM_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_PREWARM_UNAVAILABLE"
 IDENTITY_PREWARM_UNAVAILABLE = "ENVELOPE_CODE_IDENTITY_PREWARM_UNAVAILABLE"
+REPLY_MODULES_PREWARM_UNAVAILABLE = "ENVELOPE_POOL_REPLY_MODULES_PREWARM_UNAVAILABLE"
 
 
 def warm_code_identity() -> None:
@@ -40,6 +43,31 @@ def warm_code_identity() -> None:
         code_identity()
     except Exception as exc:  # noqa: BLE001 - прогрев не ломает регистрацию: нажатие посчитает отпечаток само
         print(f"[CFTUV][EnvelopeDomainPool] {IDENTITY_PREWARM_UNAVAILABLE}: {type(exc).__name__}: {exc}; the first press computes it", flush=True)
+
+
+def warm_reply_modules() -> None:
+    """Поднимает в РОДИТЕЛЕ модули, из которых состоит ответ воркера (`envelope_domain_pool.load_worker_modules`, тот же список, что у воркера до «готов»).
+
+    ЗАЧЕМ (POOL_REPLY_MODULES_PREIMPORTED_V1). Первый ответ, который родитель разбирает (`pickle.loads` в потоке-читателе воркера), импортировал ~67
+    модулей ядра (`materialize.*`, `wavefront.*`, `interactions.*`) под замком импорта, и остальные потоки-читатели (они же шлют воркеру следующую задачу)
+    ждали его ~0.65 с: воркеры простаивали. Отказ - строка с именем: разбор ответа импортирует недостающее сам (ответ тот же).
+    """
+
+    try:
+        from .envelope_domain_pool import load_worker_modules
+
+        load_worker_modules()
+    except Exception as exc:  # noqa: BLE001 - прогрев не ломает старт пула: первый ответ импортирует модули сам
+        print(f"[CFTUV][EnvelopeDomainPool] {REPLY_MODULES_PREWARM_UNAVAILABLE}: {type(exc).__name__}: {exc}; the first reply imports them", flush=True)
+
+
+def warm_parent_for_replies() -> None:
+    """Работа родителя, не зависящая от домена, в старте воркеров пула (`DomainPool._launch`, пока воркеры поднимаются): модули ответа и отпечаток кода
+    (COLD_PRESS_FINGERPRINT_AT_WARM_V1). Прогрев при регистрации аддона делает это в своём потоке, кнопка, стартующая пул сама, - пока ждёт «готов».
+    Повтор (докомплектация пула) берёт оба из кэшей процесса."""
+
+    warm_reply_modules()
+    warm_code_identity()
 
 
 def prewarm_pool(workers: int, external_python: str = "") -> float:
@@ -55,8 +83,7 @@ def prewarm_pool(workers: int, external_python: str = "") -> float:
     except DomainPoolUnavailable as exc:
         print(f"[CFTUV][EnvelopeDomainPool] {PREWARM_UNAVAILABLE}: {exc}; the first press starts the workers", flush=True)
         return 0.0
-    warm_code_identity()
-    return seconds
+    return seconds  # модули ответа и отпечаток кода родитель поднял в старте воркеров (`warm_parent_for_replies`)
 
 
 def _timer():
@@ -105,8 +132,11 @@ __all__ = (
     "PREWARM_DELAY_SECONDS",
     "PREWARM_SWITCH",
     "PREWARM_UNAVAILABLE",
+    "REPLY_MODULES_PREWARM_UNAVAILABLE",
     "cancel_pool_prewarm",
     "prewarm_pool",
     "schedule_pool_prewarm",
     "warm_code_identity",
+    "warm_parent_for_replies",
+    "warm_reply_modules",
 )

@@ -1203,6 +1203,47 @@ def test_a_ready_worker_imports_no_kernel_module_for_its_first_domain():
     assert completed.stdout.decode().strip().endswith("LATE []")
 
 
+def test_the_parent_decodes_a_cold_reply_without_importing_a_module_its_pool_start_did_not():
+    """POOL_REPLY_MODULES_PREIMPORTED_V1: разбор первого холодного ответа в родителе не импортирует ничего, чего старт пула не поднял.
+
+    Разбор (`pickle.loads` в потоке-читателе) импортировал ~67 модулей ядра под замком импорта, и остальные потоки-читатели ждали его ~0.65 с. Старт
+    пула родителя (`warm_parent_for_replies`) поднимает тот же список, что воркер до «готов» (`load_worker_modules`). Чистый интерпретатор: без прогрева
+    разбор импортирует модули ядра (проверка не пустая), после прогрева - ни одного модуля хоста и ядра.
+    """
+
+    from dataclasses import replace
+
+    from cftuv.envelope_production_result import ColdProductionInputV1
+
+    frame = pool_module.serve_task(replace(_field_task(), cold=ColdProductionInputV1()))
+    reply = pickle.loads(frame[pool_module.FRAME_HEADER.size:])
+    assert reply.ok and reply.prepared_blob is not None, reply.error
+
+    def late_modules(warm: bool) -> list:
+        script = "\n".join(
+            (
+                "import sys",
+                "from cftuv.envelope_domain_pool import read_frame",
+                "from cftuv.envelope_pool_prewarm import warm_parent_for_replies",
+                "warm_parent_for_replies()" if warm else "",
+                "before = set(sys.modules)",
+                "reply = read_frame(sys.stdin.buffer)",
+                "assert reply.ok, reply.error",
+                "print('LATE', sorted(name for name in set(sys.modules) - before if name.startswith(('cftuv', 'sympy', 'mpmath'))))",
+            )
+        )
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = os.pathsep.join((str(KERNEL_SRC.parents[1]), str(KERNEL_SRC)))
+        completed = subprocess.run([sys.executable, "-c", script], input=frame, capture_output=True, env=environment, timeout=300)
+        assert completed.returncode == 0, completed.stderr.decode(errors="replace")
+        line = completed.stdout.decode().strip().splitlines()[-1]
+        assert line.startswith("LATE ")
+        return eval(line[5:])  # noqa: S307 - список имён, напечатанный нашим же скриптом
+
+    assert any(name.startswith("cftuv_envelope.") for name in late_modules(False)), "the reply is made of kernel modules the bare parent has not imported"
+    assert late_modules(True) == []
+
+
 def test_a_ready_worker_has_its_code_identities_before_its_first_task():
     """WORKER_IDENTITY_PREWARM_V1: отпечатки кода (хост + ядро, кэш процесса) и память резки считаются в старте воркера, не в секундах первого домена.
 
