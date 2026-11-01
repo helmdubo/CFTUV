@@ -551,6 +551,24 @@ def canonical_json_bytes(value):
     return materialize_hot_op.canonical_json_bytes(default_mirror(), value)
 
 
+def side_inputs(points_before, cycles_before, facts_before, key_slope, fact_slope, shift):
+    """`parametric._side_inputs(...)`, the same points, contours and facts of a side cut (see `materialize_hot_op.side_inputs`)."""
+
+    return materialize_hot_op.side_inputs(default_mirror(), points_before, cycles_before, facts_before, key_slope, fact_slope, shift)
+
+
+def clip_slope_values(cut, up, down, facts_before, facts_after, facts_up, facts_down, delta):
+    """`parametric._clip_slope_values(...)`, the same slopes or the same refusal (see `materialize_hot_op.clip_slope_values`)."""
+
+    return materialize_hot_op.clip_slope_values(default_mirror(), cut, up, down, facts_before, facts_after, facts_up, facts_down, delta)
+
+
+def clip_memo_key(inputs, triangles, policy):
+    """`clip_memo.clip_key(inputs, triangles, policy)`, the same hexdigest (see `materialize_hot_op.clip_memo_key`)."""
+
+    return materialize_hot_op.clip_memo_key(default_mirror(), inputs, triangles, policy)
+
+
 def instantiate(template, partition, alpha, work_budget):
     """`coverage_template.instantiate(template, partition, alpha, work_budget)`, the same coverage or `None` (see `materialize_hot_op.instantiate`)."""
 
@@ -591,6 +609,25 @@ def canonical_triangles(frame_faces, cycles, budget, reverse):
     """`materialize.mesh.canonical_triangles(frame_faces, cycles, budget, reverse)`, native and whole (see `materialize_w1_op.py`)."""
 
     return default_mirror().canonical_triangles(frame_faces, cycles, budget, reverse)
+
+
+def piece_triangles(polygons, points, budget):
+    """`clip.piece_triangles(polygons, points, budget)`, native and whole (see `materialize_w1_op.piece_triangles`)."""
+
+    return materialize_w1_op.piece_triangles(default_mirror(), polygons, points, budget)
+
+
+def seam_edges(frame_faces, polygons, facts, layout, lattice_alpha):
+    """`clip.seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)`, the same frozenset (see `materialize_w1_op.seam_edges`)."""
+
+    return materialize_w1_op.seam_edges(default_mirror(), frame_faces, polygons, facts, layout, lattice_alpha)
+
+
+def chord_station_values(frame_faces, lists, layout, table, budget, tally, chords, anchors):
+    """`materialize.mesh.station_values(frame_faces, lists, layout, table, lattice_alpha, budget, tally, chords=chords, anchors=anchors)` of the clip stage, native and whole
+    (see `materialize_w1_op.chord_stations`)."""
+
+    return default_mirror().chord_station_values(frame_faces, lists, layout, table, budget, tally, chords, anchors)
 
 
 def last_w1_timings() -> tuple:

@@ -1597,7 +1597,7 @@ def cut_domain(
     граням); входит в ключ памяти как любой другой аргумент резки.
     """
 
-    seam = seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)
+    seam = backend.seam_edges_compute(seam_edges, frame_faces, polygons, facts, layout, lattice_alpha)
     fans = [item.is_fan for item in frame_faces]
     flows = [getattr(item, "flow_key", None) is not None for item in frame_faces]
     clipped, memo = run_clip(
@@ -1616,7 +1616,8 @@ def cut_domain(
         inert=inert,
     )
     clipped = replace(clipped, memo=memo)
-    extra = station_values(
+    extra = backend.chord_stations_compute(
+        station_values,
         frame_faces,
         clipped.extra_lists,
         layout,

@@ -11,6 +11,9 @@ The texts that need Python objects are composed HERE from structured fields the 
 of the face (or of the part of its merged run) it names, and `STATION_VALUE_CONFLICT` takes the `Decimal` text of the answers (`mesh.decimal_of`, the oracle's own function, so the context and the
 rounding are the oracle's).
 
+Around the clip stage (`clip.cut_domain`, `domain._at_host_positions`), on the same mirror: `chord_stations` (CHORD_STATIONS_NATIVE_V1, `mesh.station_values` of the new vertices of the
+clip with `chords` and `anchors`), `seam_edges` and `piece_triangles` (CLIP_STAGE_NATIVE_V1, the seam edges the clip may not cut and the triangles of the emitted pieces).
+
 What the oracle reads LIVE, and what the shim does about it: `mesh.VERIFY_PLAIN_AFFINE` (a test turns it on to force the exact check of a plain face and an `AssertionError`): read at the call, a port
 refusal when on.
 
@@ -317,3 +320,109 @@ def canonical_triangles(mirror, frame_faces, cycles, budget, reverse):
         _raise_refusal(detail, frame_faces, None)
     cost.OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
     raise cost.NativeMirrorError(f"the native W1 answered the outcome code {status}")
+
+def chord_stations(mirror, frame_faces, lists, layout, table, budget, tally, chords, anchors):
+    """`mesh.station_values(frame_faces, lists, layout, table, lattice_alpha, budget, tally, chords=chords, anchors=anchors)` of the clip stage (`clip.cut_domain`), whole, with its
+    exact side effects: the `(s, r)` of the new vertices of the clip (`lists`: `ClippedV1.extra_lists`), with the station of a vertex on a SHARED edge interpolated between the facts of its
+    ends (`anchors`, law `RUNG_CHORD_STATION_V1`). Returns the oracle's dict `facts` in its order; the oracle's additions to `tally` are made in place, also when it refuses afterwards.
+    """
+
+    started = perf_counter_ns()
+    exact, sync, slow, real = _begin(mirror)
+    regions = [layout.region_of(frame_face) for frame_face in frame_faces]
+    state = None if budget is None else (budget.cap, budget.spent_by_article())
+    called = perf_counter_ns()
+    try:
+        result, status, detail, counts, articles, bits, native = mirror._session.w1_chord_stations(
+            frame_faces, regions, lists, chords, anchors, table, None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real,
+        )
+    except BaseException:
+        mirror.invalidate()
+        raise
+    returned = perf_counter_ns()
+    if status not in cost.ORACLE_STATUSES:
+        mirror.invalidate()
+        mirror.last_w1_timings = (called - started, returned - called, perf_counter_ns() - returned, perf_counter_ns() - started, *native)
+        raise mirror._port_refusal(status, detail)
+    mirror._settle_counts(exact, counts)
+    mirror._settle_articles(exact, budget, articles)
+    mirror._remember(exact, bits, slow)
+    finished = perf_counter_ns()
+    mirror.last_w1_timings = (called - started, returned - called, finished - returned, finished - started, *native)
+    facts, items = result
+    if tally is not None:
+        for name, value in items:
+            tally[name] += value
+    if status == 0:
+        return facts
+    if status == STATUS_REFUSAL:
+        _raise_refusal(detail, frame_faces, table)
+    cost.OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
+    raise cost.NativeMirrorError(f"the native W1 stations answered the outcome code {status}")
+
+#: `assemble.edge_kind` (a file the W1 pin does not hold): the law `seam_edges` reads, checked by the digest of its source once per process.
+EDGE_KIND_DIGEST = "aeba298fa369fad48d44bf4fa9937878fd0ce1c4fc9c7994ffc7db54ae3a700b"
+_EDGE_KIND_CHECKED: list = []
+
+
+def _clip_stage(mirror):
+    """The pins of a port of the clip stage around the clip (CLIP_STAGE_NATIVE_V1): the clip's (`clip.py`, `tessellate.py`), W1's and the digest of `edge_kind`."""
+
+    pin.require("clip")
+    exact, sync, slow, real = _begin(mirror)
+    if not _EDGE_KIND_CHECKED:
+        from cftuv_envelope.materialize import assemble
+
+        pin.check_shapes((("materialize/assemble.py", "edge_kind is the function the Rust code mirrors", source_digest(assemble.edge_kind) == EDGE_KIND_DIGEST),))
+        _EDGE_KIND_CHECKED.append(True)
+    return exact, sync, slow, real
+
+
+def piece_triangles(mirror, polygons, points, budget):
+    """`clip.piece_triangles(polygons, points, budget)` (CLIP_STAGE_NATIVE_V1), whole, with its exact side effects: a triangle as it is, every other emitted polygon by
+    the exact ear triangulation of its chart points (the signs on `budget`, the memory and `SIGN_COUNTS` as the oracle leaves them)."""
+
+    started = perf_counter_ns()
+    exact, sync, slow, real = _clip_stage(mirror)
+    state = None if budget is None else (budget.cap, budget.spent_by_article())
+    called = perf_counter_ns()
+    try:
+        result, status, detail, counts, articles, bits, native = mirror._session.w1_piece_triangles(
+            polygons, points, None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real,
+        )
+    except BaseException:
+        mirror.invalidate()
+        raise
+    returned = perf_counter_ns()
+    if status not in cost.ORACLE_STATUSES:
+        mirror.invalidate()
+        mirror.last_w1_timings = (called - started, returned - called, perf_counter_ns() - returned, perf_counter_ns() - started, *native)
+        raise mirror._port_refusal(status, detail)
+    mirror._settle_counts(exact, counts)
+    mirror._settle_articles(exact, budget, articles)
+    mirror._remember(exact, bits, slow)
+    finished = perf_counter_ns()
+    mirror.last_w1_timings = (called - started, returned - called, finished - returned, finished - started, *native)
+    if status == 0:
+        return result
+    if status == STATUS_REFUSAL and detail[0] == "no_piece_triangulation":
+        _exact_module, _mesh, frames, _coalesce, _stations, _time, admit, _laws = _kernel()
+        raise frames.MaterializationRefusal(
+            admit.MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE, f"an emitted clip face of {detail[1]} vertices has no triangulation"
+        )
+    cost.OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
+    raise cost.NativeMirrorError(f"the native piece triangles answered the outcome code {status}")
+
+
+def seam_edges(mirror, frame_faces, polygons, facts, layout, lattice_alpha):
+    """`clip.seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)` (CLIP_STAGE_NATIVE_V1): the same frozenset of key pairs (no budget, no memory); a missing
+    fact (the oracle's `KeyError`) or a class the port does not carry is declined."""
+
+    _clip_stage(mirror)
+    regions = [layout.region_of(frame_face) for frame_face in frame_faces[: len(polygons)]]
+    if len(regions) != len(polygons):
+        raise pin.NativePortUnsupported("seam_edges: more polygon lists than frame faces (IndexError in the oracle)")
+    found = mirror._session.w1_seam_edges(polygons, regions, facts, lattice_alpha)
+    if found is None:
+        raise pin.NativePortUnsupported("seam_edges: an input the port does not carry")
+    return found

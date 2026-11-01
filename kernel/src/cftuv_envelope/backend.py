@@ -1315,6 +1315,111 @@ def canonical_triangles_compute(oracle, frame_faces, cycles, budget, reverse):
     return answer if done else oracle(*arguments)
 
 
+def side_inputs_compute(oracle, points_before, cycles_before, facts_before, key_slope, fact_slope, shift):
+    """`oracle(points_before, cycles_before, facts_before, key_slope, fact_slope, shift)` (`materialize.parametric._side_inputs`), посчитанное заказанным бэкендом W1
+    (SIDE_CUT_NATIVE_V1): те же точки, контуры и факты боковой резки сертификата. Ни бюджета, ни памяти; вход, который порт не несёт, - эталон по имени."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(points_before, cycles_before, facts_before, key_slope, fact_slope, shift)
+
+    def call(module):
+        if not hasattr(module, "side_inputs"):
+            raise _OperationAbsent("this cftuv_native wheel has no `side_inputs` (it predates SIDE_CUT_NATIVE_V1)")
+        return module.side_inputs(points_before, cycles_before, facts_before, key_slope, fact_slope, shift)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(points_before, cycles_before, facts_before, key_slope, fact_slope, shift)
+
+
+def clip_slope_values_compute(oracle, cut, up, down, facts_before, facts_after, facts_up, facts_down, delta):
+    """`oracle(cut, up, down, facts_before, facts_after, facts_up, facts_down, delta)` (`materialize.parametric._clip_slope_values`), посчитанное заказанным бэкендом W1
+    (SIDE_CUT_NATIVE_V1): те же наклоны узлов и фактов резки по вторым разностям трёх резок; ненулевая вторая разность - `ParametricRefusal` эталона с его именем. Ни бюджета,
+    ни памяти; вход, который порт не несёт, - эталон по имени."""
+
+    arguments = (cut, up, down, facts_before, facts_after, facts_up, facts_down, delta)
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(*arguments)
+
+    def call(module):
+        if not hasattr(module, "clip_slope_values"):
+            raise _OperationAbsent("this cftuv_native wheel has no `clip_slope_values` (it predates SIDE_CUT_NATIVE_V1)")
+        return module.clip_slope_values(*arguments)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(*arguments)
+
+
+def seam_edges_compute(oracle, frame_faces, polygons, facts, layout, lattice_alpha):
+    """`oracle(frame_faces, polygons, facts, layout, lattice_alpha)` (`materialize.clip.seam_edges`), посчитанное заказанным бэкендом W1 (CLIP_STAGE_NATIVE_V1): то же
+    множество пар ключей граничных рёбер, которые не фронт. Ни бюджета, ни памяти; вход, который порт не несёт (нет факта - `KeyError` эталона), - эталон по имени."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(frame_faces, polygons, facts, layout, lattice_alpha)
+
+    def call(module):
+        if not hasattr(module, "seam_edges"):
+            raise _OperationAbsent("this cftuv_native wheel has no `seam_edges` (it predates CLIP_STAGE_NATIVE_V1)")
+        return module.seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(frame_faces, polygons, facts, layout, lattice_alpha)
+
+
+def piece_triangles_compute(oracle, polygons, points, budget):
+    """`oracle(polygons, points, budget)` (`materialize.clip.piece_triangles`), посчитанное заказанным бэкендом W1 (CLIP_STAGE_NATIVE_V1): те же треугольники выпущенных
+    кусков; бюджет, память канонизации и `SIGN_COUNTS` - как у эталона, многоугольник без триангуляции - `MaterializationRefusal` эталона с его текстом."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(polygons, points, budget)
+
+    def call(module):
+        if not hasattr(module, "piece_triangles"):
+            raise _OperationAbsent("this cftuv_native wheel has no `piece_triangles` (it predates CLIP_STAGE_NATIVE_V1)")
+        return module.piece_triangles(polygons, points, budget)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call, lambda: _effects_snapshot(budget))
+    return answer if done else oracle(polygons, points, budget)
+
+
+def clip_key_compute(oracle, inputs, triangles, policy):
+    """`oracle(inputs, triangles, policy)` (`materialize.clip_memo.clip_key`), посчитанное заказанным бэкендом W1 (CLIP_MEMO_KEY_NATIVE_V1): тот же sha256 той же канонической
+    записи. Ни точной работы, ни памяти; значение, которое порт не обходит, - эталон по имени (он и поднимет `ClipKeyUnsupported`, если не умеет сам)."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(inputs, triangles, policy)
+
+    def call(module):
+        if not hasattr(module, "clip_memo_key"):
+            raise _OperationAbsent("this cftuv_native wheel has no `clip_memo_key` (it predates CLIP_MEMO_KEY_NATIVE_V1)")
+        return module.clip_memo_key(inputs, triangles, policy)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(inputs, triangles, policy)
+
+
+def chord_stations_compute(oracle, frame_faces, lists, layout, table, lattice_alpha, budget, tally, *, chords, anchors):
+    """`oracle(frame_faces, lists, layout, table, lattice_alpha, budget, tally, chords=chords, anchors=anchors)` (`materialize.mesh.station_values` стадии резки, `clip.cut_domain`),
+    посчитанное заказанным бэкендом W1 (CHORD_STATIONS_NATIVE_V1): факты `(s, r)` новых вершин резки тем же словарём и в том же порядке, приращения `tally` на месте, бюджет, память
+    канонизации и `SIGN_COUNTS` - как у эталона; `STATION_VALUE_CONFLICT` - `MaterializationRefusal` эталона с его текстом. Вход, который порт не несёт, - эталон по имени."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(frame_faces, lists, layout, table, lattice_alpha, budget, tally, chords=chords, anchors=anchors)
+
+    def call(module):
+        if not hasattr(module, "chord_station_values"):
+            raise _OperationAbsent("this cftuv_native wheel has no `chord_station_values` (it predates CHORD_STATIONS_NATIVE_V1)")
+        return module.chord_station_values(frame_faces, lists, layout, table, budget, tally, chords, anchors)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call, lambda: _effects_snapshot(budget, None, tally))
+    return answer if done else oracle(frame_faces, lists, layout, table, lattice_alpha, budget, tally, chords=chords, anchors=anchors)
+
+
 def silhouette_compute(oracle, source, budget):
     """`oracle(source, budget)` (`materialize.silhouette.apply_silhouette`), посчитанное заказанным бэкендом W1 (MATERIALIZE_HOT_UNDER_W1_SWITCH_V1): проход силуэта и его проверка.
 

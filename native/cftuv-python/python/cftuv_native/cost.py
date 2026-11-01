@@ -820,6 +820,13 @@ class CostMirror:
 
         return materialize_w1_op.canonical_triangles(self, frame_faces, cycles, budget, reverse)
 
+    def chord_station_values(self, frame_faces, lists, layout, table, budget, tally, chords, anchors):
+        """`materialize.mesh.station_values(...)` of the clip stage (chords and anchors), whole, with its exact side effects (see `materialize_w1_op.chord_stations`)."""
+
+        from . import materialize_w1_op
+
+        return materialize_w1_op.chord_stations(self, frame_faces, lists, layout, table, budget, tally, chords, anchors)
+
     def w1_contour_polygons(self, piece, cycle, budget, reverse, exact_plane, tally, uv, unit=1, in_flow=False, partition=False, affine_known=False):
         """Test seam: `materialize.mesh._contour_polygons` whole, with `uv` a mapping `key -> (s, r)` (see `materialize_w1_op.py`)."""
 
