@@ -111,7 +111,7 @@ class SeamRecorder:
         try:
             result, error = original(*args, **kwargs), None
         except Exception as exc:  # noqa: BLE001 - исключение эталона — часть исхода шва
-            result, error = None, (type(exc).__qualname__, str(exc))
+            result, error = None, nc.exception_info(exc)
             raised = exc
         seconds = time.perf_counter() - started
         post = nc.capture_state(budget, None) if costly else None

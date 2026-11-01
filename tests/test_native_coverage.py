@@ -640,6 +640,23 @@ def test_a_stored_tuple_that_is_no_record_is_a_miss_that_replaces_it():
         assert len(replaced) == 4 and replaced[2] is not None and type(replaced[3]) is exact.FactorizationMemoryDeltaV1, junk
 
 
+@pytest.mark.parametrize("name", ["CoverageV1", "FaceCoverageV1"])
+def test_a_new_slotted_field_of_a_coverage_result_class_is_refused_when_the_classes_bind(monkeypatch, name):
+    """CONTRACT_GATES_FIX_V1, finding 3: Rust fills the known slots of `CoverageV1` / `FaceCoverageV1`; a slot it does not know would stay unset.
+    The binding checks the shape (`pin.check_shapes`), so the call refuses by name before it touches any state."""
+
+    original = getattr(coverage_module, name)
+    mutated = dataclasses.make_dataclass(name, [("contract_gates_extra", int, dataclasses.field(default=0))], bases=(original,), frozen=True, slots=True)
+    monkeypatch.setattr(coverage_module, name, mutated)
+    partition = _store_partition()
+    mirror = cftuv_native.new_mirror()
+    budget = exact.exact_work_budget(stage="COVERAGE")
+    articles = budget.spent_by_article()
+    with pytest.raises(cftuv_native.NativePortStale, match=f"{name} fields"):
+        mirror.coverage_at(partition, Fraction(2), budget, {})
+    assert budget.spent_by_article() == articles
+
+
 def _isolated_chain(function, partition, alphas, budget):
     """Как зовёт покрытие конвейер ядра: каждый регион — на КОПИИ бюджета подготовки и под холодной памятью канонизации, память вызывающего возвращается."""
 

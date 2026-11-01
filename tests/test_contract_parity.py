@@ -92,8 +92,50 @@ def test_a_reordered_answer_a_missing_answer_and_another_named_outcome_are_geome
     assert [item.field for item in nc.parity_differences(nc.OP_SKELETON, before, raised, other)] == ["exception"]
     reworded = dataclasses.replace(raised, exception=("ValueError", "another text"))
     assert nc.parity_differences(nc.OP_SKELETON, before, raised, reworded) == []
-    conflict = dataclasses.replace(raised, exception=("ValueError", "boom", ((1, 2),)))
+    conflict = dataclasses.replace(raised, exception=("ValueError", "boom", ("station_conflict", ((1, 2),))))
     assert [item.field for item in nc.parity_differences(nc.OP_SKELETON, before, raised, conflict)] == ["exception.station_conflict"]
+
+
+def _refusal(outcome, kind, detail: str, **extra):
+    from cftuv_envelope.materialize.frames import MaterializationRefusal
+
+    return dataclasses.replace(outcome, result=None, exception=nc.exception_info(MaterializationRefusal(kind, detail, **extra)))
+
+
+@pytest.mark.parametrize("op", [nc.OP_CLIP, nc.OP_MESH])
+def test_the_named_outcome_of_a_refusal_is_bound_and_only_its_detail_is_free(answered, op):
+    """CONTRACT_GATES_FIX_V1, finding 1: `MaterializationRefusal` carries its outcome in a field; the text frees only `detail`."""
+
+    from cftuv_envelope.materialize.admit import MaterializationOutcome as Outcome
+
+    before, outcome = answered
+    closed = _refusal(outcome, Outcome.TESSELLATION_DID_NOT_CLOSE, "the same detail")
+    batch = _refusal(outcome, Outcome.BATCH_DID_NOT_VALIDATE, "the same detail")
+    assert [item.field for item in nc.parity_differences(op, before, closed, batch)] == ["exception.outcome"]
+    reworded = _refusal(outcome, Outcome.TESSELLATION_DID_NOT_CLOSE, "another detail")
+    assert nc.parity_differences(op, before, closed, reworded) == []
+    conflict = _refusal(outcome, Outcome.TESSELLATION_DID_NOT_CLOSE, "the same detail", station_conflict=("run-1", "run-0"))
+    assert [item.field for item in nc.parity_differences(op, before, closed, conflict)] == ["exception.station_conflict"]
+
+
+def test_any_exception_with_a_named_outcome_attribute_binds_it():
+    from cftuv_envelope.wavefront.polygon import PolygonOutcome, PolygonRejected
+
+    first, second = list(PolygonOutcome)[:2]
+    one, other = nc.exception_info(PolygonRejected(first, "d")), nc.exception_info(PolygonRejected(second, "d"))
+    assert one[0] == other[0] and ("outcome", f"PolygonOutcome.{first.name}") in one[2:]
+    state = nc.StateV1([], [], [], [], None, {}, (), None, False)
+    left, right = nc.Outcome(None, one, state, {}), nc.Outcome(None, other, state, {})
+    assert [item.field for item in nc.parity_differences(nc.OP_SKELETON, state, left, right)] == ["exception.outcome"]
+
+
+def test_a_v2_record_exception_reads_as_the_v3_form():
+    assert nc.upgrade_exception(("MaterializationRefusal", "BATCH_DID_NOT_VALIDATE: x", ("r1", "r0"))) == (
+        "MaterializationRefusal", "BATCH_DID_NOT_VALIDATE: x", ("outcome", "MaterializationOutcome.BATCH_DID_NOT_VALIDATE"), ("station_conflict", ("r1", "r0")),
+    )
+    assert nc.upgrade_exception(("ValueError", "boom")) == ("ValueError", "boom")
+    current = ("ValueError", "boom", ("station_conflict", ("r1",)))
+    assert nc.upgrade_exception(current) is current
 
 
 def test_a_work_budget_that_stops_on_one_side_only_is_resource_policy_not_a_geometry_error(answered):
@@ -101,6 +143,26 @@ def test_a_work_budget_that_stops_on_one_side_only_is_resource_policy_not_a_geom
     exhausted = dataclasses.replace(outcome, result=None, exception=("ExactCanonicalizationWorkBudgetExhausted", "spent"))
     assert nc.parity_differences(nc.OP_SKELETON, before, outcome, exhausted) == []
     assert [kind for kind, _item in nc.contract_differences(nc.OP_SKELETON, before, outcome, exhausted)][:1] == [nc.RESOURCE_POLICY]
+
+
+@pytest.mark.parametrize("op", [nc.OP_CLIP, nc.OP_MESH])
+def test_a_resource_refusal_on_one_side_does_not_hide_an_ordinary_error_or_another_refusal_on_the_other(answered, op):
+    """CONTRACT_GATES_FIX_V1, finding 2: only "answered <-> resource refusal" is RESOURCE_POLICY; against an error it is a failure."""
+
+    from cftuv_envelope.materialize.admit import MaterializationOutcome as Outcome
+
+    before, outcome = answered
+    exhausted = dataclasses.replace(outcome, result=None, exception=("ExactCanonicalizationWorkBudgetExhausted", "spent"))
+    bug = dataclasses.replace(outcome, result=None, exception=("ValueError", "native bug"))
+    named = _refusal(outcome, Outcome.BATCH_DID_NOT_VALIDATE, "x")
+    for first, second in ((exhausted, bug), (bug, exhausted), (exhausted, named), (named, exhausted)):
+        assert [item.field for item in nc.parity_differences(op, before, first, second)] == ["exception"], (first.exception, second.exception)
+    found = nc.contract_differences(op, before, outcome, exhausted)
+    assert [kind for kind, _item in found] == [nc.RESOURCE_POLICY] and "EXACT_CANONICALIZATION_WORK_CAP_V1" in found[0][1].detail
+    by_outcome = _refusal(outcome, Outcome.EXACT_WORK_BUDGET_EXHAUSTED, "spent")
+    assert nc.parity_differences(op, before, by_outcome, outcome) == []
+    lookalike = dataclasses.replace(outcome, result=None, exception=("SomeBudgetExhausted", "a name that only looks like a budget"))
+    assert {item.field for item in nc.parity_differences(op, before, outcome, lookalike)} == {"exception", "result"}
 
 
 def test_an_observation_of_the_arguments_is_bound(answered):

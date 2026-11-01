@@ -44,7 +44,9 @@ WHAT IS COMPARED, per domain and press (any difference is a failure; the exit co
 SEMANTIC MODE (`--compare semantic`, SEMANTIC_DECAL_EQUIVALENCE_V1)  every press also writes a record of every domain's named outcome and view and of the whole mesh
   (`tools/semantic_decal_equivalence.py`), and the answer is compared under the PRODUCT contract (NATIVE_PATH_PRODUCT_CONTRACT_V1) instead of bytes: a GEOMETRY_ERROR
   (and, with `--fail-on-resource`, a RESOURCE_POLICY) finding is a difference, REPRESENTATION_ONLY findings and every byte difference of the same runs are notes. With
-  several `--workers` the records of each tree are also compared across the worker counts (determinism: no difference but representation). Verdict `EQUIVALENT`.
+  several `--workers` the records of each tree are also compared across the worker counts (determinism: no difference but representation). Verdict `EQUIVALENT`;
+  a materialized domain whose view one side lacks (PROVENANCE_UNCHECKED: the mesh compared, `semantic_location_ref` not) makes the case `NOT_VERIFIABLE` and the run
+  ends `TREE_AB_NOT_VERIFIABLE` (exit 3), never `TREE_AB_EQUIVALENT`.
 
 TIMING (`--timing --reps N`)  alternating base/branch, order flipped every repetition; before each run the tool waits while a FOREIGN blender.exe is busy (it never stops one) and re-runs a
   repetition during which one was; every Blender it starts is recorded in <work-dir>/pids.log and nothing else is ever stopped. Medians, minima and the change are in the table.
@@ -75,7 +77,7 @@ from pathlib import Path
 
 SCHEMA = "cftuv.tree-ab.v1"
 STEP_WIDTH = 0.0022
-EXIT_IDENTICAL, EXIT_DIFFERENT, EXIT_UNRUNNABLE = 0, 1, 2
+EXIT_IDENTICAL, EXIT_DIFFERENT, EXIT_UNRUNNABLE, EXIT_NOT_VERIFIABLE = 0, 1, 2, 3
 ABSENT = "<absent>"
 #: Pinned in BOTH trees while the keys are recorded: the identity hashes the sources, so two different trees would differ in every key by construction.
 PINNED_IDENTITY = ("0123456789abcdef", "fedcba9876543210")
@@ -274,6 +276,8 @@ class Comparison:
     #: `bytes` (every field, bit for bit) or `semantic` (SEMANTIC_DECAL_EQUIVALENCE_V1: the product contract; `classes` counts the findings by class).
     mode: str = "bytes"
     classes: dict = field(default_factory=dict)
+    #: `--compare semantic`: findings whose provenance could not be checked (PROVENANCE_UNCHECKED): not a difference, and not a full EQUIVALENT either.
+    unverified: list = field(default_factory=list)
 
     @property
     def identical(self) -> bool:
@@ -566,7 +570,8 @@ def compare_runs_semantic(base: dict, branch: dict, allowed: tuple = (), compare
         for item in found.findings:
             out.classes[item.kind] += 1
             failing = item.kind == library.GEOMETRY_ERROR or (fail_on_resource and item.kind == library.RESOURCE_POLICY)
-            (out.differences if failing else out.notes).append(f"[{label}] {item.line()}")
+            unchecked = item.kind == library.PROVENANCE_UNCHECKED
+            (out.differences if failing else out.unverified if unchecked else out.notes).append(f"[{label}] {item.line()}")
         out.presses.setdefault(label, {})["semantic"] = {"verdict": found.verdict, "counts": found.counts, "compared": dict(found.compared)}
     out.notes.extend(f"{library.REPRESENTATION_ONLY} (bytes) {line}" for line in in_bytes.differences)
     out.classes[library.REPRESENTATION_ONLY] += len(in_bytes.differences)
@@ -635,10 +640,29 @@ def format_table(rows: list[dict]) -> str:
 PASSING_VERDICTS = ("IDENTICAL", "EQUIVALENT")
 
 
+#: `--compare semantic` with no difference but a provenance that could not be checked: the run is neither EQUIVALENT nor DIFFERENT.
+NOT_VERIFIABLE = "NOT_VERIFIABLE"
+
+
 def verdict_of(comparison: Comparison) -> str:
     if comparison.mode == "semantic":
-        return "EQUIVALENT" if comparison.identical else f"GEOM_ERROR({len(comparison.differences)})"
+        if not comparison.identical:
+            return f"GEOM_ERROR({len(comparison.differences)})"
+        return NOT_VERIFIABLE if comparison.unverified else "EQUIVALENT"
     return "IDENTICAL" if comparison.identical else f"DIFFERENT({len(comparison.differences)})"
+
+
+def final_verdict(results: list, determinism: list, semantic: bool) -> tuple:
+    """`(last line, exit code)` of a run: TREE_AB_IDENTICAL / _EQUIVALENT only when every case passes in full; a case whose provenance could not be
+    checked (and nothing worse) makes it TREE_AB_NOT_VERIFIABLE, a distinct line and exit code."""
+
+    differing = sum(1 for item in results if item["verdict"] not in PASSING_VERDICTS + (NOT_VERIFIABLE,)) + sum(1 for item in determinism if item["differences"])
+    unverifiable = sum(1 for item in results if item["verdict"] == NOT_VERIFIABLE)
+    if differing:
+        return f"TREE_AB_DIFFERENT cases={len(results)} differing={differing}", EXIT_DIFFERENT
+    if unverifiable:
+        return f"TREE_AB_NOT_VERIFIABLE cases={len(results)} unverifiable={unverifiable} (mesh equal, provenance unchecked)", EXIT_NOT_VERIFIABLE
+    return f"TREE_AB_{'EQUIVALENT' if semantic else 'IDENTICAL'} cases={len(results)} differing=0", EXIT_IDENTICAL
 
 
 def summary_row(case: str, workers: int, comparison: Comparison, timing: dict | None = None) -> dict:
@@ -995,16 +1019,15 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
     out = Path(options.out or work_dir / f"tree_ab_{datetime.now():%Y%m%d_%H%M%S}.json")
     out.write_text(json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     log("\n" + format_table(rows))
-    differing = sum(1 for item in results if item["verdict"] not in PASSING_VERDICTS) + sum(1 for item in determinism if item["differences"])
     for key, item in scene_report.items():
         log(f"scene {key}: sha256 before {item['before'][:16]} after {item['after'][:16]} -> {'unchanged' if item['unchanged'] else 'CHANGED'}")
     log(f"report: {out}\npids: {work_dir / 'pids.log'}")
     if not all(item["unchanged"] for item in scene_report.values()):
         log("TREE_AB_UNRUNNABLE a scene changed during the runs")
         return EXIT_UNRUNNABLE
-    same = "EQUIVALENT" if semantic else "IDENTICAL"
-    log(f"TREE_AB_{same if not differing else 'DIFFERENT'} cases={len(results)} differing={differing}")
-    return EXIT_IDENTICAL if not differing else EXIT_DIFFERENT
+    line, code = final_verdict(results, determinism, semantic)
+    log(line)
+    return code
 
 
 # --------------------------------------------------------------------------

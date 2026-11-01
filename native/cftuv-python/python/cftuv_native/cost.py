@@ -120,6 +120,10 @@ CLIPPED_FIELDS = ("polygons", "cycles", "vertex_lists", "extra_lists", "points",
 #: The bits of the changed-tables answer of `clip_geometry` (the extension replays the memory log on the real tables itself).
 CLIP_CHANGED = ((1, "registry"), (2, "factorization"), (4, "squarefree"), (8, "support"))
 LIFT_TRIANGLE_FIELDS = ("name", "chart", "corners", "twice_area", "box", "normals", "face")
+#: The slots `coverage.rs` fills (`CoverageV1`: seven, `FaceCoverageV1`: three) and the outcomes it answers with: a slot it does not know would stay unset.
+COVERAGE_FIELDS = ("outcome", "alpha", "faces", "doubled_area", "polygon_doubled_area", "detail", "work_budget")
+FACE_COVERAGE_FIELDS = ("owner", "points", "doubled_area")
+COVERAGE_OUTCOMES = ("EXACT", "PARTITION_IS_NOT_EXACT", "ALPHA_IS_NEGATIVE")
 
 _U64 = (1 << 64) - 1
 
@@ -575,9 +579,21 @@ class CostMirror:
     # ---- the whole coverage operation -------------------------------------------------------------------------------
 
     def _bind_coverage(self) -> None:
+        """Hands the result classes to the extension, after checking they have the slots the Rust side fills (`NativePortStale` else)."""
+
+        import dataclasses
+
         coverage, faces = _coverage()
         exact = _exact()
         outcome = coverage.CoverageOutcome
+        pin.check_shapes(
+            (
+                ("wavefront/coverage.py", "CoverageV1 fields", tuple(item.name for item in dataclasses.fields(coverage.CoverageV1)) == COVERAGE_FIELDS),
+                ("wavefront/coverage.py", "FaceCoverageV1 fields", tuple(item.name for item in dataclasses.fields(coverage.FaceCoverageV1)) == FACE_COVERAGE_FIELDS),
+                ("wavefront/coverage.py", "CoverageOutcome members", all(name in outcome.__members__ for name in COVERAGE_OUTCOMES)),
+                ("wavefront/faces.py", "FaceOutcome.EXACT", "EXACT" in faces.FaceOutcome.__members__),
+            )
+        )
         self._session.bind_coverage(
             exact.SqrtSumV1, Fraction, coverage.CoverageV1, coverage.FaceCoverageV1,
             outcome.EXACT, outcome.PARTITION_IS_NOT_EXACT, outcome.ALPHA_IS_NEGATIVE, faces.FaceOutcome.EXACT, StoreKey, exact.FactorizationMemoryDeltaV1,

@@ -444,7 +444,9 @@ def exception_of(answer: Answer, budget) -> tuple:
     if status == STATUS_VALUE:
         return ("ValueError", dec_str(answer.detail[0]))
     if status == STATUS_REFUSAL:
-        return ("MaterializationRefusal", f"{dec_str(answer.detail[0])}: {dec_str(answer.detail[1])}")
+        # the named outcome is a field of the refusal, bound apart from its text (`tools/native_corpus.exception_info`, CONTRACT_GATES_FIX_V1)
+        outcome = cost._clip_kernel()[3](dec_str(answer.detail[0]))
+        return ("MaterializationRefusal", f"{outcome.value}: {dec_str(answer.detail[1])}", ("outcome", f"{type(outcome).__qualname__}.{outcome.name}"))
     if status == STATUS_MISSING_KEY:
         return ("KeyError", repr(dec_str(answer.detail[0])))
     if status == cost.STATUS_ZERO_DIVISOR:

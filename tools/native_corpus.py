@@ -30,7 +30,6 @@ import lzma
 import math
 import os
 import pickle
-import re
 import struct
 import subprocess
 import sys
@@ -78,8 +77,9 @@ ORACLE = {
 SKELETON_OPTIONS = frozenset({"split_search", "work_budget", "dense_hydration"})
 
 RECORD_MAGIC = b"CFTUVNC1"
-RECORD_SCHEMA = "cftuv.native-corpus.v2"
-READABLE_SCHEMAS = frozenset({"cftuv.native-corpus.v1", RECORD_SCHEMA})
+#: v3: an exception is `(type, text, *bound)` (`exception_info`); a v1/v2 record's exception is read through `upgrade_exception`.
+RECORD_SCHEMA = "cftuv.native-corpus.v3"
+READABLE_SCHEMAS = frozenset({"cftuv.native-corpus.v1", "cftuv.native-corpus.v2", RECORD_SCHEMA})
 PRIME_UNIVERSE_KEY = "prime-universe"
 MEMORY_TABLES = ("known_primes", "factorization", "squarefree", "prime_support")
 DEFAULT_CORPUS_BASE = "E:/cftuv_native_corpus"
@@ -106,12 +106,53 @@ class CorpusError(RuntimeError):
 # --------------------------------------------------------------------------
 
 
-def exception_info(error) -> tuple:
-    """`(type, text)` of the exception of an operation, and the runs of a station conflict when it carries them: the retry loop of the domain reads `MaterializationRefusal.station_conflict`, so it is part of the answer."""
+#: Attributes of an exception that are part of the answer, not of its text (CONTRACT_GATES_FIX_V1): the named outcome the product reads
+#: (`MaterializationRefusal.outcome`, `PolygonRejected.outcome`, any exception with an `outcome` or a named `code`) and the runs of a station conflict
+#: (the retry loop of the domain reads `MaterializationRefusal.station_conflict`). Recorded as `(name, value)` pairs after `(type, text)`, in this order.
+BOUND_EXCEPTION_FIELDS = ("outcome", "code", "station_conflict")
+#: Exception classes whose text starts with `f"{outcome.value}: "` (the outcome of a v1/v2 record, written before the outcome was a field, is read from it).
+_OUTCOME_PREFIXED = {"MaterializationRefusal": "MaterializationOutcome", "PolygonRejected": "PolygonOutcome"}
 
-    info = (type(error).__qualname__, str(error))
-    conflict = tuple(getattr(error, "station_conflict", ()) or ())
-    return (*info, conflict) if conflict else info
+
+def _bound_exception_value(name: str, value):
+    """The recorded value of a bound attribute (`None`: the exception does not carry it). A named outcome is `Class.MEMBER` (or the string itself)."""
+
+    if name == "station_conflict":
+        found = tuple(value or ())
+        return found or None
+    if isinstance(value, Enum):
+        return f"{type(value).__qualname__}.{value.name}"
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def exception_info(error) -> tuple:
+    """`(type, text, *bound)` of the exception of an operation: `bound` are the `(name, value)` pairs of `BOUND_EXCEPTION_FIELDS` the exception carries.
+    The text is free under the contract; the class and every bound pair are the answer."""
+
+    bound = []
+    for name in BOUND_EXCEPTION_FIELDS:
+        value = _bound_exception_value(name, getattr(error, name, None))
+        if value is not None:
+            bound.append((name, value))
+    return (type(error).__qualname__, str(error), *bound)
+
+
+def upgrade_exception(exception: tuple | None) -> tuple | None:
+    """An exception of a v1/v2 record in the v3 form: `(type, text[, conflict])` -> `(type, text, *bound)` (the outcome read from the text of the
+    classes that prefix it, the runs of a conflict tagged). A v3 exception is returned as it is."""
+
+    if exception is None or any(isinstance(item, tuple) and len(item) == 2 and item[0] in BOUND_EXCEPTION_FIELDS for item in exception[2:]):
+        return exception
+    kind, text, *rest = exception
+    bound = []
+    enum = _OUTCOME_PREFIXED.get(kind)
+    if enum is not None and ": " in text:
+        bound.append(("outcome", f"{enum}.{text.split(': ', 1)[0]}"))
+    if rest and rest[0]:
+        bound.append(("station_conflict", tuple(rest[0])))
+    return (kind, text, *bound)
 
 
 def canonical(value) -> str:
@@ -559,17 +600,25 @@ def compare_outcomes(op: str, before: StateV1, expected: Outcome, actual: Outcom
 # CONTRACT_PARITY_V1: the contract comparison of a native outcome with the reference
 # --------------------------------------------------------------------------
 #
-# NATIVE_PATH_PRODUCT_CONTRACT_V1 frees the representation of numbers (int / Fraction / binary64 by exact value), the container kind (tuple / list) and
-# mapping order, the text of diagnostics, the service counters (budget articles, SIGN_COUNTS, unbudgeted work, the canonicalization memory, the store) and
-# the operation at which a work budget stops (RESOURCE_POLICY). It binds the answer: every field of the result by exact value, in its order; the named
-# outcome (the exception class) and the station conflict the retry loop reads; the observations of the arguments. `parity_differences` is the gate the
+# NATIVE_PATH_PRODUCT_CONTRACT_V1 frees the representation of one exact value (int / Fraction / finite binary64 of the same rational: 0.1 and 1/10 are two
+# values), the container kind (tuple / list) and mapping order, the text of diagnostics, the service counters (budget articles, SIGN_COUNTS, unbudgeted
+# work, the canonicalization memory, the store) and the operation at which a work budget stops (RESOURCE_POLICY: answered on one side, a resource refusal
+# on the other). It binds the answer: every field of the result by exact value, in its order; the named outcome (the exception class and its bound fields,
+# `BOUND_EXCEPTION_FIELDS`: the outcome and the station conflict the retry loop reads); the observations of the arguments. `parity_differences` is the gate the
 # differential tests use: the exact comparison first (cheap, and the usual case), and when it differs, only what the contract binds can fail it.
 
 GEOMETRY_ERROR = "GEOMETRY_ERROR"
 RESOURCE_POLICY = "RESOURCE_POLICY"
 REPRESENTATION_ONLY = "REPRESENTATION_ONLY"
-#: The exception classes that are a refusal by a resource budget (the native path has a versioned budget of its own).
-RESOURCE_EXCEPTION = re.compile(r"Budget\w*Exhausted|AuthorityExhausted|BoxesExhausted|BudgetExceeded")
+#: The refusals by a resource budget, by EXACT identifier (CONTRACT_GATES_FIX_V1: a name that only looks like one is not), with the budget policy that
+#: applies (`contracts/tolerance_policy.py` where it is registered): an exception class, or `class/outcome` for a refusal that names its outcome in a field.
+RESOURCE_REFUSALS = {
+    "ExactCanonicalizationWorkBudgetExhausted": "EXACT_CANONICALIZATION_WORK_CAP_V1 (ExactWorkBudgetV1)",
+    "MaterializationRefusal/MaterializationOutcome.EXACT_WORK_BUDGET_EXHAUSTED": "EXACT_CANONICALIZATION_WORK_CAP_V1 (ExactWorkBudgetV1)",
+    "DensityRationalAuthorityExhausted": "DENSITY_EXACT_WORK_CAP_V1 / DENSITY_FAN_PREPARATION_WORK_CAP_V1",
+    "DensityTerminationBoxesExhausted": "adaptive_density_fan._BOX_REFINEMENT_CAP",
+    "EvaluationGeometryRefinementBudgetExhausted": "evaluation_geometry refinement cap (REFINEMENT_BUDGET_EXHAUSTED)",
+}
 #: Fields of a result that are service counters or diagnostic text (the contract frees them): the counters of the skeleton and of the clip, the clip's note,
 #: the coverage detail, the tally and the rung slots of the exact mesh.
 CONTRACT_FREE_FIELDS = {OP_SKELETON: ("counters",), OP_CLIP: ("counters", "note"), OP_COVERAGE: ("detail",), OP_MESH: ("tally", "rungs")}
@@ -702,25 +751,64 @@ def contract_canonical(value) -> str:
     return "".join(out)
 
 
+def bound_exception_fields(exception) -> dict:
+    """`{name: value}` of the bound pairs of a recorded exception (`exception_info`); anything else after `(type, text)` is a malformed record."""
+
+    out = {}
+    for item in exception[2:]:
+        if not (isinstance(item, tuple) and len(item) == 2 and item[0] in BOUND_EXCEPTION_FIELDS):
+            raise CorpusError(f"an exception entry that is not a bound `(name, value)` pair: {item!r} (read v1/v2 records through `upgrade_exception`)")
+        out[item[0]] = item[1]
+    return out
+
+
+def resource_refusal(exception) -> str | None:
+    """The budget policy of a refusal by a resource budget (`RESOURCE_REFUSALS`, exact identifiers), `None` for any other outcome."""
+
+    if exception is None:
+        return None
+    outcome = bound_exception_fields(exception).get("outcome")
+    return RESOURCE_REFUSALS.get(f"{exception[0]}/{outcome}") or RESOURCE_REFUSALS.get(str(exception[0]))
+
+
 def is_resource_refusal(exception) -> bool:
-    return exception is not None and bool(RESOURCE_EXCEPTION.search(str(exception[0])))
+    return resource_refusal(exception) is not None
+
+
+def _named(exception) -> str:
+    if exception is None:
+        return "answered"
+    outcome = bound_exception_fields(exception).get("outcome")
+    return f"{exception[0]}" + (f"({outcome})" if outcome is not None else "")
 
 
 def contract_differences(op: str, before: StateV1, expected: Outcome, actual: Outcome) -> list:
-    """`[(class, Difference)]` of two outcomes of ONE call under the product contract: `GEOMETRY_ERROR`, `RESOURCE_POLICY` or `REPRESENTATION_ONLY`."""
+    """`[(class, Difference)]` of two outcomes of ONE call under the product contract: `GEOMETRY_ERROR`, `RESOURCE_POLICY` or `REPRESENTATION_ONLY`.
+
+    The named outcome is the exception class and its bound fields (`BOUND_EXCEPTION_FIELDS`: the outcome, the station conflict); only the text is free.
+    RESOURCE_POLICY is "answered on one side, a resource refusal (`RESOURCE_REFUSALS`) on the other": a resource refusal against an ordinary error or
+    another named refusal is a GEOMETRY_ERROR, the budget does not hide what the other side did."""
 
     found = []
     left, right = expected.exception, actual.exception
-    if (left is None) != (right is None) or (left is not None and left[0] != right[0]):
-        kind = RESOURCE_POLICY if is_resource_refusal(left) or is_resource_refusal(right) else GEOMETRY_ERROR
-        found.append((kind, Difference("exception", f"outcome {None if left is None else left[0]} != {None if right is None else right[0]}")))
+    bound_left = {} if left is None else bound_exception_fields(left)
+    bound_right = {} if right is None else bound_exception_fields(right)
+    resource = False
+    if (left is None) != (right is None):
+        policy = resource_refusal(left if right is None else right)
+        resource = policy is not None
+        what = f"outcome {_named(left)} != {_named(right)}"
+        found.append((RESOURCE_POLICY, Difference("exception", f"{what}: a resource refusal under {policy}")) if resource else (GEOMETRY_ERROR, Difference("exception", what)))
+    elif left is not None and left[0] != right[0]:
+        found.append((GEOMETRY_ERROR, Difference("exception", f"outcome {_named(left)} != {_named(right)}")))
     elif left is not None:
-        if contract_canonical(tuple(left[2:])) != contract_canonical(tuple(right[2:])):
-            found.append((GEOMETRY_ERROR, Difference("exception.station_conflict", "the runs of the station conflict differ")))
+        for name in BOUND_EXCEPTION_FIELDS:
+            if contract_canonical(bound_left.get(name)) != contract_canonical(bound_right.get(name)):
+                found.append((GEOMETRY_ERROR, Difference(f"exception.{name}", f"{bound_left.get(name)!r} != {bound_right.get(name)!r}")))
         if left[1] != right[1]:
             found.append((REPRESENTATION_ONLY, Difference("exception.text", "the diagnostic text differs")))
     if (expected.result is None) != (actual.result is None):
-        if not found or found[0][0] != RESOURCE_POLICY:
+        if not resource:
             found.append((GEOMETRY_ERROR, Difference("result", "present in one outcome only")))
     elif expected.result is not None:
         left_view, right_view = answer_view(op, expected.result), answer_view(op, actual.result)
@@ -805,7 +893,7 @@ class Record:
 
         item = self.payload["expected"]
         result = None if item["result"] is None else pickle.loads(item["result"])
-        return Outcome(result, item["exception"], StateV1(**item["after"]), item["observed"], self.payload["seconds"])
+        return Outcome(result, upgrade_exception(item["exception"]), StateV1(**item["after"]), item["observed"], self.payload["seconds"])
 
     @property
     def call_blob(self) -> bytes:

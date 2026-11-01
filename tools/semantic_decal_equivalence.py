@@ -8,10 +8,17 @@ other's, and every difference is classified:
 
   GEOMETRY_ERROR       the product differs: coverage / silhouette (the boundary of every region, exactly), seams, inter-patch joins, open edges (cracks),
                        the owner of a region, UV along every region boundary (seams included) and inside it, provenance (the position and UV of every
-                       shared semantic vertex), a named outcome, the set of domains.
-  RESOURCE_POLICY      a named outcome differs and one of the two is a refusal by a resource budget (`RESOURCE_OUTCOME`): the native path has a budget of its own.
-  REPRESENTATION_ONLY  the product is the same: vertex / face order, corner rotation, ids (owner labels by a consistent bijection), the spelling of a number
-                       (int, Fraction, binary64), diagnostic text, service counters, the triangulation inside a region.
+                       shared semantic vertex), a named outcome, the set of domains. Also, conservatively, a transformation whose equivalence the record
+                       cannot confirm (a face that is not affine in UV replaced: the record does not carry the host's tessellation diagonal).
+  RESOURCE_POLICY      a domain is materialized on one side and refused by a resource budget on the other (`RESOURCE_OUTCOMES`, exact names, with the budget
+                       policy that applies): the native path has a budget of its own. The mesh is then compared without that domain's faces (they are this
+                       finding's consequence); a resource refusal against another refusal is a GEOMETRY_ERROR.
+  PROVENANCE_UNCHECKED a materialized domain whose view one side does not carry: the mesh is compared, the provenance is not (verdict NOT_VERIFIABLE, which
+                       is not EQUIVALENT). The provenance the record covers is the view's `semantic_location_ref` of every vertex with its positions and
+                       loop UVs, not every provenance field of the geometry batch.
+  REPRESENTATION_ONLY  the product is the same: vertex / face order, corner rotation, ids (owner labels by a consistent bijection), the representation of
+                       one exact value (int, Fraction, binary64 of the same rational; 0.1 and 1/10 are two values), diagnostic text, service counters,
+                       the triangulation inside a region.
 
 HOW. Numbers are compared exactly (`Fraction`). A face is its corners `(x, y, z, u, v)`; a REGION is a UV-continuous set of faces of one domain and one
 owner (faces sharing an edge by vertex index with the same UV on both loops). Its boundary is the signed 1-chain of its directed corner edges in R^5,
@@ -19,8 +26,9 @@ cancelled and merged along each 5-D line, so a collinear subdivision of a bounda
 a moved vertex is not. Two regions match when their domain and boundary chain are equal; the owners of matched regions must be a bijection. A matched
 region whose faces differ (another triangulation) must be fold-free in UV and its 3-D surface must be the same piecewise-linear function of UV: every
 corner, edge midpoint and face centroid of each side is located in the other side's faces (exact barycentrics) and must map to the same point; only
-the faces one side has and the other has not are compared so, and a face of four or more corners that is not affine in UV (a bilinear UV: its diagonals
-are not equivalent, the host's tessellation decides it) may not be replaced at all. A polygon from another first corner is the same polygon.
+the faces one side has and the other has not are compared so (each face triangulated by exact ear clipping in UV, so a concave face is no fold), and a
+face of four or more corners that is not affine in UV (a bilinear UV: the host's tessellation picks its diagonal, which the record does not carry) may not
+be replaced: the equivalence is not confirmed. A polygon from another first corner is the same polygon.
 All of this is integer arithmetic on both sides scaled by one common denominator (binary64 is dyadic).
 Seams, inter-patch joins (edges whose faces belong to two domains, by vertex index: an unwelded join is missing) and open edges are compared as
 unsigned 1-chains in R^3.
@@ -31,7 +39,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -42,9 +49,32 @@ CONTRACT = "SEMANTIC_DECAL_EQUIVALENCE_V1"
 GEOMETRY_ERROR = "GEOMETRY_ERROR"
 REPRESENTATION_ONLY = "REPRESENTATION_ONLY"
 RESOURCE_POLICY = "RESOURCE_POLICY"
-CLASSES = (GEOMETRY_ERROR, RESOURCE_POLICY, REPRESENTATION_ONLY)
-#: A refusal by a WORK budget (the exact arithmetic, a generation, a refinement), not by a product policy (stretch, distortion, residual budgets are the request's answer).
-RESOURCE_OUTCOME = re.compile(r"WORK_BUDGET|BUDGET_EXHAUSTED|AUTHORITY_EXHAUSTED|REFINEMENT_EXHAUSTED|GENERATION_BUDGET")
+#: A materialized domain whose view one side does not carry: the mesh may be equal, the provenance (`semantic_location_ref`, only in the view) is unchecked.
+PROVENANCE_UNCHECKED = "PROVENANCE_UNCHECKED"
+CLASSES = (GEOMETRY_ERROR, RESOURCE_POLICY, PROVENANCE_UNCHECKED, REPRESENTATION_ONLY)
+#: The verdict of a comparison with PROVENANCE_UNCHECKED findings and nothing worse: not a full EQUIVALENT.
+NOT_VERIFIABLE = "NOT_VERIFIABLE"
+MATERIALIZED = "MATERIALIZED"
+_EXACT_WORK = "EXACT_CANONICALIZATION_WORK_CAP_V1 (ExactWorkBudgetV1)"
+#: The domain outcomes that are a refusal by a WORK budget (the exact arithmetic, a generation, a refinement), by EXACT name, with the budget policy that
+#: applies; a product policy (stretch, distortion, residual budgets) is the request's answer and not here. A name that only looks like one is not one.
+RESOURCE_OUTCOMES = {
+    "EXACT_WORK_BUDGET_EXHAUSTED": _EXACT_WORK,
+    "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED": _EXACT_WORK,
+    "MATERIALIZE_SILHOUETTE_SKIPPED_WORK_BUDGET": _EXACT_WORK,
+    "UNDECIDED_WORK_BUDGET": _EXACT_WORK,
+    "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED": "DENSITY_EXACT_WORK_CAP_V1 / DENSITY_FAN_PREPARATION_WORK_CAP_V1",
+    "DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED": "adaptive_density_fan._BOX_REFINEMENT_CAP",
+    "REFINEMENT_BUDGET_EXHAUSTED": "evaluation_geometry refinement cap",
+    "LEVEL_BUDGET_EXHAUSTED": "wavefront.superlevel level cap",
+    "MOTORCYCLE_MARCH_BUDGET_EXHAUSTED": "wavefront.motorcycle march cap",
+    "SYMBOLIC_SPLIT_BUDGET_EXHAUSTED": "wavefront.superlevel_fixed_point split cap",
+    "SYMBOLIC_EDGE_GENERATION_BUDGET_EXHAUSTED": "wavefront.symbolic_edge_fixed_point generation cap",
+    "SYMBOLIC_ENDPOINT_GENERATION_BUDGET_EXHAUSTED": "wavefront.symbolic_split_endpoint generation cap",
+    "SYMBOLIC_MIXED_GENERATION_BUDGET_EXHAUSTED": "wavefront.symbolic_mixed_generation generation cap",
+    "SYMBOLIC_JUNCTION_GENERATION_BUDGET_EXHAUSTED": "wavefront.symbolic_junction_fixed_point generation cap",
+    "SYMBOLIC_SUPERLEVEL_OUTER_BUDGET_EXHAUSTED": "wavefront.symbolic_superlevel_coordinator outer cap",
+}
 
 
 # --------------------------------------------------------------------------
@@ -150,12 +180,15 @@ class Report:
 
     @property
     def verdict(self) -> str:
-        """`EQUAL` (nothing differs), `EQUIVALENT` (representation only), `RESOURCE_POLICY`, `GEOMETRY_ERROR` (the worst class found)."""
+        """`EQUAL` (nothing differs), `EQUIVALENT` (representation only), `NOT_VERIFIABLE` (the provenance of a domain unchecked), `RESOURCE_POLICY`,
+        `GEOMETRY_ERROR` (the worst class found)."""
 
         if self.of(GEOMETRY_ERROR):
             return GEOMETRY_ERROR
         if self.of(RESOURCE_POLICY):
             return RESOURCE_POLICY
+        if self.of(PROVENANCE_UNCHECKED):
+            return NOT_VERIFIABLE
         return "EQUIVALENT" if self.findings else "EQUAL"
 
     def as_record(self) -> dict:
@@ -370,6 +403,51 @@ def _fan(corners: tuple) -> list:
     return [(corners[0], corners[i], corners[i + 1]) for i in range(1, len(corners) - 1)]
 
 
+def _between(a, b, p) -> bool:
+    """`p` (collinear with `a`, `b` in UV) lies on the closed segment a-b."""
+
+    return min(a[3], b[3]) <= p[3] <= max(a[3], b[3]) and min(a[4], b[4]) <= p[4] <= max(a[4], b[4])
+
+
+def _triangulate(polygon: tuple) -> list | None:
+    """The triangles of a face by ear clipping in UV, in exact integer arithmetic (a fan from one corner folds on a concave face), every one with the
+    orientation of the face; `None` when the face has no area in UV or is not a simple polygon there (no ear: a fold or a self-crossing outline).
+    A corner on the straight line between its neighbours covers nothing and is dropped (its 3-D point is still checked as a corner)."""
+
+    total = sum(a[3] * b[4] - a[4] * b[3] for a, b in zip(polygon, polygon[1:] + polygon[:1]))
+    if not total:
+        return None
+    sign = 1 if total > 0 else -1
+    ring = list(polygon)
+    dropped = True
+    while dropped and len(ring) > 3:
+        dropped = False
+        for i in range(len(ring)):
+            a, b, c = ring[i - 1], ring[i], ring[(i + 1) % len(ring)]
+            if not _area2(a, b, c) and _between(a, c, b):
+                del ring[i]
+                dropped = True
+                break
+    out = []
+    while len(ring) > 3:
+        for i in range(len(ring)):
+            a, b, c = ring[i - 1], ring[i], ring[(i + 1) % len(ring)]
+            if _area2(a, b, c) * sign <= 0:
+                continue
+            others = (p for j, p in enumerate(ring) if j not in (i - 1 if i else len(ring) - 1, i, (i + 1) % len(ring)))
+            if any(_area2(a, b, p) * sign >= 0 and _area2(b, c, p) * sign >= 0 and _area2(c, a, p) * sign >= 0 for p in others):
+                continue
+            out.append((a, b, c))
+            del ring[i]
+            break
+        else:
+            return None
+    if _area2(*ring) * sign <= 0:
+        return None
+    out.append(tuple(ring))
+    return out
+
+
 def _affine(polygon: tuple) -> bool:
     """Every corner's 3-D point is the affine function of UV that the first nondegenerate corner triangle defines."""
 
@@ -444,16 +522,21 @@ def interior_difference(polygons_a: list, polygons_b: list, scale: int = 1) -> s
     sides = []
     scale *= 6
     for name, polygons in zip("AB", (_sixfold(polygons_a), _sixfold(polygons_b))):
-        fans = [_fan(polygon) for polygon in polygons]
-        if any(not any(_area2(*t) for t in fan) for fan in fans):
-            return f"side {name} has UV-degenerate faces in the region: a change of triangulation cannot be proved"
-        # a face of four or more corners whose 3-D point is not one affine function of its UV (a bilinear UV, a bent quad) has no interpolation of its
-        # own: the host's tessellation decides it, so such a face may not be replaced by others (its diagonals are not equivalent)
+        pieces = [_triangulate(polygon) for polygon in polygons]
+        broken = next((polygon for polygon, found in zip(polygons, pieces) if found is None), None)
+        if broken is not None:
+            where = f"UV ({broken[0][3] / scale:.6g}, {broken[0][4] / scale:.6g})"
+            return f"side {name} has a face that is UV-degenerate or not a simple polygon in UV at {where}: a change of triangulation cannot be proved"
+        # a face of four or more corners whose 3-D point is not one affine function of its UV (a bilinear UV, a bent quad) has no interpolation the
+        # record can name: the host's tessellation decides it and the record does not carry the diagonal, so replacing it is not confirmed (v1 stays
+        # conservative: the gate fails on it), which is not a finding that the geometry changed
         bent = next((polygon for polygon in polygons if len(polygon) > 3 and not _affine(polygon)), None)
         if bent is not None:
-            return f"side {name} replaces a face of {len(bent)} corners that is not affine in UV (its diagonals are not equivalent) at UV ({bent[0][3] / scale:.6g}, {bent[0][4] / scale:.6g})"
-        # a zero-area fan triangle (a collinear corner) covers nothing: its points lie on the other triangles of its face
-        triangles = [t for fan in fans for t in fan if _area2(*t)]
+            return (
+                f"equivalence of this transformation not confirmed: side {name} replaces a face of {len(bent)} corners that is not affine in UV at UV "
+                f"({bent[0][3] / scale:.6g}, {bent[0][4] / scale:.6g}), and the record does not carry the host's tessellation diagonal"
+            )
+        triangles = [t for found in pieces for t in found]
         if len({_area2(*t) > 0 for t in triangles}) != 1:
             return f"side {name} folds in UV inside the region"
         sides.append((name, triangles, [corner for polygon in polygons for corner in polygon]))
@@ -595,7 +678,7 @@ def _representation_reason(first: dict, second: dict) -> str:
     numbers = all(
         [[exact(c) for c in row] for row in first[name]] == [[exact(c) for c in row] for row in second[name]] for name in ("positions", "uvs")
     ) and all(first.get(name) == second.get(name) for name in ("faces", "owners", "face_owner", "face_domain", "seams", "refs"))
-    return "number representation only (int / Fraction / binary64 spelling)" if numbers else "order, ids or triangulation only"
+    return "the representation of one exact value only (int / Fraction / binary64 spelling of the same rational)" if numbers else "order, ids or triangulation only"
 
 
 def _compare_surface_records(first: dict, second: dict, build, where: str, report: Report) -> None:
@@ -618,17 +701,34 @@ def _compare_surface_records(first: dict, second: dict, build, where: str, repor
 # --------------------------------------------------------------------------
 
 
+def resource_policy(outcome: str) -> str | None:
+    """The budget policy of a domain outcome that is a refusal by a work budget (`RESOURCE_OUTCOMES`, the exact name), `None` for any other outcome."""
+
+    return RESOURCE_OUTCOMES.get(str(outcome or "").rsplit(".", 1)[-1])
+
+
 def is_resource_refusal(outcome: str, detail: str = "") -> bool:
-    return bool(RESOURCE_OUTCOME.search(outcome or "") or RESOURCE_OUTCOME.search(detail or ""))
+    """By the outcome's exact name only: the detail is free text and names nothing (CONTRACT_GATES_FIX_V1)."""
+
+    return resource_policy(outcome) is not None
 
 
-def _compare_domain(patch: str, a: dict, b: dict, report: Report) -> None:
+def _compare_domain(patch: str, a: dict, b: dict, report: Report) -> bool:
+    """Compares one domain into `report`; `True` when it is "materialized on one side, a resource refusal on the other" (RESOURCE_POLICY): the mesh
+    faces it has on one side only are that finding's consequence (`compare_press_records`)."""
+
     where = f"domain {patch}"
     report.compared["domains"] += 1
     if a["outcome"] != b["outcome"]:
-        kind = RESOURCE_POLICY if (is_resource_refusal(a["outcome"], a.get("detail", "")) or is_resource_refusal(b["outcome"], b.get("detail", ""))) else GEOMETRY_ERROR
-        report.add(kind, where, f"named outcome A {a['outcome']} != B {b['outcome']}")
-        return
+        policy = None
+        if MATERIALIZED in (a["outcome"], b["outcome"]):
+            policy = resource_policy(b["outcome"] if a["outcome"] == MATERIALIZED else a["outcome"])
+        what = f"named outcome A {a['outcome']} != B {b['outcome']}"
+        if policy is not None:
+            report.add(RESOURCE_POLICY, where, f"{what}: a resource refusal under {policy} (its faces in the mesh are its consequence)")
+            return True
+        report.add(GEOMETRY_ERROR, where, what)
+        return False
     if a.get("detail") != b.get("detail"):
         report.add(REPRESENTATION_ONLY, where, "detail text differs")
     if a.get("diagnostics") != b.get("diagnostics"):
@@ -636,16 +736,35 @@ def _compare_domain(patch: str, a: dict, b: dict, report: Report) -> None:
     view_a, view_b = a.get("view"), b.get("view")
     if view_a is None or view_b is None:
         if (view_a is None) != (view_b is None):
-            report.add(REPRESENTATION_ONLY, where, f"the view is carried by {'B' if view_a is None else 'A'} only (the mesh is compared whole)")
-        return
+            # the shared semantic vertices (`semantic_location_ref` with their positions and UVs) live only in the view: the mesh may be equal and the
+            # provenance of this domain is not checked, which is not a full EQUIVALENT
+            report.add(PROVENANCE_UNCHECKED, where, f"the view is carried by {'B' if view_a is None else 'A'} only: the mesh is compared, the provenance (semantic_location_ref) of the domain is not verifiable")
+        return False
     if "failure" in view_a or "failure" in view_b:
         failure_a, failure_b = view_a.get("failure"), view_b.get("failure")
         if (failure_a or [None])[0] != (failure_b or [None])[0]:
             report.add(GEOMETRY_ERROR, where, f"the writer's named outcome A {failure_a} != B {failure_b}")
         elif failure_a != failure_b:
             report.add(REPRESENTATION_ONLY, where, "the writer's detail text differs")
-        return
+        return False
     _compare_surface_records(view_a, view_b, surface_of_view, where, report)
+    return False
+
+
+def without_domains(mesh: dict, domains: set) -> dict:
+    """The mesh record without the faces (and their loop UVs) and the skipped entries of `domains` (names as the press record spells them)."""
+
+    keep = [f for f, domain in enumerate(mesh["face_domain"]) if str(domain) not in domains]
+    starts, start = [], 0
+    for face in mesh["faces"]:
+        starts.append(start)
+        start += len(face)
+    return {
+        **mesh,
+        "faces": [mesh["faces"][f] for f in keep], "face_domain": [mesh["face_domain"][f] for f in keep], "face_owner": [mesh["face_owner"][f] for f in keep],
+        "uvs": [uv for f in keep for uv in mesh["uvs"][starts[f] : starts[f] + len(mesh["faces"][f])]],
+        "skipped": [item for item in mesh.get("skipped", ()) if str(item[0]) not in domains],
+    }
 
 
 def compare_press_records(first: dict, second: dict) -> Report:
@@ -659,12 +778,16 @@ def compare_press_records(first: dict, second: dict) -> Report:
     domains_a, domains_b = first["domains"], second["domains"]
     for patch in sorted(set(domains_a) ^ set(domains_b), key=lambda item: (len(item), item)):
         report.add(GEOMETRY_ERROR, f"domain {patch}", f"present only in {'A' if patch in domains_a else 'B'}")
-    for patch in sorted(set(domains_a) & set(domains_b), key=lambda item: (len(item), item)):
-        _compare_domain(patch, domains_a[patch], domains_b[patch], report)
+    refused = {patch for patch in sorted(set(domains_a) & set(domains_b), key=lambda item: (len(item), item)) if _compare_domain(patch, domains_a[patch], domains_b[patch], report)}
     mesh_a, mesh_b = first.get("mesh"), second.get("mesh")
     if (mesh_a is None) != (mesh_b is None):
         report.add(GEOMETRY_ERROR, "mesh", f"the mesh is present only in {'A' if mesh_b is None else 'B'}")
     elif mesh_a is not None:
+        if refused:
+            # a domain refused by a resource budget on one side is RESOURCE_POLICY already: its faces, regions, joins and the open edges it leaves are
+            # that finding's consequence, so both meshes are compared without it (every other domain still is)
+            mesh_a, mesh_b = without_domains(mesh_a, refused), without_domains(mesh_b, refused)
+            report.compared["resource-refused domains left out of the mesh"] += len(refused)
         if mesh_a.get("skipped") != mesh_b.get("skipped"):
             report.add(GEOMETRY_ERROR, "mesh", f"the skipped domains differ: A {mesh_a.get('skipped')[:6]} B {mesh_b.get('skipped')[:6]}")
         _compare_surface_records(mesh_a, mesh_b, surface_of_mesh, "mesh", report)
