@@ -18,7 +18,10 @@ owner (faces sharing an edge by vertex index with the same UV on both loops). It
 cancelled and merged along each 5-D line, so a collinear subdivision of a boundary edge (with UV linear along it) is the same boundary, and a UV kink or
 a moved vertex is not. Two regions match when their domain and boundary chain are equal; the owners of matched regions must be a bijection. A matched
 region whose faces differ (another triangulation) must be fold-free in UV and its 3-D surface must be the same piecewise-linear function of UV: every
-corner, edge midpoint and face centroid of each side is located in the other side's faces (exact barycentrics) and must map to the same point.
+corner, edge midpoint and face centroid of each side is located in the other side's faces (exact barycentrics) and must map to the same point; only
+the faces one side has and the other has not are compared so, and a face of four or more corners that is not affine in UV (a bilinear UV: its diagonals
+are not equivalent, the host's tessellation decides it) may not be replaced at all. A polygon from another first corner is the same polygon.
+All of this is integer arithmetic on both sides scaled by one common denominator (binary64 is dyadic).
 Seams, inter-patch joins (edges whose faces belong to two domains, by vertex index: an unwelded join is missing) and open edges are compared as
 unsigned 1-chains in R^3.
 """
@@ -367,6 +370,16 @@ def _fan(corners: tuple) -> list:
     return [(corners[0], corners[i], corners[i + 1]) for i in range(1, len(corners) - 1)]
 
 
+def _affine(polygon: tuple) -> bool:
+    """Every corner's 3-D point is the affine function of UV that the first nondegenerate corner triangle defines."""
+
+    a, b, c = next(t for t in _fan(polygon) if _area2(*t))
+    area = _area2(a, b, c)
+    return all(
+        all(p[i] * area == _area2(p, b, c) * a[i] + _area2(a, p, c) * b[i] + _area2(a, b, p) * c[i] for i in range(3)) for p in polygon
+    )
+
+
 def _sixfold(polygons: list) -> list:
     """Integer corners times 6: every edge midpoint and centroid is then an integer point too, and the exact tests below need no division."""
 
@@ -434,6 +447,11 @@ def interior_difference(polygons_a: list, polygons_b: list, scale: int = 1) -> s
         fans = [_fan(polygon) for polygon in polygons]
         if any(not any(_area2(*t) for t in fan) for fan in fans):
             return f"side {name} has UV-degenerate faces in the region: a change of triangulation cannot be proved"
+        # a face of four or more corners whose 3-D point is not one affine function of its UV (a bilinear UV, a bent quad) has no interpolation of its
+        # own: the host's tessellation decides it, so such a face may not be replaced by others (its diagonals are not equivalent)
+        bent = next((polygon for polygon in polygons if len(polygon) > 3 and not _affine(polygon)), None)
+        if bent is not None:
+            return f"side {name} replaces a face of {len(bent)} corners that is not affine in UV (its diagonals are not equivalent) at UV ({bent[0][3] / scale:.6g}, {bent[0][4] / scale:.6g})"
         # a zero-area fan triangle (a collinear corner) covers nothing: its points lie on the other triangles of its face
         triangles = [t for fan in fans for t in fan if _area2(*t)]
         if len({_area2(*t) > 0 for t in triangles}) != 1:

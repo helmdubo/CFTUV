@@ -140,6 +140,17 @@ def test_a_swapped_diagonal_of_a_non_planar_quad_is_a_geometry_error():
     assert verdict == GEOMETRY and any("inside a region" in item.what for item in report.findings)
 
 
+def test_a_quad_that_is_not_affine_in_uv_may_not_be_triangulated_otherwise():
+    # a planar quad with a bilinear (non-affine) UV: its two diagonals lay the texture differently, so they are not equivalent
+    uvs = [[(0, 0), (1, 0), (1.5, 1), (0, 1)], UVS[1]]
+    a = strip(uvs=uvs)
+    b = strip(faces=[(0, 1, 4), (0, 4, 3), FACES[1]], uvs=[[(0, 0), (1, 0), (1.5, 1)], [(0, 0), (1.5, 1), (0, 1)], UVS[1]], owners=(0, 0, 1))
+    verdict, _found, report = classes(record(a), record(b))
+    assert verdict == GEOMETRY and any("not affine in UV" in item.what for item in report.findings)
+    rotated = strip(faces=[(1, 4, 3, 0), FACES[1]], uvs=[uvs[0][1:] + uvs[0][:1], UVS[1]])
+    assert classes(record(a), record(rotated))[0] == "EQUIVALENT"  # the same polygon from another corner
+
+
 def test_an_interior_uv_shift_is_a_geometry_error():
     points = POINTS + [(0.5, 0.5, 0)]
     fan = [(0, 1, 6), (1, 4, 6), (4, 3, 6), (3, 0, 6), FACES[1]]

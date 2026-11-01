@@ -106,10 +106,16 @@ def test_the_product_path_has_no_replay_flag_by_default(monkeypatch):
 
 
 def test_the_kernel_suite_runs_with_the_replay_check_on():
-    """`conftest.py` включает самопроверку для набора: её снимают тесты пути продукта явно, а не забывают."""
+    """`conftest.py` включает самопроверку для набора строгого уровня (TEST_TIERS_V1: CI): её снимают тесты пути продукта явно, а не забывают.
+    Уровень продукта (локальный прогон) её не включает, как продукт."""
 
     import os
 
+    from kernel_test_tiers import strict_tier
+
+    if not strict_tier():
+        assert os.environ.get(outer.ENVIRONMENT_REPLAY_CHECK) in (None, "1", "0")
+        return
     assert os.environ.get(outer.ENVIRONMENT_REPLAY_CHECK) in ("1", "0")
     if os.environ.get(outer.ENVIRONMENT_REPLAY_CHECK) == "1":
         assert outer.replay_check_enabled() is True
