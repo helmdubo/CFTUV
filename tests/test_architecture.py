@@ -2337,6 +2337,7 @@ def test_a_moved_reference_of_a_rust_product_stage_is_reported_and_never_refused
         return found if file not in ("materialize/clip_cells.py", "planar_metric.py") or found is None else found + b"\n# the reference moved\n"
 
     monkeypatch.setattr(pin, "kernel_root", lambda: KERNEL_SOURCE / "cftuv_envelope")
+    monkeypatch.setattr(pin, "python_supported", lambda: True)  # the host suite also runs on 3.10: the floor of the ports is not what is under test
     monkeypatch.setattr(pin, "read_source", reading)
     monkeypatch.setattr(density_pin, "runtime_stale", lambda: ())
     pin.refresh()
