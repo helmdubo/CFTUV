@@ -532,7 +532,8 @@ def test_snapshot_check_seed_and_mutants_are_mandatory_in_the_strict_matrix_and_
         "test_a_value_that_is_not_exactly_the_class_of_its_field_is_declined_by_name",
         "test_the_port_declines_when_the_process_is_not_in_the_state_it_mirrors",
         "test_the_slot_modes_give_the_same_answer",
-        "test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_a_verdict",
+        "test_a_structural_stale_verdict_is_still_a_named_fallback_of_the_dispatcher_not_a_verdict",
+        "test_a_moved_reference_file_is_drift_and_the_dispatcher_computes_natively",
     }
     found = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in required}
     assert set(found) == required
