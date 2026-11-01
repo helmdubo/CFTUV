@@ -52,7 +52,8 @@ Python как раньше — отказ с его текстом выдаёт 
 
 * `NATIVE_UNAVAILABLE` — `cftuv_native` не импортируется (колесо не установлено, чужой интерпретатор воркера, сломанное
   расширение) либо не даёт того, что хост требует от него (`_REQUIRED`: `NATIVE_REFUSALS`, `native_build_id`, ...); текст причины лежит в записи;
-* `NATIVE_PORT_STALE` — эталон ушёл дальше версии, с которой сверен порт (`cftuv_native.NativePortStale`);
+* `NATIVE_PORT_STALE` — эталон ушёл дальше версии, с которой сверен порт (`cftuv_native.NativePortStale`); у стадий, где продукт — Rust (`cftuv_native.pin.RUST_PRODUCT_OPERATIONS`), так бывает только при
+  структурном изменении классов ответа: дрейф эталона там не отказ, а запись `NativeStatusV1.reference_drift` (REFERENCE_DRIFT_NOT_A_REFUSAL_V1);
 * `NATIVE_UNSUPPORTED_PYTHON` — интерпретатор младше порога порта (`cftuv_native.NativeUnsupportedPython`);
 * `NATIVE_PORT_UNSUPPORTED` — порт отказывает на ЭТОМ входе по имени (`cftuv_native.NativePortUnsupported`; эталон его считает);
 * `NATIVE_TRACES_UNSUPPORTED` — покрытие вызвано с `traces` (запись шаблона шага ширины), а колесо такой записи не даёт (старое колесо:
