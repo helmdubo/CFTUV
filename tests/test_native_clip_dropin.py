@@ -327,7 +327,7 @@ def test_repeated_calls_on_one_plane_and_one_session_equal_the_oracle_each_time(
             call = nc.Call(nc.OP_CLIP, persistent.args, persistent.kwargs, budget, None)
             actual = nc.execute(call, function=mirror.clip_geometry)
             CHECKED["repeated on one plane"] += 1
-            for difference in nc.compare_outcomes(nc.OP_CLIP, before, expected, actual):
+            for difference in nc.parity_differences(nc.OP_CLIP, before, expected, actual):  # CONTRACT_PARITY_V1
                 problems.append(f"{path.name} round {round_number}: {difference}")
         assert mirror.clip_cache_size() >= 1
     assert not problems, "\n".join(problems[:12])

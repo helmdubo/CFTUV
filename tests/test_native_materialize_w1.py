@@ -88,6 +88,27 @@ def test_the_native_operation_equals_the_oracle_on_every_record_of_the_seed(reco
     CHECKED["seed oracle exceptions"] += replayed.expected_exception is not None
 
 
+def test_the_contract_gate_of_the_w1_differential_names_a_moved_geometry_and_frees_the_service_counters():
+    """CONTRACT_PARITY_V1 mutation test of this family: `replay_record` gates the native answer on `nc.parity_differences`; a native mesh with a moved point is a
+    GEOMETRY_ERROR it names, a native mesh whose tally (a service counter) moved passes."""
+
+    record = next(record for record in SEED_RECORDS if record.op == nc.OP_MESH and record.expected().result is not None)
+    native_mesh = w1.native_function(nc.OP_MESH)
+
+    def moved(*args, **kwargs):
+        return nc.mutate_geometry(nc.OP_MESH, nc.Outcome(native_mesh(*args, **kwargs), None, None, {})).result
+
+    def recounted(*args, **kwargs):
+        result = native_mesh(*args, **kwargs)
+        tally = Counter(result.tally)
+        tally["CONTRACT_PARITY_MUTATION"] += 1
+        return nc._replace_field(result, "tally", tally)
+
+    assert not w1.replay_record(record).native_diffs
+    assert [item.field for item in w1.replay_record(record, moved).native_diffs] == ["result.points"]
+    assert not w1.replay_record(record, recounted).native_diffs
+
+
 def test_the_seed_shows_every_outcome_the_port_has_to_get_right():
     """The seed is a SELECTION; the guard is on what it selects (a refresh that loses a branch would still pass every record)."""
 

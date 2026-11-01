@@ -280,7 +280,7 @@ def test_repeated_calls_on_one_session_carry_the_warm_memory_exactly_as_the_orac
         outcomes[side] = (states, results)
     for index, (want, got) in enumerate(zip(outcomes["oracle"][1], outcomes["native"][1])):
         before = outcomes["oracle"][0][index]
-        assert not nc.compare_outcomes(nc.OP_SKELETON, before, want, got), f"step {index}: {nc.compare_outcomes(nc.OP_SKELETON, before, want, got)}"
+        assert not nc.parity_differences(nc.OP_SKELETON, before, want, got), f"step {index}: {nc.parity_differences(nc.OP_SKELETON, before, want, got)}"  # CONTRACT_PARITY_V1
         CHECKED["chain-steps"] += 1
     assert outcomes["oracle"][0][1].known_primes and outcomes["oracle"][0][1].factorization, "the second call started on a warm memory"
 
@@ -298,7 +298,7 @@ def test_the_level_budget_the_oracle_reads_live_is_read_live_here_too(runner):
             outcomes.append(nc.execute(call, function=function))
         expected, actual = outcomes
         assert expected.result.outcome.value == "LEVEL_BUDGET_EXHAUSTED"
-        assert not nc.compare_outcomes(nc.OP_SKELETON, before, expected, actual)
+        assert not nc.parity_differences(nc.OP_SKELETON, before, expected, actual)  # CONTRACT_PARITY_V1
 
 
 @needs_record
@@ -323,6 +323,23 @@ def test_a_call_without_a_budget_pays_the_unbudgeted_telemetry_and_writes_no_sup
     assert native_state.unbudgeted == oracle_state.unbudgeted != (0, 0, 0, 0, 0, 0)
     assert native_state.sign_counts == oracle_state.sign_counts
     assert native_state.known_primes == oracle_state.known_primes and native_state.factorization == oracle_state.factorization
+
+
+@needs_record
+def test_the_contract_gate_of_the_skeleton_differential_names_a_moved_geometry_and_frees_the_representation(runner):
+    """CONTRACT_PARITY_V1 mutation test of this family: the runner and the chain tests gate on `nc.parity_differences`; a moved skeleton node is a GEOMETRY_ERROR,
+    the same answer with a reworded text, other result counters and other service counters passes."""
+
+    record = sc.read(BASE, next(row for row in _rows(BASE, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3))
+    before = record.before()
+    expected = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before))
+    actual = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before), function=runner.mirror.build_skeleton)
+    assert nc.parity_differences(nc.OP_SKELETON, before, expected, actual) == []
+    assert [item.field for item in nc.parity_differences(nc.OP_SKELETON, before, expected, nc.mutate_geometry(nc.OP_SKELETON, actual))] == ["result.nodes"]
+    counters = tuple((name, value + 1) for name, value in actual.result.counters)
+    reworded = nc.mutate_representation(nc.OP_SKELETON, dataclasses.replace(actual, result=dataclasses.replace(actual.result, counters=counters)))
+    assert nc.parity_differences(nc.OP_SKELETON, before, expected, reworded) == []
+    assert nc.compare_outcomes(nc.OP_SKELETON, before, expected, reworded), "the bytes see it; the contract frees it"
 
 
 @needs_record

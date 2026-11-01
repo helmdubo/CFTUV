@@ -175,7 +175,7 @@ def _bind(core) -> tuple:
 
     modules = _kernel_modules()
     live = shape_digests(modules)
-    pin.check_shapes(tuple((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS))
+    pin.check_mirrored_functions(OPERATION, tuple((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS))
     table = _class_table()
     try:
         handle = core.SnapshotCheck(table)

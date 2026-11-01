@@ -117,9 +117,9 @@ def bind(mirror) -> None:
             ("materialize/stations.py", "ChainStationTableV1 has the tables W1 reads", all(name in _names(stations.ChainStationTableV1) for name in TABLE_NAMES)),
             ("materialize/admit.py", "MaterializationOutcome names", all(name in admit.MaterializationOutcome.__members__ for name in ("BATCH_DID_NOT_VALIDATE", "TESSELLATION_DID_NOT_CLOSE"))),
             ("contracts/geometry_batch.py", "DecalTopologyLawV1 members", hasattr(laws, "PLANAR_POLYGONS_V1") and hasattr(laws, "QUAD_STRIPS_V1")),
-            *((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS),
         )
     )
+    pin.check_mirrored_functions(OPERATION, tuple((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS))
     try:
         mirror._session.bind_w1(exact.SqrtSumV1, Fraction, mesh.ExactMeshV1, Counter)
     except TypeError as error:
@@ -373,7 +373,7 @@ def _clip_stage(mirror):
     if not _EDGE_KIND_CHECKED:
         from cftuv_envelope.materialize import assemble
 
-        pin.check_shapes((("materialize/assemble.py", "edge_kind is the function the Rust code mirrors", source_digest(assemble.edge_kind) == EDGE_KIND_DIGEST),))
+        pin.check_mirrored_functions("clip", (("materialize/assemble.py", "edge_kind is the function the Rust code mirrors", source_digest(assemble.edge_kind) == EDGE_KIND_DIGEST),))
         _EDGE_KIND_CHECKED.append(True)
     return exact, sync, slow, real
 

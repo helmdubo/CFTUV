@@ -111,7 +111,7 @@ def _compare_coverage(mirror, cases) -> Counter:
     for label, before, blob in cases:
         oracle = nc.execute(nc.prepare_call(nc.OP_COVERAGE, blob, before))
         native = nc.execute(nc.prepare_call(nc.OP_COVERAGE, blob, before), function=mirror.coverage_at)
-        found = nc.compare_outcomes(nc.OP_COVERAGE, before, oracle, native)
+        found = nc.parity_differences(nc.OP_COVERAGE, before, oracle, native)  # CONTRACT_PARITY_V1
         assert not found, f"{label}: " + "; ".join(str(item) for item in found[:4])
         answered["raised" if oracle.exception else oracle.result.outcome.value] += 1
     return answered
@@ -148,7 +148,7 @@ def _compare_skeleton(mirror, cases=None) -> Counter:
     for label, before, blob in cases or _skeleton_cases():
         oracle = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before))
         native = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before), function=mirror.build_skeleton)
-        found = nc.compare_outcomes(nc.OP_SKELETON, before, oracle, native)
+        found = nc.parity_differences(nc.OP_SKELETON, before, oracle, native)  # CONTRACT_PARITY_V1
         assert not found, f"{label}: " + "; ".join(str(item) for item in found[:4])
         answered["raised" if oracle.exception else oracle.result.outcome.value] += 1
     return answered
@@ -302,7 +302,7 @@ def test_the_default_sessions_take_the_path_of_the_process_mode():
     for label, before, blob in _coverage_cases()[:16]:
         oracle = nc.execute(nc.prepare_call(nc.OP_COVERAGE, blob, before))
         native = nc.execute(nc.prepare_call(nc.OP_COVERAGE, blob, before), function=cftuv_native.coverage_at)
-        assert not nc.compare_outcomes(nc.OP_COVERAGE, before, oracle, native), label
+        assert not nc.parity_differences(nc.OP_COVERAGE, before, oracle, native), label  # CONTRACT_PARITY_V1
         answered += 1
     assert answered >= 10
     _compare_clip(cftuv_native.new_mirror(), 40)
@@ -311,7 +311,7 @@ def test_the_default_sessions_take_the_path_of_the_process_mode():
     for label, before, blob in cases:
         oracle = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before))
         native = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before), function=cftuv_native.build_skeleton)
-        assert not nc.compare_outcomes(nc.OP_SKELETON, before, oracle, native), label
+        assert not nc.parity_differences(nc.OP_SKELETON, before, oracle, native), label  # CONTRACT_PARITY_V1
     taken = cftuv_native.slot_counters()
     if mode == "attr":
         assert taken["attr_reads"] > 0 and taken["attr_builds"] > 0 and taken["raw_reads"] == taken["raw_builds"] == 0, taken

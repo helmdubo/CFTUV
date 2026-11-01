@@ -1922,6 +1922,8 @@ def test_only_the_shim_imports_the_native_extension():
 # порт зеркалит; шим отказывается названным `NativePortStale`, если дерево ушло от пина (`tests/test_native_pin.py` проверяет сам механизм). Здесь — то, что
 # проверяется без расширения и в чистом клоне: у каждого файла списков ровно один дайджест. Исчезновение или переименование зеркалимого файла ядро
 # НЕ краснит: Python-сессия двигает ядро свободно, а шим называет порт устаревшим (`NativePortStale`, файл назван); догон порта — отдельная работа.
+# CONTRACT_PARITY_V1: у стадий, где продукт — Rust (`pin.RUST_PRODUCT_OPERATIONS`), рантайм дрейф эталона только называет (`reference_drift`), а краснит этот набор
+# (`test_python_sources_of_rust_only_stages_stay_at_their_pin`, `test_functions_mirrored_by_rust_product_stages_stay_at_their_pin`).
 
 NATIVE_PIN = "native/cftuv-python/python/cftuv_native/pin.py"
 
@@ -2248,7 +2250,119 @@ def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
 #: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
 #: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
-RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "density")
+#: CONTRACT_PARITY_V1: список один — `cftuv_native.pin.RUST_PRODUCT_OPERATIONS`; рантайм таких стадий дрейф эталона только называет, а ловит его этот набор (CI).
+RUST_ONLY_OPERATIONS = _load_native_pin().RUST_PRODUCT_OPERATIONS
+
+
+def test_the_rust_product_operations_are_the_named_list():
+    """Перевод стадии в «продукт — Rust» (её рантайм перестаёт отказывать по дрейфу эталона) — решение, а не побочный эффект: список назван здесь буквально."""
+
+    assert RUST_ONLY_OPERATIONS == ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "density")
+    assert not {"frame", "mesh_assembly", "angular", "radical_v2"} & set(RUST_ONLY_OPERATIONS), "where Python is still in the product, the stale pin stays a named refusal"
+
+
+#: Функции эталона из незакреплённых целиком файлов, которые зеркалит Rust стадий-продуктов: `(файл шима, имя таблицы)`; таблица — `((файл ядра, имя, sha256), ...)`.
+MIRRORED_FUNCTION_TABLES = (
+    ("effective_alpha_op.py", "SHAPE_FUNCTIONS"),
+    ("materialize_w1_op.py", "SHAPE_FUNCTIONS"),
+    ("snapshot_check_op.py", "SHAPE_FUNCTIONS"),
+)
+
+
+def _shim_literal(file: str, name: str):
+    tree = _parse(REPO_ROOT / "native" / "cftuv-python" / "python" / "cftuv_native" / file)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{file} has no literal {name}")
+
+
+def _live_source_digest(file: str, qualified: str):
+    import hashlib
+    import importlib
+    import inspect
+
+    if str(KERNEL_SOURCE) not in sys.path:
+        sys.path.insert(0, str(KERNEL_SOURCE))
+    found = importlib.import_module("cftuv_envelope." + file[:-3].replace("/", "."))
+    try:
+        for part in qualified.split("."):
+            found = getattr(found, part)
+        found = found.fget if isinstance(found, property) else found
+        return hashlib.sha256(inspect.getsource(found).replace("\r\n", "\n").encode("utf-8")).hexdigest()
+    except (AttributeError, OSError, TypeError):
+        return None
+
+
+def test_functions_mirrored_by_rust_product_stages_stay_at_their_pin():
+    """CONTRACT_PARITY_V1: рантайм стадии-продукта функцию эталона, ушедшую от дайджеста, только называет (`reference_drift`); провал — здесь, в CI.
+
+    Таблицы `SHAPE_FUNCTIONS` шимов и `EDGE_KIND_DIGEST` (закон `seam_edges` стадии резки) равны дайджестам исходников живого ядра; правка такой функции идёт с перевыпуском
+    таблицы (`python -m cftuv_native.<шим>`) от Rust-сессии, в одном изменении."""
+
+    drift = []
+    for shim, table in MIRRORED_FUNCTION_TABLES:
+        for file, name, wanted in _shim_literal(shim, table):
+            if _live_source_digest(file, name) != wanted:
+                drift.append(f"{shim}: {file}:{name}")
+    if _live_source_digest("materialize/assemble.py", "edge_kind") != _shim_literal("materialize_w1_op.py", "EDGE_KIND_DIGEST"):
+        drift.append("materialize_w1_op.py: materialize/assemble.py:edge_kind")
+    assert not drift, "функция эталона, которую зеркалит Rust стадии-продукта, изменена мимо закрепления:\n" + "\n".join(drift)
+
+
+def _pin_package():
+    """`cftuv_native.pin` и `density_pin` пакетом без `__init__` (без расширения): рантайм пина проверяется в чистом клоне."""
+
+    import importlib
+    import types
+
+    name = "_cftuv_native_contract_parity"
+    package = types.ModuleType(name)
+    package.__path__ = [str(REPO_ROOT / "native" / "cftuv-python" / "python" / "cftuv_native")]
+    sys.modules[name] = package
+    for child in ("pin", "density_pin"):
+        sys.modules.pop(f"{name}.{child}", None)
+    return importlib.import_module(f"{name}.pin"), importlib.import_module(f"{name}.density_pin")
+
+
+def test_a_moved_reference_of_a_rust_product_stage_is_reported_and_never_refused_at_runtime(monkeypatch):
+    """CONTRACT_PARITY_V1: дрейф эталона стадии-продукта — не отказ продукта (стадия `available`, дрейф назван в `native_status()`); там, где Python ещё в продукте, —
+    прежний именованный `NativePortStale`; структурное изменение классов, из которых Rust строит ответ, — отказ и у стадии-продукта."""
+
+    pin, density_pin = _pin_package()
+    original = pin.read_source
+
+    def reading(root, file):
+        found = original(root, file)
+        return found if file not in ("materialize/clip_cells.py", "planar_metric.py") or found is None else found + b"\n# the reference moved\n"
+
+    monkeypatch.setattr(pin, "kernel_root", lambda: KERNEL_SOURCE / "cftuv_envelope")
+    monkeypatch.setattr(pin, "read_source", reading)
+    monkeypatch.setattr(density_pin, "runtime_stale", lambda: ())
+    pin.refresh()
+    pin.require("clip")
+    assert pin.status("clip") == "available"
+    assert pin.reference_drift() == {"clip": ("materialize/clip_cells.py",)}
+    status = pin.native_status()
+    assert status["clip"] == "available" and status[pin.REFERENCE_DRIFT_KEY] == "clip: materialize/clip_cells.py"
+    with pytest.raises(pin.NativePortStale, match="planar_metric.py"):
+        pin.require("frame")
+    assert status["frame"] == "stale(planar_metric.py)"
+
+    pin.check_mirrored_functions("effective_alpha", (("reference/metric.py", "_product is the function the Rust code mirrors", False),))
+    assert pin.drift("effective_alpha") == ("reference/metric.py (_product is the function the Rust code mirrors)",)
+    with pytest.raises(pin.NativePortStale, match="frame_rung"):
+        pin.check_mirrored_functions("frame", (("planar_metric.py", "frame_rung", False),))
+    with pytest.raises(pin.NativePortStale, match="slots"):
+        pin.check_shapes((("wavefront/skeleton.py", "slots", False),))
+
+    monkeypatch.setattr(density_pin, "runtime_stale", lambda: ("mpmath:version", "reference/common.py:stable_id (live)", "ids.py:EnvelopeSpecId (shape)"))
+    assert pin.verdict("density") == ("stale", ("ids.py:EnvelopeSpecId (shape)",)), "a class shape the Rust side builds from still refuses"
+    assert set(pin.drift("density")) >= {"mpmath:version", "reference/common.py:stable_id (live)"}
+    monkeypatch.setattr(density_pin, "runtime_stale", lambda: ("mpmath:version",))
+    pin.require("density")
+    monkeypatch.undo()
+    pin.refresh()
 
 
 def test_density_is_rust_only_and_its_narrow_closure_stays_at_the_pin():

@@ -7,6 +7,9 @@
 Здесь проверено: пин узнаёт изменённый, удалённый и перекодированный файл (на копии дерева и подменой читателя файла), отказ не трогает ни
 бюджет, ни память, ни счётчики, ни нормали, чужая версия интерпретатора — своё названное имя, отказ точен (правка файла одной операции не красит другую),
 замер отказывается, а не меряет устаревший порт. Модуль НЕ пропускается при устаревшем порте — это сам механизм.
+
+CONTRACT_PARITY_V1 / REFERENCE_DRIFT_NOT_A_REFUSAL_V1: у стадий, где продукт — Rust (`pin.RUST_PRODUCT_OPERATIONS`), то же обнаружение даёт не отказ, а дрейф
+(`native_status()["reference_drift"]`), порт отвечает; отказ по имени остаётся там, где Python ещё в продукте (здесь — `radical_v2` и `frame`).
 """
 
 from __future__ import annotations
@@ -173,122 +176,114 @@ def _tamper(monkeypatch, name: str):
     pin.refresh()
 
 
+PRODUCT = tuple(pin.RUST_PRODUCT_OPERATIONS)
+#: CONTRACT_PARITY_V1: an operation where Python is still the product keeps the named refusal; `radical_v2` is the simplest to call.
+PYTHON_PRODUCT_ONLY = "reference/radical_v2.py"
+
+
+def _moved() -> dict:
+    """`{operation: names}` of what the pin sees moved: the stale files of an operation where Python is in the product, the reference drift of a
+    Rust-product operation (CONTRACT_PARITY_V1: the same detection, another consequence — the Rust-product port stays `available`)."""
+
+    status = cftuv_native.native_status()
+    drift = pin.reference_drift()
+    found = {}
+    for operation in pin.OPERATION_FILES:
+        if operation in PRODUCT:
+            assert status[operation] == "available", (operation, status[operation])
+            if drift.get(operation):
+                found[operation] = drift[operation]
+        elif status[operation].startswith("stale("):
+            found[operation] = tuple(status[operation][len("stale("):-1].split(", "))
+    if drift:
+        assert status[pin.REFERENCE_DRIFT_KEY] == "; ".join(f"{operation}: {', '.join(names)}" for operation, names in drift.items())
+    else:
+        assert pin.REFERENCE_DRIFT_KEY not in status
+    return found
+
+
 @needs_matching_tree
-def test_a_stale_clip_port_refuses_by_name_before_it_touches_any_state(monkeypatch):
+def test_a_moved_clip_reference_is_reported_and_the_rust_product_still_answers(monkeypatch):
     _record, call = _a_call()
     _tamper(monkeypatch, CLIP_ONLY)
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": f"stale({CLIP_ONLY})", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"}
-    before = nc.capture_state(call.budget, None), dict(call.args[0]._normal_by_position)
-    mirror = cftuv_native.new_mirror()
-    with pytest.raises(cftuv_native.NativePortStale) as caught:
-        mirror.clip_geometry(call.args[0], call.budget, **call.kwargs)
-    assert isinstance(caught.value, RuntimeError) and CLIP_ONLY in str(caught.value) and "clip" in str(caught.value)
-    with pytest.raises(cftuv_native.NativePortStale):
-        cftuv_native.clip_geometry(call.args[0], call.budget, **call.kwargs)
-    after = nc.capture_state(call.budget, None), dict(call.args[0]._normal_by_position)
-    assert after[1] == before[1] and nc.compare_outcomes(nc.OP_CLIP, before[0], nc.Outcome(None, None, before[0], {}), nc.Outcome(None, None, after[0], {})) == []
-    assert mirror._session.clip_cache() == 0, "a refused call converted nothing"
+    assert _moved() == {"clip": (CLIP_ONLY,)}
+    assert cftuv_native.native_status()[pin.REFERENCE_DRIFT_KEY] == f"clip: {CLIP_ONLY}"
+    assert cftuv_native.new_mirror().clip_geometry(call.args[0], call.budget, **call.kwargs).note, "the product does not refuse because the frozen reference moved"
     monkeypatch.undo()
     pin.refresh()
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"}
-    assert mirror.clip_geometry(call.args[0], call.budget, **call.kwargs).note, "the same session answers once the tree matches the pin again"
+    assert _moved() == {}
 
 
 @needs_matching_tree
-def test_an_edit_to_one_operations_file_does_not_stale_the_other(monkeypatch):
+def test_a_moved_reference_of_a_python_product_operation_still_refuses_by_name_before_it_touches_any_state(monkeypatch):
+    _tamper(monkeypatch, PYTHON_PRODUCT_ONLY)
+    assert _moved() == {"radical_v2": (PYTHON_PRODUCT_ONLY,), "density": (PYTHON_PRODUCT_ONLY,)}, "the Density mirror reads the same algebra: drift there, a refusal for the capability"
+    with exact.isolated_factorization_memory():
+        marker = (list(exact._KNOWN_PRIMES), dict(exact._FACTORIZATION_MEMO), dict(exact.SIGN_COUNTS))
+        with pytest.raises(cftuv_native.NativePortStale, match="reference/radical_v2.py") as caught:
+            cftuv_native.radical_v2_eval(None)
+        assert isinstance(caught.value, RuntimeError) and "radical_v2" in str(caught.value)
+        assert marker == (list(exact._KNOWN_PRIMES), dict(exact._FACTORIZATION_MEMO), dict(exact.SIGN_COUNTS))
+
+
+@needs_matching_tree
+def test_an_edit_to_one_operations_file_does_not_move_the_other(monkeypatch):
     _tamper(monkeypatch, COVERAGE_ONLY)
-    assert cftuv_native.native_status() == {"coverage": f"stale({COVERAGE_ONLY})", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"}
+    assert _moved() == {"coverage": (COVERAGE_ONLY,)}
     _record, call = _a_call()
     assert cftuv_native.new_mirror().clip_geometry(call.args[0], call.budget, **call.kwargs).note
     _tamper(monkeypatch, CLIP_ONLY)
-    assert cftuv_native.native_status() == {"coverage": f"stale({COVERAGE_ONLY})", "clip": f"stale({CLIP_ONLY})", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"}
+    assert _moved() == {"coverage": (COVERAGE_ONLY,), "clip": (CLIP_ONLY,)}
 
 
 @needs_matching_tree
-def test_a_stale_skeleton_port_refuses_by_name_before_it_touches_any_state_and_the_other_operations_stay_available(monkeypatch):
+def test_a_moved_skeleton_reference_is_reported_and_the_skeleton_still_answers(monkeypatch):
     from cftuv_envelope.wavefront.polygon import PolygonV1
 
     polygon = PolygonV1.build([(0, 0), (4, 0), (4, 4), (0, 4)])
     _tamper(monkeypatch, SKELETON_ONLY)
-    assert cftuv_native.native_status() == {"coverage": "available", "clip": "available", "skeleton": f"stale({SKELETON_ONLY})", "snap_embedding": "available", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"}
-    budget = exact.exact_work_budget(stage="PREPARE", domain_id="stale-skeleton", superlevel="", cap=1 << 20)
-    before = nc.capture_state(budget, None)
-    with pytest.raises(cftuv_native.NativePortStale, match="wavefront/symbolic_runtime_commit.py") as caught:
-        cftuv_native.new_mirror().build_skeleton(polygon, work_budget=budget)
-    assert isinstance(caught.value, RuntimeError) and "skeleton" in str(caught.value)
-    with pytest.raises(cftuv_native.NativePortStale):
-        cftuv_native.build_skeleton(polygon, work_budget=budget)
-    after = nc.capture_state(budget, None)
-    assert nc.compare_outcomes(nc.OP_SKELETON, before, nc.Outcome(None, None, before, {}), nc.Outcome(None, None, after, {})) == []
-    monkeypatch.undo()
-    pin.refresh()
-    assert cftuv_native.build_skeleton(polygon, work_budget=budget).outcome.value == "EXACT"
+    assert _moved() == {"skeleton": (SKELETON_ONLY,)}
+    budget = exact.exact_work_budget(stage="PREPARE", domain_id="moved-skeleton", superlevel="", cap=1 << 20)
+    assert cftuv_native.new_mirror().build_skeleton(polygon, work_budget=budget).outcome.value == "EXACT"
 
 
 @needs_matching_tree
-def test_an_embedding_oracle_edit_stales_only_embedding_before_argument_conversion(monkeypatch):
+def test_an_embedding_oracle_edit_moves_embedding_and_stales_the_frame_that_python_still_owns(monkeypatch):
     _tamper(monkeypatch, "_embedding.py")
-    assert cftuv_native.native_status() == {
-        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "stale(_embedding.py)", "effective_alpha": "available", "materialize_w1": "available", "snapshot_check": "available", "frame": "stale(_embedding.py)", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"
-    }
-    # Негодные аргументы не должны маскировать именованный отказ по настоящему дайджесту файла.
-    with pytest.raises(cftuv_native.NativePortStale, match="_embedding.py"):
-        cftuv_native.snap_embedding_certificate(None, None, None, None, None, None)
+    assert _moved() == {"snap_embedding": ("_embedding.py",), "frame": ("_embedding.py",)}
 
 
 @needs_matching_tree
-def test_an_edit_to_the_pair_leaf_stales_only_effective_alpha_and_a_float_filter_edit_stales_it_with_the_stages_that_share_the_filters(monkeypatch):
+def test_an_edit_to_the_pair_leaf_moves_only_effective_alpha_and_a_float_filter_edit_moves_it_with_the_stages_that_share_the_filters(monkeypatch):
     _tamper(monkeypatch, "reference/boundary_native.py")
-    assert cftuv_native.native_status() == {
-        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available", "effective_alpha": "stale(reference/boundary_native.py)", "materialize_w1": "available", "snapshot_check": "available", "frame": "available", "radical_v2": "available", "density": "available", "angular": "available", "mesh_assembly": "available", "chain_station": "available", "materialize_hot": "available"
-    }
+    assert _moved() == {"effective_alpha": ("reference/boundary_native.py",)}
     monkeypatch.undo()
     _tamper(monkeypatch, "float_filter.py")
-    status = cftuv_native.native_status()
-    assert status["snap_embedding"] == "available"
-    assert all(status[name] == "stale(float_filter.py)" for name in ("coverage", "clip", "skeleton", "effective_alpha", "materialize_w1")), status
-    assert status["snapshot_check"] == "available", "the snapshot validators do not use the float filters"
+    moved = _moved()
+    assert "snap_embedding" not in moved and "snapshot_check" not in moved, "the certificate and the snapshot validators do not use the float filters"
+    assert all(moved[name] == ("float_filter.py",) for name in ("coverage", "clip", "skeleton", "effective_alpha", "materialize_w1")), moved
 
 
 @needs_matching_tree
-def test_an_edit_to_a_snapshot_validator_stales_only_snapshot_check_and_numeric_py_stales_it_with_the_clip(monkeypatch):
+def test_an_edit_to_a_snapshot_validator_moves_only_snapshot_check_and_numeric_py_moves_it_with_the_clip(monkeypatch):
     _tamper(monkeypatch, "validation_snapshot.py")
-    status = cftuv_native.native_status()
-    assert status["snapshot_check"] == "stale(validation_snapshot.py)"
-    assert all(status[name] == "available" for name in status if name not in ("snapshot_check", "angular")), status
+    assert _moved() == {"snapshot_check": ("validation_snapshot.py",)}
     monkeypatch.undo()
     _tamper(monkeypatch, "numeric.py")
-    status = cftuv_native.native_status()
-    assert status["snapshot_check"] == "stale(numeric.py)" and status["clip"] == "stale(numeric.py)", status
+    moved = _moved()
+    assert moved["snapshot_check"] == ("numeric.py",) and moved["clip"] == ("numeric.py",), moved
+
 
 @needs_matching_tree
-def test_an_edit_to_a_coverage_or_clip_file_does_not_stale_the_skeleton_and_a_shared_file_stales_all_three(monkeypatch):
+def test_an_edit_to_a_coverage_or_clip_file_does_not_move_the_skeleton_and_a_shared_file_moves_all_three(monkeypatch):
     _tamper(monkeypatch, COVERAGE_ONLY)
-    assert cftuv_native.native_status()["skeleton"] == "available"
+    assert "skeleton" not in _moved()
     _tamper(monkeypatch, CLIP_ONLY)
-    assert cftuv_native.native_status()["skeleton"] == "available"
+    assert "skeleton" not in _moved()
     monkeypatch.undo()
     _tamper(monkeypatch, SHARED)
-    assert cftuv_native.native_status()["skeleton"] == f"stale({SHARED})"
-
-
-@needs_matching_tree
-def test_a_stale_shared_file_stales_both_operations_and_the_message_names_it(monkeypatch):
-    _tamper(monkeypatch, SHARED)
-    status = cftuv_native.native_status()
-    assert status["coverage"] == f"stale({SHARED})" and status["clip"] == f"stale({SHARED})" and status["skeleton"] == f"stale({SHARED})"
-
-
-@needs_matching_tree
-def test_a_stale_coverage_port_refuses_before_it_touches_any_state(monkeypatch):
-    from fractions import Fraction
-
-    _tamper(monkeypatch, COVERAGE_ONLY)
-    with exact.isolated_factorization_memory():
-        marker = (list(exact._KNOWN_PRIMES), dict(exact._FACTORIZATION_MEMO), dict(exact.SIGN_COUNTS))
-        with pytest.raises(cftuv_native.NativePortStale, match="wavefront/coverage.py"):
-            cftuv_native.coverage_at(object(), Fraction(1), None, None)
-        assert marker == (list(exact._KNOWN_PRIMES), dict(exact._FACTORIZATION_MEMO), dict(exact.SIGN_COUNTS))
+    moved = _moved()
+    assert moved["coverage"] == moved["clip"] == moved["skeleton"] == (SHARED,)
 
 
 @needs_matching_tree
@@ -327,22 +322,27 @@ def test_the_verdict_is_computed_once_per_process_and_forgotten_on_refresh(monke
 
 
 @needs_matching_tree
-def test_the_bench_refuses_a_stale_port_instead_of_measuring_it(monkeypatch, capsys):
+def test_the_bench_measures_a_rust_product_with_a_moved_reference_and_refuses_a_stale_python_product(monkeypatch, capsys):
     import native_bench_native as bench
 
     _tamper(monkeypatch, CLIP_ONLY)
+    assert bench.load_extension("clip") is cftuv_native, "the Rust product is what is measured; its reference moved, the product did not"
+    _tamper(monkeypatch, PYTHON_PRODUCT_ONLY)
     with pytest.raises(SystemExit) as caught:
-        bench.load_extension("clip")
+        bench.load_extension("radical_v2")
     assert caught.value.code == 2
     assert "NATIVE_BENCH_NATIVE_FAILED" in capsys.readouterr().out
-    assert bench.load_extension("coverage") is cftuv_native, "the coverage port is not stale"
 
 
-def test_the_gate_of_the_diff_tests_skips_with_the_explicit_reason(monkeypatch):
+def test_the_gate_of_the_diff_tests_runs_a_rust_product_against_a_moved_reference_and_skips_a_stale_python_product(monkeypatch):
+    """CONTRACT_PARITY_V1: the differential of a Rust-product stage runs against the reference in front of it (its gate is the contract comparison, not the bytes of the pinned version)."""
+
     import native_gate
 
     _tamper(monkeypatch, CLIP_ONLY)
+    native_gate.skip_unless_available(cftuv_native, "clip")
+    _tamper(monkeypatch, PYTHON_PRODUCT_ONLY)
     with pytest.raises(pytest.skip.Exception) as caught:
-        native_gate.skip_unless_available(cftuv_native, "clip")
-    assert f"stale({CLIP_ONLY})" in str(caught.value)
+        native_gate.skip_unless_available(cftuv_native, "radical_v2")
+    assert f"stale({PYTHON_PRODUCT_ONLY})" in str(caught.value)
     native_gate.skip_unless_available(cftuv_native, "coverage")

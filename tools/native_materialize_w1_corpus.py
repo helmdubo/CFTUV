@@ -100,7 +100,7 @@ def replay_record(record: nc.Record, function=None) -> Replay:
             [nc.Difference("notes", "changed by a refusal of the port")] if nc.observe(call).get("notes") != nc.observe(nc.prepare_call(op, record.call_blob, before)).get("notes") else []
         )
         return result
-    result.native_diffs = nc.compare_outcomes(op, before, oracle, actual)
+    result.native_diffs = nc.parity_differences(op, before, oracle, actual)  # CONTRACT_PARITY_V1
     return result
 
 

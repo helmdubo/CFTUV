@@ -180,7 +180,7 @@ def _compare_coverage(mirror, record):
     except Exception as exc:  # noqa: BLE001 - исключение операции — часть её исхода
         result, error = None, (type(exc).__qualname__, str(exc))
     native = nc.Outcome(result, error, nc.capture_state(call.budget, call.store), nc.observe(call), 0.0)
-    return nc.compare_outcomes(nc.OP_COVERAGE, before, oracle, native)
+    return nc.parity_differences(nc.OP_COVERAGE, before, oracle, native)  # CONTRACT_PARITY_V1
 
 
 def _field_rows(operation: str) -> list:
@@ -281,7 +281,7 @@ def test_a_store_holding_the_oracles_key_is_hit_and_stays_as_the_oracle_wrote_it
             except Exception as exc:  # noqa: BLE001
                 result, error = None, (type(exc).__qualname__, str(exc))
             native = nc.Outcome(result, error, nc.capture_state(call_n.budget, call_n.store), {}, 0.0)
-            found = nc.compare_outcomes(nc.OP_COVERAGE, recorded, oracle, native)
+            found = nc.compare_outcomes(nc.OP_COVERAGE, recorded, oracle, native)  # (a): the store keys and records of the chain are what this test pins
             assert not found, f"{row['id']} step {step}: " + "; ".join(str(item) for item in found[:3])
             assert [type(key) for key in store_n] == [tuple] * len(store_n), "the store never holds the lookup key class"
             assert [id(key) for key in store_n] == [id(key) for key in started_keys], "a hit does not replace the key"

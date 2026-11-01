@@ -206,17 +206,23 @@ def test_a_stale_pin_refuses_by_name_before_it_computes_anything():
     assert cftuv_native.native_status()["effective_alpha"] == "available"
 
 
-def test_a_function_of_an_unpinned_file_that_moved_is_stale_by_name(monkeypatch):
+def test_a_function_of_an_unpinned_file_that_moved_is_reported_by_name_and_the_rust_product_still_answers(monkeypatch):
+    """CONTRACT_PARITY_V1: effective_alpha is a Rust-product stage; a moved mirrored function is reference drift (`native_status()`), not a refusal. CI fails on it
+    (`tests/test_architecture.py::test_functions_mirrored_by_rust_product_stages_stay_at_their_pin`)."""
+
+    pin = cftuv_native.pin
     for file, name, _digest in effective_alpha_op.SHAPE_FUNCTIONS:
         moved = tuple((f, n, "0" * 64 if (f, n) == (file, name) else d) for f, n, d in effective_alpha_op.SHAPE_FUNCTIONS)
         monkeypatch.setattr(effective_alpha_op, "SHAPE_FUNCTIONS", moved)
         effective_alpha_op._KERNEL[:] = []
         context, source, boundary, frame = simple_call()
-        with pytest.raises(cftuv_native.NativePortStale, match=re.escape(name)) as error:
-            cftuv_native.effective_alpha_contacts(source, boundary, frame)
-        assert file in str(error.value)
+        assert cftuv_native.effective_alpha_contacts(source, boundary, frame)[2], "the product answers"
+        assert cftuv_native.native_status()["effective_alpha"] == "available"
+        assert any(file in item and name in item for item in pin.reference_drift()["effective_alpha"]), pin.reference_drift()
+        assert name in cftuv_native.native_status()[pin.REFERENCE_DRIFT_KEY]
         monkeypatch.undo()
     effective_alpha_op._KERNEL[:] = []
+    pin.refresh()
     context, source, boundary, frame = simple_call()
     assert cftuv_native.effective_alpha_contacts(source, boundary, frame)[2], "the live kernel has the shape the port mirrors"
 

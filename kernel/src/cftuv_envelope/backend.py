@@ -131,6 +131,8 @@ DENSITY = "density"
 ANGULAR = "angular"
 #: `CHAIN_STATION_PLAN_V1` (`_chain_station.chain_station_plans`): пины утверждены гейтами (CHAIN_STATION_PINS_APPROVED_V1), продукт заказывает NATIVE по умолчанию; откат в Python назван.
 CHAIN_STATION = "chain_station"
+#: Ключ `native_status()` шима: дрейф замороженного эталона стадий, где продукт — Rust (CONTRACT_PARITY_V1; стадия остаётся `available`).
+REFERENCE_DRIFT = "reference_drift"
 #: Статус операции нативного ядра, когда `cftuv_native` не импортируется.
 UNAVAILABLE = "unavailable"
 #: Сколько символов текста исключения несёт запись об откате.
@@ -265,6 +267,8 @@ class NativeStatusV1:
     density: str = field(default=UNAVAILABLE, kw_only=True)
     angular: str = field(default=UNAVAILABLE, kw_only=True)
     chain_station: str = field(default=UNAVAILABLE, kw_only=True)
+    #: CONTRACT_PARITY_V1: the frozen Python reference of a Rust-product stage moved past its pin (`cftuv_native.pin.REFERENCE_DRIFT_KEY`): reported, the stage stays `available`; "" — no drift.
+    reference_drift: str = field(default="", kw_only=True)
 
     @property
     def available(self) -> bool:
@@ -322,6 +326,7 @@ class NativeStatusV1:
             "version": self.version,
             "detail": self.detail,
             "build_id": self.build_id,
+            "reference_drift": self.reference_drift,
         }
 
 
@@ -337,7 +342,7 @@ def native_status() -> NativeStatusV1:
         build_id = str(module.native_build_id())
     except Exception as exc:  # noqa: BLE001 - статус, который не удалось снять, назван, а не брошен
         return NativeStatusV1(UNAVAILABLE, UNAVAILABLE, "", f"native_status failed: {type(exc).__name__}: {exc}"[:DETAIL_LIMIT])
-    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)), str(raw.get(SNAPSHOT_CHECK, UNAVAILABLE)), str(raw.get(FRAME, UNAVAILABLE)), density=str(raw.get(DENSITY, UNAVAILABLE)), angular=str(raw.get(ANGULAR, UNAVAILABLE)), chain_station=str(raw.get(CHAIN_STATION, UNAVAILABLE)))
+    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)), str(raw.get(EFFECTIVE_ALPHA, UNAVAILABLE)), str(raw.get(MATERIALIZE_W1, UNAVAILABLE)), str(raw.get(SNAPSHOT_CHECK, UNAVAILABLE)), str(raw.get(FRAME, UNAVAILABLE)), density=str(raw.get(DENSITY, UNAVAILABLE)), angular=str(raw.get(ANGULAR, UNAVAILABLE)), chain_station=str(raw.get(CHAIN_STATION, UNAVAILABLE)), reference_drift=str(raw.get(REFERENCE_DRIFT, "")))
 
 
 def stage_identity(backend) -> str:

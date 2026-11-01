@@ -16,6 +16,15 @@ of the classes the result is built from) is checked structurally when the operat
 
 The verdict is computed once per process per operation (the oracle in memory is the oracle on disk at that moment; a module
 reload is a new process for this purpose) and kept; `refresh()` forgets it. This module imports no extension.
+
+CONTRACT_PARITY_V1 (NATIVE_PATH_PRODUCT_CONTRACT_V1). For the operations where Rust IS the product and Python the frozen reference
+(`RUST_PRODUCT_OPERATIONS`) a moved reference is NOT a refusal at runtime: the port stays `available`, and the drift (the files, the mirrored
+functions, the density closure entries that differ from the pin) is reported by `native_status()` under `REFERENCE_DRIFT_KEY` and by
+`reference_drift()`. The executable guard of the pin is in CI (`tests/test_architecture.py`: a pinned file or a mirrored function that changed
+without a refreshed pin fails the suite), so an edit of the reference stays deliberate but never takes the owner's product down. What still
+refuses by name for those operations is a STRUCTURAL change the Rust side would build wrong objects from (`check_shapes`: slots, fields,
+members; the density class shapes and enum subsets). Every other operation (Python still in the product: `frame`, `mesh_assembly`, `angular`,
+`radical_v2`) keeps the named refusal `NativePortStale` exactly as before.
 """
 
 from __future__ import annotations
@@ -185,6 +194,13 @@ OPERATION_FILES = {
     "mesh_assembly": MESH_ASSEMBLY_FILES,
 }
 
+#: CONTRACT_PARITY_V1: the operations whose product is Rust (NATIVE by default) and whose Python files are the frozen reference. A drift of their
+#: reference is reported (`reference_drift`), not refused at runtime; `tests/test_architecture.py` reads this tuple and fails CI on the drift instead.
+RUST_PRODUCT_OPERATIONS = ("coverage", "clip", "skeleton", "snap_embedding", "effective_alpha", "materialize_w1", "snapshot_check", "density")
+
+#: The key of `native_status()` that names the reference drift of the Rust-product operations (present only when there is drift).
+REFERENCE_DRIFT_KEY = "reference_drift"
+
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
 #: operations above overlap, a file has one digest). Regenerate by `python cftuv_native/pin.py <cftuv_envelope dir>` after a catch-up.
 PINS: dict = {
@@ -352,20 +368,39 @@ def python_supported() -> bool:
 
 
 _VERDICTS: dict = {}
+#: CONTRACT_PARITY_V1: `{operation: names}` of the reference drift of a Rust-product operation — the files (`verdict`), the live density closure
+#: entries (`verdict`, per call) and the mirrored functions found at bind (`check_mirrored_functions`).
+_FILE_DRIFT: dict = {}
+_LIVE_DRIFT: dict = {}
+_BOUND_DRIFT: dict = {}
 
 
 def refresh() -> None:
-    """Forgets the cached verdicts and the bound Density classes: the next call reads the oracle again."""
+    """Forgets the cached verdicts, the recorded drift and the bound Density classes: the next call reads the oracle again."""
 
     _VERDICTS.clear()
+    _FILE_DRIFT.clear()
+    _LIVE_DRIFT.clear()
+    _BOUND_DRIFT.clear()
     from .density_pin import unbind
 
     unbind()
 
 
-def verdict(operation: str) -> tuple:
-    """`("available",)`, `("unsupported_python",)` or `("stale", files)`, computed once per process per operation."""
+def structural(entry: str) -> bool:
+    """A density closure entry the Rust side builds objects from (a class shape or an enum subset): its change stays a refusal for a Rust-product operation."""
 
+    return "(shape" in entry or "(enum subset" in entry
+
+
+def verdict(operation: str) -> tuple:
+    """`("available",)`, `("unsupported_python",)` or `("stale", files)`, computed once per process per operation.
+
+    A Rust-product operation (`RUST_PRODUCT_OPERATIONS`) whose reference moved is `("available",)` with the drift recorded (`reference_drift`);
+    only a structural change of the density closure (`structural`) is `stale` for it.
+    """
+
+    product = operation in RUST_PRODUCT_OPERATIONS
     cached = _VERDICTS.get(operation)
     if cached is None:
         if not python_supported():
@@ -375,14 +410,38 @@ def verdict(operation: str) -> tuple:
             if operation == "density":
                 from .density_pin import stale_sources
                 files += stale_sources(kernel_root())
-            cached = ("stale", files) if files else ("available",)
+            if product:
+                _FILE_DRIFT[operation] = files
+                cached = ("available",)
+            else:
+                cached = ("stale", files) if files else ("available",)
         _VERDICTS[operation] = cached
     if operation == "density" and cached[0] != "unsupported_python":
         from .density_pin import runtime_stale
         live = runtime_stale()
+        if product:
+            refusing = tuple(entry for entry in live if structural(entry))
+            _LIVE_DRIFT[operation] = tuple(entry for entry in live if not structural(entry))
+            live = refusing
         if live:
             return ("stale", tuple(dict.fromkeys((*(cached[1] if cached[0] == "stale" else ()), *live))))
     return cached
+
+
+def drift(operation: str) -> tuple:
+    """The reference drift of a Rust-product operation (files, live closure entries, mirrored functions found at bind); `()` for any other operation."""
+
+    if operation not in RUST_PRODUCT_OPERATIONS:
+        return ()
+    verdict(operation)
+    return tuple(dict.fromkeys((*_FILE_DRIFT.get(operation, ()), *_LIVE_DRIFT.get(operation, ()), *_BOUND_DRIFT.get(operation, ()))))
+
+
+def reference_drift() -> dict:
+    """`{operation: names}` of the Rust-product operations whose frozen Python reference moved past the pin (empty: none)."""
+
+    found = {operation: drift(operation) for operation in RUST_PRODUCT_OPERATIONS}
+    return {operation: names for operation, names in found.items() if names}
 
 
 def status(operation: str) -> str:
@@ -393,9 +452,13 @@ def status(operation: str) -> str:
 
 
 def native_status() -> dict:
-    """`{operation: status}` for every native whole operation."""
+    """`{operation: status}` for every native whole operation, and `REFERENCE_DRIFT_KEY` naming the reference drift of the Rust-product operations when there is one."""
 
-    return {operation: status(operation) for operation in OPERATION_FILES}
+    found = {operation: status(operation) for operation in OPERATION_FILES}
+    moved = reference_drift()
+    if moved:
+        found[REFERENCE_DRIFT_KEY] = "; ".join(f"{operation}: {', '.join(names)}" for operation, names in moved.items())
+    return found
 
 
 def require(operation: str) -> None:
@@ -421,6 +484,21 @@ def check_shapes(checks) -> None:
     """
 
     broken = [f"{file} ({description})" for file, description, ok in checks if not ok]
+    if broken:
+        raise NativePortStale("the oracle classes the native result is built from changed: " + ", ".join(broken))
+
+
+def check_mirrored_functions(operation: str, checks) -> None:
+    """The source digests of the oracle functions the Rust code mirrors (`checks` as in `check_shapes`), checked when the classes bind.
+
+    For a Rust-product operation a changed function is reference drift: recorded (`reference_drift`), not refused (CONTRACT_PARITY_V1; CI fails on it).
+    For any other operation it is `NativePortStale` naming the function, as before.
+    """
+
+    broken = tuple(f"{file} ({description})" for file, description, ok in checks if not ok)
+    if operation in RUST_PRODUCT_OPERATIONS:
+        _BOUND_DRIFT[operation] = broken
+        return
     if broken:
         raise NativePortStale("the oracle classes the native result is built from changed: " + ", ".join(broken))
 

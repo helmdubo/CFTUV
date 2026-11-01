@@ -102,7 +102,7 @@ class WholeRunner:
             fallback = nc.execute(call)
             differences += nc.compare_outcomes(nc.OP_SKELETON, before, expected, fallback)
             return Run(differences, expected.seconds, actual.seconds, label, refused=actual.exception, expected=expected, actual=fallback)
-        differences = nc.compare_outcomes(nc.OP_SKELETON, before, expected, actual)
+        differences = nc.parity_differences(nc.OP_SKELETON, before, expected, actual)  # CONTRACT_PARITY_V1
         return Run(differences, expected.seconds, actual.seconds, label, expected=expected, actual=actual, parts=self.timings())
 
 
@@ -188,7 +188,7 @@ def measure_record(runner: WholeRunner, record: "nc.Record", repeat: int) -> dic
             refused = actual.exception
             differences.append({"repeat": index + 1, "fields": [f"port refused: {actual.exception}"]})
             continue
-        found = nc.compare_outcomes(nc.OP_SKELETON, before, expected, actual)
+        found = nc.parity_differences(nc.OP_SKELETON, before, expected, actual)  # CONTRACT_PARITY_V1
         if found:
             differences.append({"repeat": index + 1, "fields": [str(item) for item in found]})
         oracle.append(expected.seconds)

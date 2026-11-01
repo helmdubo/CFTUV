@@ -27,13 +27,17 @@ import hashlib
 import io
 import json
 import lzma
+import math
 import os
 import pickle
+import re
 import struct
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from enum import Enum
+from fractions import Fraction
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -549,6 +553,204 @@ def compare_outcomes(op: str, before: StateV1, expected: Outcome, actual: Outcom
         if expected.observed.get(key) != actual.observed.get(key):
             found.append(Difference(f"observed.{key}", "differs"))
     return found
+
+
+# --------------------------------------------------------------------------
+# CONTRACT_PARITY_V1: the contract comparison of a native outcome with the reference
+# --------------------------------------------------------------------------
+#
+# NATIVE_PATH_PRODUCT_CONTRACT_V1 frees the representation of numbers (int / Fraction / binary64 by exact value), the container kind (tuple / list) and
+# mapping order, the text of diagnostics, the service counters (budget articles, SIGN_COUNTS, unbudgeted work, the canonicalization memory, the store) and
+# the operation at which a work budget stops (RESOURCE_POLICY). It binds the answer: every field of the result by exact value, in its order; the named
+# outcome (the exception class) and the station conflict the retry loop reads; the observations of the arguments. `parity_differences` is the gate the
+# differential tests use: the exact comparison first (cheap, and the usual case), and when it differs, only what the contract binds can fail it.
+
+GEOMETRY_ERROR = "GEOMETRY_ERROR"
+RESOURCE_POLICY = "RESOURCE_POLICY"
+REPRESENTATION_ONLY = "REPRESENTATION_ONLY"
+#: The exception classes that are a refusal by a resource budget (the native path has a versioned budget of its own).
+RESOURCE_EXCEPTION = re.compile(r"Budget\w*Exhausted|AuthorityExhausted|BoxesExhausted|BudgetExceeded")
+#: Fields of a result that are service counters or diagnostic text (the contract frees them): the counters of the skeleton and of the clip, the clip's note,
+#: the coverage detail, the tally and the rung slots of the exact mesh.
+CONTRACT_FREE_FIELDS = {OP_SKELETON: ("counters",), OP_CLIP: ("counters", "note"), OP_COVERAGE: ("detail",), OP_MESH: ("tally", "rungs")}
+#: The result field a GEOMETRY_ERROR-class mutation moves (`mutate_geometry`): the covered area, the cut points, the skeleton nodes, the mesh points.
+GEOMETRY_FIELDS = {OP_COVERAGE: "doubled_area", OP_CLIP: "points", OP_SKELETON: "nodes", OP_MESH: "points"}
+
+
+def _first_number_moved(value):
+    """`(copy, True)` with the first rational or finite float leaf (depth first) moved by a small exact amount; `(value, False)` when there is none."""
+
+    kind = type(value)
+    if kind is int or kind is Fraction:
+        return value + Fraction(1, 7), True
+    if kind is float and math.isfinite(value):
+        return value + max(1.0, abs(value)) * 2.0 ** -20, True
+    if kind is tuple or kind is list:
+        items = list(value)
+        for index, item in enumerate(items):
+            moved, done = _first_number_moved(item)
+            if done:
+                items[index] = moved
+                return kind(items), True
+        return value, False
+    if isinstance(value, dict):
+        for key, item in value.items():
+            moved, done = _first_number_moved(item)
+            if done:
+                return {**value, key: moved}, True
+        return value, False
+    if dataclasses.is_dataclass(value) and not isinstance(value, type) and not isinstance(value, Enum):
+        for item in dataclasses.fields(value):
+            moved, done = _first_number_moved(getattr(value, item.name))
+            if done:
+                copy = object.__new__(type(value))
+                for other in dataclasses.fields(value):
+                    object.__setattr__(copy, other.name, moved if other.name == item.name else getattr(value, other.name))
+                return copy, True
+    return value, False
+
+
+def _replace_field(result, name: str, value):
+    copy = object.__new__(type(result))
+    for item in dataclasses.fields(result):
+        object.__setattr__(copy, item.name, value if item.name == name else getattr(result, item.name))
+    return copy
+
+
+def mutate_geometry(op: str, outcome: Outcome) -> Outcome:
+    """A GEOMETRY_ERROR-class mutation of an answered outcome: the first number of its geometry field (`GEOMETRY_FIELDS`) moved; the gate must name it."""
+
+    name = GEOMETRY_FIELDS[op]
+    moved, done = _first_number_moved(getattr(outcome.result, name))
+    if not done:
+        raise CorpusError(f"{op}: the result has no number in `{name}` to move")
+    return dataclasses.replace(outcome, result=_replace_field(outcome.result, name, moved))
+
+
+def _representation_of(value):
+    """The same value in another representation: an `int` as a `Fraction`, a tuple as a list (a dataclass keeps its own type)."""
+
+    kind = type(value)
+    if kind is int:
+        return Fraction(value)
+    if kind is tuple:
+        return [_representation_of(item) for item in value]
+    if kind is list:
+        return tuple(_representation_of(item) for item in value)
+    return value
+
+
+def mutate_representation(op: str, outcome: Outcome) -> Outcome:
+    """A REPRESENTATION_ONLY mutation: the geometry field in another representation, the diagnostic text of the exception and the service counters of the budget moved."""
+
+    after = outcome.after
+    if after.budget is not None:
+        articles = tuple(after.budget["articles"])
+        after = dataclasses.replace(after, budget={**after.budget, "articles": (articles[0] + 1, *articles[1:]) if articles else articles})
+    after = dataclasses.replace(after, sign_counts={**after.sign_counts, "contract-parity-mutation": 1}, known_primes=list(reversed(after.known_primes)))
+    exception = None if outcome.exception is None else (outcome.exception[0], outcome.exception[1] + " (reworded)", *outcome.exception[2:])
+    result = outcome.result
+    if result is not None:
+        name = GEOMETRY_FIELDS[op]
+        result = _replace_field(result, name, _representation_of(getattr(result, name)))
+    return dataclasses.replace(outcome, result=result, exception=exception, after=after)
+
+
+def _contract_encode(value, out: list) -> None:
+    kind = type(value)
+    if kind is bool:
+        out.append("T;" if value else "F;")
+    elif kind is int or kind is Fraction:
+        value = Fraction(value)
+        out.append(f"n{value.numerator}/{value.denominator};")
+    elif kind is float:
+        if math.isfinite(value):
+            exact_value = Fraction(value)
+            out.append(f"n{exact_value.numerator}/{exact_value.denominator};")
+        else:
+            out.append(f"f{value!r};")
+    elif kind is str:
+        out.append(f"s{len(value)}:{value};")
+    elif value is None:
+        out.append("N;")
+    elif kind is tuple or kind is list:
+        out.append("(")
+        for item in value:
+            _contract_encode(item, out)
+        out.append(")")
+    elif kind is frozenset or kind is set:
+        out.append("{" + "".join(sorted(contract_canonical(item) for item in value)) + "}")
+    elif isinstance(value, dict):
+        out.append("<" + "".join(sorted(contract_canonical(key) + contract_canonical(item) for key, item in value.items())) + ">")
+    elif isinstance(value, Enum):
+        out.append(f"e{kind.__qualname__}.{value.name};")
+    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        out.append(f"D{kind.__qualname__}[")
+        for item in dataclasses.fields(value):
+            out.append(f"{item.name}=")
+            _contract_encode(getattr(value, item.name), out)
+        out.append("]")
+    else:
+        out.append(canonical(value))
+
+
+def contract_canonical(value) -> str:
+    """The record of a value up to what the contract frees: numbers by exact value (int, Fraction and a finite float are one kind), tuple = list, sets and mappings unordered."""
+
+    out: list = []
+    _contract_encode(value, out)
+    return "".join(out)
+
+
+def is_resource_refusal(exception) -> bool:
+    return exception is not None and bool(RESOURCE_EXCEPTION.search(str(exception[0])))
+
+
+def contract_differences(op: str, before: StateV1, expected: Outcome, actual: Outcome) -> list:
+    """`[(class, Difference)]` of two outcomes of ONE call under the product contract: `GEOMETRY_ERROR`, `RESOURCE_POLICY` or `REPRESENTATION_ONLY`."""
+
+    found = []
+    left, right = expected.exception, actual.exception
+    if (left is None) != (right is None) or (left is not None and left[0] != right[0]):
+        kind = RESOURCE_POLICY if is_resource_refusal(left) or is_resource_refusal(right) else GEOMETRY_ERROR
+        found.append((kind, Difference("exception", f"outcome {None if left is None else left[0]} != {None if right is None else right[0]}")))
+    elif left is not None:
+        if contract_canonical(tuple(left[2:])) != contract_canonical(tuple(right[2:])):
+            found.append((GEOMETRY_ERROR, Difference("exception.station_conflict", "the runs of the station conflict differ")))
+        if left[1] != right[1]:
+            found.append((REPRESENTATION_ONLY, Difference("exception.text", "the diagnostic text differs")))
+    if (expected.result is None) != (actual.result is None):
+        if not found or found[0][0] != RESOURCE_POLICY:
+            found.append((GEOMETRY_ERROR, Difference("result", "present in one outcome only")))
+    elif expected.result is not None:
+        left_view, right_view = answer_view(op, expected.result), answer_view(op, actual.result)
+        if type(left_view).__qualname__ != type(right_view).__qualname__:
+            found.append((GEOMETRY_ERROR, Difference("result", f"type {type(left_view).__qualname__} != {type(right_view).__qualname__}")))
+        else:
+            free = CONTRACT_FREE_FIELDS.get(op, ())
+            for (name, first), (_name, second) in zip(answer_fields(op, expected.result), answer_fields(op, actual.result)):
+                if name in free:
+                    if canonical(first) != canonical(second):
+                        found.append((REPRESENTATION_ONLY, Difference(f"result.{name}", "a service counter or a diagnostic text differs")))
+                elif contract_canonical(first) != contract_canonical(second):
+                    found.append((GEOMETRY_ERROR, Difference(f"result.{name}", _locate(first, second))))
+                elif canonical(first) != canonical(second):
+                    found.append((REPRESENTATION_ONLY, Difference(f"result.{name}", "the same value in another representation")))
+    for key in sorted(set(expected.observed) | set(actual.observed)):
+        first, second = expected.observed.get(key), actual.observed.get(key)
+        if contract_canonical(first) != contract_canonical(second):
+            found.append((GEOMETRY_ERROR, Difference(f"observed.{key}", "differs")))
+    service = [*_compare_budget(before, expected.after, actual.after), *_compare_counters(before, expected.after, actual.after), *_compare_tables(expected.after, actual.after)]
+    found.extend((REPRESENTATION_ONLY, item) for item in service)
+    return found
+
+
+def parity_differences(op: str, before: StateV1, expected: Outcome, actual: Outcome) -> list:
+    """The gate of a differential test (CONTRACT_PARITY_V1): `[]` when the outcomes are equal exactly or differ only in what the contract frees; else the `GEOMETRY_ERROR` differences."""
+
+    if not compare_outcomes(op, before, expected, actual):
+        return []
+    return [item for kind, item in contract_differences(op, before, expected, actual) if kind == GEOMETRY_ERROR]
 
 
 def answer_digest(op: str, result) -> str:

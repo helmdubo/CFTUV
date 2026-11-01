@@ -164,14 +164,20 @@ def test_shared_source_helper_mutation_is_scoped(tmp_path):
     assert "reference/common.py:stable_id (missing/invalid)" in pins.stale_sources(tmp_path)
 
 
-def test_live_staleness_refuses_before_work_even_cached_available(monkeypatch):
+def test_live_drift_of_a_constant_is_reported_per_call_and_does_not_refuse_the_rust_product(monkeypatch):
+    """CONTRACT_PARITY_V1: Density is a Rust-product stage; a moved constant of the frozen reference is drift named per call (`reference_drift`), not a refusal.
+    A class shape the Rust side builds from still refuses (the `(shape)` tests above)."""
+
     pin.refresh()
     monkeypatch.setitem(pin._VERDICTS, "density", ("available",))
     module = pins._module("_authoring_intent.py")
     monkeypatch.setattr(module, "CANONICAL_RESTORATION_ARTIST_ERROR", 0)
-    with pytest.raises(pin.NativePortStale, match="CANONICAL_RESTORATION_ARTIST_ERROR"):
-        pin.require("density")
-    assert pin.status("density").startswith("stale(")
+    pin.require("density")
+    assert pin.status("density") == "available"
+    assert any("CANONICAL_RESTORATION_ARTIST_ERROR" in item for item in pin.reference_drift()["density"])
+    monkeypatch.undo()
+    pin.require("density")
+    assert "density" not in pin.reference_drift(), "the drift is read again on every call"
     pin.refresh()
 
 

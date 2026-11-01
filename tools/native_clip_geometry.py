@@ -178,7 +178,7 @@ class WholeRunner:
         if outcome is None:
             detail = answer.detail[0] if answer.detail else ""
             return Run([], expected.seconds, 0.0, total, label, unsupported=str(self.wire.dec_str(detail)), expected=expected)
-        differences = nc.compare_outcomes(nc.OP_CLIP, before, expected, outcome)
+        differences = nc.parity_differences(nc.OP_CLIP, before, expected, outcome)  # CONTRACT_PARITY_V1
         compute = answer.extras[1] * 1e-9
         return Run(differences, expected.seconds, compute, total, label, expected=expected, actual=outcome)
 
@@ -286,7 +286,7 @@ class DropinRunner:
         label = "CLIPPED" if expected.exception is None else f"raised:{expected.exception[0]}"
         if actual.exception is not None and actual.exception[0] == "NativePortUnsupported":
             return Run([], expected.seconds, 0.0, actual.seconds, label, unsupported=actual.exception[1], expected=expected)
-        differences = nc.compare_outcomes(nc.OP_CLIP, before, expected, actual)
+        differences = nc.parity_differences(nc.OP_CLIP, before, expected, actual)  # CONTRACT_PARITY_V1
         return Run(differences, expected.seconds, actual.seconds, actual.seconds, label, expected=expected, actual=actual)
 
 

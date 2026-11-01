@@ -195,16 +195,16 @@ def check_call(mirror, op, blob, before, label: str, *, expected=None):
     oracle = nc.execute(oracle_call)
     native_call = nc.prepare_call(op, blob, before)
     native = run_native(mirror, native_call)
-    found = nc.compare_outcomes(op, before, oracle, native)
+    found = nc.parity_differences(op, before, oracle, native)  # CONTRACT_PARITY_V1
     assert not found, f"{label}: " + "; ".join(str(item) for item in found[:4])
     if expected is not None:
-        recorded = nc.compare_outcomes(op, before, expected, native)
+        recorded = nc.parity_differences(op, before, expected, native)
         assert not recorded, f"{label} (against the recording): " + "; ".join(str(item) for item in recorded[:4])
     if oracle.result is not None:
         partition, alpha = native_call.args
         assert_wellformed(native.result, partition, alpha, native_call.budget)
         assert_wellformed(oracle.result, oracle_call.args[0], oracle_call.args[1], oracle_call.budget)
-        assert native.result == oracle.result
+        assert nc.contract_canonical(nc.answer_view(op, native.result)) == nc.contract_canonical(nc.answer_view(op, oracle.result))
         if native.result.outcome is CoverageOutcome.EXACT:
             assert identity_view(partition, native.result) == identity_view(oracle_call.args[0], oracle.result), label
     COMPARED["calls"] += 1
@@ -436,6 +436,26 @@ def test_every_synthetic_call_equals_the_oracle_on_a_fresh_and_on_the_shared_ses
     COMPARED["synthetic records"] += len(recorder.rows)
 
 
+def test_the_contract_gate_of_the_coverage_differential_names_a_moved_geometry_and_frees_the_representation(synthetic, shared_mirror):
+    """CONTRACT_PARITY_V1 mutation test of this family: `check_call` gates on `nc.parity_differences`; a moved covered area is a GEOMETRY_ERROR it names,
+    the same answer in another representation (ints as Fractions, tuples as lists, a reworded text, other service counters) passes."""
+
+    recorder, _kinds = synthetic
+    for row in (row for row in recorder.rows if row["outcome"] == "EXACT"):
+        record = nc.read_record(recorder.root / row["path"])
+        before = record.before()
+        oracle = nc.execute(nc.prepare_call(record.op, record.call_blob, before))
+        if oracle.result is not None and oracle.result.doubled_area.terms:
+            break
+    else:
+        raise AssertionError("no exact synthetic call covers a non-zero area")
+    native = run_native(shared_mirror, nc.prepare_call(record.op, record.call_blob, before))
+    assert nc.parity_differences(record.op, before, oracle, native) == []
+    assert [item.field for item in nc.parity_differences(record.op, before, oracle, nc.mutate_geometry(record.op, native))] == ["result.doubled_area"]
+    assert nc.parity_differences(record.op, before, oracle, nc.mutate_representation(record.op, native)) == []
+    assert nc.compare_outcomes(record.op, before, oracle, nc.mutate_representation(record.op, native)), "the bytes see it; the contract frees it"
+
+
 # --------------------------------------------------------------------------
 # 3. Повтор alpha на одной сессии, предел кэша, ответ кэша
 # --------------------------------------------------------------------------
@@ -486,7 +506,7 @@ def test_repeated_alphas_on_one_session_reuse_the_partition_and_hit_the_store(sh
         before_cache = mirror._session.coverage_cache()[0]
         native = _run_chain(mirror.coverage_at, partition, alphas, native_call.budget, native_call.store)
         for step, (want, got) in enumerate(zip(oracle, native)):
-            found = nc.compare_outcomes(nc.OP_COVERAGE, before, want, got)
+            found = nc.parity_differences(nc.OP_COVERAGE, before, want, got)  # CONTRACT_PARITY_V1
             assert not found, f"{row['id']} step {step} alpha={alphas[step]}: " + "; ".join(str(item) for item in found[:3])
         assert mirror._session.coverage_cache()[0] == before_cache + 1, "the partition is converted once and kept"
         COMPARED["chain steps"] += len(alphas)
@@ -591,7 +611,7 @@ def test_the_store_record_and_its_price_follow_the_oracle(name):
     with process_state_given_back():
         got = _drive_store(mirror.coverage_at, pickle.loads(pickle.dumps(partition)), steps)
     for index, (want, have) in enumerate(zip(wanted, got)):
-        found = nc.compare_outcomes(nc.OP_COVERAGE, before, want, have)
+        found = nc.compare_outcomes(nc.OP_COVERAGE, before, want, have)  # (a): the store record and its price are what this test pins
         assert not found, f"{name}, step {index}: " + "; ".join(str(item) for item in found[:3])
     final = [value for _key, value in got[-1].after.store]
     assert len(final) == 1 and len(final[0]) == 4 and type(final[0][3]) is exact.FactorizationMemoryDeltaV1, "every scenario ends with the record of the new shape"
@@ -683,7 +703,7 @@ def check_traced(mirror, op, blob, before, label: str):
 
     oracle, wanted = run_traced(coverage_module._coverage_at, nc.prepare_call(op, blob, before))
     native, got = run_traced(mirror.coverage_at, nc.prepare_call(op, blob, before))
-    found = nc.compare_outcomes(op, before, oracle, native)
+    found = nc.parity_differences(op, before, oracle, native)  # CONTRACT_PARITY_V1; the traces stay exact: the step template replays them
     assert not found, f"{label}: " + "; ".join(str(item) for item in found[:3])
     assert nc.canonical(wanted) == nc.canonical(got), f"{label}: the traces differ"
     assert wanted == got and len(wanted) == len(got)

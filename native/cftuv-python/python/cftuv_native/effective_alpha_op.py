@@ -95,9 +95,9 @@ def _bind(native_exact, planar_types, boundary_native, boundary, metric) -> tupl
                 "SourceContactFrame holds `native`, `refusal`, `length`, `tangent_covector`, `normal_covector` and has `ready` and `_float_parts`",
                 all(hasattr(frame, name) for name in ("native", "refusal", "length", "tangent_covector", "normal_covector", "ready", "_float_parts", "_source")),
             ),
-            *((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS),
         )
     )
+    pin.check_mirrored_functions(OPERATION, tuple((file, f"{name} is the function the Rust code mirrors", live[(file, name)] == wanted) for file, name, wanted in SHAPE_FUNCTIONS))
     return native_exact.terms_wire, (Fraction, native_exact.RadicalSumV1, planar_types.ExactScalar, planar_types.ExactPlanarPoint)
 
 

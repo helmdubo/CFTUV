@@ -406,6 +406,28 @@ def test_the_comparison_names_every_part_of_a_spoiled_native_outcome(runner):
         assert field in named, f"spoiling {name} must be named {field}, got {sorted(named)}"
 
 
+def test_the_contract_gate_of_the_clip_differential_names_a_moved_geometry_and_frees_the_representation(runner):
+    """CONTRACT_PARITY_V1 mutation test of this family: `Runner.compare` gates on `nc.parity_differences`; a moved cut point is a GEOMETRY_ERROR that fails
+    `assert_all_equal`, the same answer with a reworded text and other service counters passes it."""
+
+    for path in geometry.synthetic_paths() or geometry.field_paths(RECORD_STRIDE):
+        record = nc.read_record(path)
+        run = runner.compare(record)
+        if run.equal and run.actual is not None and run.actual.result is not None and run.actual.result.points:
+            break
+    else:
+        pytest.skip("no answered clip call in the synthetic or the field corpus")
+    before = record.before()
+    moved = nc.mutate_geometry(nc.OP_CLIP, run.actual)
+    found = nc.parity_differences(nc.OP_CLIP, before, run.expected, moved)
+    assert [item.field for item in found] == ["result.points"]
+    with pytest.raises(AssertionError):
+        assert_all_equal([(path.name, dataclasses.replace(run, differences=found, actual=moved))])
+    reworded = nc.mutate_representation(nc.OP_CLIP, run.actual)
+    assert nc.parity_differences(nc.OP_CLIP, before, run.expected, reworded) == []
+    assert nc.compare_outcomes(nc.OP_CLIP, before, run.expected, reworded), "the bytes see it; the contract frees it"
+
+
 def test_the_seam_table_of_the_extension_is_the_table_of_the_harness():
     from cftuv_native import clip_seams as wire
 

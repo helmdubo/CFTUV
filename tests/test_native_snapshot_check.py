@@ -326,18 +326,22 @@ def test_the_stage_is_one_of_the_native_operations_and_the_pin_holds_its_files()
     assert all(live[(file, name)] == wanted for file, name, wanted in snapshot_check_op.SHAPE_FUNCTIONS), "the digests are the ones of THIS tree"
 
 
-def test_a_moved_oracle_function_stales_the_operation_before_it_reads_anything(monkeypatch):
-    row = SEED_ROWS[0]
+def test_a_moved_oracle_function_is_reported_and_the_rust_product_still_attests(monkeypatch):
+    """CONTRACT_PARITY_V1: snapshot_check is a Rust-product stage; a moved mirrored function is reference drift named in `native_status()`, not a refusal (CI fails on it:
+    `tests/test_architecture.py::test_functions_mirrored_by_rust_product_stages_stay_at_their_pin`)."""
+
     file, name, wanted = snapshot_check_op.SHAPE_FUNCTIONS[0]
     moved = (*snapshot_check_op.SHAPE_FUNCTIONS[1:], (file, name, "0" * 64))
     monkeypatch.setattr(snapshot_check_op, "SHAPE_FUNCTIONS", moved)
     snapshot_check_op._KERNEL[:] = []
     try:
-        with pytest.raises(cftuv_native.NativePortStale, match=name.split(".")[-1]):
-            cftuv_native.snapshot_check(row[1], mut.SCOPE_BOTH)
+        assert cftuv_native.snapshot_check(_a_right_angle_snapshot(), mut.SCOPE_BOTH).corners >= 1
+        assert cftuv_native.native_status()["snapshot_check"] == "available"
+        assert name.split(".")[-1] in cftuv_native.native_status()[pin.REFERENCE_DRIFT_KEY]
     finally:
         monkeypatch.undo()
         snapshot_check_op._KERNEL[:] = []
+        pin.refresh()
     assert cftuv_native.snapshot_check(_a_right_angle_snapshot(), mut.SCOPE_BOTH).corners >= 1
 
 
@@ -372,23 +376,27 @@ def test_the_reader_can_be_bound_before_the_first_domain_and_a_moved_oracle_does
     before = snapshot_check_op._KERNEL[0]
     assert backend.warm_snapshot_check() is True and snapshot_check_op._KERNEL[0] is before, "bound once"
     assert cftuv_native.snapshot_check(_a_right_angle_snapshot(), mut.SCOPE_BOTH).corners >= 1
-    # a moved oracle function: the warm-up says False (the first domain names the stale pin itself, and the Python validators run)
+    # a moved oracle function (CONTRACT_PARITY_V1): reference drift, the warm-up binds and the stage computes natively
     file, name, wanted = snapshot_check_op.SHAPE_FUNCTIONS[0]
     monkeypatch.setattr(snapshot_check_op, "SHAPE_FUNCTIONS", (*snapshot_check_op.SHAPE_FUNCTIONS[1:], (file, name, "0" * 64)))
     snapshot_check_op._KERNEL[:] = []
     try:
-        assert backend.warm_snapshot_check() is False
+        assert backend.warm_snapshot_check() is True
         with backend.use_backend("PYTHON", snapshot_check_backend="NATIVE") as ledger:
-            assert backend.snapshot_check_compute(_a_right_angle_snapshot(), backend.SNAPSHOT_CHECK_EXPORT) is False
-        assert ledger.record().snapshot_check_fallbacks[0][0] == "NATIVE_PORT_STALE", ledger.record().snapshot_check_fallbacks
+            assert backend.snapshot_check_compute(_a_right_angle_snapshot(), backend.SNAPSHOT_CHECK_EXPORT) is True
+        assert ledger.record().snapshot_check_fallbacks == (), ledger.record().snapshot_check_fallbacks
+        assert backend.native_status().reference_drift, "the drift is reported"
     finally:
         monkeypatch.undo()
         snapshot_check_op._KERNEL[:] = []
+        pin.refresh()
     assert backend.warm_snapshot_check() is True
     CHECKED["warm-up"] += 1
 
 
-def test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_a_verdict(monkeypatch):
+def test_a_moved_reference_file_is_drift_and_the_dispatcher_computes_natively(monkeypatch):
+    """CONTRACT_PARITY_V1: a pinned file of the frozen reference moved — the Rust product still answers, the drift is named, nothing falls back."""
+
     snapshot = _a_right_angle_snapshot()
     original = pin.read_source
 
@@ -399,15 +407,27 @@ def test_a_stale_pin_is_a_named_fallback_of_the_dispatcher_not_a_verdict(monkeyp
     monkeypatch.setattr(pin, "read_source", reading)
     pin.refresh()
     try:
-        assert cftuv_native.native_status()["snapshot_check"] == "stale(validation_snapshot.py)"
+        assert cftuv_native.native_status()["snapshot_check"] == "available"
+        assert backend.native_status().reference_drift == "snapshot_check: validation_snapshot.py"
         with backend.use_backend("PYTHON", snapshot_check_backend="NATIVE") as ledger:
-            assert backend.snapshot_check_compute(snapshot, backend.SNAPSHOT_CHECK_EXPORT) is False
-        assert ledger.record().snapshot_check_native_calls == 0 and ledger.record().snapshot_check_python_calls == 1
-        assert ledger.record().snapshot_check_fallbacks[0][0].startswith("NATIVE_"), ledger.record().snapshot_check_fallbacks
+            assert backend.snapshot_check_compute(snapshot, backend.SNAPSHOT_CHECK_EXPORT) is True
+        assert ledger.record().snapshot_check_native_calls == 1 and ledger.record().snapshot_check_fallbacks == ()
     finally:
         monkeypatch.undo()
         pin.refresh()
-    assert cftuv_native.native_status()["snapshot_check"] == "available"
+    assert cftuv_native.native_status()["snapshot_check"] == "available" and backend.native_status().reference_drift == ""
+
+
+def test_a_structural_stale_verdict_is_still_a_named_fallback_of_the_dispatcher_not_a_verdict():
+    snapshot = _a_right_angle_snapshot()
+    pin._VERDICTS["snapshot_check"] = ("stale", ("validation_snapshot.py",))
+    try:
+        with backend.use_backend("PYTHON", snapshot_check_backend="NATIVE") as ledger:
+            assert backend.snapshot_check_compute(snapshot, backend.SNAPSHOT_CHECK_EXPORT) is False
+        assert ledger.record().snapshot_check_native_calls == 0 and ledger.record().snapshot_check_python_calls == 1
+        assert ledger.record().snapshot_check_fallbacks[0][0] == "NATIVE_PORT_STALE", ledger.record().snapshot_check_fallbacks
+    finally:
+        pin.refresh()
 
 
 # --------------------------------------------------------------------------
