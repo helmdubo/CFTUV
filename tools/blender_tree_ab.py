@@ -41,6 +41,11 @@ WHAT IS COMPARED, per domain and press (any difference is a failure; the exit co
   and listed, not failures; the stage follows the master switch in a tree that has it (NATIVE by default; EFFECTIVE_ALPHA_NATIVE_DEFAULT_V1) and `--env CFTUV_EFFECTIVE_ALPHA_BACKEND=PYTHON` isolates it to the reference (the other tree ignores the variable), and the notes name how many of its pairs each tree computed natively. A run that failed, or a pool worker that imported another tree, another native build
   or another sympy than the parent (the origin check), is a failure of the run.
 
+SEMANTIC MODE (`--compare semantic`, SEMANTIC_DECAL_EQUIVALENCE_V1)  every press also writes a record of every domain's named outcome and view and of the whole mesh
+  (`tools/semantic_decal_equivalence.py`), and the answer is compared under the PRODUCT contract (NATIVE_PATH_PRODUCT_CONTRACT_V1) instead of bytes: a GEOMETRY_ERROR
+  (and, with `--fail-on-resource`, a RESOURCE_POLICY) finding is a difference, REPRESENTATION_ONLY findings and every byte difference of the same runs are notes. With
+  several `--workers` the records of each tree are also compared across the worker counts (determinism: no difference but representation). Verdict `EQUIVALENT`.
+
 TIMING (`--timing --reps N`)  alternating base/branch, order flipped every repetition; before each run the tool waits while a FOREIGN blender.exe is busy (it never stops one) and re-runs a
   repetition during which one was; every Blender it starts is recorded in <work-dir>/pids.log and nothing else is ever stopped. Medians, minima and the change are in the table.
 
@@ -266,6 +271,9 @@ class Comparison:
     notes: list = field(default_factory=list)
     domains_compared: int = 0
     presses: dict = field(default_factory=dict)
+    #: `bytes` (every field, bit for bit) or `semantic` (SEMANTIC_DECAL_EQUIVALENCE_V1: the product contract; `classes` counts the findings by class).
+    mode: str = "bytes"
+    classes: dict = field(default_factory=dict)
 
     @property
     def identical(self) -> bool:
@@ -519,6 +527,70 @@ def compare_runs(base: dict, branch: dict, allowed: tuple = (), compare_keys: bo
     return out
 
 
+#: Byte differences that are not representation: the two runs did not answer the same question.
+INPUT_DIFFERENCES = ("the run FAILED", "WORKER ORIGIN", "not comparable", "different presses", "did not start from the same inputs", "HARNESS ERROR")
+
+
+def semantic_library():
+    """`tools/semantic_decal_equivalence.py` (SEMANTIC_DECAL_EQUIVALENCE_V1), importable from the driver and from inside Blender."""
+
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import semantic_decal_equivalence
+
+    return semantic_decal_equivalence
+
+
+def read_semantic_record(path: str) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def compare_runs_semantic(base: dict, branch: dict, allowed: tuple = (), compare_keys: bool = True, read=read_semantic_record, own_natives: bool = False, fail_on_resource: bool = False) -> Comparison:
+    """`--compare semantic`: every press's semantic records (`press_record`) compared under the product contract. GEOMETRY_ERROR (and, with
+    `fail_on_resource`, RESOURCE_POLICY) findings are differences; REPRESENTATION_ONLY findings and every byte difference of the same runs are notes."""
+
+    library = semantic_library()
+    in_bytes = compare_runs(base, branch, allowed, compare_keys, own_natives=own_natives)
+    out = Comparison(mode="semantic", domains_compared=in_bytes.domains_compared, presses=in_bytes.presses, classes={kind: 0 for kind in library.CLASSES})
+    hard = [line for line in in_bytes.differences if any(marker in line for marker in INPUT_DIFFERENCES)]
+    if hard:
+        out.differences.extend(hard)
+        return out
+    for label in base["presses"]:
+        paths = [report["presses"][label].get("semantic_record") for report in (base, branch)]
+        if not all(paths):
+            out.differences.append(f"[{label}] {library.GEOMETRY_ERROR} semantic record missing (base {paths[0]}, branch {paths[1]}): run the trees with --compare semantic")
+            continue
+        found = library.compare_press_records(read(paths[0]), read(paths[1]))
+        for item in found.findings:
+            out.classes[item.kind] += 1
+            failing = item.kind == library.GEOMETRY_ERROR or (fail_on_resource and item.kind == library.RESOURCE_POLICY)
+            (out.differences if failing else out.notes).append(f"[{label}] {item.line()}")
+        out.presses.setdefault(label, {})["semantic"] = {"verdict": found.verdict, "counts": found.counts, "compared": dict(found.compared)}
+    out.notes.extend(f"{library.REPRESENTATION_ONLY} (bytes) {line}" for line in in_bytes.differences)
+    out.classes[library.REPRESENTATION_ONLY] += len(in_bytes.differences)
+    out.notes.extend(in_bytes.notes)
+    return out
+
+
+def semantic_determinism(case: str, reports: dict, read=read_semantic_record) -> list:
+    """The records of ONE tree under each worker count (`{workers: report}`): the answer may not depend on threads or task order. `[(tree press, Report)]`."""
+
+    library = semantic_library()
+    counts = sorted(reports)
+    out = []
+    for label in (reports[counts[0]].get("presses") or {}):
+        records = {}
+        for workers in counts:
+            path = ((reports[workers].get("presses") or {}).get(label) or {}).get("semantic_record")
+            if path:
+                records[f"{case}/w{workers}"] = read(path)
+        if len(records) > 1:
+            out.append((label, library.compare_determinism(records)))
+    return out
+
+
 # --------------------------------------------------------------------------
 # Timing and tables (pure)
 # --------------------------------------------------------------------------
@@ -559,7 +631,13 @@ def format_table(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+#: Verdicts that pass: bit for bit (`--compare bytes`), the same product (`--compare semantic`).
+PASSING_VERDICTS = ("IDENTICAL", "EQUIVALENT")
+
+
 def verdict_of(comparison: Comparison) -> str:
+    if comparison.mode == "semantic":
+        return "EQUIVALENT" if comparison.identical else f"GEOM_ERROR({len(comparison.differences)})"
     return "IDENTICAL" if comparison.identical else f"DIFFERENT({len(comparison.differences)})"
 
 
@@ -645,6 +723,8 @@ def worker_command(blender: str, scene: Path, tree: Tree, case: Case, workers: i
         command += ["--expect-native-build-id", options.expect_native_build_id]
     if options.prime_byte_check:
         command.append("--prime-byte-check")
+    if getattr(options, "compare", "bytes") == "semantic":
+        command.append("--semantic-record")
     return command
 
 
@@ -706,6 +786,8 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--branch-env", action="append", default=[], help="KEY=VALUE for the Blenders of the BRANCH tree only (after --env)")
     parser.add_argument("--allow-counter", action="append", default=[], help="a counter name prefix a change adds on purpose")
     parser.add_argument("--keys-may-differ", action="store_true", help="the content keys are listed in the notes, not compared: for sides that order different executors (the identity of the executor is part of a key)")
+    parser.add_argument("--compare", default="bytes", choices=("bytes", "semantic"), help="bytes: every field bit for bit; semantic: SEMANTIC_DECAL_EQUIVALENCE_V1 (the product contract, tools/semantic_decal_equivalence.py)")
+    parser.add_argument("--fail-on-resource", action="store_true", help="--compare semantic: a RESOURCE_POLICY difference (a budget refusal on one side) fails too")
     parser.add_argument("--timing", action="store_true")
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--max-attempts", type=int, default=3)
@@ -871,14 +953,19 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
         log("NOTE: the same tree on both sides: a self-comparison (what it can show is noise of the harness)")
     ours: set = set()
     started = time.time()
-    results, rows = [], []
+    results, rows, determinism = [], [], []
+    semantic = getattr(options, "compare", "bytes") == "semantic"
     for case in cases:
+        by_workers: dict = {}
         for workers in workers_list:
             try:
                 reports, seconds = run_pair(case, workers, trees, scenes, blender, options, work_dir, environment, ours, log)
-                comparison = compare_runs(reports["base"], reports["branch"], tuple(options.allow_counter), not options.keys_may_differ, own_natives=bool(options.base_native_path or options.branch_native_path))
+                compare = compare_runs_semantic if semantic else compare_runs
+                extra = {"fail_on_resource": options.fail_on_resource} if semantic else {}
+                comparison = compare(reports["base"], reports["branch"], tuple(options.allow_counter), not options.keys_may_differ, own_natives=bool(options.base_native_path or options.branch_native_path), **extra)
+                by_workers[workers] = reports
             except Exception:  # noqa: BLE001 - a harness error is a named failure of the case, not a crash of the matrix
-                comparison = Comparison(differences=["HARNESS ERROR " + traceback.format_exc()[-600:]])
+                comparison = Comparison(differences=["HARNESS ERROR " + traceback.format_exc()[-600:]], mode="semantic" if semantic else "bytes")
                 reports, seconds = {}, {}
             timing = _case_timing(seconds) if options.timing else {}
             rows.append(summary_row(case.name, workers, comparison, timing))
@@ -889,24 +976,34 @@ def _drive(options, cases, workers_list, scenes, blender, work_dir, trees, envir
                 log("  DIFFERENT " + line)
             for line in comparison.notes[:6]:
                 log("  note " + line)
+        if semantic and len(by_workers) > 1:
+            for label in trees:
+                for press, found in semantic_determinism(case.name, {workers: reports[label] for workers, reports in by_workers.items() if label in reports}):
+                    failing = [item.line() for item in found.findings if item.kind != "REPRESENTATION_ONLY"]
+                    determinism.append({"case": case.name, "tree": label, "press": press, "verdict": found.verdict, "differences": failing, "counts": found.counts})
+                    log(f"  determinism {case.name} {label} {press} over workers {sorted(by_workers)}: {found.verdict} {found.counts}")
+                    for line in failing[:6]:
+                        log("  DIFFERENT " + line)
     after = scene_digests(scenes)
     scene_report = {key: {"before": before[key], "after": after[key], "unchanged": before[key] == after[key]} for key in before}
     document = {
         "schema": SCHEMA, "started": started, "seconds": time.time() - started, "blender": blender, "trees": {k: v.as_record() for k, v in trees.items()},
         "scenes": {key: str(path) for key, path in scenes.items()}, "scene_sha256": scene_report, "presses": options.presses, "timing": bool(options.timing),
         "environment_overrides": options.env, "tree_environment": {"base": options.base_env, "branch": options.branch_env}, "allow_counter": options.allow_counter, "results": results,
+        "compare": getattr(options, "compare", "bytes"), "determinism": determinism,
     }
     out = Path(options.out or work_dir / f"tree_ab_{datetime.now():%Y%m%d_%H%M%S}.json")
     out.write_text(json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     log("\n" + format_table(rows))
-    differing = sum(1 for item in results if item["verdict"] != "IDENTICAL")
+    differing = sum(1 for item in results if item["verdict"] not in PASSING_VERDICTS) + sum(1 for item in determinism if item["differences"])
     for key, item in scene_report.items():
         log(f"scene {key}: sha256 before {item['before'][:16]} after {item['after'][:16]} -> {'unchanged' if item['unchanged'] else 'CHANGED'}")
     log(f"report: {out}\npids: {work_dir / 'pids.log'}")
     if not all(item["unchanged"] for item in scene_report.values()):
         log("TREE_AB_UNRUNNABLE a scene changed during the runs")
         return EXIT_UNRUNNABLE
-    log(f"TREE_AB_{'IDENTICAL' if not differing else 'DIFFERENT'} cases={len(results)} differing={differing}")
+    same = "EQUIVALENT" if semantic else "IDENTICAL"
+    log(f"TREE_AB_{same if not differing else 'DIFFERENT'} cases={len(results)} differing={differing}")
     return EXIT_IDENTICAL if not differing else EXIT_DIFFERENT
 
 
@@ -1039,6 +1136,7 @@ def _worker_arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--gc-pause", default="auto")
     parser.add_argument("--prime-byte-check", action="store_true")
     parser.add_argument("--origin-check", default="on")
+    parser.add_argument("--semantic-record", action="store_true", help="every press also writes its SEMANTIC_DECAL_EQUIVALENCE_V1 record next to --out")
     parser.add_argument("--out", required=True)
     return parser.parse_args(argv)
 
@@ -1132,14 +1230,29 @@ def view_hash(item) -> str:
 
     if not item.is_materialized:
         return ""
+    view = domain_view(item)
+    if view is None or view.vertices is None:
+        return ""
+    return _hash((view.vertices.positions, view.vertices.normals, view.vertices.refs, view.faces, view.uvs, view.owners, view.seams))
+
+
+def domain_view(item):
+    """The view the mesh writer reads of a materialized result (carried, or built from its batch); `None` in a tree without views."""
+
     try:
         from cftuv.envelope_production_view import build_domain_view
     except ImportError:
-        return ""
-    view = getattr(item, "view", None) or build_domain_view(item)
-    if view.vertices is None:
-        return ""
-    return _hash((view.vertices.positions, view.vertices.normals, view.vertices.refs, view.faces, view.uvs, view.owners, view.seams))
+        return None
+    return getattr(item, "view", None) or build_domain_view(item)
+
+
+def write_semantic_record(run, arrays, out: str, label: str) -> str:
+    """`--semantic-record`: the press's SEMANTIC_DECAL_EQUIVALENCE_V1 record (`press_record`) next to the report; its path."""
+
+    path = Path(out).with_suffix("").parent / f"{Path(out).stem}_{label}.semantic.json"
+    record = semantic_library().press_record(run.results, arrays, domain_view)
+    path.write_text(json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
+    return str(path)
 
 
 def domain_rows(run) -> list:
@@ -1397,6 +1510,8 @@ def run_presses(args, report: dict, state: dict) -> None:
         arrays_seconds = time.perf_counter() - arrays_started
         report["presses"][label] = press_report(run, mesh_module, mesh_settings.offset, seconds, state["keys"][before:], counters, kind=kind, lean=lean, arrays_seconds=arrays_seconds)
         item = report["presses"][label]
+        if getattr(args, "semantic_record", False):
+            item["semantic_record"] = write_semantic_record(run, arrays, args.out, label)
         live_run = track_live_state(controller, live_preview, run, arrays, kind, alpha, plan, lean, float(mesh_settings.offset)) if incremental_supported else None
         sample = live_run.sample if live_run is not None else (live_preview.build_sample(run.results, arrays, ("tree-ab",), alpha) if live_preview is not None and kind in ("tick", "incr") else None)
         if kind in ("tick", "incr") and sample is not None:
