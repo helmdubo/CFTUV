@@ -268,7 +268,13 @@ def test_a_domain_the_validator_refuses_is_refused_by_the_lean_refresh_only_when
     from cftuv_envelope.materialize import domain as domain_module
 
     issue = SimpleNamespace(code=SimpleNamespace(value="INJECTED_ISSUE"), path=("batch", "faces"))
-    monkeypatch.setattr(domain_module, "validate_geometry_batch", lambda *args, **kwargs: [issue])
+    real = domain_module.batch_readers
+
+    def failing(*args, **kwargs):  # BATCH_READERS_NATIVE_V1: the checks of the batch are one call (the port or the oracle); the injected issue is its answer
+        issues, audit, structure = real(*args, **kwargs)
+        return ((issue,) if kwargs["validate"] else issues), audit, structure
+
+    monkeypatch.setattr(domain_module, "batch_readers", failing)
     sampled = {"yes": 0}
 
     def every_other(domain_id, alpha):

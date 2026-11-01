@@ -23,7 +23,7 @@ import pytest
 from cftuv_envelope import GeometryBatchCodecV1
 from cftuv_envelope.exact_sqrt_sum import reset_factorization_memory
 from cftuv_envelope.ids import PolicyId
-from cftuv_envelope.materialize import admit, domain, frames, mesh
+from cftuv_envelope.materialize import admit, batch_readers, domain, frames, mesh
 from cftuv_envelope.materialize.admit import MaterializationOutcome, PlanarityKind
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.domain import materialize_domain
@@ -398,7 +398,7 @@ def test_a_wrong_triangulation_is_caught_by_the_exact_area_check(monkeypatch):
 
 def test_a_batch_the_validator_rejects_is_named_with_its_issues(monkeypatch):
     issue = SimpleNamespace(code=SimpleNamespace(value="GEOMETRY_BATCH"), path=("faces",))
-    monkeypatch.setattr(domain, "validate_geometry_batch", lambda batch: (issue,))
+    monkeypatch.setattr(batch_readers, "validate_geometry_batch", lambda batch, **_: (issue,))
     result = _run("weighted")
     assert result.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
     assert "GEOMETRY_BATCH@faces" in result.detail
@@ -406,12 +406,12 @@ def test_a_batch_the_validator_rejects_is_named_with_its_issues(monkeypatch):
 
 
 def test_a_mesh_the_audit_rejects_is_named_with_its_problem(monkeypatch):
-    real = domain.audit_batch
+    real = batch_readers.audit_batch
 
     def cracked(batch, normal):
         return dataclasses.replace(real(batch, normal), boundary_chain_mismatch=2)
 
-    monkeypatch.setattr(domain, "audit_batch", cracked)
+    monkeypatch.setattr(batch_readers, "audit_batch", cracked)
     result = _run("weighted")
     assert result.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
     assert result.detail == "AUDIT:BOUNDARY_DOES_NOT_MATCH_CHAINS"

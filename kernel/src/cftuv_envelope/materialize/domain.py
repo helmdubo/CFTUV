@@ -83,10 +83,10 @@ from ..ids import GeometryDiagnosticId, LineageId
 from ..outcomes import NamedOutcome
 from ..reference.native_exact import ExactScalarTextCanonUnsupported
 from ..reference.density_shell_events import density_shell_materialization_facts
-from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
-from .audit import audit_batch, batch_shape_counters
+from .audit import batch_shape_counters
 from .assemble import Layout, assemble_batch, lift_vertices, settle_topology
+from .batch_readers import batch_readers
 from .chord_station import station_chord_vertices
 from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
@@ -107,7 +107,6 @@ from .source_lift import (
     settle_emitted_faces,
     source_step_of,
 )
-from .structure import batch_structure
 from .stations import (
     SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
     SKIP_JOIN_CORNER_NOT_ADJACENT,
@@ -1120,13 +1119,13 @@ def finalize_digests(result: MaterializationV1) -> MaterializationV1:
     )
 
 
-def _step_facts(prepared, coverage, built, admission, batch):
-    """`(заверенный интервал ширины, подпись структуры батча, интервал покрытия)` материализованного домена; в ответ они не входят."""
+def _step_facts(prepared, coverage, built, admission):
+    """`(заверенный интервал ширины, интервал покрытия)` материализованного домена; в ответ они не входят (подпись структуры батча считает `batch_readers`)."""
 
     triangles = tuple(getattr(built.lift, "triangles", ())) if _is_clipped(admission) else ()
     interval = alpha_interval(prepared, coverage.alpha, triangles, admission.lift_law.value)
     bounds = coverage_interval(prepared, coverage.alpha, triangles, admission.lift_law.value)
-    return interval, batch_structure(batch), bounds
+    return interval, bounds
 
 
 def _materialize_domain(
@@ -1174,23 +1173,24 @@ def _materialize_domain(
         batch = sealed_geometry_batch(batch)
         clock.lap("SEMANTIC_DIGEST")
     checked = not defer_checks or lean_tick_checks_sampled(domain_id, coverage.alpha)
-    issues = ()
-    if checked:
-        issues = validate_geometry_batch(batch) if digests else validate_geometry_batch(batch, check_semantic_digest=False)
-        clock.lap("VALIDATE")
     offset_normals = (
         built.lift.offset_normals(batch.vertices)
         if getattr(built.lift, "has_offset_normals", False)
         else ()
     )
-    audit = None
+    # BATCH_READERS_NATIVE_V1: проверка, аудит и подпись структуры (шаг ширины) - один проход порта; эталон - `validate_geometry_batch`, `audit_batch`, `batch_structure`
+    issues, audit, structure = batch_readers(
+        batch,
+        _source_normal(prepared) if checked else None,
+        dict(offset_normals) if offset_normals else None,
+        validate=checked,
+        audit=checked,
+        structure=certify,
+        check_semantic_digest=digests,
+    )
+    clock.lap("VALIDATE")
     counters = _counters(built, budget)
     if checked:
-        audit = (
-            audit_batch(batch, _source_normal(prepared), dict(offset_normals))
-            if offset_normals
-            else audit_batch(batch, _source_normal(prepared))
-        )
         clock.lap("AUDIT")
         counters = counters + audit.counters()
     if defer_checks:
@@ -1214,7 +1214,7 @@ def _materialize_domain(
         )
     digest = sha256(backend.canonical_bytes_compute(canonical_json_bytes, batch)).hexdigest() if digests else ""
     clock.lap("DIGEST")
-    interval, structure, bounds = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None, None)
+    interval, bounds = _step_facts(prepared, coverage, built, admission) if certify else (None, None)
     if certify:
         clock.lap("CERTIFY")
     certificate = None

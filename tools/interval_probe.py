@@ -121,7 +121,7 @@ def _median(values):
 def _install_timers() -> dict:
     """Секундомеры цены записи: таблица событий (один раз на подготовку) и подпись структуры (на каждый батч)."""
 
-    import cftuv_envelope.materialize.domain as domain_module
+    import cftuv_envelope.materialize.batch_readers as domain_module
     import cftuv_envelope.materialize.interval as interval_module
 
     spent = {"event_table_seconds": 0.0, "event_tables": 0, "structure_seconds": 0.0, "structures": 0}

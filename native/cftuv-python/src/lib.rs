@@ -5,6 +5,7 @@
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
 mod angular;
+mod batch_checks;
 mod certificate;
 mod chain_station;
 mod clip;
@@ -965,6 +966,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(splice::mesh_splice_rebuilt, module)?)?;
     module.add_function(wrap_pyfunction!(preview_model::preview_model_build, module)?)?;
     module.add_function(wrap_pyfunction!(domain_view::domain_view_bytes, module)?)?;
+    module.add_function(wrap_pyfunction!(batch_checks::batch_checks, module)?)?;
     module.add_function(wrap_pyfunction!(graph_pack::graph_pack, module)?)?;
     module.add_function(wrap_pyfunction!(graph_pack::graph_unpack, module)?)?;
     Ok(())

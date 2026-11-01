@@ -130,6 +130,7 @@ __all__ = (
     "mesh_splice_rebuilt",
     "preview_model_build",
     "domain_view_bytes",
+    "batch_checks",
     "mesh_splice_weld",
     "mesh_weld",
     "graph_pack",
@@ -806,4 +807,16 @@ def domain_view_bytes(batch, normal, vertex_normals, source_normal, patch_id):
     found = _core.domain_view_bytes(batch, normal, vertex_normals, source_normal, patch_id, hashlib.blake2b)
     if isinstance(found, str):
         raise NativePortUnsupported(f"domain_view_bytes: {found}")
+    return found
+
+
+def batch_checks(batch, schema, digest_class, source_normal, vertex_normals, copy_mark, validate, audit, structure):
+    """BATCH_READERS_NATIVE_V1: the worker's readers of a materialized batch in one pass (`batch_checks.rs`): `(proved clean | None, audit fields | None, (digest, parts) | None)`
+    for `validation.validate_geometry_batch(batch, check_semantic_digest=False)` (`True`: the oracle finds no issue; `False`: not proven, the host asks the oracle),
+    `materialize.audit.audit_batch` and `materialize.structure.batch_structure` (the host's Python is the oracle, its sources are pinned by `tests/test_native_batch_checks.py`).
+    An input the oracle would raise on, or the port does not read like Python, is `NativePortUnsupported` with the reason, before anything changed."""
+
+    found = _core.batch_checks(batch, schema, digest_class, source_normal, vertex_normals, copy_mark, validate, audit, structure)
+    if isinstance(found, str):
+        raise NativePortUnsupported(f"batch_checks: {found}")
     return found

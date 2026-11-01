@@ -1551,6 +1551,24 @@ def canonical_bytes_compute(oracle, value):
     return answer if done else oracle(value)
 
 
+def batch_checks_compute(oracle, adopt, arguments):
+    """`oracle()` (`materialize.batch_readers`: проверка, аудит и подпись структуры батча), посчитанное заказанным бэкендом W1 (BATCH_READERS_NATIVE_V1): ответ порта
+    `cftuv_native.batch_checks(*arguments)` читает `adopt` (недоказанную чистоту он сам отдаёт эталону); вход, который порт не несёт, — эталон по имени (`NATIVE_PORT_UNSUPPORTED`).
+    Ни точной работы, ни памяти: состояние не меняется."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle()
+
+    def call(module):
+        if not hasattr(module, "batch_checks"):
+            raise _OperationAbsent("this cftuv_native wheel has no `batch_checks` (it predates BATCH_READERS_NATIVE_V1)")
+        return module.batch_checks(*arguments)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return adopt(answer) if done else oracle()
+
+
 def instantiate_compute(oracle, template, partition, alpha, work_budget):
     """`oracle(template, partition, alpha, work_budget)` (`coverage_template.instantiate`), посчитанное заказанным бэкендом W1 (MATERIALIZE_INSTANTIATE_NATIVE_V1): то же
     покрытие либо `None`; вход, который порт не несёт, — эталон по имени (`NATIVE_PORT_UNSUPPORTED`). Цену шаблона платит прослойка последней, как эталон."""

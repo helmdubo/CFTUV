@@ -701,7 +701,7 @@ def test_the_affine_certificate_is_computed_after_the_answer_and_never_inside_it
         if isinstance(node, ast.Call):
             where.setdefault(_called_names_of(node), node.lineno)
     assert "certificate_of" in where, "_materialize_domain не зовёт certificate_of"
-    for earlier in ("_counters", "validate_geometry_batch", "audit_batch", "_step_facts"):
+    for earlier in ("_counters", "batch_readers", "_step_facts"):
         assert earlier in where, f"_materialize_domain не зовёт {earlier}"
         assert where["certificate_of"] > where[earlier], f"сертификат считается раньше {earlier}: он мог бы сдвинуть ответ"
     source = (materialize / "parametric.py").read_text(encoding="utf-8")
