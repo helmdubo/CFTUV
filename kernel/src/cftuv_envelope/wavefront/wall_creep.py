@@ -50,6 +50,9 @@ from .sqrt_sum import SqrtSumV1
 WALL_CREEP_EPSILON = Fraction(1, 1 << 20)
 #: Наибольшая координата целого шага T-надреза, в узлах решётки.
 T_NOTCH_MAX_STEP = 256
+#: Наибольший тангенс излома между выделенным ребром и невыделенным продолжением, при котором стык — T (поперечный
+#: рез), а не угол (торец заподлицо с соседом). 1/2 — около 26.6 градуса: круче торец заподлицо уходит не дальше 2 alpha.
+T_NOTCH_BEND_TANGENT = Fraction(1, 2)
 #: Двоичная точность корня скорости ползущей стены, когда `base * |d|^2` не квадрат.
 CREEP_ROOT_BITS = 24
 
@@ -167,7 +170,11 @@ def _notch_is_clear(polygon: PolygonV1, new_edges, replaced: tuple[Point, Point]
 
 
 def _t_junction(pre, prev: Point, vertex: Point, following: Point) -> bool:
-    """Три узла коллинеарны и сонаправлены В ДОРЕШЁТОЧНЫХ дробях — точно, без порога."""
+    """Излом в узле не круче `T_NOTCH_BEND_TANGENT` (тангенс поворота) В ДОРЕШЁТОЧНЫХ дробях — точно.
+
+    Коллинеарный стык — частный случай (тангенс 0). Почти коллинеарный (выделена часть цепочки с лёгким изломом):
+    заподлицо с соседом торец ушёл бы вдоль него на `alpha / tan` — при изломе 6 градусов на десять alpha.
+    """
 
     try:
         p0, p1, p2 = pre[prev], pre[vertex], pre[following]
@@ -175,7 +182,9 @@ def _t_junction(pre, prev: Point, vertex: Point, following: Point) -> bool:
         return False
     d_in = (p1[0] - p0[0], p1[1] - p0[1])
     d_out = (p2[0] - p1[0], p2[1] - p1[1])
-    return d_in[0] * d_out[1] - d_in[1] * d_out[0] == 0 and d_in[0] * d_out[0] + d_in[1] * d_out[1] > 0
+    cross = d_in[0] * d_out[1] - d_in[1] * d_out[0]
+    dot = d_in[0] * d_out[0] + d_in[1] * d_out[1]
+    return dot > 0 and cross * cross <= T_NOTCH_BEND_TANGENT * T_NOTCH_BEND_TANGENT * dot * dot
 
 
 def _notch_loop(polygon: PolygonV1, loop: LoopV1, pre, motions, fan_points, stats):
@@ -298,18 +307,19 @@ def creep_walls(polygon: PolygonV1, loops, lattice_loops, laws) -> WallCreepV1 |
 _CREEP_DOES_NOT_CURE = frozenset({"LEVEL_BUDGET_EXHAUSTED"})
 
 
-def needs_creeping_walls(prepared) -> bool:
+def needs_creeping_walls(prepared, creeping_done: bool = True) -> bool:
     """Домен с неподвижными стенами, чей скелет или грани не закрылись, — ещё раз с ползущими стенами.
 
     Неподвижные стены идут ПЕРВЫМИ: где они закрываются, торец заподлицо побайтно как прежде, и вершины на стене у
     соседних доменов совпадают побитово (сварка `WALL_MITER_OFFSET_V1`); ползущая стена отступает на `eps * alpha`
     внутрь, и пара соседних торцов разошлась бы на `2 eps alpha` — без сварки. Поэтому ползут только те домены, которые
     без этого не строятся (`WAVEFRONT_LEFT_UNRESOLVED`, коллинеарный T-стык `SUPERLEVEL_COMPONENT_UNRESOLVABLE`, ...).
+    `creeping_done=False` — тот же разбор исхода для прохода, где стены уже ползут (`needs_hole_channels`).
     """
 
     if prepared is None or not prepared.wall_spans or prepared.bridge is None or prepared.bridge.polygon is None:
         return False
-    if prepared.bridge.creeping_wall_count:
+    if creeping_done and prepared.bridge.creeping_wall_count:
         return False
     skeleton = prepared.skeleton_outcome
     if skeleton is not None and skeleton.value != "EXACT":
@@ -340,5 +350,11 @@ def wall_creep_counters(regions) -> tuple[tuple[str, int], ...]:
         ("CONVEYOR_WALL_CREEP_V1_T_NOTCHES_REFUSED", sum(item.t_notch_refused_count for item in reports)),
         ("CONVEYOR_WALL_CREEP_V1_T_NOTCH_MAX_ERROR_MICRODEG", max((item.t_notch_max_angle_error_microdeg for item in reports), default=0)),
         ("CONVEYOR_SPAN_RESOLVED_SOURCE_EDGES", sum(item.span_resolved_edge_count for item in reports)),
+        ("CONVEYOR_HOLE_CHANNEL_V1_CHANNELS", sum(item.hole_channel_count for item in reports)),
+        ("CONVEYOR_HOLE_CHANNEL_V1_REFUSED", sum(item.hole_channel_refused_count for item in reports)),
+        (
+            "CONVEYOR_HOLE_CHANNEL_V1_MIN_DISTANCE_MICRO",
+            min((item.hole_channel_min_distance_micro for item in reports if item.hole_channel_count), default=0),
+        ),
     )
     return tuple(row for row in rows if row[1])

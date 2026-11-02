@@ -158,10 +158,17 @@ def _parsed_sweep_arguments(arguments) -> dict:
 #: домена — ратчет. Замер на замороженной сцене (2026-11-02): до закона 209 / 66 / 13 отказов
 #: из 295 / 84 / 15, после — 27 / 0 / 3 (остаток: регионы с несколькими дырами и бюджет
 #: канонизации). Сдвиг вверх — регресс по имени `PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET`.
+#: HOLE_CHANNEL_V1 (каналы дыр, T-надрез на мягком изломе): цепочки 27 / 0 / 3 / 27 -> 2 / 0 / 3 / 2 (building.005 —
+#: копия фасада владельца), и тот же режим по ОДИНОЧНЫМ РЁБРАМ шва (выделена часть цепочки): 32 / 0 / 32 -> 2 / 0 / 2.
+#: Остаток — бюджет канонизации. Угловой шов фасада владельца (`building.005` ребро 598, патчи 11 и 15) обязан
+#: строиться целиком: иначе `PARTIAL_SEAM_NAMED_CASE_REFUSED`.
 PARTIAL_SEAM_RECEIPT_SCHEMA = "cftuv.envelope.partial_seam_sweep.v1"
 PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET = "PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET"
 PARTIAL_SEAM_FLAG = "--partial-seams"
-_PARTIAL_SEAM_REFUSAL_RATCHET = {"building": 27, "2": 0, "building.004": 3}
+PARTIAL_SEAM_NAMED_CASE_REFUSED = "PARTIAL_SEAM_NAMED_CASE_REFUSED"
+_PARTIAL_SEAM_REFUSAL_RATCHET = {"building": 2, "2": 0, "building.004": 3, "building.005": 2}
+_PARTIAL_SEAM_EDGE_REFUSAL_RATCHET = {"building": 2, "2": 0, "building.005": 2}
+_PARTIAL_SEAM_MUST_BUILD = {"building.005": ((598,),)}
 
 
 def _partial_seam_contract(arguments) -> dict:
@@ -176,6 +183,8 @@ def _partial_seam_contract(arguments) -> dict:
         "schema": PARTIAL_SEAM_RECEIPT_SCHEMA,
         "output": arguments[0],
         "refusal_ratchet": dict(_PARTIAL_SEAM_REFUSAL_RATCHET),
+        "edge_refusal_ratchet": dict(_PARTIAL_SEAM_EDGE_REFUSAL_RATCHET),
+        "must_build": {name: [list(edges) for edges in cases] for name, cases in _PARTIAL_SEAM_MUST_BUILD.items()},
     }
 
 
@@ -977,8 +986,8 @@ def _single_chain_selections(bundle) -> list[tuple[int, ...]]:
     return list(seen.values())
 
 
-def _partial_seam_mesh(obj, controller) -> dict:
-    """Все одиночные цепочки шва меша, каждая своим продуктовым прогоном; отказы по именам."""
+def _partial_seam_mesh(obj, controller, single_edges: bool = False) -> dict:
+    """Все одиночные цепочки шва меша (или все рёбра этих цепочек по одному), каждая своим продуктовым прогоном."""
 
     from cftuv.analysis import build_analysis_bundle
     from cftuv.analysis_surface import source_revision_from_bmesh
@@ -996,6 +1005,9 @@ def _partial_seam_mesh(obj, controller) -> dict:
     refusals: dict[str, int] = {}
     refused = 0
     selections = _single_chain_selections(bundle)
+    if single_edges:
+        selections = [(edge,) for edge in sorted({edge for chain in selections for edge in chain})]
+    refused_cases = []
     for edges in selections:
         run = production.run_production(
             controller, bundle, frozenset(edges), float(settings.envelope_debug_alpha),
@@ -1006,12 +1018,15 @@ def _partial_seam_mesh(obj, controller) -> dict:
         )
         bad = [item for item in run.results if item.outcome != "MATERIALIZED"]
         refused += bool(bad)
+        if bad:
+            refused_cases.append(list(edges))
         for item in bad:
             stage = re.search(r"[A-Z][A-Z_]{8,}", str(item.detail).partition(":")[2] or "")
             name = f"{item.outcome}|{stage.group(0) if stage else ''}"
             refusals[name] = refusals.get(name, 0) + 1
     bpy.ops.object.mode_set(mode="OBJECT")
-    return {"mesh": obj.name, "selections": len(selections), "refused_selections": refused, "refusals": refusals}
+    return {"mesh": obj.name, "mode": "edges" if single_edges else "chains", "selections": len(selections),
+            "refused_selections": refused, "refusals": refusals, "refused_cases": refused_cases}
 
 
 def partial_seam_main() -> None:
@@ -1023,21 +1038,24 @@ def partial_seam_main() -> None:
     scene_before = _source_file_identity(Path(bpy.data.filepath))
     controller = EnvelopeDebugSessionController()
     meshes = []
-    for name, ratchet in _PARTIAL_SEAM_REFUSAL_RATCHET.items():
-        obj = bpy.data.objects.get(name)
-        if obj is None or obj.type != "MESH":
-            raise DensitySweepContractError(f"{SWEPT_MESH_ABSENT}: {name}")
-        meshes.append({**_partial_seam_mesh(obj, controller), "ratchet": ratchet})
+    for single_edges, ratchets in ((False, _PARTIAL_SEAM_REFUSAL_RATCHET), (True, _PARTIAL_SEAM_EDGE_REFUSAL_RATCHET)):
+        for name, ratchet in ratchets.items():
+            obj = bpy.data.objects.get(name)
+            if obj is None or obj.type != "MESH":
+                raise DensitySweepContractError(f"{SWEPT_MESH_ABSENT}: {name}")
+            meshes.append({**_partial_seam_mesh(obj, controller, single_edges), "ratchet": ratchet})
     if _source_file_identity(Path(bpy.data.filepath)) != scene_before:
         raise DensitySweepContractError("SOURCE_SCENE_WAS_SAVED")
-    above = [item["mesh"] for item in meshes if item["refused_selections"] > item["ratchet"]]
-    payload = {**parsed, "meshes": meshes, "status": "REJECTED" if above else "COMPLETE",
-               "gate_failure": PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET if above else None}
+    above = [f"{item['mesh']}:{item['mode']}" for item in meshes if item["refused_selections"] > item["ratchet"]]
+    named = [f"{item['mesh']}:{edges}" for item in meshes for edges in item["refused_cases"]
+             if tuple(edges) in _PARTIAL_SEAM_MUST_BUILD.get(item["mesh"], ())]
+    failure = PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET if above else PARTIAL_SEAM_NAMED_CASE_REFUSED if named else None
+    payload = {**parsed, "meshes": meshes, "status": "REJECTED" if failure else "COMPLETE", "gate_failure": failure}
     Path(parsed["output"]).write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     for item in meshes:
-        print(f"PARTIAL {item['mesh']:<14} {item['refused_selections']}/{item['selections']} refused (ratchet {item['ratchet']})")
-    if above:
-        raise DensitySweepContractError(f"{PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET}: {above}")
+        print(f"PARTIAL {item['mesh']:<14} {item['mode']:<6} {item['refused_selections']}/{item['selections']} refused (ratchet {item['ratchet']})")
+    if failure:
+        raise DensitySweepContractError(f"{failure}: {above or named}")
 
 
 def main() -> None:

@@ -137,6 +137,7 @@ from .bridge import (
     bridge_arrival_laws,
 )
 from .coverage import CoverageOutcome, current_coverage_source
+from .hole_channel import needs_hole_channels
 from .wall_creep import drop_wall_faces, needs_creeping_walls, wall_creep_counters, with_support_extent
 from .faces import (
     CrowdedChainsV1,
@@ -1140,8 +1141,10 @@ def _prepare_region(
     work_budget: ExactWorkBudgetV1 | None = None,
     dense_hydration: bool = False,
     creeping_walls: bool = False,
+    hole_channels: bool = False,
 ) -> tuple[PreparedRegionV1 | None, str | None]:
-    """`creeping_walls` (WALL_CREEP_V1): второй проход домена, чьи неподвижные стены не закрылись (`needs_creeping_walls`)."""
+    """`creeping_walls` (WALL_CREEP_V1): второй проход домена, чьи неподвижные стены не закрылись (`needs_creeping_walls`);
+    `hole_channels` (HOLE_CHANNEL_V1): третий, когда и ползущие стены не закрыли домен с дырами."""
 
     started = time.perf_counter()
     loops, issue = _region_loops(region)
@@ -1156,6 +1159,7 @@ def _prepare_region(
         lattice=lattice,
         weighted_fronts=True,
         creeping_walls=creeping_walls,
+        hole_channels=hole_channels,
         vertex_fans=tuple(
             VertexFanLawV1(fan.name, fan.point, fan.supports)
             for fan in reading.fans
@@ -1434,6 +1438,8 @@ def prepare_conveyor(
             prepared, issue = _prepare_region(*arguments)
             if needs_creeping_walls(prepared):  # WALL_CREEP_V1: неподвижные стены не закрылись
                 prepared, issue = _prepare_region(*arguments, creeping_walls=True)
+            if needs_hole_channels(prepared):  # HOLE_CHANNEL_V1: и ползущие стены не закрыли домен с дырами
+                prepared, issue = _prepare_region(*arguments, creeping_walls=True, hole_channels=True)
         except ExactCanonicalizationWorkBudgetExhausted as exhausted:
             # Строки времени у этого отказа нет намеренно: `_prepare_region`
             # ставит её сама на выходе, а выхода тут не было. Ноль секунд был

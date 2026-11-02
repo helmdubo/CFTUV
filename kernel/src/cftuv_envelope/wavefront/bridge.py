@@ -103,6 +103,7 @@ from .polygon import (
     with_edge_speeds,
     with_vertex_fans,
 )
+from .hole_channel import HoleChannelsV1, channel_holes
 from .wall_creep import WallCreepV1, creep_walls
 
 
@@ -328,6 +329,11 @@ class BridgeReportV1:
     t_notch_refused_count: int = 0
     t_notch_max_angle_error_microdeg: int = 0
     span_resolved_edge_count: int = 0
+    # HOLE_CHANNEL_V1 (`hole_channel.py`): каналы, влившие дыры в контур, дыры без канала и наименьшее
+    # расстояние от источника до начала канала (микроединицы карты). Нули — ветки не было.
+    hole_channel_count: int = 0
+    hole_channel_refused_count: int = 0
+    hole_channel_min_distance_micro: int = 0
 
     @property
     def wall_edge_count(self) -> int:
@@ -497,13 +503,14 @@ def bridge_arrival_laws(
     weighted_fronts: bool = False,
     vertex_fans: tuple[VertexFanLawV1, ...] = (),
     creeping_walls: bool = False,
+    hole_channels: bool = False,
 ) -> BridgeReportV1:
     """Собрать вход очереди из домена и законов прихода попарного кроя.
 
     `creeping_walls` (WALL_CREEP_V1, продукт): рёбра без закона становятся не неподвижными
     стенами (`q = 0`), а ПОЛЗУЩИМИ источниками исчезающей скорости, а у выделенного ребра,
     коллинеарного невыделенному, ставится T-надрез (`wall_creep.py`). Без параметра — прежний мост.
-
+    `hole_channels` (HOLE_CHANNEL_V1): дыры без источников влиты в контур каналами (`hole_channel.py`).
     Первая петля — внешний контур, остальные — дыры. Ориентацию нормирует
     `PolygonV1.build`, поэтому от вызывающего она не требуется.
 
@@ -536,6 +543,8 @@ def bridge_arrival_laws(
     """
 
     findings: list[BridgeOutcome] = []
+    channels = channel_holes(loops, laws, frozenset(fan.point for fan in vertex_fans), lattice) if hole_channels else None
+    loops = loops if channels is None else channels.loops  # HOLE_CHANNEL_V1: дыры влиты в контур каналами
     lattice_loops, off_lattice, residual = _lattice_image(loops, lattice)
     if lattice_loops is None:
         findings.append(BridgeOutcome.DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE)
@@ -605,21 +614,28 @@ def bridge_arrival_laws(
         weighted_edge_count=built.weighted_edge_count,
         fan_edge_count=built.fan_edge_count,
         span_resolved_edge_count=matching.span_resolved_edge_count,
-        **_creep_report_fields(built.creep),
+        **_creep_report_fields(built.creep, channels),
     )
 
 
-def _creep_report_fields(creep: WallCreepV1 | None) -> dict[str, int]:
-    """Поля отчёта WALL_CREEP_V1; нули, когда ползущих стен нет."""
+def _creep_report_fields(creep: WallCreepV1 | None, channels: HoleChannelsV1 | None = None) -> dict[str, int]:
+    """Поля отчёта WALL_CREEP_V1 и HOLE_CHANNEL_V1; нули, когда ветки не было."""
 
-    if creep is None:
-        return {}
-    return {
-        "creeping_wall_count": creep.creeping_wall_count,
-        "t_notch_count": creep.t_notch_count,
-        "t_notch_refused_count": creep.t_notch_refused_count,
-        "t_notch_max_angle_error_microdeg": creep.t_notch_max_angle_error_microdeg,
-    }
+    fields = {}
+    if creep is not None:
+        fields.update(
+            creeping_wall_count=creep.creeping_wall_count,
+            t_notch_count=creep.t_notch_count,
+            t_notch_refused_count=creep.t_notch_refused_count,
+            t_notch_max_angle_error_microdeg=creep.t_notch_max_angle_error_microdeg,
+        )
+    if channels is not None:
+        fields.update(
+            hole_channel_count=channels.channel_count,
+            hole_channel_refused_count=channels.refused_count,
+            hole_channel_min_distance_micro=channels.min_distance_micro,
+        )
+    return fields
 
 
 @dataclass(frozen=True, slots=True)

@@ -267,3 +267,17 @@ def test_creeping_wall_speed_is_rational_one_per_domain_and_never_faster_than_th
     assert len(speeds) == 1
     if base in (1, Fraction(4, 9)):
         assert speeds == {base * WALL_CREEP_EPSILON**2}
+
+
+def test_a_soft_bend_into_an_unselected_continuation_is_cut_across():
+    """Выделена часть цепочки с изломом 14 градусов (тангенс 1/4): стык — T, торец режется поперёк."""
+
+    polygon = PolygonV1(LoopV1(((0, 0), (8, 0), (16, 2), (16, 10), (0, 10)), (64, 0, 0, 0, 0)))
+    assert _crept(polygon).t_notch_count == 1
+
+
+def test_a_sharp_bend_into_an_unselected_neighbour_stays_flush():
+    """Излом 63 градуса (тангенс 2): это угол, торец заподлицо с соседом, надреза нет."""
+
+    polygon = PolygonV1(LoopV1(((0, 0), (8, 0), (16, 16), (0, 16)), (64, 0, 0, 0)))
+    assert _crept(polygon).t_notch_count == 0

@@ -78,7 +78,8 @@
             "MITER_CORNER_AT_DENSITY_ZERO_WITHIN_DECAL_ANGLE_BOUND",
             "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL",
             "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE",
-            "CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA"
+            "CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA",
+            "CUT_SOURCE_END_ACROSS_A_SOFT_BEND"
           ],
           "type": "string"
         },
@@ -196,7 +197,8 @@
             "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1",
             "SILHOUETTE_UV_SLIDE_V1",
             "SOURCE_CONTACT_GAP_V1",
-            "WALL_CREEP_SPEED_V1"
+            "WALL_CREEP_SPEED_V1",
+            "T_NOTCH_BEND_TANGENT_V1"
           ],
           "type": "string"
         },

@@ -229,7 +229,9 @@ def test_button_sweep_contract_counts_exactly_9_true_button_calls():
 def test_partial_seam_sweep_holds_the_wall_creep_refusal_ratchet():
     """WALL_CREEP_V1: режим одиночных цепочек шва — свой контракт и ратчет отказов по мешам.
 
-    Замер на замороженной сцене: до закона 209 / 66 / 13 выделений с отказом, после 27 / 0 / 3.
+    Замер на замороженной сцене: до закона 209 / 66 / 13 выделений с отказом, после 27 / 0 / 3; с каналами дыр
+    (HOLE_CHANNEL_V1) цепочки 2 / 0 / 3 / 2 (с building.005), одиночные рёбра 2 / 0 / 2; угловой шов владельца
+    (building.005 ребро 598) обязан строиться.
     Ратчет поднимать нельзя без нового замера; опускать — после него.
     """
 
@@ -237,7 +239,9 @@ def test_partial_seam_sweep_holds_the_wall_creep_refusal_ratchet():
     payload = _json_output(result)
     assert payload["schema"] == "cftuv.envelope.partial_seam_sweep.v1"
     assert payload["output"] == "partial.json"
-    assert payload["refusal_ratchet"] == {"building": 27, "2": 0, "building.004": 3}
+    assert payload["refusal_ratchet"] == {"building": 2, "2": 0, "building.004": 3, "building.005": 2}
+    assert payload["edge_refusal_ratchet"] == {"building": 2, "2": 0, "building.005": 2}
+    assert payload["must_build"] == {"building.005": [[598]]}
     missing = _run(sys.executable, str(BUTTON_SWEEP), "--contract-only", "--", "--partial-seams")
     assert missing.returncode != 0 and NAMED_OMISSION in missing.stderr
 

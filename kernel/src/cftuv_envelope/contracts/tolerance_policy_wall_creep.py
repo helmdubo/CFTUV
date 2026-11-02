@@ -58,6 +58,34 @@ def wall_creep_policies() -> tuple:
             positive_fixture=f"{tests}::test_creeping_wall_speed_is_eps_of_the_slowest_source",
             negative_fixture=f"{tests}::test_all_seams_selected_is_unchanged",
         ),
+        TolerancePolicyV1(
+            id=TolerancePolicyIdV1.T_NOTCH_BEND_TANGENT_V1,
+            category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
+            value=_rational(Fraction(1, 2)),
+            bound_law=None,
+            units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+            coordinate_space=TolerancePolicyCoordinateSpaceV1.CHART_LATTICE,
+            scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+            scope=(
+                "Ползущие стены (второй и третий проход моста): узел, где выделенное ребро переходит в невыделенное с "
+                "изломом, тангенс которого не больше 1/2 (около 26.6 градуса, дорешёточные дроби, точно), — T-стык: "
+                "торец режется поперёк по метрической нормали фронта (T-надрез). Круче — угол, и торец ложится "
+                "заподлицо с соседом, уходя вдоль него не дальше 2 alpha. Без порога выделенная часть цепочки с лёгким "
+                "изломом давала хвост alpha / tan излома (building ребро 479: 6 градусов, хвост 10 alpha)."
+            ),
+            authority=(
+                "wavefront.wall_creep.T_NOTCH_BEND_TANGENT; DECISIONS.md 2026-11-02 (HOLE_CHANNEL_V1: одиночные рёбра "
+                "фасадов building/building.005)"
+            ),
+            applied_stage=TolerancePolicyAppliedStageV1.WAVEFRONT_BRIDGE_UNSELECTED_EDGE,
+            allowed_effect=TolerancePolicyAllowedEffectV1.CUT_SOURCE_END_ACROSS_A_SOFT_BEND,
+            changes_topology=True,
+            preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+            telemetry_counters=("CONVEYOR_WALL_CREEP_V1_T_NOTCHES", "CONVEYOR_WALL_CREEP_V1_T_NOTCHES_REFUSED"),
+            declaration_sites=("cftuv_envelope.wavefront.wall_creep.T_NOTCH_BEND_TANGENT",),
+            positive_fixture=f"{tests}::test_a_soft_bend_into_an_unselected_continuation_is_cut_across",
+            negative_fixture=f"{tests}::test_a_sharp_bend_into_an_unselected_neighbour_stays_flush",
+        ),
     )
 
 
