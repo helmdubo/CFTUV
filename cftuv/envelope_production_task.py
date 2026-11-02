@@ -86,6 +86,7 @@ def produce_domain(
     topology_law: str = PRODUCTION_TOPOLOGY_LAW,
     defer: bool = False,
     lean: bool = False,
+    uv_context=None,
 ) -> ProductionDomainResultV1:
     """Покрытие на готовой подготовке и материализация: общий код всех путей.
 
@@ -141,6 +142,7 @@ def produce_domain(
             digests=not defer,
             defer_checks=lean,  # LEAN_TICK_DIAGNOSTICS_DEFERRED_V1: проверка и аудит батча - на COMMIT (и у выборки lean-тика)
             parametric=True,  # аффинный сертификат перетаскивания: `CFTUV_PARAMETRIC=0` в окружении процесса его выключает
+            **({} if uv_context is None else {"uv_context": uv_context}),
         )
         result = stepped.result
         if not result.is_materialized:
@@ -294,6 +296,7 @@ def _solve_cold_production_task(task, ledger):
         prepared,
         task.alpha_text,
         uv_policy_id=task.cold.uv_policy_id,
+        uv_context=task.cold.uv_context,
         topology_law=task.cold.topology_law,
         defer=True,
         backend=task.backend,
@@ -336,6 +339,7 @@ def solve_production_task(task):
             payload,
             task.alpha_text,
             uv_policy_id=production.uv_policy_id,
+            uv_context=production.uv_context,
             topology_law=production.topology_law,
             defer=True,
             lean=lean,

@@ -340,6 +340,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "embedding_backend",
         "density_backend",
         "uv_policy_id",
+        "uv_context",
         "pool",
         "cancel",
         "exc",
@@ -397,7 +398,7 @@ def test_the_width_live_worker_thread_function_touches_no_blender_data():
     used = {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}
     used -= {arg.arg for arg in compute.args.args}
     foreign = used - _WIDTH_COMPUTE_NAMES
-    for name in ("density_backend", "uv_policy_id"):
+    for name in ("density_backend", "uv_policy_id", "uv_context"):
         captured = [node for node in begin.body if isinstance(node, ast.Assign)
                     and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)]
         assert len(captured) == 1

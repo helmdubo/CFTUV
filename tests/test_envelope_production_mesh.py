@@ -1001,6 +1001,7 @@ def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatc
 
     assert ("operator", "hotspotuv.build_envelope_decal_mesh", "Build Decal Mesh") in layout.calls
     assert ("prop", "offset") in layout.calls
+    assert ("prop", "uv_policy_id") in layout.calls
     assert (
         "prop_search", mesh_settings, "material_name", fake_bpy.data, "materials",
         {"text": "", "results_are_suggestions": True},

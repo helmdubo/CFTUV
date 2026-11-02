@@ -29,6 +29,7 @@ from .envelope_production_result import (
 )
 from .envelope_scan_memo import remember_inputs
 from .envelope_topology_export import metric_law_key
+from .envelope_uniform_context import context_key
 from .surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
 
 
@@ -136,6 +137,7 @@ class _RunInputsV1:
     skipped: frozenset = frozenset()
     #: SNAPSHOT_BYTE_CHECK_FIRST_PRESS_IN_BACKGROUND_V1: домены, чей снапшот воркер отложил на фоновый круг кодека в ЭТОМ прогоне (по одному на каждый ответ с отложенным); общий у повтора лотереи привязки.
     byte_check_ledger: list = field(default_factory=list)
+    uv_context: object | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -185,7 +187,7 @@ def _inputs_of(run: _RunInputsV1, entry_key, provider):
 
 
 def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
-    return run.controller.production_result_key(
+    return context_key(run.controller.production_result_key(
         run.revision,
         domain_id,
         selected,
@@ -197,7 +199,7 @@ def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
         run.backend_id,
         skeleton_id=run.skeleton_id,
         grid_scale_law=run.grid_scale_law,
-    )
+    ), run.uv_context)
 
 
 def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs):
@@ -228,6 +230,7 @@ def _slot(run: _RunInputsV1) -> tuple:
         run.topology_law,
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
         run.backend_id,
+        uv_context=run.uv_context,
     )
 
 
@@ -384,14 +387,14 @@ def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record,
     from .envelope_scan_memo import request_at
 
     controller = run.controller
-    key = (
+    key = context_key((
         record.prep_key,
         run.alpha_text,
         run.uv_policy_id,
         run.topology_law,
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
         run.backend_id,
-    )
+    ), run.uv_context)
     return _DomainEntryV1(
         patch_id,
         domain_id,

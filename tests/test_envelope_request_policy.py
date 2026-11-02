@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,9 +17,11 @@ from cftuv.envelope_request_policy import (  # noqa: E402
     DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
     DEFAULT_ENVELOPE_STRETCH_BUDGET,
     ENVELOPE_MAX_STRETCH_PERCENT_RANGE,
+    ENVELOPE_PRODUCT_UV_POLICY_ITEMS,
     ENVELOPE_UV_POLICIES,
     ENVELOPE_UV_POLICY_DEBUG_NO_UV,
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
+    ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN,
     build_envelope_request_contract,
     envelope_angular_policy,
     envelope_decal_request_id_value,
@@ -47,19 +51,20 @@ def test_the_host_registry_names_exactly_the_laws_the_kernel_can_materialize():
 
     from cftuv_envelope.materialize.uv_law import SUPPORTED_UV_POLICIES
 
-    assert ENVELOPE_UV_POLICY_DIRECT_STRIP in ENVELOPE_UV_POLICIES
-    assert {item.value for item in SUPPORTED_UV_POLICIES} == {
-        ENVELOPE_UV_POLICY_DIRECT_STRIP
-    }
+    product_ids = {item[0] for item in ENVELOPE_PRODUCT_UV_POLICY_ITEMS}
+    assert product_ids == {ENVELOPE_UV_POLICY_DIRECT_STRIP, ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN}
+    assert set(ENVELOPE_UV_POLICIES) == product_ids | {ENVELOPE_UV_POLICY_DEBUG_NO_UV}
+    assert {item.value for item in SUPPORTED_UV_POLICIES} == product_ids
     assert ENVELOPE_UV_POLICY_DEBUG_NO_UV not in {
         item.value for item in SUPPORTED_UV_POLICIES
     }
 
 
-def test_the_debug_request_keeps_its_policy_and_the_product_one_is_selectable():
+@pytest.mark.parametrize("uv_policy_id", (ENVELOPE_UV_POLICY_DIRECT_STRIP, ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN))
+def test_the_debug_request_keeps_its_policy_and_the_product_one_is_selectable(uv_policy_id):
     assert _request().uv_policy_id.value == "ENVELOPE_DEBUG_NO_UV_V1"
-    chosen = _request(uv_policy_id=ENVELOPE_UV_POLICY_DIRECT_STRIP)
-    assert chosen.uv_policy_id.value == "UV_DIRECT_STRIP_V1"
+    chosen = _request(uv_policy_id=uv_policy_id)
+    assert chosen.uv_policy_id.value == uv_policy_id
     # Закон — единственное, что отличает запросы.
     import dataclasses
 
@@ -71,6 +76,74 @@ def test_the_debug_request_keeps_its_policy_and_the_product_one_is_selectable():
 def test_an_unknown_uv_policy_is_an_error_and_not_a_silent_substitution():
     with pytest.raises(ValueError, match="unknown UV policy"):
         _request(uv_policy_id="SOMETHING_ELSE")
+
+
+def _production_operator_tree():
+    path = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_production_operator.py"
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def test_the_product_uv_choice_defaults_to_direct_and_only_changes_the_next_build():
+    from cftuv.envelope_production_export import PRODUCTION_UV_POLICY
+
+    group = next(node for node in _production_operator_tree().body if isinstance(node, ast.ClassDef) and node.name == "HOTSPOTUV_DecalMeshSettings")
+    prop = next(node.annotation for node in group.body if isinstance(node, ast.AnnAssign) and node.target.id == "uv_policy_id")
+    assert isinstance(prop.func, ast.Name) and prop.func.id == "EnumProperty"
+    definition = eval(compile(ast.Expression(prop), "uv_property", "eval"), {
+        "EnumProperty": lambda **kwargs: kwargs,
+        "ENVELOPE_PRODUCT_UV_POLICY_ITEMS": ENVELOPE_PRODUCT_UV_POLICY_ITEMS,
+        "ENVELOPE_UV_POLICY_DIRECT_STRIP": ENVELOPE_UV_POLICY_DIRECT_STRIP,
+    })
+
+    assert definition["default"] == PRODUCTION_UV_POLICY == ENVELOPE_UV_POLICY_DIRECT_STRIP
+    assert [item[0] for item in definition["items"]] == [ENVELOPE_UV_POLICY_DIRECT_STRIP, ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN]
+    assert "update" not in definition  # Смена выбора не переписывает уже построенный меш или запись живой ширины.
+    assert "next Build Decal Mesh" in definition["description"]
+
+
+@pytest.mark.parametrize("saved_policy", (None, ENVELOPE_UV_POLICY_DIRECT_STRIP, ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN), ids=("old-scene", "direct", "uniform-trim"))
+def test_the_button_explicitly_orders_the_selected_uv_law_and_old_settings_keep_direct(monkeypatch, saved_policy):
+    from cftuv import envelope_production_export
+
+    # Исполняется настоящее тело кнопки без Blender; расчёт останавливается сразу после чтения его явного заказа.
+    captured = {}
+
+    def capture_request(*_args, **kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("request captured")
+
+    monkeypatch.setattr(envelope_production_export, "run_production", capture_request)
+    method = next(node for node in ast.walk(_production_operator_tree()) if isinstance(node, ast.FunctionDef) and node.name == "_build_and_write")
+    namespace = {
+        "__package__": "cftuv",
+        "ENVELOPE_UV_POLICY_DIRECT_STRIP": ENVELOPE_UV_POLICY_DIRECT_STRIP,
+        "SETTINGS_ATTRIBUTE": "hotspotuv_decal_mesh",
+        "_runtime_key": id,
+        "source_revision_from_bmesh": lambda *_args: "revision",
+        "build_analysis_bundle": lambda *_args: object(),
+        "_restore_edge_selection": lambda *_args: None,
+    }
+    exec(compile(ast.Module(body=[method], type_ignores=[]), "production_button", "exec"), namespace)
+    mesh_settings = SimpleNamespace()
+    if saved_policy is not None:
+        mesh_settings.uv_policy_id = saved_policy
+    settings = SimpleNamespace(envelope_debug_alpha=0.25, envelope_debug_fan_density="1", envelope_debug_max_stretch=20,
+                               envelope_debug_dissolve_uv_tolerance=0.390625, envelope_debug_workers=0)
+    context = SimpleNamespace(scene=SimpleNamespace(hotspotuv_settings=settings, hotspotuv_decal_mesh=mesh_settings))
+
+    class Faces(tuple):
+        def ensure_lookup_table(self):
+            pass
+
+    result = namespace["_build_and_write"](
+        SimpleNamespace(report=lambda *_args: None), context,
+        SimpleNamespace(get_analysis_bundle=lambda *_args: object()),
+        SimpleNamespace(data=object()), SimpleNamespace(faces=Faces()), [1], "PYTHON",
+    )
+
+    assert result == {"CANCELLED"} and mesh_settings.status == "Decal mesh failed: RuntimeError"
+    assert captured["uv_policy_id"] == (ENVELOPE_UV_POLICY_DIRECT_STRIP if saved_policy is None else saved_policy)
+    assert captured["kernel_backend"] == "PYTHON" and captured["defer_byte_check"] is True
 
 
 # --------------------------------------------------------------------------

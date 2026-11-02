@@ -173,6 +173,7 @@ from .envelope_snapshot_byte_check import finish_press, resolve_plan
 from .envelope_scan_memo import remember_inputs
 from .envelope_stretch_lines import developable_stretch_lines  # noqa: F401 - переэкспорт: имя прежнее
 from .envelope_request_policy import ENVELOPE_UV_POLICIES
+from .envelope_uniform_context import with_uniform_context
 from .surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY  # noqa: F401 - переэкспорт: тесты подменяют закон подъёма на этом модуле
 
 
@@ -225,6 +226,7 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
         prepared,
         run.alpha_text,
         uv_policy_id=run.uv_policy_id,
+        uv_context=run.uv_context,
         topology_law=run.topology_law,
         backend=run.backend,
         skeleton_backend=run.skeleton_backend,
@@ -422,6 +424,7 @@ def _produced_by_parent(run: _RunInputsV1, item: _DomainEntryV1) -> ProductionDo
         prepared,
         run.alpha_text,
         uv_policy_id=run.uv_policy_id,
+        uv_context=run.uv_context,
         topology_law=run.topology_law,
         lean=lean_ready(run, item),
         backend=run.backend,
@@ -460,7 +463,7 @@ def _production_input(run: _RunInputsV1, entry: _DomainEntryV1, blob: bytes) -> 
     # Память подготовок воркера держит подготовки, а не результаты на перенос: у `carried` пикл едет всегда.
     key = "" if entry.carried is not None else run.controller.preparation_blobs.key_of(entry.prepared)
     return ProductionInputV1(
-        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None, key, lean_ready(run, entry)
+        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None, key, lean_ready(run, entry), uv_context=run.uv_context
     )
 
 
@@ -495,7 +498,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
 
 
 def cold_laws(run) -> ColdProductionInputV1:
-    return ColdProductionInputV1(run.uv_policy_id, run.topology_law, run.topology_export.snapshot_byte_check)
+    return ColdProductionInputV1(run.uv_policy_id, run.topology_law, run.topology_export.snapshot_byte_check, uv_context=run.uv_context)
 
 
 def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
@@ -640,6 +643,7 @@ class ProductionRunV1:
     embedding_backend: str | None = None
     density_backend: str | None = field(default=None, kw_only=True)
     uv_policy_id: str = field(default=PRODUCTION_UV_POLICY, kw_only=True)
+    uv_context: object | None = field(default=None, kw_only=True)
     #: Класс обновления (`REFRESH_COMMIT` | `REFRESH_LEAN` = WIDTH_REFRESH_LEAN_V1): lean-прогон заказывает путь без работы, нужной только фиксации.
     refresh: str = REFRESH_COMMIT
 
@@ -825,6 +829,7 @@ def run_production(
     density,
     workers: int = 0,
     uv_policy_id: str = PRODUCTION_UV_POLICY,
+    uv_context=None,
     topology_law: str = PRODUCTION_TOPOLOGY_LAW,
     domain_pool=_FROM_SETTINGS,
     developable_stretch_budget=None,
@@ -865,9 +870,7 @@ def run_production(
     """
 
     from .envelope_chart_band import policy_alpha
-    from .envelope_domain_pool import get_domain_pool
     from .envelope_topology_export import STAGE_INPUTS_HIT, stage_production_inputs
-    from .envelope_worker_python import read_worker_python
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
@@ -886,11 +889,7 @@ def run_production(
     builds_before, lazy_before = controller.build_counts, controller.lazy_unpickled
     density_backend = resolve_density_backend(kernel_backend, density_backend)
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
-    pool = (
-        get_domain_pool(workers, read_worker_python())
-        if domain_pool is _FROM_SETTINGS
-        else domain_pool
-    )
+    pool = _production_pool(domain_pool, workers)
     topology_export = controller.get_topology_export(
         analysis_bundle, source_object_key, source_data_key, profile=profile
     ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
@@ -927,13 +926,22 @@ def run_production(
         lean=lean,
         served={patch: result for patch, result in dict(served or {}).items() if patch not in refused_by_byte_check},
         skipped=frozenset(int(item) for item in (skipped or ())) - refused_by_byte_check,
+        uv_context=uv_context,
     )
+    run = with_uniform_context(run, pool, prepass=_scan_and_dispatch)
     entries, done, refused = _scan_and_dispatch(run, pool)
     cold = any(item.is_cold for item in entries)
     results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
     produced = _production_run(run, entries, results, cold, started, builds_before, lazy_before)
     _start_byte_check(controller, run, pool, entries, defer_byte_check)
     return produced
+
+
+def _production_pool(domain_pool, workers):
+    from .envelope_domain_pool import get_domain_pool
+    from .envelope_worker_python import read_worker_python
+
+    return get_domain_pool(workers, read_worker_python()) if domain_pool is _FROM_SETTINGS else domain_pool
 
 
 def _start_byte_check(controller, run: _RunInputsV1, pool, entries, defer: bool) -> None:
@@ -980,6 +988,7 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
         embedding_backend=run.embedding_backend,
         density_backend=run.density_backend,
         uv_policy_id=run.uv_policy_id,
+        uv_context=run.uv_context,
         refresh=REFRESH_INCREMENTAL if rebased or omitted else (REFRESH_LEAN if run.lean else REFRESH_COMMIT),
     )
 

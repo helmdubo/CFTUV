@@ -499,15 +499,20 @@ def test_every_width_refresh_uses_the_immutable_uv_policy_of_the_run_receipt(mon
     world = _World(monkeypatch)
     # Только транспорт метаданных: тестовый закон никогда не передаётся настоящему ядру.
     policy = "TEST_ONLY_UV_POLICY_TRANSPORT"
-    receipt = dataclasses.replace(world.run, uv_policy_id=policy)
+    context = dataclasses.make_dataclass("Context", [("digest", str)], frozen=True)("global-phase-a")
+    receipt = dataclasses.replace(world.run, uv_policy_id=policy, uv_context=context)
     record = live.remember_build(
         world.controller, "row", world.bundle, receipt, source_object_key="object", source_data_key="mesh",
         selected=SELECTED, density="1", stretch_percent=20, width=0.25,
     )
     assert record.uv_policy_id == policy
+    assert record.uv_context is context
     with pytest.raises(dataclasses.FrozenInstanceError):
         record.uv_policy_id = "SCENE_CHANGED"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        record.uv_context = None
     world.mesh_settings.uv_policy_id = "SCENE_CHANGED"
+    world.mesh_settings.uv_context = "SCENE_CHANGED"
     seen = {}
     result = object()
 
@@ -523,10 +528,11 @@ def test_every_width_refresh_uses_the_immutable_uv_policy_of_the_run_receipt(mon
 
     assert job.result() is result
     assert seen["uv_policy_id"] == policy
+    assert seen["uv_context"] is context
     assert seen["lean"] is (grade in live.DRAG_GRADES)
 
 
-@pytest.mark.parametrize("mismatch", ("uv_policy", "offset"))
+@pytest.mark.parametrize("mismatch", ("uv_policy", "uv_context", "offset"))
 @pytest.mark.parametrize(
     "grade, stream",
     ((live.REFRESH_COMMIT, False), (live.REFRESH_LEAN, False),
@@ -541,6 +547,8 @@ def test_a_foreign_preview_key_never_serves_domains_or_trust_and_commit_can_repl
     controller = world.controller
     # Тестовый закон помечает только чужой ключ; новый прогон действительно считает DIRECT.
     old_record = dataclasses.replace(world.record, uv_policy_id="TEST_ONLY_FOREIGN_PREVIEW_KEY") if mismatch == "uv_policy" else world.record
+    if mismatch == "uv_context":
+        old_record = dataclasses.replace(old_record, uv_context=types.SimpleNamespace(digest="foreign-global-phase"))
     arrays = production_mesh.build_mesh_arrays(world.run.results, OFFSET)
     old = preview.build_sample(world.run.results, arrays, preview.sample_key(old_record, OFFSET), 0.25)
     preview.note_button_display(controller, old)

@@ -437,14 +437,16 @@ def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT
     return hashlib.sha256("\x1e".join(parts).encode("utf-8")).hexdigest()
 
 
-def result_slot(alpha_text: str, uv_policy_id: str, topology_law: str, lift_law: str, backend_id: str | None = None) -> tuple:
+def result_slot(alpha_text: str, uv_policy_id: str, topology_law: str, lift_law: str, backend_id: str | None = None, *, uv_context=None) -> tuple:
     """Часть ключа РЕЗУЛЬТАТА поверх ключа содержимого: alpha, законы материализации и идентичность бэкенда ядра (без неё — идентичность умолчания продукта)."""
 
     if backend_id is None:
         from .envelope_kernel_backend import backend_identity_of
 
         backend_id = backend_identity_of(DEFAULT_KERNEL_BACKEND)
-    return (str(alpha_text), str(uv_policy_id), str(topology_law), str(lift_law), str(backend_id))
+    from .envelope_uniform_context import context_key
+
+    return context_key((str(alpha_text), str(uv_policy_id), str(topology_law), str(lift_law), str(backend_id)), uv_context)
 
 
 __all__ = (

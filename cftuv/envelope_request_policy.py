@@ -62,9 +62,25 @@ def request_alpha_decimal(alpha) -> Decimal:
 # продуктовый закон: `(source_s, source_r) -> (u, v)` без атласа.
 ENVELOPE_UV_POLICY_DEBUG_NO_UV = "ENVELOPE_DEBUG_NO_UV_V1"
 ENVELOPE_UV_POLICY_DIRECT_STRIP = "UV_DIRECT_STRIP_V1"
+ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN = "UV_UNIFORM_TRIM_FAN_V1"
 ENVELOPE_UV_POLICIES = (
     ENVELOPE_UV_POLICY_DEBUG_NO_UV,
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
+    ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN,
+)
+# Порядок пунктов — формат хранения Blender: DIRECT остаётся первым и умолчанием.
+ENVELOPE_PRODUCT_UV_POLICY_ITEMS = (
+    (
+        ENVELOPE_UV_POLICY_DIRECT_STRIP,
+        "Straight strips",
+        "Preserve straight strip UVs; corner fans may collapse in UV",
+    ),
+    (
+        ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN,
+        "Uniform trim",
+        "Give corner fans UV area while keeping the pattern continuous across existing joins; "
+        "redistribute UVs into adjacent straight strips without adding seams",
+    ),
 )
 
 
@@ -425,9 +441,11 @@ __all__ = (
     "DEFAULT_ENVELOPE_STRETCH_BUDGET",
     "ENVELOPE_FAN_DENSITY_ITEMS",
     "ENVELOPE_MAX_STRETCH_PERCENT_RANGE",
+    "ENVELOPE_PRODUCT_UV_POLICY_ITEMS",
     "ENVELOPE_UV_POLICIES",
     "ENVELOPE_UV_POLICY_DEBUG_NO_UV",
     "ENVELOPE_UV_POLICY_DIRECT_STRIP",
+    "ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN",
     "MEASURED_REQUEST_ALPHA",
     "EnvelopeAngularPolicyV1",
     "build_envelope_request_contract",

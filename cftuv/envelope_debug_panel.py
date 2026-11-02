@@ -34,6 +34,7 @@ def draw_decal_mesh_rows(layout) -> None:
         mesh_settings, "material_name", bpy.data, "materials",
         text="", results_are_suggestions=True,
     )
+    layout.prop(mesh_settings, "uv_policy_id")
     draw_kernel_backend_row(layout, mesh_settings)
     if mesh_settings.status:
         layout.label(text=mesh_settings.status)

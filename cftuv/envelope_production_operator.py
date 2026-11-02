@@ -60,6 +60,7 @@ from .envelope_production_mesh import (
     write_decal_object,
 )
 from .envelope_pool_prewarm import cancel_pool_prewarm, schedule_pool_prewarm
+from .envelope_request_policy import ENVELOPE_PRODUCT_UV_POLICY_ITEMS, ENVELOPE_UV_POLICY_DIRECT_STRIP
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .envelope_width_adjust import WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_live import remember_build, schedule_idle_preparation, tag_view3d_redraw
@@ -111,6 +112,15 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
             "implementation (default) or the frozen Python reference. The answer is bitwise the same; a stage the native "
             "kernel cannot compute is computed in Python and named in the console. A scene that chose Python keeps it. "
             "Applies to the next Build Decal Mesh"
+        ),
+    )
+    uv_policy_id: EnumProperty(
+        name="UV layout",
+        items=ENVELOPE_PRODUCT_UV_POLICY_ITEMS,
+        default=ENVELOPE_UV_POLICY_DIRECT_STRIP,
+        description=(
+            "UV mapping of the decal strips and corner fans. Applies to the next Build Decal Mesh; "
+            "Adjust Decal Width keeps the UV layout used by that Build"
         ),
     )
     drag_exact_ticks: BoolProperty(
@@ -292,7 +302,6 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         """Прогон, массивы, запись объекта, запись для живой ширины, строки и отчёт; итог оператора. Фоновую проверку запускает вызывающий (`execute`)."""
 
         from .envelope_production_export import (
-            PRODUCTION_UV_POLICY,
             production_timing_text,
             receipt_console_lines,
             receipt_report_level,
@@ -325,7 +334,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 source_object_key=source_object_key,
                 source_data_key=source_data_key,
                 density=settings.envelope_debug_fan_density,
-                uv_policy_id=PRODUCTION_UV_POLICY,
+                uv_policy_id=getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP),
                 developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
                 silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=settings.envelope_debug_workers,

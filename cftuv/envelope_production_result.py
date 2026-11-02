@@ -165,7 +165,7 @@ class ProductionInputV1:
     key: str = ""
     #: `WIDTH_REFRESH_LEAN_V1`: воркер не пакует батч, а присылает вид домена (`lean_result`). Только для домена без переноса (`relabel` пуст, `carried` нет).
     lean: bool = False
-
+    uv_context: object | None = field(default=None, kw_only=True)
 
 @dataclass(frozen=True, slots=True)
 class ColdProductionInputV1:
@@ -178,7 +178,7 @@ class ColdProductionInputV1:
     uv_policy_id: str = PRODUCTION_UV_POLICY
     topology_law: str = PRODUCTION_TOPOLOGY_LAW
     snapshot_byte_check: object | None = None  # `SnapshotByteCheckPlanV1` нажатия (`None` - проверка байтов на каждом домене); воркер кладёт его в экспорт топологии задачи
-
+    uv_context: object | None = field(default=None, kw_only=True)
 
 #: Поля результата, которых у ОТЛОЖЕННОГО результата нет в `__dict__` до первого чтения: они лежат в `heavy` (`batch` и нормали
 #: вершин) либо считаются из батча (`content_digest`), и `__getattr__` отдаёт их по требованию. У них нет значения по

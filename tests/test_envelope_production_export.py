@@ -201,6 +201,124 @@ def test_the_run_receipt_keeps_the_requested_uv_policy_and_direct_output_is_unch
     assert [item.batch for item in restored.results] == [item.batch for item in default.results]
 
 
+def test_direct_and_a_frozen_uniform_context_never_start_the_context_prepass():
+    from types import SimpleNamespace
+    from cftuv.envelope_uniform_context import with_uniform_context
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("a supplied context or DIRECT must not compile or prepass")
+
+    direct = SimpleNamespace(uv_policy_id=PRODUCTION_UV_POLICY, uv_context=None)
+    frozen = SimpleNamespace(uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", uv_context=object())
+    assert with_uniform_context(direct, None, prepass=forbidden) is direct
+    assert with_uniform_context(frozen, None, prepass=forbidden) is frozen
+
+
+@pytest.mark.parametrize("drop_preparations", (False, True), ids=("warm", "cache-miss"))
+def test_uniform_compiles_all_current_preparations_once_and_reuses_context_at_other_widths(monkeypatch, drop_preparations):
+    from types import SimpleNamespace
+    from cftuv import envelope_uniform_context as uniform
+    from cftuv.envelope_scan_memo import patch_domain_id
+
+    # Это проверка оркестрации со spy компилятора: пригодность самого закона доказывают тесты ядра.
+    context = SimpleNamespace(digest="compiled-global-phase", basis=())
+    compiled, scans = [], []
+
+    def compile_context(prepared, excluded):
+        compiled.append((prepared, excluded))
+        return context
+
+    controller = EnvelopeDebugSessionController()
+    real_scan = production._scan_and_dispatch
+
+    def scan(run, pool):
+        scans.append((run.uv_policy_id, run.lean, run.skipped, run.served))
+        answer = real_scan(run, pool)
+        if drop_preparations and run.uv_policy_id == PRODUCTION_UV_POLICY:
+            controller._conveyor_preparation_cache.clear()
+        return answer
+
+    monkeypatch.setattr(uniform, "_compile_context", compile_context)
+    monkeypatch.setattr(production, "_scan_and_dispatch", scan)
+    bundle = quad_row_bundle(ROW)
+    built, _ = _production(bundle, controller, domain_pool=None, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1")
+
+    assert built.uv_context is context and len(compiled) == 1
+    assert scans[0] == (PRODUCTION_UV_POLICY, False, frozenset(), {})
+    prepared, excluded = compiled[0]
+    assert not excluded and len(prepared) == ROW
+    assert {item.compilation.plan_key.patch_domain_id.value for item in prepared} == {patch_domain_id(built.revision, patch) for patch in range(ROW)}
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW * (2 if drop_preparations else 1)
+    before = controller.build_counts
+    for alpha in (0.3, 0.4):
+        tick, _ = _production(bundle, controller, domain_pool=None, alpha=alpha, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", uv_context=context, lean=True)
+        assert tick.uv_context is context
+    assert len(compiled) == 1 and sum(policy == PRODUCTION_UV_POLICY for policy, *_rest in scans) == 1
+    assert controller.build_counts == before
+
+
+def test_uniform_context_collection_completes_current_revision_inputs_after_content_reuse(monkeypatch):
+    from types import SimpleNamespace
+    from content_fixtures import with_revision
+    from cftuv import envelope_uniform_context as uniform
+    from cftuv.envelope_scan_memo import patch_domain_id
+
+    source = with_revision(quad_row_bundle(ROW), "source")
+    controller = EnvelopeDebugSessionController()
+    _production(source, controller, domain_pool=None)
+    target = with_revision(source, "target", "c" * 64)
+    captured = []
+    monkeypatch.setattr(uniform, "_compile_context", lambda prepared, excluded: captured.append((prepared, excluded)) or SimpleNamespace(digest="target-phase"))
+
+    run, _ = _production(target, controller, domain_pool=None, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1")
+
+    prepared, excluded = captured[0]
+    assert not excluded and len(prepared) == ROW
+    assert {item.compilation.plan_key.patch_domain_id.value for item in prepared} == {patch_domain_id(run.revision, patch) for patch in range(ROW)}
+    assert run.revision != source.source_revision.digest
+
+
+def test_global_phase_digest_separates_uv_results_without_changing_preparation_keys(monkeypatch):
+    from types import SimpleNamespace
+    from cftuv import envelope_uniform_context as uniform
+
+    captured = []
+    real_scan = production._scan_and_dispatch
+    monkeypatch.setattr(production, "_scan_and_dispatch", lambda run, pool: captured.append(run) or real_scan(run, pool))
+    direct, controller = _production(quad_row_bundle(ROW), domain_pool=None)
+    run = captured[0]
+    entry = production._scan(run)[0]
+    request = entry.inputs[1]
+    key = production._result_key(run, entry.domain_id, entry.selected, request)
+    a = dataclasses.replace(run, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", uv_context=SimpleNamespace(digest="a"))
+    b = dataclasses.replace(a, uv_context=SimpleNamespace(digest="b"))
+
+    ka = production._result_key(a, entry.domain_id, entry.selected, request)
+    kb = production._result_key(b, entry.domain_id, entry.selected, request)
+    assert ka != kb and ka[0] == kb[0] == key[0]
+    assert production._slot(a) != production._slot(b)
+    assert uniform.context_key(key, None) is key
+    assert direct.uv_context is None
+
+
+def test_context_collector_records_named_static_refusals_and_keeps_all_valid_selected_domains(monkeypatch):
+    from types import SimpleNamespace
+    from cftuv import envelope_uniform_context as uniform
+    from cftuv.envelope_scan_memo import patch_domain_id
+
+    run = SimpleNamespace(revision="r", patch_ids=(0, 1, 2), cancel=None,
+                          selected_by_domain={patch_domain_id("r", patch): frozenset({patch}) for patch in range(3)},
+                          profile=EnvelopeDebugProfileBuilderV1("source", "test"))
+    exact = SimpleNamespace(outcome=SimpleNamespace(value="EXACT"))
+    refused = SimpleNamespace(outcome=SimpleNamespace(value="PLAN_IS_NOT_COMPILED"))
+    monkeypatch.setattr(uniform, "_current_preparation", lambda _run, patch, *_args: refused if patch == 1 else exact)
+
+    prepared, excluded = uniform._preparations(run, dict.fromkeys(run.patch_ids, run))
+
+    assert prepared == (exact, exact)
+    assert excluded == ((patch_domain_id("r", 1), "PLAN_IS_NOT_COMPILED"),)
+
+
 def test_the_cache_key_of_a_preparation_ignores_the_uv_law_and_alpha():
     """Ключ — ревизия, домен, рёбра и подпись угловой политики; закон UV не в нём."""
 
@@ -1196,6 +1314,52 @@ def test_the_task_kind_answers_in_process_and_the_answer_is_the_parents():
     assert solve_production_task(_task(prepared)).production == reply.production
     # Ответ едет по трубе целиком.
     assert pickle.loads(pickle.dumps(reply)).production == reply.production
+
+
+@pytest.mark.parametrize("warm", (False, True), ids=("cold-task", "prepared-task"))
+def test_pool_tasks_carry_the_opaque_frozen_context_through_pickle(monkeypatch, _pool_always, warm):
+    from types import SimpleNamespace
+    from cftuv import envelope_production_task as worker
+
+    bundle, controller = quad_row_bundle(ROW), EnvelopeDebugSessionController()
+    if warm:
+        _production(bundle, controller, domain_pool=None)
+    pool, seen = _InProcessPool(), []
+    actual = worker.produce_domain
+
+    def capture(*args, **kwargs):
+        seen.append(kwargs.get("uv_context"))
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(worker, "produce_domain", capture)
+    # Непрозрачный stand-in проверяет только транспорт, а не пригодность закона/базиса ядра.
+    context = SimpleNamespace(digest="pool-global-phase")
+    run, _ = _production(bundle, controller, domain_pool=pool, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", uv_context=context)
+
+    assert pool.kinds == ["production" if warm else "cold"] * ROW
+    assert len(seen) == ROW and all(item.digest == context.digest for item in seen)
+    assert run.uv_context is context
+
+
+def test_produce_domain_passes_context_to_the_kernel_and_direct_omits_the_new_keyword(monkeypatch):
+    from types import SimpleNamespace
+    from cftuv_envelope.materialize import step
+
+    seen = []
+    actual = step.step_domain
+
+    def capture(*args, **kwargs):
+        seen.append(kwargs)
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(step, "step_domain", capture)
+    prepared = _prepared_domain()
+    direct = produce_domain(0, "d", prepared, "0.25")
+    context = SimpleNamespace(digest="opaque-test-context")
+    produce_domain(0, "d", prepared, "0.25", uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", uv_context=context)
+
+    assert direct.is_materialized and "uv_context" not in seen[0]
+    assert seen[1]["uv_context"] is context
 
 
 def test_a_refusal_of_the_kernel_is_an_answer_and_not_a_failed_task():

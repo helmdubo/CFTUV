@@ -303,8 +303,9 @@ def sample_key(record, offset: float) -> tuple:
     """
 
     from .envelope_request_policy import normalize_envelope_fan_density
+    from .envelope_uniform_context import context_key
 
-    return (
+    return context_key((
         str(record.source_name),
         str(record.source_digest),
         str(record.kernel_backend),
@@ -316,7 +317,7 @@ def sample_key(record, offset: float) -> tuple:
         float(record.dissolve_percent),
         float(offset),
         int(record.invalidation_count),
-    )
+    ), getattr(record, "uv_context", None))
 
 
 def build_sample(results, arrays, key: tuple, alpha: float, origins: dict | None = None) -> PreviewSampleV1:

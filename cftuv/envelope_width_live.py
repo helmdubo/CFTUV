@@ -166,6 +166,7 @@ class LastProductionBuildV1:
     density_backend: str | None = field(default=None, kw_only=True)
     #: Закон UV фактического прогона кнопки: настройка сцены не переопределяет запомненную сборку.
     uv_policy_id: str = field(default=PRODUCTION_UV_POLICY, kw_only=True)
+    uv_context: object | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self, "kernel_backend")
@@ -257,6 +258,7 @@ def remember_build(
         embedding_backend=None if embedding_backend is None else str(embedding_backend),
         density_backend=run.density_backend if density_backend is None else density_backend,
         uv_policy_id=run.uv_policy_id,
+        uv_context=run.uv_context,
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -792,6 +794,7 @@ def _begin(controller, request):
     embedding_backend = record.embedding_backend
     density_backend = record.density_backend
     uv_policy_id = record.uv_policy_id
+    uv_context = record.uv_context
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     grade = target.grade
     lean = grade in DRAG_GRADES  # WIDTH_REFRESH_LEAN_V1; инкрементальный такт (WIDTH_REFRESH_INCREMENTAL_V1) - тоже lean-прогон
@@ -831,6 +834,7 @@ def _begin(controller, request):
                     source_data_key=data_key,
                     density=density,
                     uv_policy_id=uv_policy_id,
+                    uv_context=uv_context,
                     developable_stretch_budget=budget,
                     silhouette_uv_slide=slide,
                     domain_pool=pool,
