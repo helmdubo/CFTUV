@@ -141,6 +141,7 @@ class TolerancePolicyIdV1(str, Enum):
     PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1 = "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1"
     SILHOUETTE_UV_SLIDE_V1 = "SILHOUETTE_UV_SLIDE_V1"
     SOURCE_CONTACT_GAP_V1 = "SOURCE_CONTACT_GAP_V1"
+    WALL_CREEP_SPEED_V1 = "WALL_CREEP_SPEED_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -222,6 +223,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     BAND_CHART_ADMISSION = "BAND_CHART_ADMISSION"
     SILHOUETTE_VERTEX_DISSOLVE = "SILHOUETTE_VERTEX_DISSOLVE"
     SOURCE_DEFECT_PREFLIGHT = "SOURCE_DEFECT_PREFLIGHT"
+    WAVEFRONT_BRIDGE_UNSELECTED_EDGE = "WAVEFRONT_BRIDGE_UNSELECTED_EDGE"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -270,9 +272,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH = (
         "TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH"
     )
-    ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN = (
-        "ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN"
-    )
+    ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN = "ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN"
     MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND = (
         "MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND"
     )
@@ -280,9 +280,8 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL = (
         "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL"
     )
-    DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE = (
-        "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE"
-    )
+    DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE = "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE"
+    CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA = "CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA"
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -1950,8 +1949,9 @@ _BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
 
 # Записи двери предполёта источника лежат рядом с законом: этот модуль на потолке размера. Импорт здесь, а не вверху: типы выше.
 from .tolerance_policy_source_defects import source_defect_policies  # noqa: E402
+from .tolerance_policy_wall_creep import wall_creep_policies  # noqa: E402
 
-TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (*_BASE_POLICIES_V1, *source_defect_policies())
+TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (*_BASE_POLICIES_V1, *source_defect_policies(), *wall_creep_policies())
 
 
 TOLERANCE_POLICY_REGISTRY_V1 = TolerancePolicyRegistryV1(

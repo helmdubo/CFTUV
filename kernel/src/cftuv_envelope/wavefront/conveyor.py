@@ -137,6 +137,7 @@ from .bridge import (
     bridge_arrival_laws,
 )
 from .coverage import CoverageOutcome, current_coverage_source
+from .wall_creep import drop_wall_faces, needs_creeping_walls, wall_creep_counters, with_support_extent
 from .faces import (
     CrowdedChainsV1,
     EdgeKey,
@@ -829,7 +830,7 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
                     f"{spec.envelope_spec_id.value}/{source.support_id}: "
                     f"{issue}",
                 )
-            laws.append(law)
+            laws.append(with_support_extent(law, source, context.metric if context._density_bounded() else None))
             rescaled_count += int(rescaled)
     fans = _angular_fans(context)
     return _ArrivalLawsV1(
@@ -1138,7 +1139,10 @@ def _prepare_region(
     clock: _Clock,
     work_budget: ExactWorkBudgetV1 | None = None,
     dense_hydration: bool = False,
+    creeping_walls: bool = False,
 ) -> tuple[PreparedRegionV1 | None, str | None]:
+    """`creeping_walls` (WALL_CREEP_V1): второй проход домена, чьи неподвижные стены не закрылись (`needs_creeping_walls`)."""
+
     started = time.perf_counter()
     loops, issue = _region_loops(region)
     clock.add("DOMAIN_LOOPS", started)
@@ -1151,17 +1155,13 @@ def _prepare_region(
         reading.laws,
         lattice=lattice,
         weighted_fronts=True,
+        creeping_walls=creeping_walls,
         vertex_fans=tuple(
             VertexFanLawV1(fan.name, fan.point, fan.supports)
             for fan in reading.fans
         ),
     )
-    report = replace(
-        bound_report,
-        snap_residual=_max_snap_residual(
-            binding_residual, bound_report.snap_residual
-        ),
-    )
+    report = replace(bound_report, snap_residual=_max_snap_residual(binding_residual, bound_report.snap_residual))
     clock.add("BRIDGE", started)
     prepared = PreparedRegionV1(
         region_id=region.region_id,
@@ -1188,16 +1188,14 @@ def _prepare_region(
     )
     clock.add("SKELETON", started)
     if skeleton.outcome is not SkeletonOutcome.EXACT:
-        return (
-            _with_skeleton(prepared, skeleton, None),
-            None,
-        )
+        return _with_skeleton(prepared, skeleton, None), None
 
     started = time.perf_counter()
     partition, crowded = build_faces_traced(
         report.polygon, skeleton, work_budget
     )
     clock.add("FACES", started)
+    partition = drop_wall_faces(partition, report)  # WALL_CREEP_V1: доля ползущих стен ничья
     return _with_skeleton(prepared, skeleton, partition, crowded), None
 
 
@@ -1363,7 +1361,7 @@ def _preparation_counters(
                 for item in regions
             ),
         ),
-    ) + _crowded_counters(regions)
+    ) + _crowded_counters(regions) + wall_creep_counters(regions)
 
 
 def _crowded_counters(regions: tuple[PreparedRegionV1, ...]) -> Counters:
@@ -1432,10 +1430,10 @@ def prepare_conveyor(
     prepared_regions: list[PreparedRegionV1] = []
     for region in domain.domain_regions:
         try:
-            prepared, issue = _prepare_region(
-                region, reading, lattice, binding_residual, clock, budget,
-                dense_hydration,
-            )
+            arguments = (region, reading, lattice, binding_residual, clock, budget, dense_hydration)
+            prepared, issue = _prepare_region(*arguments)
+            if needs_creeping_walls(prepared):  # WALL_CREEP_V1: неподвижные стены не закрылись
+                prepared, issue = _prepare_region(*arguments, creeping_walls=True)
         except ExactCanonicalizationWorkBudgetExhausted as exhausted:
             # Строки времени у этого отказа нет намеренно: `_prepare_region`
             # ставит её сама на выходе, а выхода тут не было. Ноль секунд был

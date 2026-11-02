@@ -103,6 +103,7 @@ from .polygon import (
     with_edge_speeds,
     with_vertex_fans,
 )
+from .wall_creep import WallCreepV1, creep_walls
 
 
 class BridgeOutcome(str, Enum):
@@ -244,6 +245,14 @@ class PlainArrivalLawV1:
     normal_y: Fraction
     constant: Fraction
     speed_squared: Fraction
+    #: WALL_CREEP_V1. Концы опорного сегмента закона в дорешёточных дробях: по ним класс
+    #: несущей прямой, покрытый законами ЧАСТИЧНО (выделенное ребро коллинеарно невыделенному),
+    #: разрешается вхождением ребра, а не остаётся `SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED`.
+    #: Из тождества закона исключены: закон — прямая и скорость, протяжённость — разметка.
+    span: tuple[RationalPoint, RationalPoint] | None = field(default=None, compare=False)
+    #: Направление движения фронта в координатах карты (`G^-1 n` = единичная нормаль опоры),
+    #: числами с плавающей точкой: только для направления T-надреза (`wall_creep.py`).
+    motion: tuple[float, float] | None = field(default=None, compare=False)
 
     @property
     def normal_squared(self) -> Fraction:
@@ -311,6 +320,14 @@ class BridgeReportV1:
     # означает митрованные углы, и отличить его от «вееров не подавали» можно
     # только по входу — поэтому число, а не флаг.
     fan_edge_count: int = 0
+    # WALL_CREEP_V1 (`wall_creep.py`): стены, ставшие ползущими источниками (их грани разбиения
+    # отбрасываются), вставленные T-надрезы, отказанные надрезы, наибольшая ошибка угла надреза
+    # в микроградусах и рёбра частичных классов, разрешённые концами законов. Нули — ветки не было.
+    creeping_wall_count: int = 0
+    t_notch_count: int = 0
+    t_notch_refused_count: int = 0
+    t_notch_max_angle_error_microdeg: int = 0
+    span_resolved_edge_count: int = 0
 
     @property
     def wall_edge_count(self) -> int:
@@ -479,8 +496,13 @@ def bridge_arrival_laws(
     lattice: GridSpecV1 | None = None,
     weighted_fronts: bool = False,
     vertex_fans: tuple[VertexFanLawV1, ...] = (),
+    creeping_walls: bool = False,
 ) -> BridgeReportV1:
     """Собрать вход очереди из домена и законов прихода попарного кроя.
+
+    `creeping_walls` (WALL_CREEP_V1, продукт): рёбра без закона становятся не неподвижными
+    стенами (`q = 0`), а ПОЛЗУЩИМИ источниками исчезающей скорости, а у выделенного ребра,
+    коллинеарного невыделенному, ставится T-надрез (`wall_creep.py`). Без параметра — прежний мост.
 
     Первая петля — внешний контур, остальные — дыры. Ориентацию нормирует
     `PolygonV1.build`, поэтому от вызывающего она не требуется.
@@ -557,7 +579,8 @@ def bridge_arrival_laws(
             findings.append(outcome)
 
     built = _built_polygon(
-        loops, lattice_loops, matching, findings, lattice, vertex_fans
+        loops, lattice_loops, matching, findings, lattice, vertex_fans,
+        laws if creeping_walls else None,
     )
     ordered = tuple(
         outcome for outcome in _OUTCOME_ORDER if outcome in findings
@@ -581,7 +604,22 @@ def bridge_arrival_laws(
         snap_residual=residual,
         weighted_edge_count=built.weighted_edge_count,
         fan_edge_count=built.fan_edge_count,
+        span_resolved_edge_count=matching.span_resolved_edge_count,
+        **_creep_report_fields(built.creep),
     )
+
+
+def _creep_report_fields(creep: WallCreepV1 | None) -> dict[str, int]:
+    """Поля отчёта WALL_CREEP_V1; нули, когда ползущих стен нет."""
+
+    if creep is None:
+        return {}
+    return {
+        "creeping_wall_count": creep.creeping_wall_count,
+        "t_notch_count": creep.t_notch_count,
+        "t_notch_refused_count": creep.t_notch_refused_count,
+        "t_notch_max_angle_error_microdeg": creep.t_notch_max_angle_error_microdeg,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -594,6 +632,7 @@ class _BuiltPolygonV1:
     wall_spans: tuple[tuple[int, ...], ...] = ()
     weighted_edge_count: int = 0
     fan_edge_count: int = 0
+    creep: WallCreepV1 | None = None
 
 
 def _lattice_image(
@@ -726,8 +765,12 @@ def _built_polygon(
     findings: list[BridgeOutcome],
     lattice: GridSpecV1 | None,
     vertex_fans: tuple[VertexFanLawV1, ...] = (),
+    creeping_laws: tuple[PlainArrivalLawV1, ...] | None = None,
 ) -> _BuiltPolygonV1:
     """Полигон очереди из привязанного домена и разметки по классам прямых.
+
+    `creeping_laws` не `None` — WALL_CREEP_V1: стены полигона становятся ползущими источниками
+    (`wall_creep.creep_walls`), и `wall_spans` перечисляет уже ИХ рёбра (с T-надрезами).
 
     `q` источника считается ОДНОЙ формулой на все три случая: `q = ratio *
     |d|^2`, где `ratio = (s/|n|)^2` закона. У единичного закона `ratio = 1`, и
@@ -778,7 +821,14 @@ def _built_polygon(
                 raise
             findings.append(named)
             return _BuiltPolygonV1()
+    creep = (
+        None if creeping_laws is None else creep_walls(polygon, loops, lattice_loops, creeping_laws)
+    )
+    walls = None if creep is None else creep.wall_keys
+    if creep is not None:
+        polygon = creep.polygon
     return _BuiltPolygonV1(
+        creep=creep,
         polygon=polygon,
         owner_by_edge={
             _lattice_span(edge, lattice_loops): name
@@ -788,7 +838,7 @@ def _built_polygon(
         ambiguous_spans=tuple(
             _lattice_span(edge, lattice_loops) for edge in matching.ambiguous
         ),
-        wall_spans=tuple(
+        wall_spans=walls if walls is not None else tuple(
             sorted(
                 (start[0], start[1], end[0], end[1])
                 for start, end, speed in polygon.edges()
@@ -834,6 +884,8 @@ class _MatchingV1:
     #: Тяжелее неопределённости владельца: там геометрия одна на всех кандидатов,
     #: здесь у каждой скорости своя.
     undetermined_speed: tuple[RationalEdge, ...] = ()
+    #: Рёбра-источники частично покрытых классов, найденные по концам законов (`span`).
+    span_resolved_edge_count: int = 0
 
 
 def _match_by_line_class(
@@ -875,6 +927,7 @@ def _match_by_line_class(
     undetermined: list[RationalEdge] = []
     undetermined_speed: list[RationalEdge] = []
     speed_ratio: dict[RationalEdge, Fraction] = {}
+    span_resolved = 0
     for key, block_laws in laws_by_class.items():
         names = [law.name for law in block_laws]
         block = edges_by_class[key]
@@ -882,6 +935,16 @@ def _match_by_line_class(
         if len(names) > len(block):
             surplus.extend(names[len(block):])
         ratios = {law.speed_ratio_squared for law in block_laws}
+        by_span = _edges_by_span(block, block_laws) if len(names) < len(block) else None
+        if by_span is not None:
+            # WALL_CREEP_V1: класс покрыт частично, но концы КАЖДОГО закона называют своё ребро —
+            # источники эти рёбра, остальные рёбра класса стены. Пара вынуждена концами.
+            for edge, law in by_span:
+                source_edges.append(edge)
+                speed_ratio[edge] = law.speed_ratio_squared
+                forced_owner[edge] = law.name
+            span_resolved += len(by_span)
+            continue
         if len(names) < len(block):
             # Класс покрыт ЧАСТИЧНО: источником в нём является не всякое ребро,
             # а какое именно — во входе не записано. Это не «источник не вся
@@ -915,7 +978,30 @@ def _match_by_line_class(
         ambiguous=tuple(ambiguous),
         speed_ratio=speed_ratio,
         undetermined_speed=tuple(undetermined_speed),
+        span_resolved_edge_count=span_resolved,
     )
+
+
+def _edges_by_span(
+    block: list[RationalEdge], block_laws: list[PlainArrivalLawV1]
+) -> tuple[tuple[RationalEdge, PlainArrivalLawV1], ...] | None:
+    """Пары «ребро — закон» класса по концам законов, либо `None`, если концы не решают класс.
+
+    Решают они его только целиком: у каждого закона есть `span`, он равен концам ровно одного
+    ребра класса (без учёта направления), и разные законы называют разные рёбра. Частичный ответ
+    придумал бы пометку для остальных — тогда класс остаётся неопределённым под прежним именем.
+    """
+
+    edges = {frozenset((edge.start, edge.end)): edge for edge in block}
+    pairs: list[tuple[RationalEdge, PlainArrivalLawV1]] = []
+    for law in block_laws:
+        edge = None if law.span is None else edges.get(frozenset(law.span))
+        if edge is None:
+            return None
+        pairs.append((edge, law))
+    if len({id(edge) for edge, _ in pairs}) != len(pairs):
+        return None
+    return tuple(pairs)
 
 
 def unit_speed_laws_of(polygon: PolygonV1) -> tuple[PlainArrivalLawV1, ...]:

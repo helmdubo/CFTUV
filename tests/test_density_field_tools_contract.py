@@ -226,6 +226,22 @@ def test_button_sweep_contract_counts_exactly_9_true_button_calls():
     assert payload["expected_total_calls"] == 9
 
 
+def test_partial_seam_sweep_holds_the_wall_creep_refusal_ratchet():
+    """WALL_CREEP_V1: режим одиночных цепочек шва — свой контракт и ратчет отказов по мешам.
+
+    Замер на замороженной сцене: до закона 209 / 66 / 13 выделений с отказом, после 27 / 0 / 3.
+    Ратчет поднимать нельзя без нового замера; опускать — после него.
+    """
+
+    result = _run(sys.executable, str(BUTTON_SWEEP), "--contract-only", "--", "--partial-seams", "partial.json")
+    payload = _json_output(result)
+    assert payload["schema"] == "cftuv.envelope.partial_seam_sweep.v1"
+    assert payload["output"] == "partial.json"
+    assert payload["refusal_ratchet"] == {"building": 27, "2": 0, "building.004": 3}
+    missing = _run(sys.executable, str(BUTTON_SWEEP), "--contract-only", "--", "--partial-seams")
+    assert missing.returncode != 0 and NAMED_OMISSION in missing.stderr
+
+
 def _module(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"))
 
