@@ -639,6 +639,7 @@ class ProductionRunV1:
     skeleton_backend: str | None = None  # порядки стадий прогона: `None` — как `kernel_backend`, `__post_init__` приводит их к именам
     embedding_backend: str | None = None
     density_backend: str | None = field(default=None, kw_only=True)
+    uv_policy_id: str = field(default=PRODUCTION_UV_POLICY, kw_only=True)
     #: Класс обновления (`REFRESH_COMMIT` | `REFRESH_LEAN` = WIDTH_REFRESH_LEAN_V1): lean-прогон заказывает путь без работы, нужной только фиксации.
     refresh: str = REFRESH_COMMIT
 
@@ -978,6 +979,7 @@ def _production_run(run: _RunInputsV1, entries, results, cold, started, builds_b
         skeleton_backend=run.skeleton_backend,
         embedding_backend=run.embedding_backend,
         density_backend=run.density_backend,
+        uv_policy_id=run.uv_policy_id,
         refresh=REFRESH_INCREMENTAL if rebased or omitted else (REFRESH_LEAN if run.lean else REFRESH_COMMIT),
     )
 

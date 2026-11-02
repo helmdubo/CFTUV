@@ -661,6 +661,7 @@ def _drag_world(monkeypatch, *, calls):
     """Мир живой ширины после кнопки с образцом на экране и перетаскиванием, чей lean-кадр пишет подмена (запись в меш проверена выше)."""
 
     world = _World(monkeypatch)
+    world.mesh_settings.offset = OFFSET
     controller = world.controller
     arrays = build_mesh_arrays(world.run.results, OFFSET)
     controller.width_displayed = preview.build_sample(world.run.results, arrays, preview.sample_key(world.record, OFFSET), 0.25)

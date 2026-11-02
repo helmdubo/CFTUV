@@ -339,6 +339,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "skeleton_backend",
         "embedding_backend",
         "density_backend",
+        "uv_policy_id",
         "pool",
         "cancel",
         "exc",
@@ -360,6 +361,11 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         # WIDTH_REFRESH_INCREMENTAL_V1: решение тика (`plan_tick`: чистая функция значений, ни `bpy`, ни записи в сессию) читает класс заказа и запись сверки, захваченные `_begin` на главном потоке.
         "plan",
         "plan_tick",
+        # UV_POLICY_TRANSPORT_V1: признак чужого ключа захвачен главным потоком; именованный полный план не читает Blender.
+        "foreign",
+        "full_plan",
+        "REASON_MODEL_FOREIGN",
+        "REFRESH_INCREMENTAL",
         # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: замок модуля «один счёт за раз» - не данные Blender.
         "_TICK_LOCK",
         "grade",
@@ -391,12 +397,13 @@ def test_the_width_live_worker_thread_function_touches_no_blender_data():
     used = {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}
     used -= {arg.arg for arg in compute.args.args}
     foreign = used - _WIDTH_COMPUTE_NAMES
-    captured = [node for node in begin.body if isinstance(node, ast.Assign)
-                and any(isinstance(target, ast.Name) and target.id == "density_backend" for target in node.targets)]
-    assert len(captured) == 1
-    assert isinstance(captured[0].value, ast.Attribute) and captured[0].value.attr == "density_backend"
-    assert isinstance(captured[0].value.value, ast.Name) and captured[0].value.value.id == "record"
-    assert captured[0].lineno < compute.lineno
+    for name in ("density_backend", "uv_policy_id"):
+        captured = [node for node in begin.body if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)]
+        assert len(captured) == 1
+        assert isinstance(captured[0].value, ast.Attribute) and captured[0].value.attr == name
+        assert isinstance(captured[0].value.value, ast.Name) and captured[0].value.value.id == "record"
+        assert captured[0].lineno < compute.lineno
     assert not foreign, (
         f"функция потока точной ширины использует {sorted(foreign)}: потоку нельзя ничего, "
         "что читает или пишет данные Blender."

@@ -292,6 +292,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         """Прогон, массивы, запись объекта, запись для живой ширины, строки и отчёт; итог оператора. Фоновую проверку запускает вызывающий (`execute`)."""
 
         from .envelope_production_export import (
+            PRODUCTION_UV_POLICY,
             production_timing_text,
             receipt_console_lines,
             receipt_report_level,
@@ -324,6 +325,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 source_object_key=source_object_key,
                 source_data_key=source_data_key,
                 density=settings.envelope_debug_fan_density,
+                uv_policy_id=PRODUCTION_UV_POLICY,
                 developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
                 silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=settings.envelope_debug_workers,

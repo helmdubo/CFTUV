@@ -1126,12 +1126,13 @@ def test_a_model_that_cannot_be_built_is_named_and_never_fails_the_exact_result(
 def test_the_key_names_everything_the_geometry_depends_on():
     record = SimpleNamespace(
         source_name="src", source_digest="d", kernel_backend="PYTHON", skeleton_backend="PYTHON", embedding_backend="PYTHON", density="2", stretch_percent=20,
-        dissolve_percent=0.39, invalidation_count=3,
+        dissolve_percent=0.39, invalidation_count=3, uv_policy_id="UV_DIRECT_STRIP_V1",
     )
     key = preview.sample_key(record, 0.02)
     for field_name, value in (
         ("source_name", "other"), ("source_digest", "e"), ("kernel_backend", "NATIVE:abc"), ("skeleton_backend", "NATIVE"), ("embedding_backend", "NATIVE"), ("density", "4"),
         ("stretch_percent", 42), ("dissolve_percent", 0.5), ("invalidation_count", 4),
+        ("uv_policy_id", "TEST_ONLY_FOREIGN_UV_KEY"),
     ):
         assert preview.sample_key(SimpleNamespace(**{**vars(record), field_name: value}), 0.02) != key, field_name
     assert preview.sample_key(record, 0.03) != key

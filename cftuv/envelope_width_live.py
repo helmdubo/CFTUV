@@ -88,12 +88,12 @@ from .envelope_alpha_preview import (
 )
 from .envelope_gc_pause import GC_IDLE_COLLECT_OUTCOME, collect_frozen_when_idle, gc_paused, gc_paused_function
 from .envelope_width_adjust import DEFAULT_MIN_WIDTH, WIDTH_CLAMPED_AT_FLOOR, WIDTH_NOT_POSITIVE, width_refusal
-from .envelope_width_incremental import REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, mark_attempt, verification_reason
+from .envelope_width_incremental import REASON_MODEL_FOREIGN, REASON_PERIOD_DISTANCE, REASON_PERIOD_TICKS, StreamPolicyV1, full_plan, mark_attempt, verification_reason
 from .envelope_width_stream import STEP_NO_SAMPLE, LiveDragLogV1, idle_answer, note_applied, note_step, pointer_after, preempt_stale, seed_verified, settle_hold
 from .envelope_width_stream import COHERENT_DROPPED_AT_CONFIRM, SETTLE_APPLIED_AT_CONFIRM, SETTLE_PENDING, settle_defer
 from .envelope_width_stream import status_line as live_drag_status_line
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, resolve_density_backend, settle_stage_orders
-from .envelope_production_result import REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
+from .envelope_production_result import PRODUCTION_UV_POLICY, REFRESH_COMMIT, REFRESH_INCREMENTAL, REFRESH_LEAN
 from .envelope_width_gpu_drag import REMOVED_STALE
 from .envelope_width_mesh_preview import (
     capture_ownership,
@@ -164,6 +164,8 @@ class LastProductionBuildV1:
     skeleton_backend: str | None = None
     embedding_backend: str | None = None
     density_backend: str | None = field(default=None, kw_only=True)
+    #: Закон UV фактического прогона кнопки: настройка сцены не переопределяет запомненную сборку.
+    uv_policy_id: str = field(default=PRODUCTION_UV_POLICY, kw_only=True)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self, "kernel_backend")
@@ -254,6 +256,7 @@ def remember_build(
         skeleton_backend=None if skeleton_backend is None else str(skeleton_backend),
         embedding_backend=None if embedding_backend is None else str(embedding_backend),
         density_backend=run.density_backend if density_backend is None else density_backend,
+        uv_policy_id=run.uv_policy_id,
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -788,6 +791,7 @@ def _begin(controller, request):
     skeleton_backend = record.skeleton_backend
     embedding_backend = record.embedding_backend
     density_backend = record.density_backend
+    uv_policy_id = record.uv_policy_id
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     grade = target.grade
     lean = grade in DRAG_GRADES  # WIDTH_REFRESH_LEAN_V1; инкрементальный такт (WIDTH_REFRESH_INCREMENTAL_V1) - тоже lean-прогон
@@ -804,10 +808,17 @@ def _begin(controller, request):
         controller.width_incremental = mark_attempt(state)  # сверку начали: прервёт её рука - повтор не раньше чем через `INCREMENTAL_RETRY_AFTER_TICKS` тактов (поток считает по записи ДО отметки)
     offset = float(target.offset)
     key = sample_key(record, offset)
+    foreign = (
+        (displayed is not None and displayed.key != key)
+        or (previous is not None and previous.base.key != key)
+        or (trust is not None and trust.key != key)
+    )
+    if foreign:
+        displayed, previous, trust = None, None, None  # чужие образцы, исходные результаты и доверие не входят в новый прогон; меш на экране не трогаем
 
     @gc_paused_function  # GC_PAUSED_DURING_WIDTH_TICK_V1: пауза сборщика стоит ровно на счёте тика (поток живёт секунды), а не на простое между тиками; сборщик общий на процесс
     def compute(cancel):
-        plan = plan_tick(grade, displayed, previous, state, alpha, stream)  # WIDTH_REFRESH_INCREMENTAL_V1: какие домены обслужит сертификат (`None` - тик не инкрементальный)
+        plan = full_plan(REASON_MODEL_FOREIGN) if foreign and grade == REFRESH_INCREMENTAL else plan_tick(grade, displayed, previous, state, alpha, stream)
         # LIVE_DRAG_PREEMPTED_TICK_NOT_AWAITED_V1: планировщик не ждёт вытесненный такт - прогон и хвост ждут его здесь (один счёт за раз), без захода главного потока.
         with _TICK_LOCK:
             try:
@@ -819,6 +830,7 @@ def _begin(controller, request):
                     source_object_key=object_key,
                     source_data_key=data_key,
                     density=density,
+                    uv_policy_id=uv_policy_id,
                     developable_stretch_budget=budget,
                     silhouette_uv_slide=slide,
                     domain_pool=pool,

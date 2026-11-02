@@ -488,6 +488,106 @@ def test_the_live_compute_carries_the_dissolve_tolerance_the_button_built_with(m
     assert seen["silhouette_uv_slide"] == Fraction(1, 200)  # 0.5 % ширины — тот же допуск, что у кнопки
 
 
+@pytest.mark.parametrize(
+    "grade, stream",
+    ((live.REFRESH_COMMIT, False), (live.REFRESH_LEAN, False),
+     (live.REFRESH_INCREMENTAL, False), (live.REFRESH_INCREMENTAL, True), (live.REFRESH_LEAN, True)),
+)
+def test_every_width_refresh_uses_the_immutable_uv_policy_of_the_run_receipt(monkeypatch, grade, stream):
+    from cftuv import envelope_production_export as export
+
+    world = _World(monkeypatch)
+    # Только транспорт метаданных: тестовый закон никогда не передаётся настоящему ядру.
+    policy = "TEST_ONLY_UV_POLICY_TRANSPORT"
+    receipt = dataclasses.replace(world.run, uv_policy_id=policy)
+    record = live.remember_build(
+        world.controller, "row", world.bundle, receipt, source_object_key="object", source_data_key="mesh",
+        selected=SELECTED, density="1", stretch_percent=20, width=0.25,
+    )
+    assert record.uv_policy_id == policy
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        record.uv_policy_id = "SCENE_CHANGED"
+    world.mesh_settings.uv_policy_id = "SCENE_CHANGED"
+    seen = {}
+    result = object()
+
+    def fake_run(*_args, **kwargs):
+        seen.update(kwargs)
+        return result
+
+    monkeypatch.setattr(export, "run_production", fake_run)
+    monkeypatch.setattr(live, "finish_live_run", lambda run, **_kwargs: run)
+    target = dataclasses.replace(live.target_of(world.settings, world.mesh_settings, record), grade=grade, stream=stream)
+    job = live._begin(world.controller, types.SimpleNamespace(alpha=0.4, payload=target))
+    job.join(10)
+
+    assert job.result() is result
+    assert seen["uv_policy_id"] == policy
+    assert seen["lean"] is (grade in live.DRAG_GRADES)
+
+
+@pytest.mark.parametrize("mismatch", ("uv_policy", "offset"))
+@pytest.mark.parametrize(
+    "grade, stream",
+    ((live.REFRESH_COMMIT, False), (live.REFRESH_LEAN, False),
+     (live.REFRESH_INCREMENTAL, False), (live.REFRESH_INCREMENTAL, True)),
+)
+def test_a_foreign_preview_key_never_serves_domains_or_trust_and_commit_can_replace_it(monkeypatch, mismatch, grade, stream):
+    from cftuv import envelope_production_export as export
+    from cftuv import envelope_width_mesh_preview as preview
+    from cftuv import envelope_width_preview_model as pm
+
+    world = _World(monkeypatch)
+    controller = world.controller
+    # Тестовый закон помечает только чужой ключ; новый прогон действительно считает DIRECT.
+    old_record = dataclasses.replace(world.record, uv_policy_id="TEST_ONLY_FOREIGN_PREVIEW_KEY") if mismatch == "uv_policy" else world.record
+    arrays = production_mesh.build_mesh_arrays(world.run.results, OFFSET)
+    old = preview.build_sample(world.run.results, arrays, preview.sample_key(old_record, OFFSET), 0.25)
+    preview.note_button_display(controller, old)
+    ledger = controller.width_trust = pm.empty_ledger(old.key)
+    assert preview.ensure_model(controller)
+    wrong = controller.width_model = dataclasses.replace(controller.width_model, a1=controller.width_model.a1 + 0.5)
+    owner = controller.width_mesh_owner
+    target = dataclasses.replace(
+        live.target_of(world.settings, world.mesh_settings, world.record), grade=grade, stream=stream,
+        offset=OFFSET + 0.01 if mismatch == "offset" else OFFSET,
+    )
+    request = types.SimpleNamespace(alpha=0.2505, payload=target)
+    seen = {}
+    real_run = export.run_production
+
+    def capture_run(*args, **kwargs):
+        seen.update(kwargs)
+        return real_run(*args, **kwargs)
+
+    def foreign_reuse(*_args, **_kwargs):
+        raise AssertionError("a foreign sample entered incremental composition or rebasing")
+
+    monkeypatch.setattr(export, "run_production", capture_run)
+    monkeypatch.setattr(preview, "compose_sample", foreign_reuse)
+    monkeypatch.setattr(preview, "rebase_served", foreign_reuse)
+    job = live._begin(controller, request)
+    job.join(10)
+    result = job.result()
+
+    assert controller.width_displayed is old and controller.width_model is wrong
+    assert controller.width_trust is ledger and controller.width_mesh_owner is owner
+    assert result.sample.key == preview.sample_key(world.record, target.offset)
+    assert result.run.uv_policy_id == world.run.uv_policy_id
+    assert len(result.run.results) == ROW
+    assert result.check is None and result.trust is None and result.trust_events == ()
+    assert all(result.sample.origins[item.patch_id] is item for item in result.run.results)
+    if grade == live.REFRESH_INCREMENTAL:
+        assert seen["skipped"] == frozenset()
+        assert not result.plan.incremental and not result.plan.composite
+        assert result.plan.reason == live.REASON_MODEL_FOREIGN
+    else:
+        assert seen["skipped"] is None and result.plan is None
+    if grade == live.REFRESH_COMMIT:
+        live._apply(controller, request, job, result)
+        assert len(world.written) == 1 and controller.width_displayed is result.sample
+
+
 @pytest.mark.parametrize("width", [0.0, -0.1])
 def test_a_commit_at_a_width_that_is_not_positive_is_refused_before_the_pool_and_keeps_the_mesh(monkeypatch, capsys, width):
     """WIDTH_NOT_POSITIVE_REFUSED_AT_PRESS_V1: COMMIT на ширине <= 0 не идёт ни в пул, ни в прогон; меш не переписан пустым, одна строка консоли."""

@@ -177,6 +177,30 @@ def _counter(run, name):
 # --------------------------------------------------------------------------
 
 
+def test_the_run_receipt_keeps_the_requested_uv_policy_and_direct_output_is_unchanged():
+    bundle = quad_row_bundle(ROW)
+    controller = EnvelopeDebugSessionController()
+    default, _ = _production(bundle, controller, domain_pool=None)
+    explicit, _ = _production(bundle, controller, domain_pool=None, uv_policy_id=PRODUCTION_UV_POLICY)
+
+    assert default.uv_policy_id == explicit.uv_policy_id == PRODUCTION_UV_POLICY
+    assert all(item.placement == PLACEMENT_CACHED for item in explicit.results)
+    assert _answers(default) == _answers(explicit)
+    assert [item.batch for item in default.results] == [item.batch for item in explicit.results]
+    assert [face.uv_facts for item in default.results for face in item.batch.faces] == [
+        face.uv_facts for item in explicit.results for face in item.batch.faces
+    ]
+
+    named = "ENVELOPE_DEBUG_NO_UV_V1"
+    refused, _ = _production(bundle, controller, domain_pool=None, uv_policy_id=named)
+    assert refused.uv_policy_id == named
+    assert all(item.outcome == "UV_POLICY_UNSUPPORTED" and item.batch is None for item in refused.results)
+    restored, _ = _production(bundle, controller, domain_pool=None, uv_policy_id=PRODUCTION_UV_POLICY)
+    assert restored.uv_policy_id == PRODUCTION_UV_POLICY and _answers(restored) == _answers(default)
+    assert all(item.placement == PLACEMENT_CACHED for item in restored.results)
+    assert [item.batch for item in restored.results] == [item.batch for item in default.results]
+
+
 def test_the_cache_key_of_a_preparation_ignores_the_uv_law_and_alpha():
     """Ключ — ревизия, домен, рёбра и подпись угловой политики; закон UV не в нём."""
 

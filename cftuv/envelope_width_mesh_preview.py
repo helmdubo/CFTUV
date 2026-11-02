@@ -296,7 +296,7 @@ class MeshOwnershipV1:
 
 
 def sample_key(record, offset: float) -> tuple:
-    """Чья это геометрия: источник, ревизия, бэкенд ядра, плотность, допуски, смещение и номер сброса сессии.
+    """Чья это геометрия и UV: источник, ревизия, бэкенд ядра, закон UV, плотность, допуски, смещение и номер сброса сессии.
 
     Образец и модель другого ключа не смешиваются и не применяются: другой объект, другая ревизия, другой бэкенд либо
     другая политика дают другой меш (`build_model` отказывает именем `PREVIEW_KEY_MISMATCH`).
@@ -310,6 +310,7 @@ def sample_key(record, offset: float) -> tuple:
         str(record.kernel_backend),
         str(record.skeleton_backend),
         str(record.embedding_backend),
+        str(record.uv_policy_id),
         str(normalize_envelope_fan_density(record.density)),
         int(record.stretch_percent),
         float(record.dissolve_percent),
