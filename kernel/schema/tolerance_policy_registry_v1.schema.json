@@ -77,7 +77,8 @@
             "MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND",
             "MITER_CORNER_AT_DENSITY_ZERO_WITHIN_DECAL_ANGLE_BOUND",
             "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL",
-            "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE"
+            "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE",
+            "CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA"
           ],
           "type": "string"
         },
@@ -108,7 +109,8 @@
             "SURFACE_OFFSET_NORMAL_OPPOSITION",
             "BAND_CHART_ADMISSION",
             "SILHOUETTE_VERTEX_DISSOLVE",
-            "SOURCE_DEFECT_PREFLIGHT"
+            "SOURCE_DEFECT_PREFLIGHT",
+            "WAVEFRONT_BRIDGE_UNSELECTED_EDGE"
           ],
           "type": "string"
         },
@@ -193,7 +195,8 @@
             "DENSITY_ZERO_MITER_BOUND_V1",
             "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1",
             "SILHOUETTE_UV_SLIDE_V1",
-            "SOURCE_CONTACT_GAP_V1"
+            "SOURCE_CONTACT_GAP_V1",
+            "WALL_CREEP_SPEED_V1"
           ],
           "type": "string"
         },

@@ -153,7 +153,36 @@ def _parsed_sweep_arguments(arguments) -> dict:
     }
 
 
+#: WALL_CREEP_V1. Второй, отдельный режим свипа: каждая ОДИНОЧНАЯ цепочка шва меша выделяется
+#: одна и строится продуктовым путём (`run_production`); число выделений с хоть одним отказом
+#: домена — ратчет. Замер на замороженной сцене (2026-11-02): до закона 209 / 66 / 13 отказов
+#: из 295 / 84 / 15, после — 27 / 0 / 3 (остаток: регионы с несколькими дырами и бюджет
+#: канонизации). Сдвиг вверх — регресс по имени `PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET`.
+PARTIAL_SEAM_RECEIPT_SCHEMA = "cftuv.envelope.partial_seam_sweep.v1"
+PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET = "PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET"
+PARTIAL_SEAM_FLAG = "--partial-seams"
+_PARTIAL_SEAM_REFUSAL_RATCHET = {"building": 27, "2": 0, "building.004": 3}
+
+
+def _partial_seam_contract(arguments) -> dict:
+    """`-- --partial-seams <receipt.json>`: как и основной режим, исполняет только УСТАНОВЛЕННЫЙ продукт."""
+
+    arguments = tuple(item for item in arguments if item != PARTIAL_SEAM_FLAG)
+    if len(arguments) != 1:
+        raise DensitySweepContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: partial seams need exactly the receipt path"
+        )
+    return {
+        "schema": PARTIAL_SEAM_RECEIPT_SCHEMA,
+        "output": arguments[0],
+        "refusal_ratchet": dict(_PARTIAL_SEAM_REFUSAL_RATCHET),
+    }
+
+
 def _contract_only() -> None:
+    if PARTIAL_SEAM_FLAG in sys.argv:
+        print(json.dumps(_partial_seam_contract(_arguments_after_separator()), sort_keys=True))
+        return
     print(
         json.dumps(
             {
@@ -938,7 +967,83 @@ def _receipt_failure(densities, scene_before: dict, scene_after: dict) -> str | 
     return None
 
 
+def _single_chain_selections(bundle) -> list[tuple[int, ...]]:
+    seen: dict[frozenset, tuple[int, ...]] = {}
+    for _, node in sorted(bundle.patch_graph.nodes.items()):
+        for loop in node.boundary_loops:
+            for chain in loop.chains:
+                if chain.has_patch_neighbor and chain.edge_indices:
+                    seen.setdefault(frozenset(chain.edge_indices), tuple(chain.edge_indices))
+    return list(seen.values())
+
+
+def _partial_seam_mesh(obj, controller) -> dict:
+    """Все одиночные цепочки шва меша, каждая своим продуктовым прогоном; отказы по именам."""
+
+    from cftuv.analysis import build_analysis_bundle
+    from cftuv.analysis_surface import source_revision_from_bmesh
+    import cftuv.envelope_production_export as production
+    from cftuv.envelope_kernel_backend import kernel_backend_of
+    from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
+
+    settings = _settings()
+    _select_seams(obj, ())
+    bm = bmesh.from_edit_mesh(obj.data)
+    faces = tuple(face.index for face in bm.faces)
+    revision = source_revision_from_bmesh(bm, obj, faces)
+    keys = int(obj.as_pointer()), int(obj.data.as_pointer())
+    bundle = controller.get_analysis_bundle(*keys, revision, lambda: build_analysis_bundle(bm, faces, obj))
+    refusals: dict[str, int] = {}
+    refused = 0
+    selections = _single_chain_selections(bundle)
+    for edges in selections:
+        run = production.run_production(
+            controller, bundle, frozenset(edges), float(settings.envelope_debug_alpha),
+            source_object_key=keys[0], source_data_key=keys[1], density=settings.envelope_debug_fan_density,
+            developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
+            silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
+            workers=0, kernel_backend=kernel_backend_of(bpy.context.scene.hotspotuv_decal_mesh),
+        )
+        bad = [item for item in run.results if item.outcome != "MATERIALIZED"]
+        refused += bool(bad)
+        for item in bad:
+            stage = re.search(r"[A-Z][A-Z_]{8,}", str(item.detail).partition(":")[2] or "")
+            name = f"{item.outcome}|{stage.group(0) if stage else ''}"
+            refusals[name] = refusals.get(name, 0) + 1
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return {"mesh": obj.name, "selections": len(selections), "refused_selections": refused, "refusals": refusals}
+
+
+def partial_seam_main() -> None:
+    parsed = _partial_seam_contract(_arguments_after_separator())
+    _ensure_addon_registered()
+    from cftuv.envelope_debug_session import EnvelopeDebugSessionController
+
+    _pin_measured_alpha(_settings())
+    scene_before = _source_file_identity(Path(bpy.data.filepath))
+    controller = EnvelopeDebugSessionController()
+    meshes = []
+    for name, ratchet in _PARTIAL_SEAM_REFUSAL_RATCHET.items():
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            raise DensitySweepContractError(f"{SWEPT_MESH_ABSENT}: {name}")
+        meshes.append({**_partial_seam_mesh(obj, controller), "ratchet": ratchet})
+    if _source_file_identity(Path(bpy.data.filepath)) != scene_before:
+        raise DensitySweepContractError("SOURCE_SCENE_WAS_SAVED")
+    above = [item["mesh"] for item in meshes if item["refused_selections"] > item["ratchet"]]
+    payload = {**parsed, "meshes": meshes, "status": "REJECTED" if above else "COMPLETE",
+               "gate_failure": PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET if above else None}
+    Path(parsed["output"]).write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    for item in meshes:
+        print(f"PARTIAL {item['mesh']:<14} {item['refused_selections']}/{item['selections']} refused (ratchet {item['ratchet']})")
+    if above:
+        raise DensitySweepContractError(f"{PARTIAL_SEAM_REFUSALS_ABOVE_RATCHET}: {above}")
+
+
 def main() -> None:
+    if PARTIAL_SEAM_FLAG in sys.argv:
+        partial_seam_main()
+        return
     parsed = _parsed_sweep_arguments(_arguments_after_separator())
     output = Path(parsed["output"])
     direct_directory = Path(parsed["direct_receipt_directory"])

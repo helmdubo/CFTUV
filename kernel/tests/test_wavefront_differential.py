@@ -244,6 +244,9 @@ def test_ownership_inside_one_support_line_is_named_undetermined_not_guessed():
     Поэтому мост считает, СКОЛЬКО рёбер имеют источник (это точный размер
     наибольшего паросочетания), и называет те рёбра, у которых владелец не
     определён, вместо того чтобы поставить им первого попавшегося.
+
+    WALL_CREEP_V1: закон МОЖЕТ нести протяжённость своей опоры (`span`, вне равенства закона); класс прямых с такими
+    законами разрешается по ней (`test_wavefront_wall_creep.py`). Закон без `span` — прежний: ребро не определено.
     """
 
     assert PlainArrivalLawV1.__slots__ == (
@@ -252,7 +255,10 @@ def test_ownership_inside_one_support_line_is_named_undetermined_not_guessed():
         "normal_y",
         "constant",
         "speed_squared",
+        "span",
+        "motion",
     )
+    assert unit_speed_laws_of(cross(wide=6, tall=4))[0].span is None
 
     polygon = cross(wide=6, tall=4)
     report = bridge_arrival_laws(

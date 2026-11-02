@@ -1317,6 +1317,11 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
     monkeypatch.setattr(
         skeleton_module._Builder, "_finish", capture_full_reseed
     )
+    # WALL_CREEP_V1 закрывает этот домен вторым проходом (ползущие стены); утверждение Q-08 — о проходе с
+    # НЕПОДВИЖНЫМИ стенами, поэтому второй проход здесь выключен; его исход (EXACT) проверен в конце.
+    from cftuv_envelope.wavefront import conveyor as conveyor_module
+
+    monkeypatch.setattr(conveyor_module, "needs_creeping_walls", lambda prepared: False)
     prepared = prepare_conveyor(
         snapshot,
         request,
@@ -1328,6 +1333,10 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
     assert prepared.outcome.value == "SKELETON_DID_NOT_CLOSE"
     assert len(causal_receipts) == 1
     assert full_reseed_receipts == [((4, 5, 6, 7, 8, 16), 0, 0)]
+    monkeypatch.undo()
+    healed = prepare_conveyor(snapshot, request, patch_domain_id=domain.patch_domain_id)
+    assert healed.outcome.value == "EXACT"
+    assert dict(healed.counters)["CONVEYOR_WALL_CREEP_V1_WALLS"] > 0
 
 
 def test_split_family_normal_form_materializes_comb_2_once(monkeypatch):
