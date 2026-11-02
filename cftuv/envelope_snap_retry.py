@@ -82,6 +82,24 @@ def lottery_refusal(result) -> str | None:
     return name if name in SNAP_LOTTERY_REFUSALS else None
 
 
+#: Отказ Uniform-материализации: подготовка домена не та, по которой собран контекст фаз (`uv_phase.validate_basis`).
+UNIFORM_BASIS_MISMATCH = "UV_UNIFORM_PHASE_BASIS_MISMATCH"
+
+
+def uniform_basis_retry(run, entry, result) -> str | None:
+    """UNIFORM_UV_PER_DOMAIN_REFUSAL_V1: несовпадение базиса у домена, чей базис контекст взял из ПОВТОРА лотереи, - тоже лотерея.
+
+    DIRECT-проход Build построил домен повтором (`PLANE_PRESERVING_V1`), контекст фаз собран по подготовке повтора, а обычный
+    проход Uniform дошёл до плана UV раньше, чем до отказа лотереи (поздний отказ, напр. нулевая нормаль смещения): без этого
+    правила домен терялся бы только под Uniform. Повтор берёт ту же подготовку, по которой собран базис.
+    """
+
+    context = getattr(run, "uv_context", None)
+    if context is None or str(result.outcome) != UNIFORM_BASIS_MISMATCH:
+        return None
+    return UNIFORM_BASIS_MISMATCH if str(entry.domain_id) in getattr(context, "retried_domain_ids", ()) else None
+
+
 def snap_scale_notes(prepared) -> tuple[str, ...]:
     """Диагностика закона масштаба: какие масштабы окна пропущены из-за порванной плоскости; пусто, если закон выбор не сдвинул.
 
@@ -135,7 +153,7 @@ def retry_snap_lottery(run, entries, results, pool, *, scan, dispatch, collect):
     прогона и не путают подготовку повтора с обычной. Счётчики записываются в профиль прогона.
     """
 
-    targets = [(entry, result, lottery_refusal(result)) for entry, result in zip(entries, results)]
+    targets = [(entry, result, lottery_refusal(result) or uniform_basis_retry(run, entry, result)) for entry, result in zip(entries, results)]
     targets = [item for item in targets if item[2] is not None]
     if not targets:
         return results
@@ -176,9 +194,11 @@ __all__ = (
     "SNAP_RETRY_RECOVERED",
     "SNAP_RETRY_REFUSED_AGAIN",
     "SNAP_SCALE_DIAGNOSTIC",
+    "UNIFORM_BASIS_MISMATCH",
     "lottery_refusal",
     "merged_result",
     "refusal_name",
     "retry_snap_lottery",
     "snap_scale_notes",
+    "uniform_basis_retry",
 )

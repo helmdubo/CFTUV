@@ -382,14 +382,14 @@ def test_uniform_graph_near_budget_exhaustion_cannot_change_the_already_computed
                                        decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
     assert direct.is_materialized
     baseline = physical.pop()
-    def exhausted(prepared, table, budget, request, context, *args):
+    def exhausted(plan, budget, *args):
         assert physical and physical[-1].polygons == baseline.polygons
         assert physical[-1].dissolved == baseline.dissolved
         budget.cap = budget.spent + 1
         budget.spend_gcd_operations(2, operation=ExactWorkOperationV1.PRIME_SUPPORT, radicand=2)
     monkeypatch.setattr(domain, "_uniform_mapping", exhausted)
     uniform = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
-                                        decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
+                                        decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1, uv_context=compile_uniform_uv_context((prepared,)))
     assert uniform.outcome.value == "EXACT_WORK_BUDGET_EXHAUSTED"
 
 
@@ -412,3 +412,118 @@ def test_optional_uniform_fit_budget_exhaustion_keeps_fixed_geometry_and_actual_
     assert result.interface_chains and dict(result.counters)[silhouette.UNIFORM_SKIPPED] == 1
     assert dict(result.counters)[silhouette.UNIFORM_UNRESOLVED] == sum(map(len, physical.polygons))
     assert budget.spent == 0
+
+
+# --- UNIFORM_UV_PER_DOMAIN_REFUSAL_V1 -------------------------------------------------------------------------------
+
+
+def _fake_domain(name):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(compilation=SimpleNamespace(plan_key=SimpleNamespace(patch_domain_id=name)))
+
+
+def _synthetic_link(domain, left, right, delta):
+    return UniformUvPhaseLinkV1((f"region-{domain}", 0, 0, 0), left, right, S.rational(delta), False, False)
+
+
+def test_one_domain_with_a_phase_cycle_is_excluded_by_name_and_the_rest_compile(monkeypatch):
+    from cftuv_envelope.materialize import uv_phase
+
+    facts = {
+        "d1": UniformUvPhaseFactsV1(("d1", "basis-1"), ("a", "b"), (_synthetic_link("d1", "a", "b", 2),)),
+        # Тот же цикл a-b с другим сдвигом и без старого шва: прежде весь запрос падал исключением.
+        "d2": UniformUvPhaseFactsV1(("d2", "basis-2"), ("a", "b"), (_synthetic_link("d2", "b", "a", 5),)),
+    }
+    monkeypatch.setattr(uv_phase, "chain_station_table", lambda prepared, budget, withdrawn: None)
+    monkeypatch.setattr(uv_phase, "collect_phase_facts", lambda prepared, table, budget: facts[prepared.compilation.plan_key.patch_domain_id])
+    context = compile_uniform_uv_context((_fake_domain("d2"), _fake_domain("d1")))
+    assert dict(context.basis) == {"d1": "basis-1", "excluded:d2": "UV_UNIFORM_PHASE_CYCLE_WITHOUT_OLD_CUT"}
+    assert context.offsets_metres == (("a", S.rational(0)), ("b", S.rational(2)))
+    assert context.excluded_reason("d2") == "UV_UNIFORM_PHASE_CYCLE_WITHOUT_OLD_CUT" and context.excluded_reason("d1") is None
+    assert context == compile_uniform_uv_context((_fake_domain("d1"), _fake_domain("d2")))
+
+
+@pytest.mark.parametrize("failure", ("refusal", "budget"))
+def test_a_domain_whose_supports_cannot_be_named_is_excluded_and_refused_by_name_at_materialization(monkeypatch, failure):
+    from cftuv_envelope.exact_sqrt_sum import ExactWorkOperationV1, exact_work_budget
+    from cftuv_envelope.materialize import uv_phase
+
+    prepared, coverage, _request = _point_contact()
+    domain_id = prepared.compilation.plan_key.patch_domain_id.value
+    real = uv_phase.collect_phase_facts
+
+    def broken(item, table, budget):
+        if failure == "budget":
+            spent = exact_work_budget(stage="UV_PHASE_TEST", cap=0)
+            spent.spend_gcd_operations(2, operation=ExactWorkOperationV1.PRIME_SUPPORT, radicand=2)
+        raise uv.UniformUvRefusal("UV_UNIFORM_SOURCE_UNNAMED", "injected")
+
+    monkeypatch.setattr(uv_phase, "collect_phase_facts", broken)
+    context = compile_uniform_uv_context((prepared,))
+    expected = "UV_UNIFORM_PHASE_WORK_BUDGET_EXHAUSTED" if failure == "budget" else "UV_UNIFORM_SOURCE_UNNAMED"
+    assert dict(context.basis) == {f"excluded:{domain_id}": expected}
+    monkeypatch.setattr(uv_phase, "collect_phase_facts", real)
+    uniform = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
+                                        uv_context=context)
+    assert uniform.outcome.value == "UV_UNIFORM_PHASE_DOMAIN_EXCLUDED" and expected in uniform.detail
+    healthy = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
+                                        uv_context=compile_uniform_uv_context((prepared,)))
+    assert healthy.is_materialized, healthy.detail
+
+
+def test_retried_domains_are_part_of_the_context_identity_only_when_present():
+    prepared, _coverage, _request = _point_contact()
+    plain = compile_uniform_uv_context((prepared,))
+    retried = compile_uniform_uv_context((prepared,), retried_domain_ids=("domain-b", "domain-a"))
+    assert plain.retried_domain_ids == () and retried.retried_domain_ids == ("domain-a", "domain-b")
+    assert retried.digest != plain.digest and retried.offsets_metres == plain.offsets_metres and retried.basis == plain.basis
+
+
+def test_the_uniform_plan_is_remembered_by_the_preparation_and_a_hit_equals_a_miss():
+    from cftuv_envelope.materialize.memo import memo_disabled, memo_of
+
+    prepared, coverage, _request = _point_contact()
+    context = compile_uniform_uv_context((prepared,))
+    request = materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1")
+    with memo_disabled():
+        cold = domain.materialize_domain(prepared, coverage, request=request, uv_context=context)
+    first = domain.materialize_domain(prepared, coverage, request=request, uv_context=context)
+    misses = memo_of(prepared).misses
+    second = domain.materialize_domain(prepared, coverage, request=request, uv_context=context)
+    assert memo_of(prepared).misses == misses
+    assert cold.is_materialized and first.batch == second.batch == cold.batch
+    assert first.counters == second.counters == cold.counters
+
+
+#: Подготовки частичного выбора швов (WALL_CREEP_V1 / T_NOTCH / HOLE_CHANNEL_V1): Uniform строится на той же геометрии, что DIRECT.
+PARTIAL_SEAM_CASES = (
+    ("sem_clb_02_lost_domains_v1/cases/building_002_single_edge_patch_000_named_outcome_v1", None, "CONVEYOR_WALL_CREEP_V1_WALLS"),
+    ("wall_noise_top_join_density4_v1/wall_noise_top_patch1", "host-v0:chain-use:0a90270a1d78c70221a40b28", "CONVEYOR_WALL_CREEP_V1_T_NOTCHES"),
+    ("mesh2_patch0_cut_fans_v1", "host-v0:chain-use:9dde1835524f92bff481ba25", "CONVEYOR_HOLE_CHANNEL_V1_CHANNELS"),
+)
+
+
+@pytest.mark.parametrize("name,use,counter", PARTIAL_SEAM_CASES, ids=("creeping_walls", "t_notch", "hole_channel"))
+def test_uniform_on_partial_seam_preparations_keeps_direct_geometry_and_gives_every_face_uv_area(name, use, counter):
+    snapshot, request = fixtures.load_fixture(name)
+    if use is not None:
+        request = dataclasses.replace(request, selected_chain_use_ids=frozenset(item for item in request.selected_chain_use_ids if str(item) == use))
+        assert len(request.selected_chain_use_ids) == 1
+    prepared, coverage = fixtures.prepare_and_cover(snapshot, request)
+    assert dict(prepared.counters)[counter] > 0
+    context = compile_uniform_uv_context((prepared,))
+    assert not any(key.startswith("excluded:") for key, _value in context.basis)
+    direct = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1"))
+    uniform = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"), uv_context=context)
+    assert direct.is_materialized and uniform.is_materialized, uniform.detail
+    assert uniform.batch.vertices == direct.batch.vertices and uniform.batch.station_facts == direct.batch.station_facts
+    assert [face.ordered_vert_keys for face in uniform.batch.faces] == [face.ordered_vert_keys for face in direct.batch.faces]
+    signs = set()
+    for face in uniform.batch.faces:
+        uvs = [(fact.uv.u, fact.uv.v) for fact in face.uv_facts]
+        area = sum(a[0]*b[1]-b[0]*a[1] for a, b in zip(uvs, uvs[1:]+uvs[:1]))
+        assert all(value == value and abs(value) < 1e9 for pair in uvs for value in pair)
+        assert abs(area) > 1e-12, face.semantic_region_id
+        signs.add(area > 0)
+    assert len(signs) == 1

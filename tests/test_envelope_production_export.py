@@ -224,7 +224,7 @@ def test_uniform_compiles_all_current_preparations_once_and_reuses_context_at_ot
     context = SimpleNamespace(digest="compiled-global-phase", basis=())
     compiled, scans = [], []
 
-    def compile_context(prepared, excluded):
+    def compile_context(prepared, excluded, *_retried):
         compiled.append((prepared, excluded))
         return context
 
@@ -268,7 +268,7 @@ def test_uniform_context_collection_completes_current_revision_inputs_after_cont
     _production(source, controller, domain_pool=None)
     target = with_revision(source, "target", "c" * 64)
     captured = []
-    monkeypatch.setattr(uniform, "_compile_context", lambda prepared, excluded: captured.append((prepared, excluded)) or SimpleNamespace(digest="target-phase"))
+    monkeypatch.setattr(uniform, "_compile_context", lambda prepared, excluded, *_retried: captured.append((prepared, excluded)) or SimpleNamespace(digest="target-phase"))
 
     run, _ = _production(target, controller, domain_pool=None, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1")
 
@@ -1843,3 +1843,128 @@ def test_the_session_keeps_one_metric_and_one_result_per_budget_and_reuses_each(
     assert "stretch_budget=0.2 " in _developable_line(again)
     assert "stretch_budget=0.35 " in _developable_line(again_wide)
     assert _answers(again) == _answers(first) and _answers(again_wide) == _answers(wide)
+
+
+# --- UNIFORM_UV_PER_DOMAIN_REFUSAL_V1: один домен не роняет Uniform-кнопку --------------------------------------------
+
+
+def _uniform_pair_build(controller=None):
+    bundle, controller = quad_row_bundle(2), controller or EnvelopeDebugSessionController()
+    return run_production(
+        controller, bundle, frozenset(range(7)), 0.25, source_object_key="pair", source_data_key="pair-mesh",
+        density="1", domain_pool=None, kernel_backend="PYTHON", uv_policy_id="UV_UNIFORM_TRIM_FAN_V1",
+    )
+
+
+def test_one_domain_failing_the_phase_context_is_a_named_refusal_and_the_rest_materialize(monkeypatch):
+    from cftuv_envelope.materialize import uv_phase, uv_uniform
+
+    real, broken = uv_phase.collect_phase_facts, []
+
+    def collect(prepared, table, budget):
+        if not broken:
+            broken.append(prepared.compilation.plan_key.patch_domain_id.value)
+            raise uv_uniform.UniformUvRefusal("UV_UNIFORM_SOURCE_UNNAMED", "injected")
+        return real(prepared, table, budget)
+
+    monkeypatch.setattr(uv_phase, "collect_phase_facts", collect)
+    built = _uniform_pair_build()
+
+    assert len(built.results) == 2 and len(built.materialized) == 1
+    (refused,) = [item for item in built.results if item.outcome != "MATERIALIZED"]
+    assert refused.outcome == "UV_UNIFORM_PHASE_DOMAIN_EXCLUDED" and "UV_UNIFORM_SOURCE_UNNAMED" in refused.detail
+    assert dict(built.uv_context.basis)[f"excluded:{broken[0]}"] == "UV_UNIFORM_SOURCE_UNNAMED"
+    assert built.counter("PRODUCTION_UNIFORM_CONTEXT_EXCLUDED_DOMAINS") == 1
+
+
+def test_a_whole_context_refusal_names_every_domain_instead_of_cancelling_the_build(monkeypatch):
+    from cftuv_envelope.materialize import uv_phase, uv_uniform
+
+    def refuse(*_args, **_kwargs):
+        raise uv_uniform.UniformUvRefusal("UV_UNIFORM_PHASE_LINK_CONFLICT", "injected")
+
+    monkeypatch.setattr(uv_phase, "compile_uniform_uv_context", refuse)
+    built = _uniform_pair_build()
+
+    assert len(built.results) == 2 and not built.materialized
+    assert {item.outcome for item in built.results} == {"UV_UNIFORM_PHASE_DOMAIN_EXCLUDED"}
+    assert all("UV_UNIFORM_PHASE_LINK_CONFLICT" in item.detail for item in built.results)
+
+
+def test_a_preparation_that_raises_while_collecting_the_context_is_excluded_by_name(monkeypatch):
+    from cftuv import envelope_uniform_context as uniform
+
+    real, raised = uniform._current_preparation, []
+
+    def current(run, patch_id, domain_id, selected):
+        if not raised:
+            raised.append(domain_id)
+            raise RuntimeError("injected")
+        return real(run, patch_id, domain_id, selected)
+
+    monkeypatch.setattr(uniform, "_current_preparation", current)
+    built = _uniform_pair_build()
+
+    assert dict(built.uv_context.basis)[f"excluded:{raised[0]}"] == uniform.UV_CONTEXT_PREPARATION_INCOMPLETE
+    assert len(built.materialized) == 1
+    (refused,) = [item for item in built.results if item.outcome != "MATERIALIZED"]
+    assert refused.outcome == "UV_UNIFORM_PHASE_DOMAIN_EXCLUDED"
+
+
+def test_a_late_basis_mismatch_of_a_domain_built_by_the_snap_retry_goes_to_the_same_retry():
+    """Поздний отказ лотереи (после плана UV): обычный проход Uniform кончается несовпадением базиса, повтор строит домен."""
+
+    from types import SimpleNamespace
+    from cftuv import envelope_snap_retry as snap
+
+    @dataclasses.dataclass
+    class Result:
+        outcome: str
+        detail: str = ""
+        diagnostics: tuple = ()
+
+        def with_changes(self, **changes):
+            return dataclasses.replace(self, **changes)
+
+    @dataclasses.dataclass
+    class Run:
+        topology_export: object
+        controller: object
+        profile: object
+        uv_context: object
+        hooks: object = None
+        patch_ids: tuple = ()
+        relabeled: list = dataclasses.field(default_factory=list)
+        relabel_failures: list = dataclasses.field(default_factory=list)
+        registered: list = dataclasses.field(default_factory=list)
+        scan_records: dict = dataclasses.field(default_factory=dict)
+        served: dict = dataclasses.field(default_factory=dict)
+        skipped: frozenset = frozenset()
+
+    counters = {}
+    run = Run(
+        topology_export=SimpleNamespace(with_grid_scale_retry=lambda: "retry-export"),
+        controller=SimpleNamespace(worker_export_hooks=lambda export, profile: None),
+        profile=SimpleNamespace(set_counter=counters.__setitem__),
+        uv_context=SimpleNamespace(retried_domain_ids=("domain-1",)),
+        patch_ids=(0, 1, 2),
+    )
+    entries = [SimpleNamespace(patch_id=index, domain_id=f"domain-{index}", needs_work=True, prepared=object(), carried=None) for index in range(3)]
+    results = [Result("MATERIALIZED"), Result(snap.UNIFORM_BASIS_MISMATCH, "domain-1"), Result(snap.UNIFORM_BASIS_MISMATCH, "domain-2")]
+    scanned = []
+
+    def scan(retry):
+        scanned.append((retry.topology_export, retry.patch_ids))
+        return [entries[index] for index in retry.patch_ids]
+
+    merged = snap.retry_snap_lottery(
+        run, entries, results, None, scan=scan,
+        dispatch=lambda retry, ready, cold, pool: ((), ()),
+        collect=lambda retry_entries, done, refused: [Result("MATERIALIZED") for _entry in retry_entries],
+    )
+
+    # Только домен, чей базис контекст взял из повтора: чужое несовпадение базиса - не лотерея.
+    assert scanned == [("retry-export", (1,))]
+    assert [item.outcome for item in merged] == ["MATERIALIZED", "MATERIALIZED", snap.UNIFORM_BASIS_MISMATCH]
+    assert counters[snap.SNAP_RETRY_RECOVERED] == 1
+    assert snap.uniform_basis_retry(SimpleNamespace(uv_context=None), entries[1], results[1]) is None

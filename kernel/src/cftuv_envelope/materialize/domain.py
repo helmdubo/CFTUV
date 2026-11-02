@@ -116,7 +116,8 @@ from .stations import (
     source_chain_by_span,
 )
 from .uv_law import UV_DIRECT_STRIP_V1, UV_UNIFORM_TRIM_FAN_V1
-from .uv_uniform import UniformUvRefusal, map_uniform_uv, plan_from_context
+from .uv_phase import station_basis
+from .uv_uniform import UniformUvRefusal, build_uniform_plan, map_uniform_uv, plan_from_context
 
 MATERIALIZER_CONTRACT = "cftuv.envelope.materializer.v1"
 
@@ -820,10 +821,32 @@ def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse, 
     return shaped
 
 
-def _uniform_mapping(prepared, table, budget, request, uv_context, stage, lines, source_loci=None):
+def _uniform_plan(prepared, table, budget, request, uv_context):
+    """План UV-карт домена (UV_UNIFORM_TRIM_FAN_V1) либо `None` у другого закона.
+
+    UNIFORM_UV_PER_DOMAIN_REFUSAL_V1: план - функция подготовки и контекста фаз, alpha в него не входит, поэтому он
+    считается сразу после первой таблицы станций (память канонизации там - функция подготовки) и лежит в памяти
+    подготовки с ценой (`priced`): шаги ширины и перетаскивание не пересчитывают граф опор.
+    """
+
     if request.uv_policy_id != UV_UNIFORM_TRIM_FAN_V1:
+        return None
+
+    memo = memo_of(prepared)
+    if memo is None or uv_context is None:
+        return plan_from_context(prepared, table, budget, uv_context)
+    # Базис проверяется на КАЖДОМ шаге (контекст мог смениться при том же digest только подменой); сам базис помнит подготовка.
+    key, expected = memo.remembered(("uniform_station_basis",), lambda: station_basis(prepared, table))
+    uv_context.validate_basis_value(key, expected)
+    return memo.priced(
+        ("uniform_plan", str(uv_context.digest), expected), budget,
+        lambda: build_uniform_plan(prepared, table, budget, phase_offsets_metres=uv_context.offsets(), cut_ids=uv_context.cut_ids),
+    )
+
+
+def _uniform_mapping(plan, budget, stage, lines, source_loci=None):
+    if plan is None:
         return None, None
-    plan = plan_from_context(prepared, table, budget, uv_context)
     values, forms = map_uniform_uv(plan, *stage, source_loci=source_loci)
     lines.extend(f"{name}: {key}" for name, key in plan.cuts)
     return values, forms
@@ -853,7 +876,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     `capture` - оставить сертификату перетаскивания ссылки на объекты стадий (`parametric.ParametricInputsV1`, седьмой элемент ответа); ответ от него не зависит.
     """
 
-    items, table, lines, notes, chords, uv_table = parts
+    items, table, lines, notes, chords, uv_plan = parts
     frame_faces = [
         resolve_frame(table, region_id, face, line, source_keys)
         for region_id, face, line, source_keys in items
@@ -905,7 +928,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
     shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
-    uv_values, uv_forms = _uniform_mapping(prepared, uv_table, budget, request, uv_context, (frame_faces, layout, polygons, points, facts), lines, source_loci)
+    uv_values, uv_forms = _uniform_mapping(uv_plan, budget, (frame_faces, layout, polygons, points, facts), lines, source_loci)
     shaped = _uniform_shaped(shaped, budget, request, (points, shaped.facts if shaped is not None else facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
     batch = backend.assemble_compute(
         assemble_batch,
@@ -1001,12 +1024,14 @@ def _stations_of(prepared, budget, withdrawn):
 
 def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False, capture=False, uv_context=None) -> _Built:
     withdrawn: frozenset = frozenset()
-    uv_table = None
+    uv_plan = None
+    planned = False
     while True:
         table, spans = _stations_of(prepared, budget, withdrawn)
-        if uv_table is None:
+        if not planned:
             # UV-план привязан к статической таблице запроса; снятый физический JOIN не меняет его фазы.
-            uv_table = table
+            uv_plan = _uniform_plan(prepared, table, budget, request, uv_context)
+            planned = True
         clock.lap("STATIONS")
         items, stats, match = _covered_regions(
             prepared, coverage, table, spans, budget, clock
@@ -1018,7 +1043,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law, silhouett
         try:
             batch, frame_faces, lift_counters, lift, topology, clip_memo, parametric_inputs = _assemble(
                 prepared, coverage, request, admission, budget, clock,
-                (items, table, lines, notes, chords, uv_table), law, silhouette, capture, uv_context,
+                (items, table, lines, notes, chords, uv_plan), law, silhouette, capture, uv_context,
             )
             break
         except MaterializationRefusal as refusal:

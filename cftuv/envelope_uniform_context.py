@@ -7,6 +7,10 @@ from dataclasses import replace
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP, ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN
 
 
+#: Подготовку домена не удалось получить для контекста фаз (исключение вне именованных отказов подготовки).
+UV_CONTEXT_PREPARATION_INCOMPLETE = "UV_CONTEXT_PREPARATION_INCOMPLETE"
+
+
 def context_key(key: tuple, uv_context) -> tuple:
     """Digest глобальной фазы расширяет только UV-ключ; без контекста прежний tuple тождественен."""
 
@@ -51,6 +55,7 @@ def _preparations(run, final_runs) -> tuple:
     """Все исходно выбранные домены, включая домены без материализованного результата; отказы остаются в обычном прогоне."""
 
     from .envelope_kernel_backend import PreparationRefused
+    from .envelope_production_result import ProductionCancelled
     from .envelope_production_scan import _check_cancel
     from .envelope_request_export import EnvelopeHostAdapterError
     from .envelope_scan_memo import patch_domain_id
@@ -66,10 +71,14 @@ def _preparations(run, final_runs) -> tuple:
             # Не превращаем отказ подготовки в успешную геометрию: финальный прогон назовёт его для того же домена.
             excluded.append((domain_id, str(getattr(exc.outcome, "value", exc.outcome))))
             continue
-        except Exception as exc:
-            raise ValueError(f"UV_CONTEXT_PREPARATION_INCOMPLETE: {domain_id}: {exc}") from exc
+        except ProductionCancelled:
+            raise
+        except Exception:  # noqa: BLE001 - UNIFORM_UV_PER_DOMAIN_REFUSAL_V1: один домен не роняет кнопку, он исключён по имени
+            excluded.append((domain_id, UV_CONTEXT_PREPARATION_INCOMPLETE))
+            continue
         if item is None:
-            raise ValueError(f"UV_CONTEXT_PREPARATION_INCOMPLETE: {domain_id}: no current preparation")
+            excluded.append((domain_id, UV_CONTEXT_PREPARATION_INCOMPLETE))
+            continue
         if item.outcome.value == "EXACT":
             prepared.append(item)
         else:
@@ -79,10 +88,23 @@ def _preparations(run, final_runs) -> tuple:
     return tuple(prepared), tuple(excluded)
 
 
-def _compile_context(prepared, excluded):
-    from cftuv_envelope.materialize.uv_phase import compile_uniform_uv_context
+def _compile_context(prepared, excluded, retried=()):
+    """Компилятор ядра исключает домены по одному; если он всё же отказал целиком, каждый домен получает этот отказ по имени.
 
-    return compile_uniform_uv_context(prepared, excluded_domain_ids=excluded)
+    UNIFORM_UV_PER_DOMAIN_REFUSAL_V1: кнопка никогда не кончается CANCELLED из-за контекста фаз - отказ становится
+    исключением каждого домена (`UV_UNIFORM_PHASE_DOMAIN_EXCLUDED` у его материализации), а отчёт прогона его называет.
+    """
+
+    from cftuv_envelope.materialize.uv_phase import compile_uniform_phase_plan, compile_uniform_uv_context
+    from cftuv_envelope.materialize.uv_uniform import UniformUvRefusal
+
+    try:
+        return compile_uniform_uv_context(prepared, excluded_domain_ids=excluded, retried_domain_ids=retried)
+    except UniformUvRefusal as refusal:
+        everyone = {str(domain): str(name) for domain, name in excluded}
+        for item in prepared:
+            everyone.setdefault(str(getattr(item.compilation.plan_key.patch_domain_id, "value", item.compilation.plan_key.patch_domain_id)), refusal.name)
+        return compile_uniform_phase_plan((), excluded_domain_ids=tuple(everyone.items()), retried_domain_ids=retried)
 
 
 def _direct_prepass(run, pool, prepass):
@@ -102,6 +124,14 @@ def _direct_prepass(run, pool, prepass):
     return final_runs
 
 
+def _retried_domain_ids(run, final_runs) -> tuple:
+    """Домены, чья подготовка в контексте пришла из повтора лотереи привязки: их несовпадение базиса - тоже повод для повтора."""
+
+    from .envelope_scan_memo import patch_domain_id
+
+    return tuple(sorted(patch_domain_id(run.revision, patch) for patch, final in final_runs.items() if final is not run))
+
+
 def with_uniform_context(run, pool, *, prepass):
     """Один полный DIRECT-проход на первом Build, затем один вызов чистого компилятора ядра. Тики используют план Build."""
 
@@ -118,7 +148,8 @@ def with_uniform_context(run, pool, *, prepass):
     final_runs = _direct_prepass(direct, pool, prepass)
     run.byte_check_ledger.extend(direct.byte_check_ledger)
     run.profile.set_counter("PRODUCTION_UNIFORM_CONTEXT_PREPASS", 1)
-    context = _compile_context(*_preparations(direct, final_runs))
+    context = _compile_context(*_preparations(direct, final_runs), _retried_domain_ids(direct, final_runs))
+    run.profile.set_counter("PRODUCTION_UNIFORM_CONTEXT_EXCLUDED_DOMAINS", sum(1 for key, _name in getattr(context, "basis", ()) if str(key).startswith("excluded:")))
     for name, value in getattr(context, "work_counters", ()):
         run.profile.set_counter(f"PRODUCTION_UNIFORM_CONTEXT_{name}", value)
     return replace(run, uv_context=context)
