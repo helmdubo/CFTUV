@@ -10,6 +10,7 @@
 
 use cftuv_clip::lift::sqrt_sum_binary64;
 use cftuv_core::num::{self, IBig, UBig};
+use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
@@ -23,6 +24,11 @@ pub const DECIMAL_DIGITS: usize = 28;
 pub fn uv_coordinate(value: &SqrtSum, inverse_alpha: &Rat) -> Option<f64> {
     let found = sqrt_sum_binary64(&value.scaled(inverse_alpha)).ok()?;
     found.is_finite().then_some(found)
+}
+
+/// UV_UNIFORM_TRIM_FAN_V1: derivative of K + Tx*x + Ty*y + B*r after physical clip slopes have been overlaid.
+pub fn uniform_numerator_slope(form: &[SqrtSum; 4], point: &(SqrtSum, SqrtSum), transverse: &SqrtSum, products: &mut ProductMemo) -> SqrtSum {
+    form[1].mul(&point.0, products).add(&form[2].mul(&point.1, products)).add(&form[3].mul(transverse, products))
 }
 
 fn pow10(exponent: usize) -> UBig {

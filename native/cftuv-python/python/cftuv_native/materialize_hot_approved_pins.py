@@ -4,10 +4,10 @@
 """
 
 APPROVED = {
-    "materialize/silhouette.py": "99d156d9f2930c722a3fd651a75f05961f58beb72ef212dd230663a1e536cdb4",
-    "materialize/assemble.py": "6a5ea27d6269fc2c0942b011251544c15ba24450c5355cc3cf6be132a438239b",
+    "materialize/silhouette.py": "e627702036c2cc137ca3a8cc7bfdb85f531e7a5703fddeff2689b2ca8e5b16ff",
+    "materialize/assemble.py": "1482868265b88ac0e7873e432b6cdf11a65a83d22835cc631fdc2125c0355424",
     "materialize/source_lift.py": "2ebb0e8e7f8690cd6f37887129d4efae6c50f59c61f83b237b7a6373bd30698f",
-    "materialize/uv_law.py": "f419ea42a3fb789412fab745b2dc249417e40e2e0c4ab16984f5cb8c025ef308",
+    "materialize/uv_law.py": "d6289683641cdb665e55093a2960dcfae05b200123322e4bf48a0dabdd6af749",
     "materialize/lift.py": "ed91b42e5d6149d30469501922f8d7abfa65168d98043eccb3bdd2a87a78412b",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "_cpython311.py": "d0ce9f6eccb090f0ef1e0615830f0534ac5211615da0d04103934d017e97e034",

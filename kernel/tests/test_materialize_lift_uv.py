@@ -74,7 +74,7 @@ def test_uv_direct_strip_is_the_division_by_alpha():
     assert uv_law.uv_direct_strip_v1(s, SqrtSumV1.rational(alpha), alpha).v == 1.0
 
 
-def test_only_the_declared_uv_policy_is_supported():
+def test_only_the_declared_uv_policies_are_supported():
     assert uv_law.UV_DIRECT_STRIP_V1 == PolicyId("UV_DIRECT_STRIP_V1")
-    assert uv_law.SUPPORTED_UV_POLICIES == {uv_law.UV_DIRECT_STRIP_V1}
+    assert uv_law.SUPPORTED_UV_POLICIES == {uv_law.UV_DIRECT_STRIP_V1, uv_law.UV_UNIFORM_TRIM_FAN_V1}
     assert PolicyId("ENVELOPE_DEBUG_NO_UV_V1") not in uv_law.SUPPORTED_UV_POLICIES

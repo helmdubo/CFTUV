@@ -146,6 +146,8 @@ pub struct SilInput {
     pub points: Vec<Option<(SqrtSum, SqrtSum)>>,
     /// `facts[(region, k)]`.
     pub facts: FxMap<(u32, Key), (SqrtSum, SqrtSum)>,
+    /// Optional final UV numerators; the physical facts above still own station and boundary classification.
+    pub uv_facts: Option<FxMap<(u32, Key), (SqrtSum, SqrtSum)>>,
     /// `Fraction(1) / Fraction(lattice_alpha)` (the UV law's factor) and `SqrtSumV1.rational(lattice_alpha)` (the front of `edge_kind`).
     pub inverse_alpha: Rat,
     pub front: SqrtSum,
@@ -441,7 +443,7 @@ impl<'s> Mesh<'s> {
     }
 
     fn fact(&self, region: u32, key: Key) -> SilResult<&'s (SqrtSum, SqrtSum)> {
-        match self.source.facts.get(&(region, key)) {
+        match self.source.uv_facts.as_ref().unwrap_or(&self.source.facts).get(&(region, key)) {
             Some(found) => Ok(found),
             None => unsupported("a vertex of a face has no fact in its region"),
         }
@@ -1201,10 +1203,11 @@ fn chains_from(
         if (region, index) < (other_region, other) && (other_region != region || (a, b) != (other_end, other_start)) {
             let pair = unordered(region, other_region);
             let cut = source.cut_pairs.contains(&pair);
-            if other_region != region && (count_continuous || cut) {
+            if other_region != region && (count_continuous || cut || source.uv_facts.is_some()) {
                 let mut equal = true;
+                let uv = source.uv_facts.as_ref().unwrap_or(facts);
                 for (key, twin) in [(a, other_end), (b, other_start)] {
-                    let (Some(left), Some(right)) = (facts.get(&(region, key)), facts.get(&(other_region, twin))) else {
+                    let (Some(left), Some(right)) = (uv.get(&(region, key)), uv.get(&(other_region, twin))) else {
                         return unsupported("an interface vertex has no fact");
                     };
                     if !same_fact(left, right) {
@@ -1680,6 +1683,7 @@ fn chain_edges(source: &SilInput, chains: &[Chain]) -> FxSet<(u32, u32)> {
 }
 
 fn verify_chains(source: &SilInput, output: &SilOutput, polygons: &[Vec<Vec<Key>>], facts: &FxMap<(u32, Key), (SqrtSum, SqrtSum)>) -> SilResult<Vec<&'static str>> {
+    let facts = source.uv_facts.as_ref().unwrap_or(facts);
     let Some((boundary, interface)) = &output.chains else {
         return Ok(Vec::new());
     };

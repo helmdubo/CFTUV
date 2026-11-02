@@ -164,6 +164,8 @@ class SilhouetteInputV1:
     reverse: bool = False
     #: Ключи вершин `src:<id>`, которые план станций цепей (`CHAIN_STATION_PLAN_V1`) назвал `FREE` (декаль их не несёт); пусто — плана нет.
     free: frozenset = frozenset()
+    #: Отдельные UV-числители нового закона; физические `(s,r)` остаются в `facts`.
+    uv_numerators: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +205,10 @@ class _Facts:
 
     def __getitem__(self, key):
         return self.facts[(self.region, key)]
+
+
+def _uv_facts(source):
+    return source.facts if source.uv_numerators is None else source.uv_numerators
 
 
 class _Face:
@@ -367,7 +373,7 @@ class _Mesh:
     def uv(self, region, key):
         found = self._uv.get((region, key))
         if found is None:
-            s, r = self.source.facts[(region, key)]
+            s, r = _uv_facts(self.source)[(region, key)]
             point = uv_direct_strip_v1(s, r, self.source.lattice_alpha)
             found = self._uv[(region, key)] = (point.u, point.v)
         return found
@@ -413,7 +419,7 @@ class _Mesh:
         return face.cert
 
     def _solve(self, face):
-        points, ring, values = self.source.points, face.ring, _Facts(self.source.facts, face.region)
+        points, ring, values = self.source.points, face.ring, _Facts(_uv_facts(self.source), face.region)
         base = None
         for second in range(1, len(ring)):
             for third in range(second + 1, len(ring)):
@@ -522,7 +528,7 @@ class _Mesh:
         if not cert:
             return False
         base, frame = cert
-        points, values, known = self.source.points, _Facts(self.source.facts, one.region), set(one.ring)
+        points, values, known = self.source.points, _Facts(_uv_facts(self.source), one.region), set(one.ring)
         if all(_on_map(points, values, base, frame, key) for key in two.ring if key not in known):
             return cert
         return False
@@ -804,7 +810,7 @@ def _chains(source: SilhouetteInputV1, polygons, facts) -> tuple:
 
     continuous: Counter = Counter()
     boundary, interface = chains_of_faces(
-        source.frame_faces, polygons, source.layout, facts, source.lattice_alpha, continuous, source.reverse
+        source.frame_faces, polygons, source.layout, facts, source.lattice_alpha, continuous, source.reverse, source.uv_numerators
     )
     return boundary, interface, continuous[CONTINUOUS_INTERFACE_EDGES]
 
@@ -1026,6 +1032,7 @@ def _verify_chains(source, result) -> list:
             for a, b in _pairs(tuple(ring)):
                 owner[(location_key(a), location_key(b))] = (region, index, a, b)
     cut = source.layout.cut_pairs(source.frame_faces)
+    uv = result.facts if source.uv_numerators is None else source.uv_numerators
     expected, continuous = set(), set()
     for (place_a, place_b), (region, index, a, b) in owner.items():
         other = owner.get((place_b, place_a))
@@ -1036,7 +1043,7 @@ def _verify_chains(source, result) -> list:
         if region == other_region:
             if index != other_index and (a, b) != (other_b, other_a):
                 expected.add(edge)
-        elif all(result.facts[(region, key)] == result.facts[(other_region, twin)] for key, twin in ((a, other_b), (b, other_a))):
+        elif all(uv[(region, key)] == uv[(other_region, twin)] for key, twin in ((a, other_b), (b, other_a))):
             if frozenset((region, other_region)) not in cut:
                 continuous.add(edge)
         else:

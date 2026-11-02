@@ -251,6 +251,8 @@ def _materialize(prepared, coverage, arguments, templates=None, exact=False) -> 
     extra = {} if templates is None else {"parametric": ParametricRequestV1(templates, exact)}
     if defer_checks:
         extra["defer_checks"] = True
+    if len(rest) > 1 and rest[1] is not None:
+        extra["uv_context"] = rest[1]
     # Через модуль, а не по имени: подмена стадии (отказ ядра в тестах хоста, сверка) должна действовать и здесь.
     return domain_module.materialize_domain(
         prepared,
@@ -333,7 +335,7 @@ def _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates, o
     return result, certificate
 
 
-def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True, parametric=False, parametric_exact=False, defer_checks=False) -> StepV1:
+def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True, parametric=False, parametric_exact=False, defer_checks=False, uv_context=None) -> StepV1:
     """Шаг ширины (`_step_domain`) с именованным отказом: величина без канонической строки V2 даёт исход `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`.
 
     Покрытие (`wavefront.coverage`, закреплено за Rust) исключение не называет: оно выходит из шага и именуется ЗДЕСЬ, на границе ядра. Путь шага у
@@ -343,14 +345,14 @@ def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_to
     try:
         return _step_domain(
             prepared, alpha_text, request=request, near_planar_lift_law=near_planar_lift_law,
-            decal_topology_law=decal_topology_law, digests=digests, parametric=parametric, parametric_exact=parametric_exact, defer_checks=defer_checks,
+            decal_topology_law=decal_topology_law, digests=digests, parametric=parametric, parametric_exact=parametric_exact, defer_checks=defer_checks, uv_context=uv_context,
         )
     except ExactScalarTextCanonUnsupported as unsupported:
         STEP_COUNTERS["INTERVAL_FALLBACK_" + FALLBACK_REFUSED] += 1
         return StepV1(domain_module.canon_unsupported_refusal(unsupported), "FALLBACK:" + FALLBACK_REFUSED)
 
 
-def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True, parametric=False, parametric_exact=False, defer_checks=False) -> StepV1:
+def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True, parametric=False, parametric_exact=False, defer_checks=False, uv_context=None) -> StepV1:
     """Покрытие и материализация домена при `alpha_text`: из шаблона внутри заверенного интервала, иначе полным путём с записью шаблона.
 
     Ответ (`StepV1.result`) равен ответу `materialize_domain(prepared, conveyor_coverage(prepared, alpha_text), ...)` с `certify=True`, и цена
@@ -359,6 +361,8 @@ def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_t
 
     # `defer_checks` - lean-тик (LEAN_TICK_DIAGNOSTICS_DEFERRED_V1): проверка и аудит батча отложены до COMMIT, кроме выборки.
     arguments = (request, near_planar_lift_law, decal_topology_law, digests, defer_checks)
+    if uv_context is not None:
+        arguments = (*arguments, uv_context)
     # Заказ аффинного сертификата перетаскивания: `None` - не заказан, иначе флаг точного режима (тесты теоремы).
     ordered = bool(parametric_exact) if (parametric or parametric_exact) and parametric_enabled() else None
     memo = memo_of(prepared)

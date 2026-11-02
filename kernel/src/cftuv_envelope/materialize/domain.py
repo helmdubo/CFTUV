@@ -115,7 +115,8 @@ from .stations import (
     junction_to_withdraw,
     source_chain_by_span,
 )
-from .uv_law import UV_DIRECT_STRIP_V1
+from .uv_law import UV_DIRECT_STRIP_V1, UV_UNIFORM_TRIM_FAN_V1
+from .uv_uniform import UniformUvRefusal, map_uniform_uv, plan_from_context
 
 MATERIALIZER_CONTRACT = "cftuv.envelope.materializer.v1"
 
@@ -798,7 +799,7 @@ def _cut(plane, budget, admission, stage, tally, inert=frozenset()):
     )
 
 
-def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse):
+def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse, uv_numerators=None):
     """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой; `None` вне закона.
 
     `mesh` — `(грани, контуры, вершины граней, позиции)`, `frame` — `(точки карты, факты, слитые грани, раскладка, alpha решётки)`;
@@ -812,20 +813,29 @@ def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse):
     free = frozenset(f"src:{vertex}" for vertex in free_vertices(prepared.compilation.chain_station_plans))
     shaped = backend.silhouette_compute(
         apply_silhouette,
-        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse, free),
+        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse, free, uv_numerators),
         budget,
     )
     clock.lap("SILHOUETTE")
     return shaped
 
 
-def _assemble(prepared, coverage, request, admission, budget, clock, parts, law, silhouette=False, capture=False):
+def _uniform_mapping(prepared, table, budget, request, uv_context, stage, lines, source_loci=None):
+    if request.uv_policy_id != UV_UNIFORM_TRIM_FAN_V1:
+        return None, None
+    plan = plan_from_context(prepared, table, budget, uv_context)
+    values, forms = map_uniform_uv(plan, *stage, source_loci=source_loci)
+    lines.extend(f"{name}: {key}" for name, key in plan.cuts)
+    return values, forms
+
+
+def _assemble(prepared, coverage, request, admission, budget, clock, parts, law, silhouette=False, capture=False, uv_context=None):
     """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена.
 
     `capture` - оставить сертификату перетаскивания ссылки на объекты стадий (`parametric.ParametricInputsV1`, седьмой элемент ответа); ответ от него не зависит.
     """
 
-    items, table, lines, notes, chords = parts
+    items, table, lines, notes, chords, uv_table = parts
     frame_faces = [
         resolve_frame(table, region_id, face, line, source_keys)
         for region_id, face, line, source_keys in items
@@ -855,6 +865,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         clock.lap,
     )
     cycles, points, facts, polygons, tally, rungs = exact.cycles, exact.points, exact.facts, exact.polygons, exact.tally, exact.rungs
+    source_loci = {slot: points[slot[1]] for slot, pair in facts.items() if slot[1].startswith("src:") and pair[1].is_zero} if request.uv_policy_id == UV_UNIFORM_TRIM_FAN_V1 else None
     plane = _lift_of(prepared, admission, table.scale, budget)
     inert = _inert_pairs(prepared, silhouette, admission)
     points_before, facts_before, cut_polygons = (points, dict(facts), polygons) if capture else (None, None, None)
@@ -874,8 +885,9 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     polygons, sourced, faces_after = _at_host_positions(
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
+    uv_values, uv_forms = _uniform_mapping(prepared, uv_table, budget, request, uv_context, (frame_faces, layout, polygons, points, facts), lines, source_loci)
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
-    shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
+    shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
     batch = backend.assemble_compute(
         assemble_batch,
         frame_faces=frame_faces,
@@ -896,7 +908,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         contract_versions=(
             GEOMETRY_BATCH_SCHEMA_V1,
             MATERIALIZER_CONTRACT,
-            f"cftuv.envelope.uv_policy.{UV_DIRECT_STRIP_V1.value}",
+            f"cftuv.envelope.uv_policy.{request.uv_policy_id.value}",
         ),
         # Лениво: счётчики продолжений копятся при подъёме вершин, запись — после него.
         diagnostics=lambda: _diagnostics(
@@ -911,12 +923,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
             "" if cut is None else cut.note,
             chords, plane.opposition_note(),
         ),
+        **({} if uv_values is None else {"uv_numerators": uv_values}),
     )
     if shaped is not None and shaped.note:
         lines.append(shaped.note)
     clock.lap("ASSEMBLE")
     inputs = (
-        capture_inputs((plane, frame_faces, cycles, cut_polygons, layout, table, rungs), (points_before, points), (facts_before, facts), (coverage.alpha, lattice_alpha, law, admission.lift_law.clips_by_faces, inert), cut, lifted_names)
+        capture_inputs((plane, frame_faces, cycles, cut_polygons, layout, table, rungs), (points_before, points), (facts_before, facts), (coverage.alpha, lattice_alpha, law, admission.lift_law.clips_by_faces, inert), cut, lifted_names,
+                       uv_numerators=uv_values, uv_forms=uv_forms)
         if capture
         else None
     )
@@ -966,10 +980,14 @@ def _stations_of(prepared, budget, withdrawn):
     return memo.priced(("stations",), budget, compute)
 
 
-def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False, capture=False) -> _Built:
+def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False, capture=False, uv_context=None) -> _Built:
     withdrawn: frozenset = frozenset()
+    uv_table = None
     while True:
         table, spans = _stations_of(prepared, budget, withdrawn)
+        if uv_table is None:
+            # UV-план привязан к статической таблице запроса; снятый физический JOIN не меняет его фазы.
+            uv_table = table
         clock.lap("STATIONS")
         items, stats, match = _covered_regions(
             prepared, coverage, table, spans, budget, clock
@@ -981,7 +999,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law, silhouett
         try:
             batch, frame_faces, lift_counters, lift, topology, clip_memo, parametric_inputs = _assemble(
                 prepared, coverage, request, admission, budget, clock,
-                (items, table, lines, notes, chords), law, silhouette, capture,
+                (items, table, lines, notes, chords, uv_table), law, silhouette, capture, uv_context,
             )
             break
         except MaterializationRefusal as refusal:
@@ -1036,6 +1054,7 @@ def materialize_domain(
     certify: bool = False,
     parametric=None,
     defer_checks: bool = False,
+    uv_context=None,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -1074,6 +1093,7 @@ def materialize_domain(
         certify,
         parametric,
         defer_checks,
+        uv_context,
     )
     return replace(result, decal_topology_law=decal_topology_law)
 
@@ -1129,7 +1149,7 @@ def _step_facts(prepared, coverage, built, admission):
 
 
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False, parametric=None, defer_checks=False
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False, parametric=None, defer_checks=False, uv_context=None
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -1151,7 +1171,10 @@ def _materialize_domain(
         else exact_work_budget(stage="MATERIALIZE", domain_id=domain_id)
     )
     try:
-        built = _build(prepared, coverage, request, admission, budget, clock, law, silhouette, certify and parametric is not None)
+        built = _build(prepared, coverage, request, admission, budget, clock, law, silhouette, certify and parametric is not None, uv_context)
+    except UniformUvRefusal as refusal:
+        return _refused(MaterializationOutcome.__members__.get(refusal.name, MaterializationOutcome.UV_UNIFORM_MAPPING_UNSUPPORTED),
+                        str(refusal), clock, (*refusal.counters, *budget.counters()))
     except MaterializationRefusal as refusal:
         return _refused(
             refusal.outcome,

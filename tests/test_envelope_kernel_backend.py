@@ -364,10 +364,10 @@ def test_a_native_press_after_a_python_press_does_not_take_results_from_the_cont
     from cftuv.envelope_production_export import _slot
 
     python_run = SimpleNamespace(
-        alpha_text="0.25", uv_policy_id="UV", topology_law="T", backend_id="PYTHON"
+        alpha_text="0.25", uv_policy_id="UV", uv_context=None, topology_law="T", backend_id="PYTHON"
     )
     native_run = SimpleNamespace(
-        alpha_text="0.25", uv_policy_id="UV", topology_law="T", backend_id=f"NATIVE:{BUILD_ID}"
+        alpha_text="0.25", uv_policy_id="UV", uv_context=None, topology_law="T", backend_id=f"NATIVE:{BUILD_ID}"
     )
     assert _slot(python_run) != _slot(native_run)
 

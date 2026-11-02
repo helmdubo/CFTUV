@@ -278,6 +278,74 @@ def test_uniform_context_collection_completes_current_revision_inputs_after_cont
     assert run.revision != source.source_revision.digest
 
 
+def test_real_uniform_build_keeps_one_global_phase_for_shared_uses_and_every_width(monkeypatch):
+    from collections import defaultdict
+    from fractions import Fraction
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1, exact_work_budget
+    from cftuv_envelope.materialize import uv_phase
+    from cftuv_envelope.materialize.stations import chain_station_table, station_of
+
+    compiler, compiled = uv_phase.compile_uniform_uv_context, []
+
+    def capture(preparations, **kwargs):
+        preparations = tuple(preparations)
+        context = compiler(preparations, **kwargs)
+        compiled.append((preparations, context))
+        return context
+
+    monkeypatch.setattr(uv_phase, "compile_uniform_uv_context", capture)
+    bundle, controller = quad_row_bundle(2), EnvelopeDebugSessionController()
+
+    def build(alpha, context=None, *, lean=False):
+        return run_production(
+            controller, bundle, frozenset(range(7)), alpha, source_object_key="pair", source_data_key="pair-mesh",
+            density="1", domain_pool=None, kernel_backend="PYTHON", uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", uv_context=context, lean=lean,
+        )
+
+    built = build(0.25)
+    assert len(built.materialized) == 2 and not built.refused and len(compiled) == 1
+    preparations, context = compiled[0]
+    assert len(preparations) == len(context.basis) == 2 and len(context.offsets_metres) == 7
+    assert built.counter("PRODUCTION_UNIFORM_CONTEXT_PREPASS") == 1
+    assert context == compiler(tuple(reversed(preparations)))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        context.digest = "another-phase"
+
+    uses = defaultdict(list)
+    for prepared in preparations:
+        table = chain_station_table(prepared, exact_work_budget(stage="UV_PHASE_TEST", domain_id=""), withdrawn=frozenset())
+        endpoints = defaultdict(dict)
+        for edge in table.edges.values():
+            source_run = table.runs[edge.run_id]
+            for vertex, node in ((edge.start_vertex_id, edge.start), (edge.end_vertex_id, edge.end)):
+                if vertex is not None:
+                    endpoints[edge.chain_id][vertex] = station_of(source_run, uv_phase._point(node)).scaled(Fraction(1, table.scale))
+        for chain, values in endpoints.items():
+            if chain in context.offsets():
+                uses[chain].append(values)
+    differences = []
+    for chain, pair in uses.items():
+        if len(pair) != 2:
+            continue
+        vertices = sorted(set(pair[0]) & set(pair[1]))
+        assert len(vertices) == 2
+        phase_a, phase_b = context.offsets()[chain], context.offsets()[chain]
+        assert phase_a == phase_b
+        for vertex in vertices:
+            a, b = pair[0][vertex], pair[1][vertex]
+            assert (a + phase_a) - (b + phase_b) == a - b
+            differences.append(a - b)
+    # Прежний разрыв станций общей физической цепи не уничтожается независимыми фазами патчей.
+    assert differences == [SqrtSumV1.rational(-2), SqrtSumV1.rational(2)]
+    before = controller.build_counts
+    for alpha, lean in ((0.251, True), (0.3, True), (0.4, False)):
+        tick = build(alpha, context, lean=lean)
+        assert len(tick.materialized) == 2 and not tick.refused
+        assert tick.uv_context is context and tick.uv_context.digest == built.uv_context.digest
+        assert tick.counter("PRODUCTION_UNIFORM_CONTEXT_PREPASS") is None
+    assert len(compiled) == 1 and controller.build_counts == before
+
+
 def test_global_phase_digest_separates_uv_results_without_changing_preparation_keys(monkeypatch):
     from types import SimpleNamespace
     from cftuv import envelope_uniform_context as uniform

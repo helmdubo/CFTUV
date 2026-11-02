@@ -31,10 +31,10 @@ SEED = ROOT / "tests" / "data" / "native_materialize_hot_seed.recs.xz"
 
 #: MATERIALIZE_HOT_PINS_APPROVED_V1 (by the gates, PIN_APPROVAL_BY_GATES_V1).
 APPROVED = {
-    "materialize/silhouette.py": "99d156d9f2930c722a3fd651a75f05961f58beb72ef212dd230663a1e536cdb4",
-    "materialize/assemble.py": "6a5ea27d6269fc2c0942b011251544c15ba24450c5355cc3cf6be132a438239b",
+    "materialize/silhouette.py": "e627702036c2cc137ca3a8cc7bfdb85f531e7a5703fddeff2689b2ca8e5b16ff",
+    "materialize/assemble.py": "1482868265b88ac0e7873e432b6cdf11a65a83d22835cc631fdc2125c0355424",
     "materialize/source_lift.py": "2ebb0e8e7f8690cd6f37887129d4efae6c50f59c61f83b237b7a6373bd30698f",
-    "materialize/uv_law.py": "f419ea42a3fb789412fab745b2dc249417e40e2e0c4ab16984f5cb8c025ef308",
+    "materialize/uv_law.py": "d6289683641cdb665e55093a2960dcfae05b200123322e4bf48a0dabdd6af749",
     "materialize/lift.py": "ed91b42e5d6149d30469501922f8d7abfa65168d98043eccb3bdd2a87a78412b",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "_cpython311.py": "d0ce9f6eccb090f0ef1e0615830f0534ac5211615da0d04103934d017e97e034",
@@ -737,3 +737,48 @@ def test_assemble_reads_a_cut_pair_in_either_order(seed, approved):
             if outcome == "answered":
                 changed += assemble_batch(**_assemble_kwargs(row, chains=None)).interface_chains != assemble_batch(**arguments).interface_chains
     assert changed >= 1
+
+
+@needs_native
+@pytest.mark.parametrize("name", ("building_002_point_contact_v1", "building_002_full_selection_v1"))
+def test_uniform_materialization_uses_native_uv_numerators_and_keeps_physical_station_records(name, approved, monkeypatch):
+    sys.path.insert(0, str(ROOT / "kernel/tests"))
+    import materialize_factories as factories
+    from cftuv_envelope import backend
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+    from cftuv_envelope.materialize import domain
+    from cftuv_envelope.materialize.admit import materialization_request
+    from cftuv_envelope.materialize.uv_phase import compile_uniform_uv_context
+
+    answered = []
+    def silhouette(oracle, source, budget):
+        assert source.uv_numerators is not None and source.uv_numerators != source.facts
+        saved = {}
+        def expected(*args):
+            saved["result"] = oracle(*args)
+            return saved["result"]
+        assert same("uniform silhouette " + name, expected, cftuv_native.apply_silhouette, budget, source, budget) == "answered"
+        answered.append("silhouette")
+        return saved["result"]
+
+    def assemble(oracle, **arguments):
+        assert arguments["uv_numerators"] != arguments["facts"]
+        saved = {}
+        def expected():
+            saved["result"] = oracle(**arguments)
+            return saved["result"]
+        assert same("uniform assemble " + name, expected, lambda: cftuv_native.assemble_batch(**arguments), None) == "answered"
+        answered.append("assemble")
+        # Цепи без переданного результата silhouette также читают именно новую UV-непрерывность.
+        assert _assembled("uniform contour chains " + name, **{**arguments, "chains": None}) == "answered"
+        return saved["result"]
+
+    monkeypatch.setattr(backend, "silhouette_compute", silhouette)
+    monkeypatch.setattr(backend, "assemble_compute", assemble)
+    with backend.use_backend("PYTHON", materialize_backend="PYTHON"):
+        prepared, coverage, _request = factories.field_domain(name)
+        context = compile_uniform_uv_context((prepared,))
+        result = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
+                                           decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1, uv_context=context)
+    assert result.is_materialized, result.detail
+    assert answered == ["silhouette", "assemble"]

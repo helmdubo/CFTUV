@@ -1155,6 +1155,63 @@ def test_the_confirm_pauses_its_own_body_and_the_commit_job_it_orders_pauses_its
     assert probe.seen == [("compute", "CFTUV-alpha-preview", False), ("apply", "MainThread", False)]
 
 
+def test_real_uniform_confirm_reuses_build_context_and_cancel_restores_positions_and_uvs(monkeypatch):
+    import numpy as np
+    from cftuv import envelope_width_session as session
+    from cftuv import envelope_width_mesh_preview as preview
+    from cftuv.envelope_width_adjust import PHASE_CONFIRMED, PHASE_CANCELLED
+    from cftuv_envelope.materialize import uv_phase
+    from test_envelope_width_preview_model import _owned, _Layout, _Collection
+
+    compiler, compiled = uv_phase.compile_uniform_uv_context, []
+
+    def capture(preparations, **kwargs):
+        context = compiler(preparations, **kwargs)
+        compiled.append(context)
+        return context
+
+    original_direct = _direct
+
+    def uniform(bundle, controller, alpha, **kwargs):
+        return original_direct(bundle, controller, alpha, kernel_backend="PYTHON", uv_policy_id="UV_UNIFORM_TRIM_FAN_V1", **kwargs)
+
+    monkeypatch.setattr(uv_phase, "compile_uniform_uv_context", capture)
+    monkeypatch.setattr(sys.modules[__name__], "_direct", uniform)
+    world = _World(monkeypatch)
+    assert len(world.run.materialized) == ROW and not world.run.refused and len(compiled) == 1
+    context = world.record.uv_context
+    world.settings.hook = lambda settings: live.schedule_width_live(settings, world.context)
+    runtime = types.SimpleNamespace(
+        session=types.SimpleNamespace(width=0.31, phase=PHASE_CONFIRMED, floor_hits=0), controller=world.controller, start_width=0.25,
+    )
+
+    assert session.finish_adjust(world.context, runtime, confirmed=True) == "FINISHED"
+    live.settle_width_live(world.controller)
+    assert len(world.written) == world.scheduler.counters.applied == 1
+    exact = uniform(world.bundle, world.controller, 0.31, uv_context=context)
+    assert len(exact.materialized) == ROW and not exact.refused
+    assert _digest(world.written[-1][0]) == _digest(exact.results)
+    assert world.record.uv_context is context and len(compiled) == 1
+
+    # Настоящие Uniform-массивы и сертификат; только коллекции меша Blender подменены.
+    arrays = production_mesh.build_mesh_arrays(world.run.results, OFFSET)
+    base = preview.build_sample(world.run.results, arrays, preview.sample_key(world.record, OFFSET), 0.25)
+    owned = _owned(monkeypatch, samples=(base,), corners=base.image.face_vertices)
+    owned.mesh.polygons = _Layout(base.image.face_starts)
+    owned.mesh.attributes[0].data = _Collection(*range(base.image.face_count))
+    preview.capture_ownership(owned.controller, owned.decal, base)
+    preview.begin_drag(owned.controller)
+    state = preview.preview_mesh_now(owned.controller, 0.251)
+    assert state is not None and state.live == ROW
+    cancel_runtime = types.SimpleNamespace(
+        session=types.SimpleNamespace(width=0.251, phase=PHASE_CANCELLED, floor_hits=0), controller=owned.controller, start_width=0.25,
+    )
+    assert session.finish_adjust(world.context, cancel_runtime, confirmed=False) == "CANCELLED"
+    assert np.array_equal(owned.mesh.vertices.sets[-1][1], np.asarray(base.positions, dtype=np.float32).reshape(-1))
+    assert np.array_equal(owned.mesh.uv_layers[0].data.sets[-1][1], np.asarray(base.uvs, dtype=np.float32).reshape(-1))
+    assert len(compiled) == 1
+
+
 def test_a_cancelled_or_failing_finish_gives_the_collector_back(monkeypatch, _collector_on):
     from cftuv import envelope_width_session as session
     from cftuv.envelope_width_adjust import PHASE_CANCELLED

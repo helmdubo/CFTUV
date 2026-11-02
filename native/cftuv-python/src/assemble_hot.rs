@@ -23,7 +23,7 @@ use cftuv_core::sqrt_sum::SqrtSum;
 use cftuv_silhouette::assemble_law::{decimal_of, decimal_text, uv_coordinate};
 use cftuv_silhouette::silhouette::{chains_of_cycles, Key, SilError, SilInput};
 
-use crate::materialize_hot::{exact_dict, pair_of, rat_of, sequence, small_int, unsupported, Classes, Fail, Host, Keys, Read};
+use crate::materialize_hot::{exact_dict, pair_of, rat_of, read_fact_table, sequence, small_int, split_uv_facts, unsupported, Classes, Fail, Host, Keys, Read};
 use crate::pyobj::{alloc, ibig_from_int, note_attr_build, set_slot, Raw, SlotMode};
 
 /// The classes of the table, in the order the shim hands them over (`materialize_hot_op.ASSEMBLE_CLASSES`).
@@ -321,7 +321,8 @@ fn assemble<'py>(py: Python<'py>, hot: &Classes, classes: &AssembleClasses, args
     }
     let mut fact_rows: Vec<(u32, Key, (SqrtSum, SqrtSum))> = Vec::new();
     let mut facts: HashMap<(u32, Key), usize, FxBuild> = HashMap::default();
-    for (slot, value) in exact_dict(args.facts, "facts")?.iter() {
+    let (physical, uv) = split_uv_facts(args.facts)?;
+    for (slot, value) in exact_dict(&physical, "facts")?.iter() {
         let Ok(slot) = slot.cast_exact::<PyTuple>() else {
             return unsupported("a fact slot is not a tuple");
         };
@@ -333,6 +334,7 @@ fn assemble<'py>(py: Python<'py>, hot: &Classes, classes: &AssembleClasses, args
         facts.insert((region, key), fact_rows.len());
         fact_rows.push((region, key, pair_of(pool, &value, "a fact")?));
     }
+    let uv_numerators = uv.as_ref().map(|value| read_fact_table(py, pool, value, &mut keys)).transpose()?;
     let mut merged: HashMap<(u32, Vec<Key>), Vec<usize>, FxBuild> = HashMap::default();
     if !args.merged.is_none() {
         for (slot, others) in exact_dict(args.merged, "merged_frames")?.iter() {
@@ -449,7 +451,10 @@ fn assemble<'py>(py: Python<'py>, hot: &Classes, classes: &AssembleClasses, args
                         let Some(row) = facts.get(&slot) else {
                             return unsupported("a face vertex without a fact (the oracle raises KeyError)");
                         };
-                        let (s, r) = &fact_rows[*row].2;
+                        let (s, r) = match &uv_numerators {
+                            Some(table) => table.get(&slot).ok_or_else(|| Fail::Unsupported("a face vertex without a UV numerator".into()))?,
+                            None => &fact_rows[*row].2,
+                        };
                         let (Some(u), Some(v)) = (uv_coordinate(s, &inverse_alpha), uv_coordinate(r, &inverse_alpha)) else {
                             return unsupported("a UV that is not finite (UvPoint2V1 raises ValueError)");
                         };
@@ -543,6 +548,7 @@ fn assemble<'py>(py: Python<'py>, hot: &Classes, classes: &AssembleClasses, args
             positions: vec![None; count],
             points: vec![None; count],
             facts: fact_table,
+            uv_facts: uv_numerators,
             front: SqrtSum::rational(&alpha),
             inverse_alpha: inverse_alpha.clone(),
             uv_slide: Rat::zero(),

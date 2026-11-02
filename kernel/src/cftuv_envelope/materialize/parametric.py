@@ -82,6 +82,7 @@ PARAM_CONTOURS_UNAVAILABLE = "PARAM_CONTOURS_UNAVAILABLE"
 PARAM_WINDOW_NOT_CERTIFIED = "PARAM_WINDOW_NOT_CERTIFIED"
 PARAM_LIFT_UNSUPPORTED = "PARAM_LIFT_UNSUPPORTED"
 PARAM_FACT_UNRESOLVED = "PARAM_FACT_UNRESOLVED"
+PARAM_UV_SOURCE_LOCUS_CLIPPED_NONAFFINE = "PARAM_UV_SOURCE_LOCUS_CLIPPED_NONAFFINE"
 
 MARKERS = (
     PARAM_DEVELOPABLE_OFFSET,
@@ -97,6 +98,7 @@ MARKERS = (
     PARAM_WINDOW_NOT_CERTIFIED,
     PARAM_LIFT_UNSUPPORTED,
     PARAM_FACT_UNRESOLVED,
+    PARAM_UV_SOURCE_LOCUS_CLIPPED_NONAFFINE,
 )
 
 _ZERO = SqrtSumV1.zero()
@@ -781,9 +783,11 @@ class ParametricInputsV1:
     inert: frozenset
     cut: object
     lifted_names: dict
+    uv_numerators: dict | None = None
+    uv_forms: dict | None = None
 
 
-def capture_inputs(stage, points, facts, scalars, cut, lifted_names) -> ParametricInputsV1:
+def capture_inputs(stage, points, facts, scalars, cut, lifted_names, *, uv_numerators=None, uv_forms=None) -> ParametricInputsV1:
     """`ParametricInputsV1` из объектов сборки (`domain._assemble`): ссылки, ничего не считается.
 
     `stage` - `(подъём, слитые грани, контуры до резки, многоугольники до резки, раскладка, таблица станций, перекладины)`; `points`, `facts` - `(до резки, после)`;
@@ -812,6 +816,8 @@ def capture_inputs(stage, points, facts, scalars, cut, lifted_names) -> Parametr
         inert=inert,
         cut=cut,
         lifted_names=lifted_names,
+        uv_numerators=uv_numerators,
+        uv_forms=uv_forms,
     )
 
 
@@ -843,6 +849,8 @@ def certificate_of(inputs: ParametricInputsV1, batch, interval, request: Paramet
 
 
 def _certificate(inputs, batch, interval, request, prepared, coverage, developable: bool = False, source: _SlopeSource | None = None) -> ParametricCertificateV1:
+    if _uniform_source_clip_nonaffine(inputs):
+        raise ParametricRefusal(PARAM_UV_SOURCE_LOCUS_CLIPPED_NONAFFINE)
     source = _SlopeSource(None) if source is None else source
     budget = unlimited_reference_budget(stage="PARAMETRIC", domain_id="")
     # Точки до резки: наклоны покрытия по ключу вершины (`key_slopes_of`, MATERIALIZE_CERTIFICATE_NATIVE_V1); факты до резки: формулы граней (из памяти наклонов, PARAMETRIC_SLOPE_MEMO_V1).
@@ -851,6 +859,15 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
     # CERTIFICATE_CORE_NATIVE_V1: the side cuts, the slopes and the arrays of the batch in one native call (`certificate.rs`); the exact mode, another lift and an input the
     # port does not carry are the oracle `_certificate_tail` by name (the positions are not memoized on the native road: the label counts the facts)
     return backend.certificate_core_compute(_certificate_tail, inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable)
+
+
+def _uniform_source_clip_nonaffine(inputs):
+    """Сдвинутый src и новые узлы хорды могут дать 1/alpha; точный пересчёт ширины остаётся владельцем."""
+
+    if inputs.uv_numerators is None or inputs.cut is None or not inputs.cut.points:
+        return False
+    return any(key.startswith("src:") and pair[1].is_zero and inputs.points_before.get(key) != inputs.points_after.get(key)
+               for (_region, key), pair in inputs.facts_before.items())
 
 
 def _certificate_tail(inputs, batch, interval, request, key_slope, fact_slope, fact_floats, source, developable: bool) -> ParametricCertificateV1:
@@ -914,14 +931,19 @@ def _certificate_tail(inputs, batch, interval, request, key_slope, fact_slope, f
             exact_positions.append(_exact_lift(plane, triangles, inputs.lifted_names.get(key, (None, None))[0], point))
     # Петли UV: float наклонов фактов из памяти (те же `_float`), факты резки - поверх, как в точной таблице.
     region_floats = {**fact_floats, **_fact_floats(clip_facts)} if clip_facts else fact_floats
+    uniform_slopes = _uniform_loop_slopes(inputs, batch, key_slope, fact_slope, clip_points, clip_facts)
+    if uniform_slopes is not None:
+        region_floats = _fact_floats(uniform_slopes)
     region_slopes: dict = {}
     if request.exact:
         for slot, found in (*fact_slope.items(), *clip_facts.items()):
             region_slopes[(f"region:{slot[0]}", slot[1])] = found
+        if uniform_slopes is not None:
+            region_slopes = {(f"region:{slot[0]}", slot[1]): found for slot, found in uniform_slopes.items()}
     loops = array("d")
     exact_loops, exact_loop_slopes, exact_loop_ids = [], [], []
     count = 0
-    facts = inputs.facts_after
+    facts = inputs.facts_after if inputs.uv_numerators is None else inputs.uv_numerators
     for face in batch.faces:
         region = face.semantic_region_id.value
         number = int(region.split(":", 1)[1])
@@ -966,6 +988,18 @@ def _certificate_tail(inputs, batch, interval, request, key_slope, fact_slope, f
         vertex_limit_widths=limits,
         vertex_floor_widths=floors,
     )
+
+
+def _uniform_loop_slopes(inputs, batch, key_slope, fact_slope, clip_points, clip_facts):
+    if inputs.uv_forms is None:
+        return None
+    from .uv_uniform import UniformUvRefusal, uniform_uv_slopes
+
+    slots = tuple(dict.fromkeys((int(face.semantic_region_id.value.split(":")[1]), fact.vert_key.value) for face in batch.faces for fact in face.uv_facts))
+    try:
+        return uniform_uv_slopes(slots, inputs.uv_forms, key_slope, fact_slope, clip_points, clip_facts)
+    except UniformUvRefusal as refusal:
+        raise ParametricRefusal(PARAM_FACT_UNRESOLVED, str(refusal)) from refusal
 
 
 def _moving_surface_facts(inputs, vertices, point_slope, plane, triangles, developable: bool):

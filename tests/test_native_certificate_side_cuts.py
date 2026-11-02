@@ -237,6 +237,34 @@ def _captured_tails():
     return calls
 
 
+def _uniform_tails(monkeypatch):
+    import materialize_factories as factories
+    import developable_factories as df
+    from test_parametric_certificate import developable, HOST_LAWS, CERTIFIED_LAWS
+    from cftuv_envelope import backend
+    from cftuv_envelope.materialize.admit import materialization_request
+    from cftuv_envelope.materialize.step import step_domain
+    from cftuv_envelope.materialize.uv_phase import compile_uniform_uv_context
+
+    calls = []
+    def capture(oracle, *arguments):
+        calls.append(arguments)
+        return oracle(*arguments)
+    monkeypatch.setattr(backend, "certificate_core_compute", capture)
+    cases = ((lambda: factories.field_domain("building_002_point_contact_v1")[0], HOST_LAWS, "0.25"),
+             (lambda: factories.field_domain("building_002_full_selection_v1")[0], HOST_LAWS, "0.25"),
+             (lambda: factories.field_domain("mesh2_patch0_cut_fans_v1")[0], HOST_LAWS, "0.25"),
+             (lambda: developable(df.fold_strip), CERTIFIED_LAWS, "0.3"))
+    with backend.use_backend("PYTHON", materialize_backend="PYTHON"):
+        for build, laws, alpha in cases:
+            prepared = build()
+            context = compile_uniform_uv_context((prepared,))
+            result = step_domain(prepared, alpha, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
+                                 near_planar_lift_law=laws[0], decal_topology_law=laws[1], digests=False, parametric=True, uv_context=context).result
+            assert result.is_materialized and result.parametric is not None and not result.parametric.markers, (result.detail, result.parametric)
+    return calls
+
+
 def _certificate_outcome(function, *arguments):
     from test_native_surface_lift import _certificate_fields
 
@@ -272,6 +300,32 @@ def test_every_certificate_of_the_cases_is_the_oracles(approved):
         compared += 1
         moving += expected[0] == "answer" and dict(expected[1][-1]).get("PARAMETRIC_MOVING_VERTICES", 0) > 0
     assert compared and moving, "no certificate with moving vertices was compared: the test would prove nothing"
+
+
+@needs_native
+def test_uniform_certificate_transforms_physical_clip_slopes_and_names_missing_uv_forms(approved, monkeypatch):
+    from cftuv_envelope.materialize import parametric
+    from cftuv_envelope.materialize.lift_surface import BoundSurfaceLiftV1
+
+    calls = _uniform_tails(monkeypatch)
+    assert len(calls) == 4
+    clipped = compared = declined = 0
+    for arguments in calls:
+        assert arguments[0].uv_forms and arguments[0].uv_numerators
+        if type(arguments[0].plane) is not BoundSurfaceLiftV1:
+            with pytest.raises(cftuv_native.NATIVE_REFUSALS):
+                cftuv_native.certificate_core(*arguments[:7], arguments[8])
+            declined += 1
+            continue
+        expected, found = _both(arguments)
+        assert found == expected and expected[0] == "answer", (expected, found)
+        clipped += arguments[0].cut is not None and bool(arguments[0].cut.points)
+        compared += 1
+        inputs = replace(arguments[0], uv_forms={})
+        expected, found = _both((inputs, *arguments[1:]))
+        assert found == expected and expected[:2] == ("ParametricRefusal", parametric.PARAM_FACT_UNRESOLVED)
+        assert "UV_UNIFORM_SLOPE_FORM_MISSING" in expected[2]
+    assert compared == 1 and declined == 3 and clipped, "the bound-surface physical clip and the plane declines were not exercised"
 
 
 @needs_native

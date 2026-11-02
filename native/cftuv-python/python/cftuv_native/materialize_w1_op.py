@@ -543,7 +543,8 @@ def certificate_core(mirror, inputs, batch, interval, request, key_slope, fact_s
     called = perf_counter_ns()
     try:
         status, detail, columns, rate, sizes, counts, bits, native, attempts = mirror._session.certificate_core(
-            inputs.plane.triangles, side, batch.vertices, batch.faces, inputs.points_after, key_slope, inputs.lifted_names, reach, window, bool(developable), scale, fact_floats,
+            inputs.plane.triangles, side, batch.vertices, batch.faces, inputs.points_after, key_slope, inputs.lifted_names, reach, window, bool(developable), scale,
+            fact_floats if inputs.uv_forms is None else (fact_floats, fact_slope, inputs.uv_forms),
             None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), real,
         )
     except BaseException:

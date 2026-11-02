@@ -584,6 +584,7 @@ def _content_run(controller, alpha):
         alpha=float(Fraction(alpha)),
         alpha_text=str(float(Fraction(alpha))),
         uv_policy_id=PRODUCTION_UV_POLICY,
+        uv_context=None,
         topology_law=PRODUCTION_TOPOLOGY_LAW,
         backend="PYTHON",
         backend_id="PYTHON",

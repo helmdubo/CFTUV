@@ -257,6 +257,31 @@ pub struct SilhouetteArgs<'r, 'py> {
     pub free: &'r Bound<'py, PyAny>,
 }
 
+/// DIRECT keeps its original dict; a separate UV numerator table travels beside physical station facts.
+pub(crate) fn split_uv_facts<'py>(value: &Bound<'py, PyAny>) -> Read<(Bound<'py, PyAny>, Option<Bound<'py, PyAny>>)> {
+    if let Ok(pair) = value.cast_exact::<PyTuple>() {
+        if pair.len() != 2 {
+            return unsupported("the physical/UV fact payload is not a pair");
+        }
+        return Ok((pair.get_item(0)?, Some(pair.get_item(1)?)));
+    }
+    Ok((value.clone(), None))
+}
+
+pub(crate) fn read_fact_table<'a, 'py>(py: Python<'py>, pool: &Pool, value: &Bound<'py, PyAny>, keys: &mut Keys<'a, 'py>) -> Read<HashMap<(u32, Key), Point, FxBuild>> {
+    let mut facts = HashMap::default();
+    for (slot, value) in exact_dict(value, "facts")?.iter() {
+        let parts = sequence(&slot, "a fact slot")?;
+        if parts.len() != 2 {
+            return unsupported("a fact slot is not (region, key)");
+        }
+        let region = small_int(&parts[0], "a fact region")?;
+        let key = keys.key(py, &parts[1])?;
+        facts.insert((region, key), pair_of(pool, &value, "a fact")?);
+    }
+    Ok(facts)
+}
+
 fn read_silhouette<'a, 'py>(py: Python<'py>, classes: &Classes, args: &SilhouetteArgs<'_, 'py>, keys: &mut Keys<'a, 'py>) -> Read<SilInput> {
     let pool = &classes.pool;
     let mut polygons = Vec::new();
@@ -306,18 +331,9 @@ fn read_silhouette<'a, 'py>(py: Python<'py>, classes: &Classes, args: &Silhouett
     for (key, value) in exact_dict(args.points, "points")?.iter() {
         point_rows.push((keys.key(py, &key)?, pair_of(pool, &value, "a chart point")?));
     }
-    let mut facts = HashMap::with_capacity_and_hasher(0, FxBuild::default());
-    for (slot, value) in exact_dict(args.facts, "facts")?.iter() {
-        let Ok(slot) = slot.cast_exact::<PyTuple>() else {
-            return unsupported("a fact slot is not a tuple");
-        };
-        if slot.len() != 2 {
-            return unsupported("a fact slot is not (region, key)");
-        }
-        let region = small_int(&slot.get_item(0)?, "a fact region")?;
-        let key = keys.key(py, &slot.get_item(1)?)?;
-        facts.insert((region, key), pair_of(pool, &value, "a fact")?);
-    }
+    let (physical, uv) = split_uv_facts(args.facts)?;
+    let facts = read_fact_table(py, pool, &physical, keys)?;
+    let uv_facts = uv.as_ref().map(|value| read_fact_table(py, pool, value, keys)).transpose()?;
     let Ok(free_set) = args.free.cast_exact::<PyFrozenSet>() else {
         return unsupported("free is not a frozenset");
     };
@@ -355,6 +371,7 @@ fn read_silhouette<'a, 'py>(py: Python<'py>, classes: &Classes, args: &Silhouett
         positions,
         points,
         facts,
+        uv_facts,
         front: SqrtSum::rational(&alpha),
         inverse_alpha,
         uv_slide,

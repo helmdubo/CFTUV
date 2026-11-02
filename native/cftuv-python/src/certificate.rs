@@ -32,16 +32,18 @@ use cftuv_clip::geometry::{clip_geometry, ClipInput};
 use cftuv_clip::point::Point;
 use cftuv_core::codec::Reader;
 use cftuv_core::exact::ExactCtx;
+use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::Rat;
 use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
 use cftuv_mesh::error::MeshResult;
 use cftuv_mesh::stations::{chord_station_values, Chord, Value};
 use cftuv_mesh::tally::Tally;
+use cftuv_silhouette::assemble_law::uniform_numerator_slope;
 
 use crate::materialize_hot::{carried, pair_of, rat_of, unsupported, Fail, Read};
 use crate::memlog::{apply_log, Tables};
-use crate::pyobj::{sqrt_sum_to_py, Pool};
+use crate::pyobj::{sqrt_sum_from_py, sqrt_sum_to_py, Pool};
 use crate::refusal::Forced;
 
 pub const STATUS_OK: u8 = 0;
@@ -862,6 +864,57 @@ fn bytes_of<'py>(py: Python<'py>, values: &[f64]) -> Bound<'py, PyBytes> {
     PyBytes::new(py, &raw)
 }
 
+struct UniformSlopes {
+    physical: HashMap<Slot, Point, FxBuild>,
+    forms: HashMap<Slot, Vec<[SqrtSum; 4]>, FxBuild>,
+    products: ProductMemo,
+}
+
+impl UniformSlopes {
+    fn read(pool: &Pool, physical: &Bound<'_, PyAny>, forms: &Bound<'_, PyAny>, clipped: &FactSlopes<'_, '_>) -> Read<Self> {
+        let mut slopes = HashMap::default();
+        for (slot, value) in dict(physical, "physical fact slopes")?.iter() {
+            slopes.insert(carried(slot.extract::<Slot>(), "a physical slope slot")?, pair_of(pool, &value, "a physical slope")?);
+        }
+        for (entry, value) in clipped {
+            slopes.insert(entry.1.clone(), value.clone());
+        }
+        let mut charts = HashMap::default();
+        for (slot, candidates) in dict(forms, "UV affine forms")?.iter() {
+            let mut rows = Vec::new();
+            for candidate in candidates.try_iter()? {
+                let candidate = candidate?;
+                let row: Vec<_> = candidate.try_iter()?.collect::<PyResult<_>>()?;
+                if row.len() != 4 {
+                    return unsupported("a UV affine form is not (K, Tx, Ty, B)");
+                }
+                let mut values = Vec::with_capacity(4);
+                for value in row {
+                    values.push(carried(sqrt_sum_from_py(pool, &value), "a UV affine coefficient")?);
+                }
+                rows.push(values.try_into().map_err(|_| Fail::Unsupported("a UV affine form is not four coefficients".into()))?);
+            }
+            charts.insert(carried(slot.extract::<Slot>(), "a UV affine slot")?, rows);
+        }
+        Ok(Self { physical: slopes, forms: charts, products: ProductMemo::default() })
+    }
+
+    fn at(&mut self, slot: &Slot, point: &Point) -> Result<Point, String> {
+        let label = format!("region:{}/{}", slot.0, slot.1);
+        let forms = self.forms.get(slot).ok_or_else(|| format!("UV_UNIFORM_SLOPE_FORM_MISSING: {label}"))?;
+        let physical = self.physical.get(slot).ok_or_else(|| format!("UV_UNIFORM_PHYSICAL_SLOPE_MISSING: {label}"))?;
+        let mut numerator = None;
+        for form in forms {
+            let value = uniform_numerator_slope(form, point, &physical.1, &mut self.products);
+            if numerator.as_ref().is_some_and(|known| known != &value) {
+                return Err(format!("UV_UNIFORM_SLOPE_OWNER_CONFLICT: {label}"));
+            }
+            numerator = Some(value);
+        }
+        Ok((numerator.ok_or_else(|| format!("UV_UNIFORM_SLOPE_OWNER_CONFLICT: {label}"))?, physical.1.clone()))
+    }
+}
+
 /// The arrays of `_certificate` after the slopes: `Ok(Ok(arrays))`, `Ok(Err((status, detail)))` an oracle refusal, `Err(why)` a decline.
 #[allow(clippy::type_complexity)]
 fn arrays<'py>(
@@ -961,8 +1014,16 @@ fn arrays<'py>(
         }
     }
     // the loops: the floats of the facts before the cut (the memory's), the clip's facts over them
+    let (physical_floats, mut uniform) = if let Ok(payload) = args.fact_floats.cast_exact::<PyTuple>() {
+        if payload.len() != 3 {
+            return unsupported("the uniform slope payload is not (floats, physical slopes, affine forms)");
+        }
+        (payload.get_item(0)?, Some(UniformSlopes::read(pool, &payload.get_item(1)?, &payload.get_item(2)?, facts)?))
+    } else {
+        (args.fact_floats.clone(), None)
+    };
     let mut floats: HashMap<(String, String), (f64, f64), FxBuild> = HashMap::default();
-    for (slot, pair) in dict(args.fact_floats, "fact_floats")?.iter() {
+    for (slot, pair) in dict(&physical_floats, "fact_floats")?.iter() {
         let slot: (String, String) = carried(slot.extract(), "a fact slot of the floats")?;
         floats.insert(slot, carried(pair.extract::<(f64, f64)>(), "the floats of a fact")?);
     }
@@ -979,6 +1040,25 @@ fn arrays<'py>(
         let mut lookup = (region, String::new());
         for fact in attr(&face, &names.3)?.try_iter()? {
             lookup.1 = text(&attr(&attr(&fact?, &names.0)?, &names.1)?, "a vertex key")?;
+            if let Some(uniform) = uniform.as_mut() {
+                let region = lookup.0.strip_prefix("region:").and_then(|text| text.parse::<u32>().ok()).ok_or_else(|| Fail::Unsupported("a malformed UV region".into()))?;
+                let mut point = (SqrtSum::zero(), SqrtSum::zero());
+                if let Some(found) = clip_points.get(lookup.1.as_str()) {
+                    point = (*found).clone();
+                } else if let Some(found) = key_slope.get_item(&lookup.1)? {
+                    if !found.is_none() {
+                        point = pair_of(pool, &found, "a key slope")?;
+                    }
+                }
+                let pair = match uniform.at(&(region, lookup.1.clone()), &point) {
+                    Ok(pair) => pair,
+                    Err(detail) => return Ok(Err((STATUS_FACT_UNRESOLVED, Some(detail)))),
+                };
+                loops.push(float_of(&pair.0).map_err(Fail::Unsupported)?);
+                loops.push(float_of(&pair.1).map_err(Fail::Unsupported)?);
+                count += 1;
+                continue;
+            }
             let Some(pair) = floats.get(&lookup) else {
                 return Ok(Err((STATUS_FACT_UNRESOLVED, Some(format!("{}/{}", lookup.0, lookup.1)))));
             };

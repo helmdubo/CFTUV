@@ -34,10 +34,11 @@ from ..numeric import UvPoint2V1
 from .lift import sqrt_sum_binary64
 
 UV_DIRECT_STRIP_V1 = PolicyId("UV_DIRECT_STRIP_V1")
+UV_UNIFORM_TRIM_FAN_V1 = PolicyId("UV_UNIFORM_TRIM_FAN_V1")
 
 #: Законы, которые материализатор умеет. Всё остальное — именованный отказ
 #: `UV_POLICY_UNSUPPORTED`, а не молчаливый запасной закон.
-SUPPORTED_UV_POLICIES = frozenset({UV_DIRECT_STRIP_V1})
+SUPPORTED_UV_POLICIES = frozenset({UV_DIRECT_STRIP_V1, UV_UNIFORM_TRIM_FAN_V1})
 
 
 def uv_direct_strip_v1(
