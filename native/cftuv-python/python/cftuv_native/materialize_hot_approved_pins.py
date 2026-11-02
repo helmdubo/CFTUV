@@ -4,7 +4,7 @@
 """
 
 APPROVED = {
-    "materialize/silhouette.py": "e627702036c2cc137ca3a8cc7bfdb85f531e7a5703fddeff2689b2ca8e5b16ff",
+    "materialize/silhouette.py": "ced75fc2ffac3ec13f9ef5f5a779f5722c875e3b9f2a12493333a4e3d1a96d98",
     "materialize/assemble.py": "1482868265b88ac0e7873e432b6cdf11a65a83d22835cc631fdc2125c0355424",
     "materialize/source_lift.py": "2ebb0e8e7f8690cd6f37887129d4efae6c50f59c61f83b237b7a6373bd30698f",
     "materialize/uv_law.py": "d6289683641cdb665e55093a2960dcfae05b200123322e4bf48a0dabdd6af749",

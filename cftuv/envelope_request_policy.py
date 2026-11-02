@@ -78,8 +78,8 @@ ENVELOPE_PRODUCT_UV_POLICY_ITEMS = (
     (
         ENVELOPE_UV_POLICY_UNIFORM_TRIM_FAN,
         "Uniform trim",
-        "Give corner fans UV area while keeping the pattern continuous across existing joins; "
-        "redistribute UVs into adjacent straight strips without adding seams",
+        "Give corner fans UV area and keep the pattern continuous into adjacent straight strips; "
+        "contacts between different corner fans may have UV seams",
     ),
 )
 

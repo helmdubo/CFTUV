@@ -829,6 +829,24 @@ def _uniform_mapping(prepared, table, budget, request, uv_context, stage, lines,
     return values, forms
 
 
+def _uniform_shaped(shaped, budget, request, frame, reverse, uv_values):
+    """UV не выбирает физический силуэт: второй проход только по сохранённым кольцам DIRECT."""
+
+    if shaped is None or uv_values is None:
+        return shaped
+    slide = request.silhouette_uv_slide
+    sampled = backend.silhouette_compute(
+        apply_silhouette,
+        SilhouetteInputV1(shaped.polygons, shaped.cycles, shaped.vertex_cycles, shaped.positions, *frame,
+                          Fraction(slide.numerator, slide.denominator), reverse, uv_numerators=uv_values, freeze_geometry=True),
+        budget,
+    )
+    continuous = "MATERIALIZE_SILHOUETTE_CONTINUOUS_INTERFACE_EDGES"
+    counters = tuple(pair for pair in shaped.counters if pair[0] != continuous) + sampled.counters
+    return replace(shaped, counters=counters, note=f"{shaped.note} {sampled.note}".strip(),
+                   boundary_chains=sampled.boundary_chains, interface_chains=sampled.interface_chains)
+
+
 def _assemble(prepared, coverage, request, admission, budget, clock, parts, law, silhouette=False, capture=False, uv_context=None):
     """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена.
 
@@ -885,9 +903,10 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     polygons, sourced, faces_after = _at_host_positions(
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
-    uv_values, uv_forms = _uniform_mapping(prepared, uv_table, budget, request, uv_context, (frame_faces, layout, polygons, points, facts), lines, source_loci)
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
-    shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
+    shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
+    uv_values, uv_forms = _uniform_mapping(prepared, uv_table, budget, request, uv_context, (frame_faces, layout, polygons, points, facts), lines, source_loci)
+    shaped = _uniform_shaped(shaped, budget, request, (points, shaped.facts if shaped is not None else facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
     batch = backend.assemble_compute(
         assemble_batch,
         frame_faces=frame_faces,

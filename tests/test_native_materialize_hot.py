@@ -31,7 +31,7 @@ SEED = ROOT / "tests" / "data" / "native_materialize_hot_seed.recs.xz"
 
 #: MATERIALIZE_HOT_PINS_APPROVED_V1 (by the gates, PIN_APPROVAL_BY_GATES_V1).
 APPROVED = {
-    "materialize/silhouette.py": "e627702036c2cc137ca3a8cc7bfdb85f531e7a5703fddeff2689b2ca8e5b16ff",
+    "materialize/silhouette.py": "ced75fc2ffac3ec13f9ef5f5a779f5722c875e3b9f2a12493333a4e3d1a96d98",
     "materialize/assemble.py": "1482868265b88ac0e7873e432b6cdf11a65a83d22835cc631fdc2125c0355424",
     "materialize/source_lift.py": "2ebb0e8e7f8690cd6f37887129d4efae6c50f59c61f83b237b7a6373bd30698f",
     "materialize/uv_law.py": "d6289683641cdb665e55093a2960dcfae05b200123322e4bf48a0dabdd6af749",
@@ -507,7 +507,8 @@ def _native_verify(source, result):
     materialize_hot_op.warm(cftuv_native.default_mirror())
     layout, faces = source.layout, source.frame_faces
     return cftuv_native.default_mirror()._session.hot_verify(
-        source.polygons, source.cycles, source.positions, source.points, source.facts, [layout.region_of(face) for face in faces], [tuple(pair) for pair in layout.cut_pairs(faces)],
+        source.polygons, source.cycles, source.positions, source.points, materialize_hot_op._uv_fact_payload(source.facts, source.uv_numerators, getattr(source, "freeze_geometry", False)),
+        [layout.region_of(face) for face in faces], [tuple(pair) for pair in layout.cut_pairs(faces)],
         audit.CUT_RIGHT_COPY_MARK, source.lattice_alpha, source.uv_slide, silhouette.CHORD_BUDGET, bool(source.reverse), source.free, _native_result(result),
     )
 
@@ -752,13 +753,14 @@ def test_uniform_materialization_uses_native_uv_numerators_and_keeps_physical_st
 
     answered = []
     def silhouette(oracle, source, budget):
-        assert source.uv_numerators is not None and source.uv_numerators != source.facts
+        frozen = getattr(source, "freeze_geometry", False)
+        assert (source.uv_numerators is not None) == frozen
         saved = {}
         def expected(*args):
             saved["result"] = oracle(*args)
             return saved["result"]
         assert same("uniform silhouette " + name, expected, cftuv_native.apply_silhouette, budget, source, budget) == "answered"
-        answered.append("silhouette")
+        answered.append("sample" if frozen else "physical")
         return saved["result"]
 
     def assemble(oracle, **arguments):
@@ -781,4 +783,82 @@ def test_uniform_materialization_uses_native_uv_numerators_and_keeps_physical_st
         result = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
                                            decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1, uv_context=context)
     assert result.is_materialized, result.detail
-    assert answered == ["silhouette", "assemble"]
+    assert answered == ["physical", "sample", "assemble"]
+
+
+@needs_native
+def test_frozen_uniform_sampling_preserves_direct_geometry_and_names_actual_uv_residual(approved):
+    sys.path.insert(0, str(ROOT / "kernel/tests"))
+    from test_silhouette_topology import _grid, _key
+    from cftuv_envelope.exact_sqrt_sum import exact_work_budget, SqrtSumV1
+    from cftuv_envelope.materialize import silhouette
+
+    source = _grid(3, 1)
+    physical = silhouette.apply_silhouette(source, exact_work_budget(stage="MATERIALIZE"))
+    uv = dict(source.facts)
+    for key in (_key(1, 0), _key(2, 1)):
+        uv[(0, key)] = uv[(0, key)][0] + SqrtSumV1.rational(1), uv[(0, key)][1]
+    fixed = dataclasses.replace(source, polygons=physical.polygons, cycles=physical.cycles, vertex_cycles=physical.vertex_cycles,
+                                positions=physical.positions, facts=physical.facts, free=frozenset(), uv_numerators=uv, freeze_geometry=True)
+    budget = exact_work_budget(stage="MATERIALIZE")
+    assert same("fixed Direct footprint / Uniform UV", silhouette.apply_silhouette, cftuv_native.apply_silhouette, budget, fixed, budget) == "answered"
+    result = cftuv_native.apply_silhouette(fixed, exact_work_budget(stage="MATERIALIZE"))
+    assert result.polygons == physical.polygons and result.positions == physical.positions and not result.dissolved
+    assert dict(result.counters)[silhouette.UNIFORM_NONAFFINE] and dict(result.counters)[silhouette.UNIFORM_EXCEEDS]
+    assert _native_verify(fixed, result) == [] == list(silhouette.verify_silhouette(fixed, result))
+    polygons = [[tuple(reversed(ring)) for ring in rings] for rings in result.polygons]
+    corrupted = dataclasses.replace(result, polygons=polygons)
+    assert _native_verify(fixed, corrupted) == list(silhouette.verify_silhouette(fixed, corrupted))
+    assert "FROZEN_DIRECT_FOOTPRINT_CHANGED" in _native_verify(fixed, corrupted)
+
+
+@needs_native
+def test_frozen_uniform_fit_exhaustion_keeps_actual_chains_and_rolls_back_only_optional_budget(approved):
+    from math import isqrt
+    sys.path.insert(0, str(ROOT / "kernel/tests"))
+    from test_silhouette_topology import _grid, _key
+    from cftuv_envelope.materialize import silhouette
+    from cftuv_envelope.exact_sqrt_sum import exact_work_budget, SqrtSumV1
+
+    source = _grid(1, 1)
+    scale = 1 << 160
+    # Точное положительное отклонение требует обоих prime-support после 160-битного сокращения.
+    delta = SqrtSumV1(((1, -isqrt(2*scale*scale)-isqrt(3*scale*scale)), (2, scale), (3, scale)))
+    points = {**source.points, _key(1, 1): (SqrtSumV1.rational(2), delta)}
+    source = dataclasses.replace(source, points=points, uv_numerators=source.facts, freeze_geometry=True)
+    _exact().reset_factorization_memory()
+    full_budget = exact_work_budget(stage="MATERIALIZE")
+    complete = silhouette.apply_silhouette(source, full_budget)
+    full_price = full_budget.spent
+    assert full_price > 1 and not dict(complete.counters)[silhouette.UNIFORM_SKIPPED]
+    skipped = partial = 0
+    for cap in sorted({0, 1, max(1, full_price // 2)}):
+        _exact().reset_factorization_memory()
+        budget = exact_work_budget(stage="MATERIALIZE", cap=cap)
+        assert same(f"frozen Uniform optional partial budget cap{cap}/{full_price}", silhouette.apply_silhouette, cftuv_native.apply_silhouette,
+                    budget, source, budget) == "answered"
+        _exact().reset_factorization_memory()
+        budget = exact_work_budget(stage="MATERIALIZE", cap=cap)
+        result = silhouette.apply_silhouette(source, budget)
+        assert result.polygons == source.polygons and result.positions == source.positions and not result.dissolved
+        exhausted = dict(result.counters)[silhouette.UNIFORM_SKIPPED]
+        skipped += exhausted
+        partial += bool(exhausted and 0 < cap < full_price)
+        if exhausted:
+            assert budget.spent == 0
+    assert skipped and partial, "no partial-spend optional sampling exhaustion"
+
+
+@needs_native
+def test_recorded_silhouette_input_without_the_new_slot_still_uses_direct_defaults(approved):
+    sys.path.insert(0, str(ROOT / "kernel/tests"))
+    from test_silhouette_topology import _grid
+    from cftuv_envelope.exact_sqrt_sum import exact_work_budget
+    from cftuv_envelope.materialize import silhouette
+
+    source = _grid(3, 1)
+    # Старый frozen-dataclass pickle заполняет прежние слоты, нового атрибута ещё нет.
+    object.__delattr__(source, "freeze_geometry")
+    assert not hasattr(source, "freeze_geometry")
+    budget = exact_work_budget(stage="MATERIALIZE")
+    assert same("old recorded input / default DIRECT", silhouette.apply_silhouette, cftuv_native.apply_silhouette, budget, source, budget) == "answered"

@@ -258,14 +258,15 @@ pub struct SilhouetteArgs<'r, 'py> {
 }
 
 /// DIRECT keeps its original dict; a separate UV numerator table travels beside physical station facts.
-pub(crate) fn split_uv_facts<'py>(value: &Bound<'py, PyAny>) -> Read<(Bound<'py, PyAny>, Option<Bound<'py, PyAny>>)> {
+pub(crate) fn split_uv_facts<'py>(value: &Bound<'py, PyAny>) -> Read<(Bound<'py, PyAny>, Option<Bound<'py, PyAny>>, bool)> {
     if let Ok(pair) = value.cast_exact::<PyTuple>() {
-        if pair.len() != 2 {
-            return unsupported("the physical/UV fact payload is not a pair");
+        if pair.len() != 2 && pair.len() != 3 {
+            return unsupported("the physical/UV fact payload is not a pair or frozen triple");
         }
-        return Ok((pair.get_item(0)?, Some(pair.get_item(1)?)));
+        let frozen = pair.len() == 3 && pair.get_item(2)?.extract::<bool>()?;
+        return Ok((pair.get_item(0)?, Some(pair.get_item(1)?), frozen));
     }
-    Ok((value.clone(), None))
+    Ok((value.clone(), None, false))
 }
 
 pub(crate) fn read_fact_table<'a, 'py>(py: Python<'py>, pool: &Pool, value: &Bound<'py, PyAny>, keys: &mut Keys<'a, 'py>) -> Read<HashMap<(u32, Key), Point, FxBuild>> {
@@ -331,7 +332,7 @@ fn read_silhouette<'a, 'py>(py: Python<'py>, classes: &Classes, args: &Silhouett
     for (key, value) in exact_dict(args.points, "points")?.iter() {
         point_rows.push((keys.key(py, &key)?, pair_of(pool, &value, "a chart point")?));
     }
-    let (physical, uv) = split_uv_facts(args.facts)?;
+    let (physical, uv, freeze_geometry) = split_uv_facts(args.facts)?;
     let facts = read_fact_table(py, pool, &physical, keys)?;
     let uv_facts = uv.as_ref().map(|value| read_fact_table(py, pool, value, keys)).transpose()?;
     let Ok(free_set) = args.free.cast_exact::<PyFrozenSet>() else {
@@ -372,6 +373,7 @@ fn read_silhouette<'a, 'py>(py: Python<'py>, classes: &Classes, args: &Silhouett
         points,
         facts,
         uv_facts,
+        freeze_geometry,
         front: SqrtSum::rational(&alpha),
         inverse_alpha,
         uv_slide,
@@ -776,7 +778,10 @@ impl Host {
             for pair in sequence(&items[3], "counters")? {
                 let parts = sequence(&pair, "a counter")?;
                 let name: String = parts[0].extract()?;
-                let Some(known) = cftuv_silhouette::silhouette::COUNTER_NAMES.iter().find(|item| **item == name) else {
+                let known = cftuv_silhouette::silhouette::COUNTER_NAMES.iter().find(|item| **item == name).or_else(|| {
+                    if input.freeze_geometry { cftuv_silhouette::silhouette::UNIFORM_COUNTER_NAMES.iter().find(|item| **item == name) } else { None }
+                });
+                let Some(known) = known else {
                     return unsupported(format!("a counter the law does not write: {name}"));
                 };
                 let value: u64 = parts[1].extract()?;

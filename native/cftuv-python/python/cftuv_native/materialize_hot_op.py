@@ -111,7 +111,7 @@ ASSEMBLE_CLASSES = (
 #: `mesh.DECIMAL_CONTEXT` as the Rust side divides (`cftuv_silhouette::assemble_law`): 28 digits, half even, exponent limits a station never reaches, the three traps.
 DECIMAL_CONTEXT_SHAPE = (28, "ROUND_HALF_EVEN", -999999, 999999, 1, 0, ("DivisionByZero", "InvalidOperation", "Overflow"))
 
-SILHOUETTE_INPUT_FIELDS = ("polygons", "cycles", "vertex_cycles", "positions", "points", "facts", "frame_faces", "layout", "lattice_alpha", "uv_slide", "reverse", "free", "uv_numerators")
+SILHOUETTE_INPUT_FIELDS = ("polygons", "cycles", "vertex_cycles", "positions", "points", "facts", "frame_faces", "layout", "lattice_alpha", "uv_slide", "reverse", "free", "uv_numerators", "freeze_geometry")
 SILHOUETTE_FIELDS = (
     "polygons", "cycles", "vertex_cycles", "positions", "facts", "merged_frames", "dissolved", "counters", "note", "changed", "runs", "fits", "boundary_chains", "interface_chains",
 )
@@ -427,7 +427,7 @@ def apply_silhouette(mirror, source, budget):
     called = perf_counter_ns()
     try:
         result, status, detail, counts, articles, bits, native = mirror._session.hot_silhouette(
-            source.polygons, source.cycles, source.positions, source.points, _uv_fact_payload(source.facts, source.uv_numerators), regions, cut, mark, source.lattice_alpha, source.uv_slide, silhouette.CHORD_BUDGET,
+            source.polygons, source.cycles, source.positions, source.points, _uv_fact_payload(source.facts, source.uv_numerators, getattr(source, "freeze_geometry", False)), regions, cut, mark, source.lattice_alpha, source.uv_slide, silhouette.CHORD_BUDGET,
             bool(source.reverse), source.free, None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real,
         )
     except BaseException:
@@ -470,9 +470,10 @@ def _result(silhouette, assemble, source, result):
 
     kind, faces, gone, counters, note, changed, runs, fits, chains, _problems = result
     boundary, interface = _chains(assemble, chains)
-    if kind != 0:
+    frozen = getattr(source, "freeze_geometry", False)
+    if kind != 0 or frozen:
         return silhouette.SilhouetteV1(
-            source.polygons, source.cycles, source.vertex_cycles, source.positions, source.facts, {}, frozenset(), counters, "", boundary_chains=boundary, interface_chains=interface,
+            source.polygons, source.cycles, source.vertex_cycles, source.positions, source.facts, {}, frozenset(), counters, note if frozen else "", boundary_chains=boundary, interface_chains=interface,
         )
     polygons = [[] for _ in source.polygons]
     merged = {}
@@ -546,12 +547,12 @@ def source_lift(mirror, plane, positions, triangles, host_positions, step, polyg
     return settled, sourced, law.SourceFacesV1(worst_plane, cut, flipped)
 
 
-def _uv_fact_payload(facts, uv_numerators):
+def _uv_fact_payload(facts, uv_numerators, freeze_geometry=False):
     """Физические станции неизменны; новая UV-таблица имеет отдельного владельца."""
 
     if type(facts) is not dict or (uv_numerators is not None and type(uv_numerators) is not dict):
         raise pin.NativePortUnsupported("physical/UV facts must be dictionaries")
-    return facts if uv_numerators is None else (facts, uv_numerators)
+    return facts if uv_numerators is None else ((facts, uv_numerators, True) if freeze_geometry else (facts, uv_numerators))
 
 
 def assemble_batch(mirror, *, frame_faces, cycles, positions, polygons, facts, layout, scale, lattice_alpha, edge_faces, request, source_revision, patch_domain_id, contract_versions,

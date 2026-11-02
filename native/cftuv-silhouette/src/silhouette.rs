@@ -52,6 +52,13 @@ pub const PLAN_KEPT_NO_UV_FACTS: &str = "MATERIALIZE_STATION_PLAN_KEPT_NO_UV_FAC
 pub const PLAN_MAX_UV_SLIDE_MILLI_ALPHA: &str = "MATERIALIZE_STATION_PLAN_MAX_UV_SLIDE_MILLI_ALPHA";
 pub const CONTINUOUS_INTERFACE_EDGES: &str = "MATERIALIZE_SILHOUETTE_CONTINUOUS_INTERFACE_EDGES";
 pub const STATION_PLAN_VIOLATED: &str = "STATION_PLAN_VIOLATED";
+pub const UNIFORM_SAMPLED: &str = "UV_UNIFORM_DIRECT_FOOTPRINT_SAMPLED_V1";
+pub const UNIFORM_NONAFFINE: &str = "UV_UNIFORM_DIRECT_FOOTPRINT_NONAFFINE_FACES";
+pub const UNIFORM_RESIDUAL: &str = "UV_UNIFORM_DIRECT_FOOTPRINT_MAX_RESIDUAL_MILLI_ALPHA";
+pub const UNIFORM_EXCEEDS: &str = "UV_UNIFORM_DIRECT_FOOTPRINT_EXCEEDS_PHYSICAL_UV_SLIDE";
+pub const UNIFORM_UNRESOLVED: &str = "UV_UNIFORM_DIRECT_FOOTPRINT_FIT_UNRESOLVED";
+pub const UNIFORM_SKIPPED: &str = "UV_UNIFORM_DIRECT_FOOTPRINT_SAMPLING_SKIPPED_WORK_BUDGET";
+pub const UNIFORM_COUNTER_NAMES: [&str; 6] = [UNIFORM_SAMPLED, UNIFORM_NONAFFINE, UNIFORM_RESIDUAL, UNIFORM_EXCEEDS, UNIFORM_UNRESOLVED, UNIFORM_SKIPPED];
 
 pub const PLAN_KEPT_NAMES: [&str; 5] = [PLAN_KEPT_TWINNED, PLAN_KEPT_ATTACHED, PLAN_KEPT_CHORD, PLAN_KEPT_NOT_SIMPLE, PLAN_KEPT_NO_UV_FACTS];
 
@@ -148,6 +155,8 @@ pub struct SilInput {
     pub facts: FxMap<(u32, Key), (SqrtSum, SqrtSum)>,
     /// Optional final UV numerators; the physical facts above still own station and boundary classification.
     pub uv_facts: Option<FxMap<(u32, Key), (SqrtSum, SqrtSum)>>,
+    /// A second pass over a fixed DIRECT footprint: only sample UV and recompute actual-face chains.
+    pub freeze_geometry: bool,
     /// `Fraction(1) / Fraction(lattice_alpha)` (the UV law's factor) and `SqrtSumV1.rational(lattice_alpha)` (the front of `edge_kind`).
     pub inverse_alpha: Rat,
     pub front: SqrtSum,
@@ -731,6 +740,10 @@ impl<'s> Mesh<'s> {
         if self.source.uv_slide.is_zero() {
             return Ok(None);
         }
+        Ok(self.fit_residual(region, union)?.filter(|value| within(*value, &self.source.uv_slide)))
+    }
+
+    fn fit_residual(&mut self, region: u32, union: &[Key]) -> SilResult<Option<f64>> {
         let mut chart = Vec::with_capacity(union.len());
         for &key in union {
             let point = self.point(key)?;
@@ -743,8 +756,7 @@ impl<'s> Mesh<'s> {
         for &key in union {
             uvs.push(self.uv(region, key)?);
         }
-        let residual = uv_fit_residual(&chart, &uvs)?;
-        Ok(residual.filter(|value| within(*value, &self.source.uv_slide)))
+        uv_fit_residual(&chart, &uvs)
     }
 
     // -- the vertices -----------------------------------------------------------------------------
@@ -1335,6 +1347,9 @@ fn milli_alpha(slide: f64) -> SilResult<u64> {
 /// `dissolve_silhouette(source, budget)` and `verify_silhouette(source, result)`. `ctx` carries the budget of the pass (the host makes the inner
 /// budget of the oracle): an exhaustion answers `kind` 2 with the mesh as it was.
 pub fn apply_silhouette(ctx: &mut ExactCtx<'_>, source: &SilInput) -> SilResult<SilOutput> {
+    if source.freeze_geometry {
+        return sample_uniform_frozen(ctx, source);
+    }
     let mut mesh = Mesh::new(source, &source.polygons);
     if !mesh.manifold {
         let mut output = unchanged(source, vec![(SKIPPED_NOT_MANIFOLD, 1)], false, 1)?;
@@ -1356,6 +1371,50 @@ pub fn apply_silhouette(ctx: &mut ExactCtx<'_>, source: &SilInput) -> SilResult<
         Err(other) => return Err(other),
     };
     let mut output = result(&mut mesh, gone, covered, faces_before)?;
+    output.problems = verify(source, &output)?;
+    Ok(output)
+}
+
+fn sample_uniform_frozen(ctx: &mut ExactCtx<'_>, source: &SilInput) -> SilResult<SilOutput> {
+    if source.uv_facts.is_none() {
+        return unsupported("FROZEN_DIRECT_FOOTPRINT_HAS_NO_UV_MAP");
+    }
+    let mut mesh = Mesh::new(source, &source.polygons);
+    let mut numbers: Vec<u32> = mesh.faces.keys().copied().collect();
+    numbers.sort_by_key(|number| mesh.faces[number].order);
+    let (mut nonaffine, mut exceeds, mut unresolved) = (0u64, 0u64, 0u64);
+    let mut worst = 0.0f64;
+    let before = ctx.budget.articles();
+    let statistics = (|| -> SilResult<()> { for number in numbers {
+        if matches!(mesh.certificate(ctx, number)?, Cert::Map(..)) {
+            continue;
+        }
+        nonaffine += 1;
+        let (region, ring) = (mesh.faces[&number].region, mesh.faces[&number].ring.clone());
+        match mesh.fit_residual(region, &ring)? {
+            None => unresolved += 1,
+            Some(value) => {
+                worst = py_max(worst, value);
+                exceeds += u64::from(!within(value, &source.uv_slide));
+            }
+        }
+    } Ok(()) })();
+    let skipped = match statistics {
+        Ok(()) => 0u64,
+        Err(SilError::Exhausted) => {
+            ctx.budget.set_articles(before);
+            nonaffine = 0;
+            exceeds = 0;
+            unresolved = mesh.faces.len() as u64;
+            worst = 0.0;
+            1u64
+        }
+        Err(other) => return Err(other),
+    };
+    let residual = milli_alpha(worst)?;
+    let counters = vec![(UNIFORM_SAMPLED, 1), (UNIFORM_NONAFFINE, nonaffine), (UNIFORM_RESIDUAL, residual), (UNIFORM_EXCEEDS, exceeds), (UNIFORM_UNRESOLVED, unresolved), (UNIFORM_SKIPPED, skipped)];
+    let mut output = unchanged(source, counters, mesh.manifold, 0)?;
+    output.note = format!("{UNIFORM_SAMPLED}: nonaffine_faces={nonaffine} max_residual_milli_alpha={residual} exceeds_physical_uv_slide={exceeds} fit_unresolved={unresolved} sampling_skipped_work_budget={skipped}");
     output.problems = verify(source, &output)?;
     Ok(output)
 }
@@ -1478,6 +1537,13 @@ fn verify(source: &SilInput, output: &SilOutput) -> SilResult<Vec<&'static str>>
         source.facts.iter().filter(|((_, key), _)| !gone.contains(key)).map(|(slot, value)| (*slot, value.clone())).collect()
     };
     let mut problems = Vec::new();
+    if source.freeze_geometry {
+        if polygons != source.polygons || !gone.is_empty() {
+            problems.push("FROZEN_DIRECT_FOOTPRINT_CHANGED");
+        }
+        problems.extend(verify_chains(source, output, &polygons, &facts)?);
+        return Ok(problems);
+    }
     if !output.changed {
         problems.extend(verify_plan(source, output, &polygons, &facts)?);
         problems.extend(verify_chains(source, output, &polygons, &facts)?);

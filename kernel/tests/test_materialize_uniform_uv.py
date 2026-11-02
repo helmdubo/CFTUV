@@ -341,3 +341,74 @@ def test_uniform_silhouette_validates_actual_uv_continuity_and_exact_certificate
     other = run("0.25025")
     outcome, differences = theorem.theorem_differences(base, other, Fraction("0.25"), Fraction("0.25025"))
     assert outcome == theorem.JUDGED and not differences, (outcome, differences)
+
+
+def test_uniform_sampling_keeps_direct_physical_membership_when_actual_uv_would_keep_more_vertices():
+    from types import SimpleNamespace
+    from test_silhouette_topology import _grid, _key
+    from cftuv_envelope.materialize import silhouette
+
+    source = _grid(3, 1)
+    physical = silhouette.apply_silhouette(source, fixtures.budget())
+    assert _key(2, 1) in physical.dissolved
+    values = dict(source.facts)
+    for key in (_key(2, 1), _key(1, 0)):
+        values[(0, key)] = (values[(0, key)][0] + S.rational(1), values[(0, key)][1])
+    unfrozen = silhouette.apply_silhouette(dataclasses.replace(source, uv_numerators=values), fixtures.budget())
+    assert unfrozen.polygons != physical.polygons
+    sampled = domain._uniform_shaped(physical, fixtures.budget(), SimpleNamespace(silhouette_uv_slide=source.uv_slide),
+                                     (source.points, physical.facts, source.frame_faces, source.layout, source.lattice_alpha), source.reverse, values)
+    for field in ("polygons", "cycles", "vertex_cycles", "positions", "facts", "dissolved", "runs", "fits", "merged_frames"):
+        assert getattr(sampled, field) == getattr(physical, field), field
+    counters = dict(sampled.counters)
+    assert counters[silhouette.UNIFORM_SAMPLED] == 1
+    assert counters[silhouette.UNIFORM_NONAFFINE] and counters[silhouette.UNIFORM_EXCEEDS]
+    assert silhouette.UNIFORM_SAMPLED in sampled.note
+
+
+def test_uniform_graph_near_budget_exhaustion_cannot_change_the_already_computed_direct_footprint(monkeypatch):
+    from cftuv_envelope.exact_sqrt_sum import ExactWorkOperationV1
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+
+    prepared, coverage, _request = _point_contact()
+    physical = []
+    original = domain._shaped
+    def shaped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        physical.append(result)
+        return result
+    monkeypatch.setattr(domain, "_shaped", shaped)
+    direct = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1"),
+                                       decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
+    assert direct.is_materialized
+    baseline = physical.pop()
+    def exhausted(prepared, table, budget, request, context, *args):
+        assert physical and physical[-1].polygons == baseline.polygons
+        assert physical[-1].dissolved == baseline.dissolved
+        budget.cap = budget.spent + 1
+        budget.spend_gcd_operations(2, operation=ExactWorkOperationV1.PRIME_SUPPORT, radicand=2)
+    monkeypatch.setattr(domain, "_uniform_mapping", exhausted)
+    uniform = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
+                                        decal_topology_law=DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
+    assert uniform.outcome.value == "EXACT_WORK_BUDGET_EXHAUSTED"
+
+
+def test_optional_uniform_fit_budget_exhaustion_keeps_fixed_geometry_and_actual_uv_chains(monkeypatch):
+    from test_silhouette_topology import _grid
+    from cftuv_envelope.exact_sqrt_sum import ExactWorkOperationV1, exact_work_budget
+    from cftuv_envelope.materialize import silhouette
+
+    source = _grid(2, 1, split=1)
+    physical = silhouette.apply_silhouette(source, fixtures.budget())
+    values = {slot: (pair[0] + S.rational(slot[0]), pair[1]) for slot, pair in source.facts.items()}
+    fixed = dataclasses.replace(source, polygons=physical.polygons, positions=physical.positions, facts=physical.facts,
+                                cycles=physical.cycles, uv_numerators=values, freeze_geometry=True)
+    def exhausted(mesh):
+        mesh.budget.spend_gcd_operations(2, operation=ExactWorkOperationV1.PRIME_SUPPORT, radicand=2)
+    monkeypatch.setattr(silhouette, "_uniform_fit_statistics", exhausted)
+    budget = exact_work_budget(stage="MATERIALIZE", cap=1)
+    result = silhouette.apply_silhouette(fixed, budget)
+    assert result.polygons == physical.polygons and result.positions == physical.positions and not result.dissolved
+    assert result.interface_chains and dict(result.counters)[silhouette.UNIFORM_SKIPPED] == 1
+    assert dict(result.counters)[silhouette.UNIFORM_UNRESOLVED] == sum(map(len, physical.polygons))
+    assert budget.spent == 0

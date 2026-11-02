@@ -321,7 +321,7 @@ fn assemble<'py>(py: Python<'py>, hot: &Classes, classes: &AssembleClasses, args
     }
     let mut fact_rows: Vec<(u32, Key, (SqrtSum, SqrtSum))> = Vec::new();
     let mut facts: HashMap<(u32, Key), usize, FxBuild> = HashMap::default();
-    let (physical, uv) = split_uv_facts(args.facts)?;
+    let (physical, uv, _freeze_geometry) = split_uv_facts(args.facts)?;
     for (slot, value) in exact_dict(&physical, "facts")?.iter() {
         let Ok(slot) = slot.cast_exact::<PyTuple>() else {
             return unsupported("a fact slot is not a tuple");
@@ -549,6 +549,7 @@ fn assemble<'py>(py: Python<'py>, hot: &Classes, classes: &AssembleClasses, args
             points: vec![None; count],
             facts: fact_table,
             uv_facts: uv_numerators,
+            freeze_geometry: false,
             front: SqrtSum::rational(&alpha),
             inverse_alpha: inverse_alpha.clone(),
             uv_slide: Rat::zero(),

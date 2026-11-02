@@ -144,6 +144,12 @@ NANOMETRES_PER_METRE = 10**9
 MILLI_ALPHA_PER_ALPHA = 1000
 #: Глубина хорды закона — та же запись реестра, что у диагонали резки: одно число, одно место.
 CHORD_BUDGET = CLIP_DIAGONAL_CHORD_BUDGET
+UNIFORM_SAMPLED = "UV_UNIFORM_DIRECT_FOOTPRINT_SAMPLED_V1"
+UNIFORM_NONAFFINE = "UV_UNIFORM_DIRECT_FOOTPRINT_NONAFFINE_FACES"
+UNIFORM_RESIDUAL = "UV_UNIFORM_DIRECT_FOOTPRINT_MAX_RESIDUAL_MILLI_ALPHA"
+UNIFORM_EXCEEDS = "UV_UNIFORM_DIRECT_FOOTPRINT_EXCEEDS_PHYSICAL_UV_SLIDE"
+UNIFORM_UNRESOLVED = "UV_UNIFORM_DIRECT_FOOTPRINT_FIT_UNRESOLVED"
+UNIFORM_SKIPPED = "UV_UNIFORM_DIRECT_FOOTPRINT_SAMPLING_SKIPPED_WORK_BUDGET"
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +172,8 @@ class SilhouetteInputV1:
     free: frozenset = frozenset()
     #: Отдельные UV-числители нового закона; физические `(s,r)` остаются в `facts`.
     uv_numerators: dict | None = None
+    #: Только выборка UV на УЖЕ зафиксированном физическом силуэте DIRECT: геометрия не меняется.
+    freeze_geometry: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,6 +553,10 @@ class _Mesh:
 
         if not self.source.uv_slide:
             return None
+        residual = self._fit_residual(region, union)
+        return residual if residual is not None and _within(residual, self.source.uv_slide) else None
+
+    def _fit_residual(self, region, union):
         chart = []
         for key in union:
             found = [centre_and_bound(coordinate) for coordinate in self.source.points[key]]
@@ -552,7 +564,7 @@ class _Mesh:
                 return None
             chart.append((found[0][0], found[1][0]))
         residual = uv_fit_residual(chart, [self.uv(region, key) for key in union])
-        return residual if residual is not None and _within(residual, self.source.uv_slide) else None
+        return residual
 
     # -- вершины ------------------------------------------------------------------------------
 
@@ -872,6 +884,9 @@ def dissolve_silhouette(source: SilhouetteInputV1, budget) -> SilhouetteV1:
 def verify_silhouette(source: SilhouetteInputV1, result: SilhouetteV1) -> tuple:
     """Независимый пересчёт: имена нарушений (пусто — закон выполнен). Читает исходную сетку и итог, проход не зовёт."""
 
+    if getattr(source, "freeze_geometry", False):
+        geometry = result.polygons == source.polygons and result.positions == source.positions and result.facts == source.facts and not result.dissolved
+        return (*(() if geometry else ("FROZEN_DIRECT_FOOTPRINT_CHANGED",)), *_verify_chains(source, result))
     if not result.changed:
         return (*_verify_plan(source, result), *_verify_chains(source, result))
     problems: list = []
@@ -1075,10 +1090,49 @@ def _verify_topology(source, result) -> list:
     return found
 
 
+def _uniform_fit_statistics(mesh):
+    nonaffine = exceeds = unresolved = 0
+    worst = 0.0
+    for face in mesh.faces.values():
+        if mesh.certificate(face):
+            continue
+        nonaffine += 1
+        residual = mesh._fit_residual(face.region, face.ring)
+        if residual is None:
+            unresolved += 1
+        else:
+            worst = max(worst, residual)
+            exceeds += not _within(residual, mesh.source.uv_slide)
+    return nonaffine, worst, exceeds, unresolved
+
+
+def _sample_uniform_frozen(source, budget):
+    """N,r в сохранённых углах DIRECT; внутри прежнего ngon остаётся прежняя интерполяция Blender, не единичный Якобиан."""
+
+    if source.uv_numerators is None:
+        raise MaterializationRefusal(MaterializationOutcome.UV_UNIFORM_MAPPING_UNSUPPORTED, "FROZEN_DIRECT_FOOTPRINT_HAS_NO_UV_MAP")
+    inner = budget if budget.cap is None else exact_work_budget(stage="MATERIALIZE", domain_id=budget.domain_id, cap=max(budget.remaining, 0))
+    mesh = _Mesh(source, inner)
+    skipped = 0
+    try:
+        nonaffine, worst, exceeds, unresolved = _uniform_fit_statistics(mesh)
+    except ExactCanonicalizationWorkBudgetExhausted:
+        nonaffine, worst, exceeds, unresolved = 0, 0.0, 0, len(mesh.faces)
+        skipped = 1
+    else:
+        if inner is not budget:
+            budget.replay(inner.spent_by_article())
+    counters = ((UNIFORM_SAMPLED, 1), (UNIFORM_NONAFFINE, nonaffine), (UNIFORM_RESIDUAL, _milli_alpha(worst)),
+                (UNIFORM_EXCEEDS, exceeds), (UNIFORM_UNRESOLVED, unresolved), (UNIFORM_SKIPPED, skipped))
+    result = _unchanged(source, counters, manifold=mesh.manifold)
+    note = f"{UNIFORM_SAMPLED}: nonaffine_faces={nonaffine} max_residual_milli_alpha={_milli_alpha(worst)} exceeds_physical_uv_slide={exceeds} fit_unresolved={unresolved} sampling_skipped_work_budget={skipped}"
+    return dataclasses.replace(result, note=note)
+
+
 def apply_silhouette(source: SilhouetteInputV1, budget) -> SilhouetteV1:
     """Проход и независимая проверка: любое нарушение — отказ `BATCH_DID_NOT_VALIDATE` с именем `SILHOUETTE:*` и числами."""
 
-    result = dissolve_silhouette(source, budget)
+    result = _sample_uniform_frozen(source, budget) if getattr(source, "freeze_geometry", False) else dissolve_silhouette(source, budget)
     problems = verify_silhouette(source, result)
     if problems:
         raise MaterializationRefusal(
