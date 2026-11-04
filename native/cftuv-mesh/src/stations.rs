@@ -3,8 +3,9 @@
 //!
 //! A vertex of a region gets ONE answer. A second answer is legal in one case only: the rung of a JOIN corner (`_rung_station`: the two runs of one
 //! flow give the bisector point two `s`, `s_v + d sin(d/2)` and `s_v - d sin(d/2)`, and the same `r`; their mean is the station of the chain
-//! vertex, EXACTLY, and exactly that is checked), and the boundary between two frames of an opened ring (`_unify_across_frames`). Any other second
-//! answer is a refusal that carries the answers of the runs.
+//! vertex, EXACTLY, and exactly that is checked), the boundary between two frames of an opened ring (`_unify_across_frames`), and the skeleton edge
+//! of two runs of a flow with a consumed piece of chain between them (`_consumed_piece_facts`, law `RUNG_STATION_CONSUMED_PIECE_V1`), which is settled
+//! after every face because its proof is another vertex. Any other second answer is a refusal that carries the answers of the runs.
 //!
 //! [`station_values`] is the first call (`chords=None`). [`chord_station_values`] is the call of the clip stage (`clip.cut_domain`: the new vertices of
 //! the clip with `chords` and `anchors`, `rungs` and `plain` not read back): a second answer on a SHARED edge of two faces of a flow is the
@@ -29,6 +30,8 @@ use crate::tally::Tally;
 pub const RUNG_STATIONS_FROM_CHAIN_VERTEX: &str = "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX";
 /// Number of the law `RUNG_CHORD_STATION_V1`: new clip vertices on a SHARED edge of two faces of a flow that got the interpolation of the facts of its ends.
 pub const RUNG_CHORD_STATIONS: &str = "MATERIALIZE_RUNG_CHORD_STATIONS";
+/// Number of the law `RUNG_STATION_CONSUMED_PIECE_V1`: vertices answered by two runs of a flow with a CONSUMED piece of chain between them, which got the mean of the two answers.
+pub const RUNG_STATIONS_CONSUMED_PIECE: &str = "MATERIALIZE_RUNG_STATIONS_CONSUMED_PIECE";
 
 /// `(s, r)` of one vertex, shared between the answers and the facts.
 pub type Value = Rc<(SqrtSum, SqrtSum)>;
@@ -105,6 +108,97 @@ fn rung_station(table: &Table, answers: &[(&str, Value)], run_id: &str, value: &
     Some(Rc::new((station.clone(), value.1.clone())))
 }
 
+/// `_flow_positions(table)`: `run -> (head, number)` of the runs tied by the JOIN stations, in the order of their flow. The name of a head is only an identity.
+fn flow_positions(table: &Table) -> HashMap<&str, (&str, usize), FxBuild> {
+    let mut following: HashMap<&str, &str, FxBuild> = HashMap::default();
+    let mut entered: HashSet<&str, FxBuild> = HashSet::default();
+    for (before, after) in table.joins.keys() {
+        following.insert(before, after);
+        entered.insert(after);
+    }
+    let mut positions: HashMap<&str, (&str, usize), FxBuild> = HashMap::default();
+    for head in following.keys().copied().filter(|run| !entered.contains(run)) {
+        let (mut cursor, mut number) = (Some(head), 0usize);
+        while let Some(run) = cursor {
+            positions.insert(run, (head, number));
+            cursor = following.get(run).copied();
+            number += 1;
+        }
+    }
+    positions
+}
+
+/// A second answer `station_values` could not reduce: the slot, the conflict as it stood at that moment, and whether the law may read the slot at all.
+struct Pending {
+    at: usize,
+    key: u32,
+    region: u32,
+    face: usize,
+    answered: Vec<(String, SqrtSum, SqrtSum)>,
+    poisoned: bool,
+}
+
+/// `_consumed_piece_facts(table, pending, answers)`: `(slot number, (s, r))` of the slots the law proves, or the first unresolved conflict in the order of discovery.
+fn consumed_piece_facts<'p>(table: &Table, stations: &Stations, pending: &'p [Pending], fan_slots: &HashSet<usize, FxBuild>) -> Result<Vec<(usize, Value)>, &'p Pending> {
+    let positions = flow_positions(table);
+    // per pending slot: the answering runs in the order of their flow with the sum of the two answers at the ends (`None`: the law cannot read it)
+    let mut entries: Vec<Option<(Vec<usize>, SqrtSum)>> = Vec::with_capacity(pending.len());
+    for item in pending {
+        let given = &stations.given[item.at];
+        let mut entry = None;
+        if !item.poisoned && !fan_slots.contains(&item.at) && given.iter().all(|(run, _)| positions.contains_key(run)) {
+            let head = positions[given[0].0].0;
+            let first_r = &given[0].1 .1;
+            if given.iter().all(|(run, value)| positions[run].0 == head && value.1.difference_is_zero(first_r)) {
+                let mut placed: Vec<usize> = (0..given.len()).collect();
+                placed.sort_by_key(|at| positions[given[*at].0].1);
+                let (first, last) = (placed[0], placed[placed.len() - 1]);
+                if positions[given[last].0].1 - positions[given[first].0].1 >= 2 {
+                    let total = given[first].1 .0.add(&given[last].1 .0);
+                    entry = Some((placed, total));
+                }
+            }
+        }
+        entries.push(entry);
+    }
+    let mut proven: HashMap<(&str, &str), Vec<SqrtSum>, FxBuild> = HashMap::default();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (item, entry) in pending.iter().zip(&entries) {
+            let Some((placed, total)) = entry else { continue };
+            if placed.len() < 3 {
+                continue;
+            }
+            let given = &stations.given[item.at];
+            let pair = (given[placed[0]].0, given[placed[placed.len() - 1]].0);
+            if proven.get(&pair).is_some_and(|known| known.iter().any(|sum| total.difference_is_zero(sum))) {
+                continue;
+            }
+            let chained = placed.windows(2).all(|step| {
+                let (before, after) = (given[step[0]].0, given[step[1]].0);
+                positions[after].1 - positions[before].1 == 1 || proven.contains_key(&(before, after))
+            });
+            if chained {
+                proven.entry(pair).or_default().push(total.clone());
+                changed = true;
+            }
+        }
+    }
+    let half = Rat::one().div(&Rat::from_i64(2)).expect("two is not zero");
+    let mut found = Vec::with_capacity(pending.len());
+    for (item, entry) in pending.iter().zip(&entries) {
+        let Some((placed, total)) = entry else { return Err(item) };
+        let given = &stations.given[item.at];
+        let pair = (given[placed[0]].0, given[placed[placed.len() - 1]].0);
+        if !proven.get(&pair).is_some_and(|known| known.iter().any(|sum| total.difference_is_zero(sum))) {
+            return Err(item);
+        }
+        found.push((item.at, Rc::new((total.scaled(&half), given[placed[0]].1 .1.clone()))));
+    }
+    Ok(found)
+}
+
 /// `_unify_across_frames(facts, answers, table, tally, rungs)`: the answers of the two runs of one corner in two regions of an opened ring are reduced to
 /// the station of the chain vertex, exactly, by the condition of the rung inside a region.
 fn unify_across_frames(stations: &mut Stations, table: &Table, tally: &mut Tally) {
@@ -160,6 +254,8 @@ pub fn station_values<'a>(ctx: &mut ExactCtx<'_>, input: &MeshInput<'a>, cycles:
     let mut stations = Stations { index: HashMap::default(), slots: Vec::new(), facts: Vec::new(), given: Vec::new(), rungs: Vec::new(), plain: Vec::new() };
     let mut roots: HashMap<Rat, SqrtSum, FxBuild> = HashMap::default();
     let mut own: Vec<Vec<Value>> = Vec::with_capacity(input.faces.len());
+    let mut pending: Vec<Pending> = Vec::new();
+    let mut fan_slots: HashSet<usize, FxBuild> = HashSet::default();
     for (index, (face, cycle)) in input.faces.iter().zip(cycles).enumerate() {
         let region = face.region;
         if !roots.contains_key(&face.line.q) {
@@ -190,6 +286,9 @@ pub fn station_values<'a>(ctx: &mut ExactCtx<'_>, input: &MeshInput<'a>, cycles:
                     at
                 }
             };
+            if face.is_fan() {
+                fan_slots.insert(at);
+            }
             let same_run_answer = stations.given[at].iter().find(|(id, _)| *id == run_id).map(|(_, held)| held);
             if same_value(&stations.facts[at], &value) || same_run_answer.is_some_and(|held| same_value(held, &value)) {
                 // `given.setdefault(run_id, value)`
@@ -200,9 +299,26 @@ pub fn station_values<'a>(ctx: &mut ExactCtx<'_>, input: &MeshInput<'a>, cycles:
             }
             let rung = if face.is_fan() { None } else { rung_station(table, &stations.given[at], run_id, &value) };
             let Some(rung) = rung else {
-                let mut answered: Vec<(String, SqrtSum, SqrtSum)> = stations.given[at].iter().map(|(id, held)| (id.to_string(), held.0.clone(), held.1.clone())).collect();
-                answered.push((run_id.to_string(), value.0.clone(), value.1.clone()));
-                return Err(MeshError::StationConflict { key: *key, region, face: index, answered });
+                // settled after every face (`_consumed_piece_facts`), or the refusal with the text of this moment
+                if !input.consumed_piece {
+                    let mut answered: Vec<(String, SqrtSum, SqrtSum)> = stations.given[at].iter().map(|(id, held)| (id.to_string(), held.0.clone(), held.1.clone())).collect();
+                    answered.push((run_id.to_string(), value.0.clone(), value.1.clone()));
+                    return Err(MeshError::StationConflict { key: *key, region, face: index, answered });
+                }
+                let poisoned = face.is_fan() || stations.given[at].iter().any(|(id, _)| *id == run_id);
+                match pending.iter_mut().find(|item| item.at == at) {
+                    Some(item) => item.poisoned |= poisoned,
+                    None => {
+                        let mut answered: Vec<(String, SqrtSum, SqrtSum)> = stations.given[at].iter().map(|(id, held)| (id.to_string(), held.0.clone(), held.1.clone())).collect();
+                        answered.push((run_id.to_string(), value.0.clone(), value.1.clone()));
+                        pending.push(Pending { at, key: *key, region, face: index, answered, poisoned });
+                    }
+                }
+                match stations.given[at].iter_mut().find(|(id, _)| *id == run_id) {
+                    Some(held) => held.1 = value,
+                    None => stations.given[at].push((run_id, value)),
+                }
+                continue;
             };
             // `given[run_id] = value`
             match stations.given[at].iter_mut().find(|(id, _)| *id == run_id) {
@@ -214,6 +330,18 @@ pub fn station_values<'a>(ctx: &mut ExactCtx<'_>, input: &MeshInput<'a>, cycles:
             tally.add(RUNG_STATIONS_FROM_CHAIN_VERTEX, 1);
         }
         own.push(values);
+    }
+    if !pending.is_empty() {
+        match consumed_piece_facts(table, &stations, &pending, &fan_slots) {
+            Err(item) => return Err(MeshError::StationConflict { key: item.key, region: item.region, face: item.face, answered: item.answered.clone() }),
+            Ok(found) => {
+                for (at, value) in found {
+                    stations.facts[at] = value;
+                    stations.rungs.push(stations.slots[at]);
+                    tally.add(RUNG_STATIONS_CONSUMED_PIECE, 1);
+                }
+            }
+        }
     }
     if !table.frame_of_run.is_empty() {
         unify_across_frames(&mut stations, table, tally);

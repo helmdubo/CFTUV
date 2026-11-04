@@ -13,8 +13,8 @@
   побитово); складка UV (`UV_FOLD`).
 * КУСОК В ДОМЕНЕ (`mesh._convex_faces`): диагонали только между вершинами куска — вершин не рождается, части допускаются
   прежним законом (билинейный выпуклый многоугольник потока); без `partition` закона нет, и ответ прежний побитово.
-* ПОЛЕ: `sagging_wall` (alpha 0.987, Max stretch 42 %): патч 1 — 13 кусков, 49 ушей превращены в 27 частей, 14 диагоналей, в домене
-  151 -> 88 граней; патч 0 — один кусок разбит, второй отказан складкой UV и остаётся на ушах побитово. ПОЧЕМУ ТОЧНЫЙ ПОИСК
+* ПОЛЕ: `sagging_wall` (alpha 0.987, Max stretch 42 %): патч 1 — 13 кусков, уши превращены в 29 частей, 16 диагоналей (с законом съеденного куска, RUNG_STATION_CONSUMED_PIECE_V1), в домене
+  151 -> 93 граней; патч 0 — один кусок разбит, второй отказан складкой UV и остаётся на ушах побитово. ПОЧЕМУ ТОЧНЫЙ ПОИСК
   ОСТАЛСЯ ДЛЯ МАЛЫХ КУСКОВ: жадное слияние даёт столько же частей, но другие диагонали, и меш домена получает больше граней.
 """
 
@@ -491,7 +491,7 @@ def _law_off(monkeypatch):
     monkeypatch.setattr(mesh, "_convex_faces", lambda *args, **kwargs: None)
 
 
-def test_the_field_patch_one_turns_49_ears_into_27_parts_and_151_faces_into_88(monkeypatch):
+def test_the_field_patch_one_turns_ears_into_29_parts_and_151_faces_into_93(monkeypatch):
     with monkeypatch.context() as patch:
         _law_off(patch)
         without, base = _materialize(*_patch_one())
@@ -500,10 +500,10 @@ def test_the_field_patch_one_turns_49_ears_into_27_parts_and_151_faces_into_88(m
     assert base[mesh.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 13 and len(without.batch.faces) == 151
     assert counters[convex_partition.PIECES_PARTITIONED] == 13
     assert counters[convex_partition.PIECES_EXACT] == 12 and counters[convex_partition.PIECES_GREEDY] == 1
-    assert counters[convex_partition.FACES_EMITTED] == 27 and counters[convex_partition.DIAGONALS] == 14
+    assert counters[convex_partition.FACES_EMITTED] == 29 and counters[convex_partition.DIAGONALS] == 16
     assert not counters.get(convex_partition.PIECES_REFUSED)
     assert not counters.get(mesh.POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE)
-    assert len(law.batch.faces) == 88
+    assert len(law.batch.faces) == 93
     assert not validate_geometry_batch(law.batch)
     assert {vertex.vert_key.value for vertex in law.batch.vertices if not vertex.vert_key.value.startswith("clip:")} == {
         vertex.vert_key.value for vertex in without.batch.vertices if not vertex.vert_key.value.startswith("clip:")

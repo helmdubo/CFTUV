@@ -822,12 +822,12 @@ class CostMirror:
 
         return skeleton_op.build_skeleton(self, polygon, work_budget=work_budget, split_search=split_search, dense_hydration=dense_hydration)
 
-    def exact_mesh(self, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None):
+    def exact_mesh(self, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None, consumed_piece=True):
         """`materialize.mesh.exact_mesh(...)`, whole, with its exact side effects (the body and the contract: `materialize_w1_op.py`)."""
 
         from . import materialize_w1_op
 
-        return materialize_w1_op.exact_mesh(self, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+        return materialize_w1_op.exact_mesh(self, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap, consumed_piece)
 
     def canonical_triangles(self, frame_faces, cycles, budget, reverse):
         """`materialize.mesh.canonical_triangles(frame_faces, cycles, budget, reverse)`, whole, with its exact side effects (see `materialize_w1_op.py`)."""

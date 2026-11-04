@@ -568,6 +568,7 @@ impl Host {
         chart_cw: bool,
         law: u8,
         exact_plane: bool,
+        consumed_piece: bool,
         sync: Option<&[u8]>,
         budget: Option<(Option<u64>, [u64; 6])>,
         tables: &Tables<'py>,
@@ -629,7 +630,7 @@ impl Host {
         let arguments_ns = nanos(began);
 
         let computing = Instant::now();
-        let input = MeshInput { faces: &faces, region_ids: &region_names, table: &table_native, chords: &chords, lattice_alpha: &alpha, chart_cw, law, exact_plane };
+        let input = MeshInput { faces: &faces, region_ids: &region_names, table: &table_native, chords: &chords, lattice_alpha: &alpha, chart_cw, law, exact_plane, consumed_piece };
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let mut counts = SignCounts::default();
             let mut out = MeshOutput::default();

@@ -15,6 +15,8 @@ from ._cpython311 import left_fold_sum
 
 #: Только ссылки вершин ИСХОДНИКА сваривают: ссылка узла (`location:node:<k>`) принадлежит домену.
 WELD_LOCATION_PREFIX = "location:src:"
+#: Закон `WALL_NODE_NEAR_WELD_V1` (`TolerancePolicyIdV1.WALL_NODE_NEAR_WELD_V1`, там же обоснование): два узла стены на одной глубине, разошедшиеся не больше этого (метры), — одна вершина.
+WALL_NODE_WELD_TOLERANCE = 1e-6
 
 
 def _dot(left, right) -> float:
@@ -50,7 +52,7 @@ def miter_offset(normals, law):
     `o` ищется в линейной оболочке нормалей (`o = sum a_i n_i`, `G a = 1`, `G` — матрица Грама), и
     она единственна, когда система совместна. Равные побитово нормали дают сразу `n`. Отказ —
     `(None, множитель | None, причина)`: система несовместна (почти противоположные либо
-    несходящиеся плоскости) либо множитель митры выше предела. `law` — `(предел митры, допуск ведущего, допуск невязки, синус стены)` хоста (`WELD_LAW`).
+    несходящиеся плоскости) либо множитель митры выше предела. `law` — `(предел митры, допуск ведущего, допуск невязки, синус стены, допуск узла стены, деление ребра стены: 1.0 да, 0.0 нет)` хоста (`WELD_LAW`).
     """
 
     first = normals[0]
@@ -58,7 +60,7 @@ def miter_offset(normals, law):
         return first, 1.0, ""
     size = len(normals)
     rows = [[_dot(a, b) for b in normals] + [1.0] for a in normals]
-    limit, pivot_epsilon, residual_epsilon, _sine = law
+    limit, pivot_epsilon, residual_epsilon, _sine, _node, _split = law
     pivots, rows = _eliminate(rows, size, pivot_epsilon)
     for row in range(len(pivots), size):
         if abs(rows[row][size]) > residual_epsilon:
@@ -133,6 +135,8 @@ class WallPlanV1:
 
     `lifts[(домен, вершина)]` — вектор смещения узла; `classes[(домен, вершина)]` — голова класса слитых узлов, `miters[голова]` — общий вектор
     класса. Числа: смещённые узлы, слитые вершины (`len(classes) - len(miters)`), узлы без соседа, отказы митры с причинами и худшим множителем.
+    `near` — сколько пар слито законом `WALL_NODE_NEAR_WELD_V1` (не побитово равны, но в пределах допуска). `splits` — закон `WALL_EDGE_SPLIT_V1`: `(домен длинной стены,
+    её якорь, её вершина за якорем, домен узла, узел, доля вдоль ребра)` по одной на каждый более короткий узел; грани меняет склейка (`mesh_glue.glue_domains`).
     """
 
     lifts: dict
@@ -146,6 +150,8 @@ class WallPlanV1:
     #: `((домен, домен соседа), ...)`: смещение узла стены этого домена зависит от нормалей вершин ДОМЕНА-СОСЕДА (его нормаль в точке узла смешана вдоль его стены). Аффинность позиции узла от ширины
     #: поэтому держится, лишь пока нормали соседа одни (плоский сосед); модель превью (`envelope_width_preview_model`) читает эти пары.
     partners: tuple = ()
+    near: int = 0
+    splits: tuple = ()
 
     @property
     def welded(self) -> int:
@@ -181,7 +187,7 @@ def _wall_heading(other, chain, at, direction, sine):
 
 
 def _wall_partner(domains, walls, table, ordinal, chain, at, sine):
-    """`(домен соседа, его вершина за якорем, нормаль соседа в точке узла)` либо `None`: у узла нет соседа на стене.
+    """`(домен соседа, его вершина за якорем, нормаль соседа в точке узла, его якорь, доля узла вдоль ребра соседа до среза единицей)` либо `None`: у узла нет соседа на стене.
 
     Якорь узла — соседняя с ним по цепи вершина `src:`; сосед — домен, у которого стена выходит из той же вершины (одна ссылка, побитово равная позиция)
     вдоль того же ребра. Нормаль соседа в точке узла — линейная по длине его стены между нормалью в якоре и нормалью за якорем (дальше конца — она сама).
@@ -203,17 +209,21 @@ def _wall_partner(domains, walls, table, ordinal, chain, at, sine):
             if along is None:
                 continue
             beyond, heading, reach = along
-            share = min(1.0, _dot(direction, heading) / (reach * reach))
+            along_edge = _dot(direction, heading) / (reach * reach)
+            share = min(1.0, along_edge)
             blended = _normalised(
                 tuple((1.0 - share) * a + share * b for a, b in zip(other.normals[other_chain[place]], other.normals[beyond]))
             )
             if blended is not None:
-                return other_ordinal, beyond, blended
+                return other_ordinal, beyond, blended, other_chain[place], along_edge
     return None
 
 
 def plan_wall_nodes(domains, law) -> WallPlanV1:
-    """Закон `WALL_MITER_OFFSET_V1`: сдвиги узлов стены на линию сгиба и слияние пар узлов с побитово равными позициями.
+    """Закон `WALL_MITER_OFFSET_V1`: сдвиги узлов стены на линию сгиба и слияние пар узлов с равными позициями.
+
+    Пара сливается, если узлы побитово равны либо расходятся не больше допуска узла (`law[4]`, закон `WALL_NODE_NEAR_WELD_V1`: шум подъёма двух доменов на одной глубине, число таких пар названо).
+    Разошедшиеся дальше узлы остаются своими вершинами, и более короткий делит ребро длинной стены (закон `WALL_EDGE_SPLIT_V1`, `WallPlanV1.splits`): ступень остаётся, общая часть становится общим ребром.
 
     `domains` — `DomainVerticesV1` с цепями стен (`walls`); домен без них ничего не даёт (поведение прежнее). Предел митры и допуски — те же, что у
     `miter_offset`. Обход по номеру домена, цепям и местам в цепи: ответ от порядка множеств не зависит. Домен прежней раскладки
@@ -231,8 +241,9 @@ def plan_wall_nodes(domains, law) -> WallPlanV1:
     classes: dict = {}
     miters: dict = {}
     seen: set = set()
-    lifted = alone = fallbacks = 0
+    lifted = alone = fallbacks = near = 0
     worst = 0.0
+    splits: list = []
     reasons: set = set()
     partners: set = set()
     for ordinal, domain in enumerate(domains):
@@ -245,13 +256,11 @@ def plan_wall_nodes(domains, law) -> WallPlanV1:
                 if partner is None:
                     alone += 1
                     continue
-                other_ordinal, beyond, blended = partner
+                other_ordinal, beyond, blended, other_anchor, along_edge = partner
                 other = domains[other_ordinal]
-                twin = (
-                    not _is_anchor(other, beyond)
-                    and (other_ordinal, beyond) not in seen
-                    and _hex(other.positions[beyond]) == _hex(domain.positions[local])
-                )
+                same = _hex(other.positions[beyond]) == _hex(domain.positions[local])
+                close = same or math.sqrt(_dot(*(tuple(a - b for a, b in zip(other.positions[beyond], domain.positions[local])),) * 2)) <= law[4]
+                twin = not _is_anchor(other, beyond) and (other_ordinal, beyond) not in seen and close
                 offset, factor, reason = miter_offset([domain.normals[local], other.normals[beyond] if twin else blended], law)
                 if offset is None:
                     fallbacks += 1
@@ -262,13 +271,16 @@ def plan_wall_nodes(domains, law) -> WallPlanV1:
                     lifts[(ordinal, local)] = offset
                     partners.add((ordinal, other_ordinal))
                     lifted += 1
+                    if law[5] and along_edge < 1.0 and not close:
+                        splits.append((other_ordinal, other_anchor, beyond, ordinal, local, along_edge))
                     continue
+                near += 0 if same else 1
                 head = (ordinal, local)
                 seen.add((other_ordinal, beyond))
                 classes[head] = classes[(other_ordinal, beyond)] = head
                 miters[head] = offset
                 lifted += 2
-    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons), tuple(sorted(partners)))
+    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons), tuple(sorted(partners)), near, tuple(splits))
 
 
 def _cross(left, right):
@@ -284,7 +296,7 @@ def weld_core(domains, offset: float, law) -> tuple:
 
     `(позиции меша, номера вершин по домену, групп сварки, слитых вершин, расхождений позиций, точки расхождений по группе, отказов митры,
     худший множитель митры, причины отказов, узлов стены смещено, слито, без соседа, отказов митры стены, худший множитель стены,
-    причины стены, пары доменов стены)`; причины — по возрастанию.
+    причины стены, пары доменов стены, пар узлов слито по допуску, деления рёбер длинных стен)`; причины — по возрастанию.
     """
 
     classes, miters, (mismatches, gaps, fallbacks, factor, reasons) = _plan(domains, law)
@@ -317,7 +329,7 @@ def weld_core(domains, offset: float, law) -> tuple:
         index.append(tuple(mapping))
     return (
         tuple(positions), tuple(index), groups, merged, mismatches, tuple(gaps), fallbacks, factor, tuple(sorted(reasons)),
-        wall.lifted, wall.welded, wall.alone, wall.fallbacks, wall.worst_factor, tuple(sorted(wall.reasons)), wall.partners,
+        wall.lifted, wall.welded, wall.alone, wall.fallbacks, wall.worst_factor, tuple(sorted(wall.reasons)), wall.partners, wall.near, wall.splits,
     )
 
 

@@ -143,6 +143,7 @@ class TolerancePolicyIdV1(str, Enum):
     SOURCE_CONTACT_GAP_V1 = "SOURCE_CONTACT_GAP_V1"
     WALL_CREEP_SPEED_V1 = "WALL_CREEP_SPEED_V1"
     T_NOTCH_BEND_TANGENT_V1 = "T_NOTCH_BEND_TANGENT_V1"
+    WALL_NODE_NEAR_WELD_V1 = "WALL_NODE_NEAR_WELD_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -225,6 +226,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SILHOUETTE_VERTEX_DISSOLVE = "SILHOUETTE_VERTEX_DISSOLVE"
     SOURCE_DEFECT_PREFLIGHT = "SOURCE_DEFECT_PREFLIGHT"
     WAVEFRONT_BRIDGE_UNSELECTED_EDGE = "WAVEFRONT_BRIDGE_UNSELECTED_EDGE"
+    MESH_WELD_WALL_NODES = "MESH_WELD_WALL_NODES"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -236,6 +238,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     """
 
     ADMIT_OR_REJECT_PROJECTION = "ADMIT_OR_REJECT_PROJECTION"
+    WELD_WALL_NODES_OF_ONE_DEPTH_WITHIN_NOISE = "WELD_WALL_NODES_OF_ONE_DEPTH_WITHIN_NOISE"
     ADMIT_OR_REJECT_UNFOLDED_CHART = "ADMIT_OR_REJECT_UNFOLDED_CHART"
     TRY_SECOND_PROPOSAL_AND_KEEP_THE_LESS_STRETCHED_CHART = (
         "TRY_SECOND_PROPOSAL_AND_KEEP_THE_LESS_STRETCHED_CHART"
@@ -1497,6 +1500,39 @@ _BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"
             "::test_hard_and_uncertain_bends_keep_the_profile_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.WALL_NODE_NEAR_WELD_V1,
+        category=TolerancePolicyCategoryV1.NUMERIC_ERROR_BOUND,
+        value=_rational(Fraction(1, 1000000)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.METRES,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
+        scope=(
+            "Два узла `node:` концов стен двух доменов на одном ребре источника, разошедшиеся не больше этого, — одна вершина меша. Метр здесь — координата батча, "
+            "поэтому допуск абсолютный. Снизу — шум подъёма двух доменов на одной глубине: 1.8e-8 * alpha м на `rounded_wall_noise_top` (шов 0/282). Шаг решётки карты на сцене — от 1/32768 м (3.05e-5): допуск в 30 раз мельче клетки. Сверху — настоящие ступени: "
+            "0.3 % глубины на `rounded_wall.001` (0.7 мм при ширине 0.22), и порядок выше на `rounded_wall_noise_top`. Один микрометр ниже единицы последнего разряда float32, в котором "
+            "Blender хранит вершины при координатах ~50 (3.8e-6 м): такие узлы и в меше лежали бы вплотную. Настоящая ступень меньше допуска возможна только при ширине меньше ~3e-4 м, "
+            "и там сварка сдвигает узел меньше допуска. Разошедшиеся дальше узлы не сливаются: их берёт закон WALL_EDGE_SPLIT_V1."
+        ),
+        authority=(
+            "cftuv_envelope.mesh_weld.WALL_NODE_WELD_TOLERANCE; DECISIONS.md 2026-11-04 (WALL_NODE_NEAR_WELD_V1)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.MESH_WELD_WALL_NODES,
+        allowed_effect=TolerancePolicyAllowedEffectV1.WELD_WALL_NODES_OF_ONE_DEPTH_WITHIN_NOISE,
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("ADAPTER_WALL_NODES_WELDED", "ADAPTER_WALL_NODES_WELDED_NEAR"),
+        declaration_sites=("cftuv_envelope.mesh_weld.WALL_NODE_WELD_TOLERANCE",),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_mesh_weld_wall_nodes.py"
+            "::test_wall_nodes_within_the_tolerance_are_one_vertex"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_mesh_weld_wall_nodes.py"
+            "::test_wall_nodes_beyond_the_tolerance_stay_and_the_shorter_splits_the_longer"
         ),
     ),
     TolerancePolicyV1(

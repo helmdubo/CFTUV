@@ -31,8 +31,8 @@
 на линию сгиба, на которой уже лежит митровая вершина начала стены. Нормаль соседа в точке узла — линейная по длине его стены между его нормалью в общей вершине
 и нормалью за ней (за концом его стены — нормаль конца), нормированная; каждая грань остаётся на сдвинутой плоскости СВОЕГО домена. Сосед — домен, у которого стена
 выходит из той же вершины `src:` (одна ссылка, побитово равная позиция) вдоль того же ребра (синус угла не больше `WALL_DIRECTION_SINE`, направления сонаправлены).
-Узлы с побитово равными позициями (симметричные глубины) свариваются в одну вершину; разные — каждый остаётся своей вершиной на той же линии, а более короткая
-стена лежит на ребре более длинной. Геометрию батча закон не трогает, это политика смещения. Правило 4 (эвристика, меняющая ответ, пишется): `ADAPTER_WALL_NODES_LIFTED`
+Узлы с равными позициями (симметричные глубины; побитово либо в пределах `WALL_NODE_WELD_TOLERANCE`, закон `WALL_NODE_NEAR_WELD_V1`) свариваются в одну вершину; разные — каждый остаётся своей вершиной на той же линии, а более короткий
+узел делит ребро более длинной стены (закон `WALL_EDGE_SPLIT_V1`, `cftuv_envelope.mesh_glue`): ступень остаётся, общая часть стены — общее ребро двух граней. Геометрию батча закон не трогает, это политика смещения. Правило 4 (эвристика, меняющая ответ, пишется): `ADAPTER_WALL_NODES_LIFTED`
 (узлы на линии сгиба), `_WELDED` (вершины меша из пар узлов), `_ALONE` (узел без соседа на стене: край меша, сосед вне выделения; смещение прежнее),
 `ADAPTER_WALL_MITER_FALLBACK` (митра отказала пределом `MITER_LIMIT` либо несовместностью: узел со своим смещением, причина и худший множитель названы).
 
@@ -77,7 +77,7 @@ import math
 from dataclasses import dataclass
 
 from cftuv_envelope import mesh_weld
-from cftuv_envelope.mesh_weld import WELD_LOCATION_PREFIX, WallPlanV1, weld_core
+from cftuv_envelope.mesh_weld import WALL_NODE_WELD_TOLERANCE, WELD_LOCATION_PREFIX, WallPlanV1, weld_core
 from cftuv_envelope.mesh_checks import _anchors_between, _run_between, seam_report_numbers  # noqa: F401 - the two private ones are read by the weld tests
 
 OUTCOME_WELD_POSITION_MISMATCH = "ADAPTER_WELD_POSITION_MISMATCH"
@@ -105,7 +105,7 @@ MITER_RESIDUAL_EPSILON = 1e-9
 #: патча: узел лежит на ребре с отклонением ~4e-4 на длине 0.22, это 2e-3), а разные рёбра источника в одной вершине различаются на градусы.
 WALL_DIRECTION_SINE = 1e-2
 #: Закон сварки, который хост передаёт ядру (`cftuv_envelope.mesh_weld`) и порту: допуски — решения адаптера, не ядра.
-WELD_LAW = (MITER_LIMIT, MITER_PIVOT_EPSILON, MITER_RESIDUAL_EPSILON, WALL_DIRECTION_SINE)
+WELD_LAW = (MITER_LIMIT, MITER_PIVOT_EPSILON, MITER_RESIDUAL_EPSILON, WALL_DIRECTION_SINE, WALL_NODE_WELD_TOLERANCE, 1.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,12 +134,17 @@ class WeldV1:
     warnings: tuple
     #: `((домен, домен соседа), ...)` закона конца стены (`WallPlanV1.partners`): чьи нормали входят в смещение узлов этого домена.
     partners: tuple = ()
+    #: Закон `WALL_EDGE_SPLIT_V1` (`WallPlanV1.splits`): деления рёбер длинных стен более короткими узлами.
+    splits: tuple = ()
 
 
 OUTCOME_WALL_MITER_FALLBACK = "ADAPTER_WALL_MITER_FALLBACK"
 COUNTER_WALL_NODES_LIFTED = "ADAPTER_WALL_NODES_LIFTED"
 COUNTER_WALL_NODES_WELDED = "ADAPTER_WALL_NODES_WELDED"
 COUNTER_WALL_NODES_ALONE = "ADAPTER_WALL_NODES_ALONE"
+COUNTER_WALL_NODES_WELDED_NEAR = "ADAPTER_WALL_NODES_WELDED_NEAR"
+COUNTER_WALL_EDGES_SPLIT = "ADAPTER_WALL_EDGES_SPLIT"
+COUNTER_WALL_SPLITS_UNPLACED = "ADAPTER_WALL_SPLITS_UNPLACED"
 
 
 def miter_offset(normals):
@@ -168,7 +173,7 @@ def weld_of_answer(answer) -> WeldV1:
 
     (
         positions, index, groups, merged, mismatches, gaps, fallbacks, factor, reasons,
-        lifted, welded, alone, wall_fallbacks, wall_factor, wall_reasons, partners,
+        lifted, welded, alone, wall_fallbacks, wall_factor, wall_reasons, partners, near, splits,
     ) = answer
     gap = 0.0
     for points in gaps:
@@ -213,10 +218,12 @@ def weld_of_answer(answer) -> WeldV1:
             (COUNTER_WALL_NODES_LIFTED, lifted),
             (COUNTER_WALL_NODES_WELDED, welded),
             (COUNTER_WALL_NODES_ALONE, alone),
+            (COUNTER_WALL_NODES_WELDED_NEAR, near),
             (OUTCOME_WALL_MITER_FALLBACK, wall_fallbacks),
         ),
         warnings=tuple(warnings),
         partners=partners,
+        splits=splits,
     )
 
 
@@ -280,7 +287,10 @@ def weld_console_lines(counters) -> list:
 
 __all__ = (
     "COUNTER_WALL_NODES_ALONE",
+    "COUNTER_WALL_EDGES_SPLIT",
     "COUNTER_WALL_NODES_LIFTED",
+    "COUNTER_WALL_NODES_WELDED_NEAR",
+    "COUNTER_WALL_SPLITS_UNPLACED",
     "COUNTER_WALL_NODES_WELDED",
     "COUNTER_WELD_GROUPS",
     "COUNTER_WELD_SEAMS_MARKED",
@@ -292,6 +302,7 @@ __all__ = (
     "OUTCOME_WELD_MITER_FALLBACK",
     "OUTCOME_WELD_POSITION_MISMATCH",
     "WALL_DIRECTION_SINE",
+    "WALL_NODE_WELD_TOLERANCE",
     "WELD_LOCATION_PREFIX",
     "WallPlanV1",
     "WeldV1",

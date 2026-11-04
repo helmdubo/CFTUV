@@ -198,6 +198,8 @@ RUNG_STATIONS_FROM_CHAIN_VERTEX = "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX"
 #: Число закона `RUNG_CHORD_STATION_V1`: новых вершин резки на ОБЩЕМ ребре двух граней потока, получивших станцию
 #: интерполяцией фактов концов ребра вдоль него (точно), потому что аффинные карты двух пробегов в ней не сошлись.
 RUNG_CHORD_STATIONS = "MATERIALIZE_RUNG_CHORD_STATIONS"
+#: Число закона `RUNG_STATION_CONSUMED_PIECE_V1`: вершин, чьи ответы дали два пробега потока с СЪЕДЕННЫМ куском цепи между ними; они получили среднее этих ответов.
+RUNG_STATIONS_CONSUMED_PIECE = "MATERIALIZE_RUNG_STATIONS_CONSUMED_PIECE"
 
 
 def _rung_station(table, answers: dict, run_id: str, value):
@@ -254,6 +256,89 @@ def _chord_station(chord, point, region, anchors, budget):
     return tuple(start + (end - start) * share for start, end in zip(u_fact, v_fact))
 
 
+def _station_conflict(table, key, region, owner, answered) -> MaterializationRefusal:
+    """Именованный отказ `STATION_VALUE_CONFLICT`: `answered` — ответы `(пробег, (s, r))` в порядке их прихода, новый пробег последним."""
+
+    text = ", ".join(
+        f"{name}=(s {decimal_of(given_value[0], table.scale):.6f}, r {decimal_of(given_value[1], table.scale):.6f})"
+        for name, given_value in answered
+    )
+    return MaterializationRefusal(
+        MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
+        f"STATION_VALUE_CONFLICT: vertex {key} in region {region} has two (s, r) answers from owner {owner}: {text}",
+        station_conflict=(answered[-1][0], *(name for name, _value in answered[:-1])),
+    )
+
+
+def _flow_positions(table) -> dict:
+    """`{пробег: (голова, номер)}` по стыкам таблицы: пробеги, связанные стыками JOIN, в порядке потока."""
+
+    following = {before: after for before, after in table.joins}
+    entered = set(following.values())
+    positions: dict = {}
+    for head in sorted(run for run in following if run not in entered):
+        cursor, number = head, 0
+        while cursor is not None:
+            positions[cursor] = (head, number)
+            cursor, number = following.get(cursor), number + 1
+    return positions
+
+
+def _consumed_piece_facts(table, pending, answers):
+    """`({слот: (s, r)}, первый неразрешённый конфликт либо None)`: закон `RUNG_STATION_CONSUMED_PIECE_V1`.
+
+    Ребро `(a, b)` скелета, у которого между пробегами `a` и `b` одного потока лежит кусок цепи `m`, рождается в точке СОБЫТИЯ `E`: фронт `m` сжался в точку, и
+    `E` отвечают `a`, `m`, `b` при одном `r`. Дальше `a` и `b` стыкуются напрямую, как соседи, но таблица стыка для них не знает, и закон перекладины молчит: станция
+    вершины цепи здесь не одна. На биссектрисе `(a, b)` сумма `s_a + s_b` постоянна, поэтому единственный ответ, общий для всего ребра, — её половина, ТОЧНО.
+
+    Закон ДОКАЗЫВАЕТ событие, а не усредняет конфликт. Пара `(a, b)` доказана, если есть вершина с ответами `a, ..., b` при равных `r`, где соседние по потоку ответившие
+    пробеги либо стыкуются, либо сами доказаны (съедено несколько кусков подряд): третий ответ при равном `r` и есть съеденный кусок. Вершина получает половину суммы,
+    только если пара доказана, сумма совпадает с суммой события ТОЧНО (вершина на том самом ребре скелета), `r` равны и ни один ответ не дан гранью веера. Предела изгиба
+    у закона нет намеренно: куски одной цепи (`CORNER_JOIN_SAME_PCHAIN_V1`) уже продолжают полосу, и суммарный изгиб съеденных кусков (угол 90 градусов из двух фасок) не делает
+    их другой цепью. Всё остальное остаётся `STATION_VALUE_CONFLICT`: ответ — первый неразрешённый конфликт в порядке обнаружения, с его тогдашним текстом.
+    """
+
+    positions = _flow_positions(table)
+    entries = []
+    for slot, conflict, poisoned in pending:
+        given = answers[slot]
+        placed = None
+        if not poisoned and all(run in positions for run in given):
+            heads = {positions[run][0] for run in given}
+            first_r = next(iter(given.values()))[1]
+            if len(heads) == 1 and all((value[1] - first_r).is_zero for value in given.values()):
+                placed = sorted(given, key=lambda run: positions[run][1])
+                if positions[placed[-1]][1] - positions[placed[0]][1] < 2:
+                    placed = None
+        if placed is None:
+            entries.append((slot, conflict, None, None))
+            continue
+        total = given[placed[0]][0] + given[placed[-1]][0]
+        entries.append((slot, conflict, placed, total))
+    proven: dict = {}
+    changed = True
+    while changed:
+        changed = False
+        for _slot, _conflict, placed, total in entries:
+            if placed is None or len(placed) < 3:
+                continue
+            pair = (placed[0], placed[-1])
+            if any((total - known).is_zero for known in proven.get(pair, ())):
+                continue
+            if all(
+                positions[after][1] - positions[before][1] == 1 or (before, after) in proven
+                for before, after in zip(placed, placed[1:])
+            ):
+                proven.setdefault(pair, []).append(total)
+                changed = True
+    found: dict = {}
+    for slot, conflict, placed, total in entries:
+        if placed is None or not any((total - known).is_zero for known in proven.get((placed[0], placed[-1]), ())):
+            return found, conflict
+        found[slot] = (total.scaled(Fraction(1, 2)), answers[slot][placed[0]][1])
+    return found, None
+
+
 def _unify_across_frames(facts, answers, table, tally, rungs) -> None:
     """Закон `RUNG_STATION_FROM_CHAIN_VERTEX_V1` ЧЕРЕЗ границу кадров разомкнутого кольца.
 
@@ -290,7 +375,7 @@ def _unify_across_frames(facts, answers, table, tally, rungs) -> None:
 
 
 def station_values(
-    frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None, chords=None, anchors=None, plain=None
+    frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None, chords=None, anchors=None, plain=None, consumed_piece=True
 ):
     """`{(регион, ключ): (s, r)}` в единицах решётки, точные. Конфликт — отказ.
 
@@ -307,6 +392,9 @@ def station_values(
     грани (`station_of`, `transverse_of` её пробега и прямой): `(s, r)` такой грани - точно аффинная функция положения на карте по
     построению, и проверять это заново (`uv_is_affine_in_chart`) незачем (`_plane_ring`, `affine_known`). Конфликт, перекладина,
     станция по хорде и разомкнутое кольцо выводят грань из множества.
+
+    Третий случай — вершина на ребре скелета между пробегами потока, между которыми съеден кусок цепи (`RUNG_STATION_CONSUMED_PIECE_V1`, `_consumed_piece_facts`): он решается после всех
+    граней, потому что доказательство — другая вершина того же домена, и считается в `tally`; `rungs` получает и её. В вызове стадии резки (`chords`) этого случая нет, и при `consumed_piece=False` тоже: UV-закон с собственными картами читает станцию вершины не из фактов, половина суммы ему не ответ, и конфликт отказывает сразу, как до закона.
     """
 
     rungs = set() if rungs is None else rungs
@@ -316,6 +404,8 @@ def station_values(
     roots: dict = {}
     answers: dict = {}
     edges_of: dict = {}
+    pending: dict = {}
+    fan_slots: set = set()
     for index, (frame_face, cycle) in enumerate(zip(frame_faces, cycles)):
         region = layout.region_of(frame_face)
         face_chords = None if chords is None else chords[index]
@@ -333,6 +423,8 @@ def station_values(
             value = (station, transverse_of(line, point, root))
             own[(index, key)] = value
             slot = (region, key)
+            if frame_face.is_fan:
+                fan_slots.add(slot)
             chord = None if face_chords is None else face_chords.get(key)
             edges_of.setdefault(slot, set()).add(None if chord is None else frozenset(chord[:2]))
             known = facts.setdefault(slot, value)
@@ -352,21 +444,31 @@ def station_values(
                             tally[RUNG_CHORD_STATIONS] += 1
                     continue
             if rung is None:
-                answered = ", ".join(
-                    f"{name}=(s {decimal_of(given_value[0], table.scale):.6f}, r {decimal_of(given_value[1], table.scale):.6f})"
-                    for name, given_value in (*given.items(), (run_id, value))
-                )
-                raise MaterializationRefusal(
-                    MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
-                    f"STATION_VALUE_CONFLICT: vertex {key} in region {region} "
-                    f"has two (s, r) answers from owner {frame_face.face.owner}: {answered}",
-                    station_conflict=(run_id, *given),
-                )
+                if chords is not None or not consumed_piece:
+                    raise _station_conflict(table, key, region, frame_face.face.owner, (*given.items(), (run_id, value)))
+                # Второй ответ, который не свёлся: либо закон съеденного куска докажет его после всех граней (`_consumed_piece_facts`), либо это отказ с текстом этого мгновения.
+                poisoned = frame_face.is_fan or run_id in given
+                held = pending.get(slot)
+                if held is None:
+                    pending[slot] = [(key, region, frame_face.face.owner, (*given.items(), (run_id, value))), poisoned]
+                elif poisoned:
+                    held[1] = True
+                given[run_id] = value
+                continue
             given[run_id] = value
             facts[slot] = rung
             rungs.add(slot)
             if tally is not None:
                 tally[RUNG_STATIONS_FROM_CHAIN_VERTEX] += 1
+    if pending:
+        resolved, conflict = _consumed_piece_facts(table, [(slot, held[0], held[1] or slot in fan_slots) for slot, held in pending.items()], answers)
+        if conflict is not None:
+            raise _station_conflict(table, *conflict)
+        for slot, value in resolved.items():
+            facts[slot] = value
+            rungs.add(slot)
+            if tally is not None:
+                tally[RUNG_STATIONS_CONSUMED_PIECE] += 1
     if table.frame_of_run:
         _unify_across_frames(facts, answers, table, tally, rungs)
     if plain is not None:
@@ -1013,19 +1115,20 @@ def exact_mesh(
     law: DecalTopologyLawV1,
     exact_plane: bool,
     lap=None,
+    consumed_piece: bool = True,
 ) -> ExactMeshV1:
     """Вершины, факты `(s, r)` и грани слитых граней домена: стадии STATIONS_UV и TESSELLATE материализатора, одним вызовом.
 
     `region_ids[i]` - имя региона покрытия грани `frame_faces[i]`, `layout` - раскладка регионов домена (`assemble.Layout`), `notes` - список,
     в который кладутся строки `SOURCE_VERTEX_NAME_DROPPED` (на месте), `chord_names` - имена вершин станций на хордах прямых цепей,
     `chart_cw` - карта обходится по часовой, `law` - закон ТЕССЕЛЯЦИИ (`domain._tessellation_law`), `exact_plane` - укладка на точную плоскость
-    (или резка). `lap(имя)` вызывается после станций и после тесселяции (`_Clock.lap`: метки времени стадий); `None` - без меток.
+    (или резка). `lap(имя)` вызывается после станций и после тесселяции (`_Clock.lap`: метки времени стадий); `None` - без меток. `consumed_piece` - действует ли закон `RUNG_STATION_CONSUMED_PIECE_V1` (`station_values`).
     """
 
     cycles, points = intern_vertices(list(zip(region_ids, frame_faces)), table, notes, chord_names)
     tally, rungs = Counter(), set()
     plain: set = set()
-    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally, rungs, plain=plain)
+    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally, rungs, plain=plain, consumed_piece=consumed_piece)
     if lap is not None:
         lap("STATIONS_UV")
     polygons = tessellate_faces(

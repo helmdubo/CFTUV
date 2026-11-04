@@ -28,7 +28,7 @@ from cftuv import envelope_width_composite as composite  # noqa: E402
 from cftuv import envelope_width_mesh_preview as preview  # noqa: E402
 from cftuv.envelope_production_weld import weld_vertices  # noqa: E402
 from cftuv.envelope_width_rebase import rebased_view  # noqa: E402
-from test_envelope_width_incremental import OFFSET, _press, _quarantine, _Session, clipped, flat, unfolded  # noqa: E402,F401
+from test_envelope_width_incremental import OFFSET, _no_wall_split_in_the_composite_path, _press, _quarantine, _Session, clipped, flat, unfolded  # noqa: E402,F401
 from test_native_mesh_buffers import _scene  # noqa: E402
 
 try:

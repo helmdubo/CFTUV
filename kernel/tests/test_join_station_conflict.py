@@ -110,8 +110,9 @@ def test_the_field_domain_materializes_at_every_alpha_that_used_to_refuse(alpha)
     assert result.batch is not None
     # Закон назван и посчитан: вершины резки на общем ребре перекладины получили станцию по ребру.
     assert counters["MATERIALIZE_RUNG_CHORD_STATIONS"] >= 1
-    # Остался ровно один снятый стык — узел события скелета (три пробега одного потока в одной вершине).
-    assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 1
+    # Узел события скелета (три пробега одного потока в одной вершине) больше не снимает стык: закон съеденного куска.
+    assert counters["MATERIALIZE_RUNG_STATIONS_CONSUMED_PIECE"] >= 1
+    assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 0
 
 
 @pytest.mark.parametrize("alpha", ALPHAS)
@@ -125,7 +126,7 @@ def test_without_both_layers_the_field_refusal_returns(alpha, monkeypatch):
 
     assert result.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
     assert result.detail.startswith("STATION_VALUE_CONFLICT: vertex clip:"), result.detail
-    assert "in region 5 has two (s, r) answers" in result.detail
+    assert "in region 3 has two (s, r) answers" in result.detail
 
 
 @pytest.mark.parametrize("alpha", ALPHAS)

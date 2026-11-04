@@ -94,7 +94,7 @@ from .coalesce import match_region_faces, merge_same_chain_faces, region_contour
 from .frames import MaterializationRefusal, resolve_frame
 from .interval import alpha_interval, coverage_interval
 from .lift import plane_lift_of
-from .mesh import RUNG_CHORD_STATIONS, RUNG_STATIONS_FROM_CHAIN_VERTEX, canonical_triangles, exact_mesh
+from .mesh import RUNG_CHORD_STATIONS, RUNG_STATIONS_CONSUMED_PIECE, RUNG_STATIONS_FROM_CHAIN_VERTEX, canonical_triangles, exact_mesh
 from .memo import memo_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .parametric import capture_inputs, certificate_of
@@ -904,6 +904,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         tessellation_law,
         _on_exact_plane(admission) or clipped,
         clock.lap,
+        request.uv_policy_id == UV_DIRECT_STRIP_V1,
     )
     cycles, points, facts, polygons, tally, rungs = exact.cycles, exact.points, exact.facts, exact.polygons, exact.tally, exact.rungs
     source_loci = {slot: points[slot[1]] for slot, pair in facts.items() if slot[1].startswith("src:") and pair[1].is_zero} if request.uv_policy_id == UV_UNIFORM_TRIM_FAN_V1 else None
@@ -995,7 +996,7 @@ def _lift_counters(plane, sourced, faces_after, cut, tally, shaped=()) -> tuple:
         *sourced.counters(),
         *faces_after.counters(),
         *(() if cut is None else cut.counters),
-        *((name, tally[name]) for name in (RUNG_STATIONS_FROM_CHAIN_VERTEX, RUNG_CHORD_STATIONS)),
+        *((name, tally[name]) for name in (RUNG_STATIONS_FROM_CHAIN_VERTEX, RUNG_CHORD_STATIONS, RUNG_STATIONS_CONSUMED_PIECE)),
         *shaped,
     )
 

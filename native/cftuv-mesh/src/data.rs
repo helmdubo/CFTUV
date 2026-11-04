@@ -120,6 +120,8 @@ pub struct MeshInput<'a> {
     pub chart_cw: bool,
     pub law: Law,
     pub exact_plane: bool,
+    /// Whether `RUNG_STATION_CONSUMED_PIECE_V1` acts (`station_values(..., consumed_piece=...)`): off, a conflict refuses at once.
+    pub consumed_piece: bool,
 }
 
 /// One interned vertex name: `src:<vertex id>` or `node:<k>`, and the first point that carried it.

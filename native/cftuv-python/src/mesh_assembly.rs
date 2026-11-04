@@ -254,6 +254,10 @@ pub struct Law {
     pub pivot: f64,
     pub residual: f64,
     pub sine: f64,
+    /// `law[4]` (law `WALL_NODE_NEAR_WELD_V1`): two wall nodes at most this far apart are one vertex.
+    pub node: f64,
+    /// `law[5]` (law `WALL_EDGE_SPLIT_V1`): whether a shorter wall node splits the edge of the longer wall.
+    pub split: bool,
 }
 const REASON_NOT_MEET: &str = "the offset planes do not meet in one point";
 const REASON_EXCEEDS: &str = "the miter exceeds the limit";
@@ -371,6 +375,10 @@ pub struct WeldAnswer {
     pub wall_factor: f64,
     pub wall_reasons: Vec<&'static str>,
     pub partners: Vec<(usize, usize)>,
+    /// `WallPlanV1.near`: pairs of wall nodes welded within the tolerance, not bitwise.
+    pub near: usize,
+    /// `WallPlanV1.splits` (law `WALL_EDGE_SPLIT_V1`): `(domain of the long wall, its anchor, its vertex beyond, domain of the node, the node, share along the edge)`.
+    pub splits: Vec<(usize, usize, usize, usize, usize, f64)>,
 }
 
 fn sorted_reasons(reasons: &std::collections::BTreeSet<&'static str>) -> Vec<&'static str> {
@@ -397,7 +405,7 @@ fn wall_heading(other: &WeldDomain, chain: &[usize], at: usize, direction: &Poin
     None
 }
 
-fn wall_partner(domains: &[WeldDomain], table: &HashMap<u32, Vec<(usize, usize, usize)>>, ordinal: usize, chain: &[usize], at: usize, sine: f64) -> Option<(usize, usize, Point)> {
+fn wall_partner(domains: &[WeldDomain], table: &HashMap<u32, Vec<(usize, usize, usize)>>, ordinal: usize, chain: &[usize], at: usize, sine: f64) -> Option<(usize, usize, Point, usize, f64)> {
     let domain = &domains[ordinal];
     for step in [-1i64, 1] {
         let position = at as i64 + step;
@@ -420,7 +428,7 @@ fn wall_partner(domains: &[WeldDomain], table: &HashMap<u32, Vec<(usize, usize, 
             let b = other.normals[beyond];
             let mixed = [(1.0 - share) * a[0] + share * b[0], (1.0 - share) * a[1] + share * b[1], (1.0 - share) * a[2] + share * b[2]];
             if let Some(blended) = normalised(mixed) {
-                return Some((other_ordinal, beyond, blended));
+                return Some((other_ordinal, beyond, blended, other_chain[place], ratio));
             }
         }
     }
@@ -508,6 +516,8 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
     let mut wall_worst = 0.0f64;
     let mut wall_reasons: BTreeSet<&'static str> = BTreeSet::new();
     let mut partners: BTreeSet<(usize, usize)> = BTreeSet::new();
+    let mut near = 0usize;
+    let mut splits: Vec<(usize, usize, usize, usize, usize, f64)> = Vec::new();
     for (ordinal, domain) in domains.iter().enumerate() {
         for chain in &domain.walls {
             for (at, &local) in chain.iter().enumerate() {
@@ -515,12 +525,15 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
                     continue;
                 }
                 seen.insert((ordinal, local));
-                let Some((other_ordinal, beyond, blended)) = wall_partner(domains, &table, ordinal, chain, at, law.sine) else {
+                let Some((other_ordinal, beyond, blended, other_anchor, along_edge)) = wall_partner(domains, &table, ordinal, chain, at, law.sine) else {
                     alone += 1;
                     continue;
                 };
                 let other = &domains[other_ordinal];
-                let twin = other.refs[beyond].is_none() && !seen.contains(&(other_ordinal, beyond)) && bits(&other.positions[beyond]) == bits(&domain.positions[local]);
+                let same = bits(&other.positions[beyond]) == bits(&domain.positions[local]);
+                let apart = sub(&domain.positions[local], &other.positions[beyond]);
+                let close = same || dot(&apart, &apart).sqrt() <= law.node;
+                let twin = other.refs[beyond].is_none() && !seen.contains(&(other_ordinal, beyond)) && close;
                 let pair = [domain.normals[local], if twin { other.normals[beyond] } else { blended }];
                 let (shift, factor, reason) = miter(&pair, law);
                 let Some(shift) = shift else {
@@ -536,7 +549,13 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
                     lifts.insert((ordinal, local), shift);
                     partners.insert((ordinal, other_ordinal));
                     lifted += 1;
+                    if law.split && along_edge < 1.0 && !close {
+                        splits.push((other_ordinal, other_anchor, beyond, ordinal, local, along_edge));
+                    }
                     continue;
+                }
+                if !same {
+                    near += 1;
                 }
                 let head = (ordinal, local);
                 seen.insert((other_ordinal, beyond));
@@ -591,7 +610,43 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
         wall_factor: wall_worst,
         wall_reasons: sorted_reasons(&wall_reasons),
         partners: partners.into_iter().collect(),
+        near,
+        splits,
     }
+}
+
+/// A split that found its edge: the corner of the face it follows, and what `_split_plan` keeps of it.
+struct PlacedSplit {
+    short: usize,
+    node: usize,
+    from_loop: usize,
+    to_loop: usize,
+    share: f64,
+}
+
+/// `mesh_glue._split_plan(d_faces, entries)`: `(face, corner) -> split`, and how many were not placed.
+fn split_plan(faces: &[Vec<usize>], entries: &[(usize, usize, usize, usize, usize, f64)]) -> (HashMap<(usize, usize), PlacedSplit>, usize) {
+    let edge = |a: usize, b: usize| if a <= b { (a, b) } else { (b, a) };
+    let mut wanted: HashMap<(usize, usize), &(usize, usize, usize, usize, usize, f64)> = HashMap::new();
+    for entry in entries {
+        wanted.entry(edge(entry.1, entry.2)).or_insert(entry);
+    }
+    let duplicates = entries.len() - wanted.len();
+    let mut plan = HashMap::new();
+    let mut loop_at = 0usize;
+    for (number, face) in faces.iter().enumerate() {
+        let size = face.len();
+        for corner in 0..size {
+            let next = (corner + 1) % size;
+            if let Some(entry) = wanted.remove(&edge(face[corner], face[next])) {
+                let (here, there) = (loop_at + corner, loop_at + next);
+                let (from_loop, to_loop) = if face[corner] == entry.1 { (here, there) } else { (there, here) };
+                plan.insert((number, corner), PlacedSplit { short: entry.3, node: entry.4, from_loop, to_loop, share: entry.5 });
+            }
+        }
+        loop_at += size;
+    }
+    (plan, duplicates + wanted.len())
 }
 
 fn read_points(sequence: &Bound<'_, PyAny>, what: &str) -> Result<Vec<Point>, Decline> {
@@ -657,8 +712,8 @@ fn point_tuple<'py>(py: Python<'py>, point: &Point) -> PyResult<Bound<'py, PyTup
 #[pyfunction]
 pub fn mesh_weld<'py>(py: Python<'py>, domains: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<(Vec<WeldDomain>, f64, Law), Decline> {
-        let numbers = floats(law, 4, "the weld law")?;
-        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3] };
+        let numbers = floats(law, 6, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0 };
         Ok((read_weld_domains(domains)?, exact_float(offset, "the offset")?, law))
     };
     let (domains, offset, law) = match read() {
@@ -692,6 +747,8 @@ pub fn mesh_weld<'py>(py: Python<'py>, domains: &Bound<'py, PyAny>, offset: &Bou
         PyFloat::new(py, answer.wall_factor).into_any(),
         wall_reasons.into_any(),
         partners.into_any(),
+        answer.near.into_pyobject(py)?.into_any(),
+        PyTuple::new(py, answer.splits.iter().copied())?.into_any(),
     ];
     Ok(PyTuple::new(py, parts)?.into_any())
 }
@@ -1120,6 +1177,9 @@ pub struct Assembled {
     pub folds: usize,
     pub vertex_counts: Vec<usize>,
     pub loop_counts: Vec<usize>,
+    /// `glue_domains`: per domain `(view loop the new one stands before, anchor loop, vertex loop, share)` (law `WALL_EDGE_SPLIT_V1`).
+    pub wall_splits: Vec<Vec<(usize, usize, usize, f64)>>,
+    pub unplaced: usize,
     /// `(junctions, clip vertices)`, `(worst, off)`, conflicts: only when the reports are asked.
     pub reports: Option<((u64, u64), (f64, u64), u64)>,
 }
@@ -1194,19 +1254,53 @@ pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &
     let mut uvs: Vec<Uv> = Vec::with_capacity(views.iter().map(|view| view.uvs.len()).sum());
     let (mut face_domain, mut face_owner) = (Vec::with_capacity(total_faces), Vec::with_capacity(total_faces));
     let mut pairs: std::collections::BTreeSet<(i64, i64)> = std::collections::BTreeSet::new();
-    for ((view, mapping), patch_id) in views.iter().zip(&weld.index).zip(patch_ids) {
+    let mut wall_splits: Vec<Vec<(usize, usize, usize, f64)>> = Vec::with_capacity(views.len());
+    let mut unplaced = 0usize;
+    for (ordinal, ((view, mapping), patch_id)) in views.iter().zip(&weld.index).zip(patch_ids).enumerate() {
         if view.owners.len() != view.faces.len() {
             return Err("the face owners of a view are not one per face".to_string());
         }
-        for face in &view.faces {
-            faces.push(face.iter().map(|local| mapping[*local] as i64).collect());
+        let entries: Vec<(usize, usize, usize, usize, usize, f64)> = weld.splits.iter().filter(|item| item.0 == ordinal).copied().collect();
+        let mut placed: Vec<(usize, usize, usize, f64)> = Vec::new();
+        if entries.is_empty() {
+            for face in &view.faces {
+                faces.push(face.iter().map(|local| mapping[*local] as i64).collect());
+            }
+            uvs.extend_from_slice(&view.uvs);
+        } else {
+            let (plan, missed) = split_plan(&view.faces, &entries);
+            unplaced += missed;
+            let mut loop_at = 0usize;
+            for (number, face) in view.faces.iter().enumerate() {
+                let mut corners: Vec<i64> = Vec::with_capacity(face.len() + 1);
+                for (corner, local) in face.iter().enumerate() {
+                    corners.push(mapping[*local] as i64);
+                    uvs.push(view.uvs[loop_at + corner]);
+                    if let Some(split) = plan.get(&(number, corner)) {
+                        let (start, end) = (view.uvs[split.from_loop], view.uvs[split.to_loop]);
+                        corners.push(weld.index[split.short][split.node] as i64);
+                        uvs.push([start[0] + (end[0] - start[0]) * split.share, start[1] + (end[1] - start[1]) * split.share]);
+                        placed.push((loop_at + corner + 1, split.from_loop, split.to_loop, split.share));
+                    }
+                }
+                faces.push(corners);
+                loop_at += face.len();
+            }
         }
-        uvs.extend_from_slice(&view.uvs);
+        wall_splits.push(placed);
         face_domain.extend(std::iter::repeat_n(*patch_id, view.faces.len()));
         face_owner.extend_from_slice(&view.owners);
         for (a, b) in &view.seams {
             let (a, b) = (mapping[*a] as i64, mapping[*b] as i64);
             pairs.insert(if a <= b { (a, b) } else { (b, a) });
+        }
+        let sorted = |a: i64, b: i64| if a <= b { (a, b) } else { (b, a) };
+        for entry in &entries {
+            let (anchor, vertex, node) = (mapping[entry.1] as i64, mapping[entry.2] as i64, weld.index[entry.3][entry.4] as i64);
+            if pairs.remove(&sorted(anchor, vertex)) {
+                pairs.insert(sorted(anchor, node));
+                pairs.insert(sorted(node, vertex));
+            }
         }
     }
     let folds = cross_seams(&faces, &uvs, &face_domain)?;
@@ -1221,7 +1315,9 @@ pub fn assemble(views: &[ParsedView<'_>], patch_ids: &[i64], offset: f64, law: &
     };
     Ok(Assembled {
         vertex_counts: views.iter().map(|view| view.positions.len()).collect(),
-        loop_counts: views.iter().map(|view| view.uvs.len()).collect(),
+        loop_counts: views.iter().zip(&wall_splits).map(|(view, placed)| view.uvs.len() + placed.len()).collect(),
+        wall_splits,
+        unplaced,
         weld,
         faces,
         uvs,
@@ -1254,8 +1350,8 @@ pub(crate) fn bytes_of<'py, T: Copy, const N: usize>(py: Python<'py>, values: im
 #[pyo3(signature = (views, patch_ids, offset, law, reports, digest=true))]
 pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>, reports: bool, digest: bool) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<(Vec<Bound<'py, pyo3::types::PyBytes>>, Vec<i64>, f64, Law), Decline> {
-        let numbers = floats(law, 4, "the weld law")?;
-        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3] };
+        let numbers = floats(law, 6, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0 };
         let data = items(views, "views")?
             .into_iter()
             .map(|item| item.cast_into::<pyo3::types::PyBytes>().map_err(|_| "a view is not bytes (it travels as an object)".to_string()))
@@ -1316,6 +1412,8 @@ pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids:
         PyFloat::new(py, weld.wall_factor).into_any(),
         PyTuple::new(py, weld.wall_reasons.iter().copied())?.into_any(),
         PyTuple::new(py, weld.partners.iter().copied())?.into_any(),
+        weld.near.into_pyobject(py)?.into_any(),
+        PyTuple::new(py, weld.splits.iter().copied())?.into_any(),
     ];
     let found_reports = match (digest, answer.reports) {
         (Some(digest), Some((seam, plane, conflicts))) => (digest, seam, plane, conflicts).into_pyobject(py)?.into_any(),
@@ -1337,6 +1435,8 @@ pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids:
         PyTuple::new(py, numbers)?.into_any(),
         answer.folds.into_pyobject(py)?.into_any(),
         found_reports,
+        PyTuple::new(py, answer.wall_splits.iter().map(|placed| PyTuple::new(py, placed.iter().copied())).collect::<PyResult<Vec<_>>>()?)?.into_any(),
+        answer.unplaced.into_pyobject(py)?.into_any(),
     ];
     Ok(PyTuple::new(py, parts)?.into_any())
 }

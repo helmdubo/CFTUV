@@ -176,8 +176,8 @@ def _begin(mirror):
     return exact, sync, slow, real
 
 
-def exact_mesh(mirror, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None):
-    """`mesh.exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)`, whole, with its exact side effects (see the module note).
+def exact_mesh(mirror, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None, consumed_piece=True):
+    """`mesh.exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap, consumed_piece)`, whole, with its exact side effects (see the module note).
 
     Returns the oracle's `ExactMeshV1`. `lap` is called as the oracle calls it, after the stations and after the tessellation, but only once the call is over: the clock sees the whole operation under
     `STATIONS_UV` and a moment under `TESSELLATE`.
@@ -194,7 +194,7 @@ def exact_mesh(mirror, frame_faces, region_ids, layout, table, notes, chord_name
     called = perf_counter_ns()
     try:
         result, status, detail, counts, articles, bits, native = mirror._session.w1_exact_mesh(
-            frame_faces, region_ids, regions, table, notes, chord_names, lattice_alpha, bool(chart_cw), code, bool(exact_plane),
+            frame_faces, region_ids, regions, table, notes, chord_names, lattice_alpha, bool(chart_cw), code, bool(exact_plane), bool(consumed_piece),
             None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real,
         )
     except BaseException:

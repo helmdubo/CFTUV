@@ -76,6 +76,8 @@ from .envelope_production_weld import (
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
     WELD_LAW,
     weld_of_answer,
+    COUNTER_WALL_EDGES_SPLIT,
+    COUNTER_WALL_SPLITS_UNPLACED,
     weld_vertices,
 )
 from .envelope_mesh_assembly import (
@@ -178,6 +180,8 @@ class MeshArraysV1:
     domain_vertex_index: tuple = ()
     domain_loop_counts: tuple = ()
     domain_tokens: tuple = ()
+    #: По записанным доменам: закон `WALL_EDGE_SPLIT_V1`, `(петля вида, перед которой встала новая, петля якоря, петля вершины, доля)` (`mesh_glue.glue_domains`); наклоны петель вида без них короче петель меша.
+    domain_wall_splits: tuple = ()
     #: По записанным доменам (в порядке `domain_keys`): номера доменов-соседей, чьи нормали входят в смещение узлов стены этого домена (`WeldV1.partners`). В дайджест не входят.
     domain_partners: tuple = ()
     #: `False` у lean-массивов (WIDTH_REFRESH_LEAN_V1): позиции, грани, UV, владельцы и швы те же побитово, а дайджест, счётчик обхода рёбер, отчёты о плоскости и шве
@@ -451,7 +455,7 @@ def _native_mesh_arrays(ordered, offset: float, reports: bool, digest: bool = Tr
     )
     if answer is None:
         return None
-    (positions, face_starts, face_vertices, uvs, face_domain, face_owner, seams, index, vertex_counts, loop_counts, tokens, revisions, numbers, folds, found) = answer
+    (positions, face_starts, face_vertices, uvs, face_domain, face_owner, seams, index, vertex_counts, loop_counts, tokens, revisions, numbers, folds, found, wall_splits, unplaced) = answer
     buffers = MeshBuffersV1(positions, face_starts, face_vertices, uvs, face_domain, face_owner, seams, index, vertex_counts)
     weld = weld_of_answer((None, None, *numbers))
     digest, seam, offset_counters, conflicts = report_counters(found) if reports else ("", (), (), 0)
@@ -463,13 +467,14 @@ def _native_mesh_arrays(ordered, offset: float, reports: bool, digest: bool = Tr
         ("source_revision", next((text for text in revisions if text), "")),
         ("digest", digest),
         ("decal_topology_law", ",".join(sorted(item for item in laws if item))),
-        ("weld_counters", _weld_counters(weld, conflicts, folds, reports)),
+        ("weld_counters", _weld_counters(weld, conflicts, folds, reports, wall_splits, unplaced)),
         ("offset_counters", offset_counters),
         ("seam_counters", seam),
         ("domain_keys", tuple((result.patch_id, result.domain_id) for result in pending)),
         ("domain_loop_counts", tuple(loop_counts)),
         ("domain_tokens", tuple(tokens)),
         ("domain_partners", _partners_by_domain(weld.partners, len(pending))),
+        ("domain_wall_splits", tuple(wall_splits)),
         ("reports", reports),
         ("offset", float(offset)),
         ("buffers", buffers),
@@ -478,9 +483,11 @@ def _native_mesh_arrays(ordered, offset: float, reports: bool, digest: bool = Tr
     return arrays
 
 
-def _weld_counters(weld, conflicts: int, folds: int, reports: bool) -> tuple:
+def _weld_counters(weld, conflicts: int, folds: int, reports: bool, wall_splits=(), unplaced: int = 0) -> tuple:
     return (
         *weld.counters,
+        (COUNTER_WALL_EDGES_SPLIT, sum(len(item) for item in wall_splits)),
+        (COUNTER_WALL_SPLITS_UNPLACED, unplaced),
         *(((OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),) if reports else ()),
         (COUNTER_WELD_SEAMS_MARKED, folds),
     )
@@ -537,12 +544,12 @@ def _reference_mesh_arrays(ordered, offset: float, reports: bool, with_digest: b
         laws.add(getattr(result, "decal_topology_law", ""))
         revision = revision or view.source_revision
     weld = weld_vertices([view.vertices for _result, view in entries], float(offset))
-    faces, uvs, face_domain, face_owner, seam_pairs = glue_domains(
-        [result.patch_id for result, _view in entries], [view.arrays[1:] for _result, view in entries], weld.index
+    faces, uvs, face_domain, face_owner, seam_pairs, wall_splits, unplaced = glue_domains(
+        [result.patch_id for result, _view in entries], [view.arrays[1:] for _result, view in entries], weld.index, weld.splits
     )
     domain_keys = [(result.patch_id, result.domain_id) for result, _view in entries]
     domain_vertex_index = [tuple(index) for index in weld.index]
-    domain_loop_counts = [len(view.uvs) for _result, view in entries]
+    domain_loop_counts = [len(view.uvs) + len(wall_splits[number]) for number, (_result, view) in enumerate(entries)]
     domain_tokens = [structure_token(view) for _result, view in entries]  # VIEW_BYTES_V1: у вида из байтов воркера токен уже в заголовке
     folds = cross_domain_seams(faces, uvs, face_domain)
     seam_pairs.update(folds)
@@ -568,7 +575,7 @@ def _reference_mesh_arrays(ordered, offset: float, reports: bool, with_digest: b
         source_revision=revision,
         digest=digest,
         decal_topology_law=",".join(sorted(item for item in laws if item)),
-        weld_counters=_weld_counters(weld, conflicts, len(folds), reports),
+        weld_counters=_weld_counters(weld, conflicts, len(folds), reports, wall_splits, unplaced),
         offset_counters=offset_counters,
         seam_counters=seam,
         domain_keys=tuple(domain_keys),
@@ -577,6 +584,7 @@ def _reference_mesh_arrays(ordered, offset: float, reports: bool, with_digest: b
         domain_tokens=tuple(domain_tokens),
         offset=float(offset),
         domain_partners=_partners_by_domain(weld.partners, len(entries)),
+        domain_wall_splits=tuple(wall_splits),
         reports=reports,
     )
 

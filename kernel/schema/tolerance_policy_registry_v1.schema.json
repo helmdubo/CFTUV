@@ -52,6 +52,7 @@
         "allowed_effect": {
           "enum": [
             "ADMIT_OR_REJECT_PROJECTION",
+            "WELD_WALL_NODES_OF_ONE_DEPTH_WITHIN_NOISE",
             "ADMIT_OR_REJECT_UNFOLDED_CHART",
             "TRY_SECOND_PROPOSAL_AND_KEEP_THE_LESS_STRETCHED_CHART",
             "EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND",
@@ -111,7 +112,8 @@
             "BAND_CHART_ADMISSION",
             "SILHOUETTE_VERTEX_DISSOLVE",
             "SOURCE_DEFECT_PREFLIGHT",
-            "WAVEFRONT_BRIDGE_UNSELECTED_EDGE"
+            "WAVEFRONT_BRIDGE_UNSELECTED_EDGE",
+            "MESH_WELD_WALL_NODES"
           ],
           "type": "string"
         },
@@ -198,7 +200,8 @@
             "SILHOUETTE_UV_SLIDE_V1",
             "SOURCE_CONTACT_GAP_V1",
             "WALL_CREEP_SPEED_V1",
-            "T_NOTCH_BEND_TANGENT_V1"
+            "T_NOTCH_BEND_TANGENT_V1",
+            "WALL_NODE_NEAR_WELD_V1"
           ],
           "type": "string"
         },

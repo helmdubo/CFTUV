@@ -114,8 +114,8 @@ fn borrowed<'a>(data: &'a [Bound<'_, PyBytes>], moves: &'a [Option<(Bound<'_, Py
 #[pyfunction]
 pub fn mesh_splice_weld<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, rebases: &Bound<'py, PyAny>, alpha: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<_, Decline> {
-        let numbers = floats(law, 4, "the weld law")?;
-        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3] };
+        let numbers = floats(law, 6, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0 };
         let (data, moves, alpha) = read_group(views, rebases, alpha)?;
         Ok((data, moves, alpha, exact_float(offset, "the offset")?, law))
     };

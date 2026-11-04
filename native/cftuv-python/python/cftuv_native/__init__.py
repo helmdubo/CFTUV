@@ -534,14 +534,14 @@ def effective_alpha_contacts(source, boundary, frame):
     return effective_alpha_op.effective_alpha_contacts(_core, source, boundary, frame)
 
 
-def exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None):
+def exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap=None, consumed_piece=True):
     """`materialize.mesh.exact_mesh(...)`, native and whole (see `CostMirror.exact_mesh` and `materialize_w1_op.py`).
 
     A refusal of the port (`NATIVE_REFUSALS`) leaves every Python-visible state exactly as before the call, so the caller may run the oracle on the same budget, notes and memory tables; an
     exception of the oracle leaves its partial effects, and is raised with the oracle's text.
     """
 
-    return default_mirror().exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+    return default_mirror().exact_mesh(frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap, consumed_piece)
 
 
 def apply_silhouette(source, budget):

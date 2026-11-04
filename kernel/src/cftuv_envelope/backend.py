@@ -1284,7 +1284,7 @@ def effective_alpha_compute(oracle, context, source, boundary, frame, counts):
     return answer[2]
 
 
-def exact_mesh_compute(oracle, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap):
+def exact_mesh_compute(oracle, frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap, consumed_piece=True):
     """`oracle(...)` (`materialize.mesh.exact_mesh`), посчитанное заказанным бэкендом W1 материализации: вершины, факты `(s, r)` и грани слитых граней домена.
 
     Ответ эталона — `ExactMeshV1`; побочные эффекты (бюджет, память канонизации, `SIGN_COUNTS`, строки `notes`) нативный вызов оставляет так, как оставил бы эталон, и исход эталона
@@ -1292,7 +1292,7 @@ def exact_mesh_compute(oracle, frame_faces, region_ids, layout, table, notes, ch
     откатывается на эталон по имени (`NATIVE_PORT_UNSUPPORTED`); состояние при этом как до вызова.
     """
 
-    arguments = (frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap)
+    arguments = (frame_faces, region_ids, layout, table, notes, chord_names, lattice_alpha, budget, chart_cw, law, exact_plane, lap, consumed_piece)
     ledger = _SCOPE.get()
     if ledger is None or not ledger.materialize_native:
         return oracle(*arguments)

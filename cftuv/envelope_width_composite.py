@@ -47,6 +47,8 @@ COMPOSITE_LAYOUT_CHANGED = "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED"
 COMPOSITE_HELD_NOT_RECOMPUTED = "INCREMENTAL_COMPOSITE_HELD_NOT_RECOMPUTED"
 COMPOSITE_WELD_CHANGED = "INCREMENTAL_COMPOSITE_WELD_CHANGED"
 COMPOSITE_NO_VIEW = "INCREMENTAL_COMPOSITE_NO_VIEW"
+#: Посчитанный домен группы либо его сосед по стене несёт деление ребра (закон `WALL_EDGE_SPLIT_V1`): петель этих граней нет в виде домена, такт собирается путём этапа A (`build_mesh_arrays`).
+COMPOSITE_WALL_SPLIT = "INCREMENTAL_COMPOSITE_WALL_SPLIT"
 #: COMPOSITE_SPLICE_V1: группа не устоялась за `SPLICE_ROUNDS` расширений (сварка всё ещё находит домены вне принимаемых, чьи узлы стены считаются от них).
 COMPOSITE_SPLICE_UNSETTLED = "INCREMENTAL_COMPOSITE_SPLICE_UNSETTLED"
 #: COMPOSITE_SPLICE_V1: класс сваренных вершин, который перекладывается, выходит за группу сварки (его член вне группы): переложить его по группе нельзя.
@@ -603,6 +605,8 @@ def _splice(displayed: PreviewSampleV1, fresh: dict, changed: set, positions, *,
     if isinstance(labelled, str):
         return labelled
     labels, rebuilt, moved_mesh = labelled
+    if any(displayed.domains[number].wall_splits for number in rebuilt):
+        return COMPOSITE_WALL_SPLIT
     count = len(displayed.domains)
     sizes = np.diff(offsets)
     for number in changed:
@@ -698,6 +702,11 @@ def compose_sample(displayed: PreviewSampleV1, model, results, *, alpha: float, 
 
     started = time.perf_counter()
     alpha = float(alpha)
+    for result in results:
+        number = _patch_index(displayed).get(int(result.patch_id))
+        row = None if number is None else displayed.domains[number]
+        if row is not None and (row.wall_splits or any(displayed.domains[int(other)].wall_splits for other in row.partners)):
+            return COMPOSITE_WALL_SPLIT
     changed: set | None = set() if splice else None
     fresh = _fresh_domains(displayed, results, changed)
     if isinstance(fresh, str):
@@ -742,6 +751,7 @@ __all__ = (
     "COMPOSITE_SPLICE_CLASS_OUTSIDE",
     "COMPOSITE_SPLICE_LAYOUT_UNREADABLE",
     "COMPOSITE_SPLICE_UNSETTLED",
+    "COMPOSITE_WALL_SPLIT",
     "COMPOSITE_WELD_CHANGED",
     "CompositeV1",
     "compose_sample",

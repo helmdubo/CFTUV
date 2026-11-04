@@ -372,12 +372,13 @@ impl Session {
         chart_cw: bool,
         law: u8,
         exact_plane: bool,
+        consumed_piece: bool,
         sync: Option<&[u8]>,
         budget: Option<(Option<u64>, [u64; 6])>,
         tables: memlog::Tables<'py>,
     ) -> PyResult<materialize_w1::Answer<'py>> {
         let forced = self.forced.take();
-        let outcome = self.w1.exact_mesh(py, &mut self.inner, frame_faces, region_ids, regions, table, notes, chord_names, lattice_alpha, chart_cw, law, exact_plane, sync, budget, &tables, forced);
+        let outcome = self.w1.exact_mesh(py, &mut self.inner, frame_faces, region_ids, regions, table, notes, chord_names, lattice_alpha, chart_cw, law, exact_plane, consumed_piece, sync, budget, &tables, forced);
         if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
             self.reset_memory();
         }

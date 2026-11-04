@@ -32,7 +32,9 @@ KERNEL_SRC = Path(__file__).resolve().parents[1] / "kernel" / "src"
 if str(KERNEL_SRC) not in sys.path:
     sys.path.insert(0, str(KERNEL_SRC))
 
+from cftuv import envelope_composite_native as composite_native  # noqa: E402
 from cftuv import envelope_production_mesh as production_mesh  # noqa: E402
+from cftuv import envelope_production_weld as weld_module  # noqa: E402
 from cftuv import envelope_width_incremental as incremental  # noqa: E402
 from cftuv import envelope_width_mesh_preview as preview  # noqa: E402
 from cftuv import envelope_width_preview_model as pm  # noqa: E402
@@ -78,6 +80,16 @@ def _no_distance_limit(monkeypatch):
 
     monkeypatch.setattr(incremental, "INCREMENTAL_VERIFY_AFTER_DISTANCE", 1e9)
     monkeypatch.setattr(incremental, "INCREMENTAL_MIN_DOMAINS", 0)
+
+
+@pytest.fixture(autouse=True)
+def _no_wall_split_in_the_composite_path(monkeypatch, request):
+    """Составной такт домена с делением ребра - именованный откат на этап A (`COMPOSITE_WALL_SPLIT`, свой тест). Здесь ряды проверяют сам составной путь: деление ребра выключено законом сварки."""
+
+    if "wall_split" not in request.node.name:
+        law = (*weld_module.WELD_LAW[:5], 0.0)
+        for module in (weld_module, production_mesh, composite_native):
+            monkeypatch.setattr(module, "WELD_LAW", law)
 
 
 @pytest.fixture(scope="module")
@@ -476,6 +488,20 @@ def test_a_domain_that_changes_its_structure_on_the_way_makes_the_composite_name
     assert live.plan.incremental and not live.plan.composite and live.plan.fallback == "INCREMENTAL_COMPOSITE_LAYOUT_CHANGED" and live.arrays is not None
     assert live.sample.layout_digest == exact.layout_digest and live.sample.layout_digest != session.sample.layout_digest
     assert np.max(np.abs(live.sample.positions - exact.positions)) <= EXACT_TOLERANCE and np.max(np.abs(live.sample.uvs - exact.uvs)) <= EXACT_TOLERANCE
+
+
+def test_a_wall_split_makes_the_composite_name_it_and_the_tick_is_still_exact_with_the_new_loops(unfolded):
+    """Стены последней пары ряда разной глубины (`WALL_EDGE_SPLIT_V1`): петель деления нет в виде домена, составной образец отказан именем, образец - путь этапа A, ответ точный."""
+
+    session = _Session(unfolded)
+    assert any(item.wall_splits for item in session.sample.domains)
+    alpha = 0.27
+    live = session.tick(alpha)
+    full_run = _press(session.controller, unfolded, alpha, lean=True)
+    full = preview.build_sample(full_run.results, production_mesh.build_mesh_arrays(full_run.results, OFFSET, reports=False), KEY, alpha)
+    assert live.plan.incremental and not live.plan.composite and live.plan.fallback == "INCREMENTAL_COMPOSITE_WALL_SPLIT"
+    assert live.sample.layout_digest == full.layout_digest
+    assert np.max(np.abs(live.sample.positions - full.positions)) <= EXACT_TOLERANCE and np.max(np.abs(live.sample.uvs - full.uvs)) <= EXACT_TOLERANCE
 
 
 def test_the_composite_sample_equals_the_exact_lean_sample_of_the_width_and_the_model_frame_predicts_the_next_one(unfolded):

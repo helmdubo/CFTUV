@@ -276,7 +276,12 @@ def test_width_event_withdraws_only_the_physical_join_and_keeps_the_static_uv_ba
         uniform = domain.materialize_domain(prepared, coverage, request=materialization_request(prepared, uv_policy_id="UV_UNIFORM_TRIM_FAN_V1"),
                                             decal_topology_law=DecalTopologyLawV1.TRIANGLES_V1, uv_context=context)
         assert direct.is_materialized and uniform.is_materialized, (alpha, uniform.detail)
-        assert uniform.batch.vertices == direct.batch.vertices and uniform.batch.station_facts == direct.batch.station_facts
+        # UV_UNIFORM_DIRECT_FOOTPRINT_V1: физика одна. Записи вершин и факты станций равны, пока нет узла события; на узле события (alpha 2) закон съеденного куска принадлежит DIRECT
+        # (RUNG_STATION_CONSUMED_PIECE_V1), Uniform снимает стык, и записи расходятся, а ключи, позиции и грани нет.
+        assert {(item.vert_key, item.position) for item in uniform.batch.vertices} == {(item.vert_key, item.position) for item in direct.batch.vertices}
+        assert len(uniform.batch.faces) == len(direct.batch.faces)
+        if alpha == "1":
+            assert uniform.batch.vertices == direct.batch.vertices and uniform.batch.station_facts == direct.batch.station_facts
 
 
 def test_source_loci_keep_exact_fan_phase_after_physical_source_snap_and_certify_constant_source_uv(monkeypatch):

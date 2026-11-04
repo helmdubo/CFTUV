@@ -197,6 +197,8 @@ class DomainSampleV1:
     #: Ширина, при которой посчитаны нормали смещения домена (`normals_alpha` его результата, а без неё ширина сертификата); `nan` - ширина образца. Образец инкрементального такта (`envelope_width_composite`) хранит строки обслуженных доменов как были, поэтому у домена-развёртки
     #: нормали заморожены на ширине ПРЕЖНЕГО прогона, а не образца: досягаемость приближённого кадра (`_display_reach`) считается от неё.
     normal_alpha: float = float("nan")
+    #: Закон `WALL_EDGE_SPLIT_V1` (`MeshArraysV1.domain_wall_splits`): петли меша этого домена, которых нет в виде домена; их наклоны - те же доли наклонов концов ребра.
+    wall_splits: tuple = ()
 
 
 _DOMAIN_FIELDS = DomainSampleV1.__slots__
@@ -500,6 +502,7 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
     domains = []
     start = 0
     partners = tuple(getattr(arrays, "domain_partners", ()) or ())
+    wall_splits = tuple(getattr(arrays, "domain_wall_splits", ()) or ())
     buffers = getattr(arrays, "buffers", None)  # MESH_ASSEMBLY_BUFFERS_V1: числа из буферов нативной сборки, без кортежей (копии: образец свой)
     for number, (patch_id, domain_id) in enumerate(arrays.domain_keys):
         count = int(arrays.domain_loop_counts[number])
@@ -512,6 +515,7 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
                 loop_count=count,
                 partners=tuple(int(item) for item in partners[number]) if number < len(partners) else (),
                 alpha_text=alpha_text,
+                wall_splits=wall_splits[number] if number < len(wall_splits) else (),
             )
         )
         start += count
@@ -540,12 +544,12 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
     )
 
 
-def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_count: int, partners: tuple, alpha_text: str) -> DomainSampleV1:
+def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_count: int, partners: tuple, alpha_text: str, wall_splits: tuple = ()) -> DomainSampleV1:
     """Домен образца по результату домена: запись интервала, подпись структуры, наклоны сертификата (либо названные причины) и положение домена в меше (`vertices`, петли, соседи по стене)."""
 
     interval = getattr(result, "alpha_interval", None)
     certificate = getattr(result, "parametric", None)
-    slopes, uv_slopes, markers = _certificate_slopes(certificate, int(vertices.shape[0]), int(loop_count), alpha_text)
+    slopes, uv_slopes, markers = _certificate_slopes(certificate, int(vertices.shape[0]), int(loop_count), alpha_text, wall_splits)
     return DomainSampleV1(
         patch_id=int(result.patch_id),
         domain_id=str(result.domain_id),
@@ -564,6 +568,7 @@ def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_coun
         approximate=tuple(getattr(certificate, "approximate", ()) or ()) if slopes is not None else (),
         approximate_rate=float(getattr(certificate, "approximate_rate", 0.0) or 0.0) if slopes is not None else 0.0,
         partners=tuple(partners),
+        wall_splits=tuple(wall_splits),
         normal_alpha=float(getattr(result, "normals_alpha", 0.0) or certificate.alpha) if slopes is not None else float("nan"),
         limits=kernel_vertex_limits(certificate, int(vertices.shape[0])) if slopes is not None else None,
         floors=kernel_vertex_limits(certificate, int(vertices.shape[0]), KERNEL_FLOOR_FIELD) if slopes is not None else None,
@@ -594,7 +599,7 @@ def _alpha_of(alpha_text: str) -> Fraction:
     return Fraction(alpha_text)
 
 
-def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str) -> tuple:
+def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str, wall_splits: tuple = ()) -> tuple:
     """`(наклоны позиций, наклоны произведений uv * alpha, причины)` сертификата домена; чисел нет, когда сертификата нет, он назвал причину, он выпущен на другой ширине, чем образец, либо не сошёлся по размерам с видом домена."""
 
     if certificate is None:
@@ -603,10 +608,15 @@ def _certificate_slopes(certificate, vertices: int, loops: int, alpha_text: str)
         return None, None, tuple(certificate.markers)
     if certificate.alpha != _alpha_of(alpha_text):
         return None, None, (DOMAIN_ALPHA_MISMATCH,)
-    if certificate.vertex_count != vertices or certificate.loop_count != loops:
+    if certificate.vertex_count != vertices or certificate.loop_count + len(wall_splits) != loops:
         return None, None, (DOMAIN_SHAPE_MISMATCH,)
     slopes = np.frombuffer(certificate.position_slopes, dtype=np.float64).reshape(-1, 3)
     uv_slopes = np.frombuffer(certificate.loop_slopes, dtype=np.float64).reshape(-1, 2)
+    if wall_splits:
+        # Новая петля - доля наклонов концов ребра: узел и конец ребра движутся по одному ребру, поэтому доля в окне сертификата постоянна.
+        places = [item[0] for item in wall_splits]
+        values = [uv_slopes[item[1]] + (uv_slopes[item[2]] - uv_slopes[item[1]]) * item[3] for item in wall_splits]
+        uv_slopes = np.insert(uv_slopes, places, values, axis=0)
     return slopes, uv_slopes, ()
 
 

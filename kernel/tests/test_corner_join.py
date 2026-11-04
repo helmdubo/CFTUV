@@ -45,7 +45,9 @@ from cftuv_envelope.contracts.envelopes import (
     SelectionLaw,
 )
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.ids import PolicyId
+from cftuv_envelope.materialize.mesh import _consumed_piece_facts
 from cftuv_envelope.numeric import ExactRatioV1
 from cftuv_envelope.codec import CompiledPlanCodecV1
 from cftuv_envelope.materialize.admit import MaterializationOutcome
@@ -1213,32 +1215,107 @@ def test_a_short_piece_between_two_convex_kinks_flows_while_the_fronts_do_not_me
     assert counters["MATERIALIZE_REGIONS"] == 1 and counters["MATERIALIZE_INTERFACE_CHAINS"] == 0
 
 
-def test_the_event_node_of_a_short_piece_withdraws_one_junction_by_name_instead_of_refusing_the_domain():
-    """Узел события скелета (три пробега одного потока в одной вершине) станции не сводится: стык снят, шов назван.
-
-    Раньше (до закона) стык был швом всегда; закон продолжает все, а там, где у узла нет единой станции
-    (`STATION_VALUE_CONFLICT`), домен снимает ровно один стык за раз и строится заново — без отказа домену.
-    """
+def test_the_event_node_of_a_short_piece_takes_the_consumed_piece_law_and_the_strip_stays_one():
+    """Узел события (три пробега одного потока при одном `r`): закон доказывает съеденный кусок, половина суммы — общий ответ, шва нет, стык не снят."""
 
     snapshot, request = _piece_chain_snapshot(EVENT_POLYGON, EVENT_ROUTE, alpha="2")
     prepared = _prepared(snapshot, request)
-    # Без снятия домен отказал бы именованным `STATION_VALUE_CONFLICT` (три ответа, стык двух из них не соседний).
-    import cftuv_envelope.materialize.domain as domain_module
+    _result, counters = _materialized(prepared, request)
+    assert counters["MATERIALIZE_RUNG_STATIONS_CONSUMED_PIECE"] >= 1
+    assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 0
+    assert counters["STATION_SAME_PCHAIN_JOINS"] == 2
+    assert counters["MATERIALIZE_REGIONS"] == 1 and counters["MATERIALIZE_INTERFACE_CHAINS"] == 0
 
-    real = domain_module.junction_to_withdraw
-    domain_module.junction_to_withdraw = lambda table, runs: None
+
+def test_without_the_proof_the_event_node_stays_a_named_conflict_and_withdraws_one_junction():
+    """Закон не усредняет: нет доказательства — `STATION_VALUE_CONFLICT`, домен снимает ровно один стык и строится заново."""
+
+    import cftuv_envelope.materialize.domain as domain_module
+    import cftuv_envelope.materialize.mesh as mesh_module
+
+    snapshot, request = _piece_chain_snapshot(EVENT_POLYGON, EVENT_ROUTE, alpha="2")
+    prepared = _prepared(snapshot, request)
+    real_withdraw, real_law = domain_module.junction_to_withdraw, mesh_module._consumed_piece_facts
+    mesh_module._consumed_piece_facts = lambda table, pending, answers: ({}, pending[0][1])
     try:
-        coverage = conveyor_coverage(prepared, None)
-        refused = materialize_domain(
-            prepared, coverage, request=dataclasses.replace(request, uv_policy_id=UV), decal_topology_law=DecalTopologyLawV1.TRIANGLES_V1
-        )
+        domain_module.junction_to_withdraw = lambda table, runs: None
+        try:
+            refused = materialize_domain(
+                prepared, conveyor_coverage(prepared, None), request=dataclasses.replace(request, uv_policy_id=UV), decal_topology_law=DecalTopologyLawV1.TRIANGLES_V1
+            )
+        finally:
+            domain_module.junction_to_withdraw = real_withdraw
+        assert refused.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
+        assert "STATION_VALUE_CONFLICT" in refused.detail
+        result, counters = _materialized(prepared, request)
     finally:
-        domain_module.junction_to_withdraw = real
-    assert refused.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
-    assert "STATION_VALUE_CONFLICT" in refused.detail
-    result, counters = _materialized(prepared, request)
+        mesh_module._consumed_piece_facts = real_law
     assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 1
     assert counters["STATION_SAME_PCHAIN_JOINS"] == 1
     assert counters["MATERIALIZE_REGIONS"] == 2 and counters["MATERIALIZE_INTERFACE_CHAINS"] == 1
     named = [item for item in result.batch.diagnostics if item.outcome.value == "CORNER_JOIN_SAME_PCHAIN_V1"]
     assert len(named) == 1
+
+
+def test_the_law_is_off_outside_the_direct_uv_policy_and_the_conflict_withdraws_as_before():
+    """Закон принадлежит `UV_DIRECT_STRIP_V1`: при `consumed_piece=False` конфликт отказывает сразу, стык снимается, как до закона."""
+
+    import cftuv_envelope.materialize.domain as domain_module
+
+    snapshot, request = _piece_chain_snapshot(EVENT_POLYGON, EVENT_ROUTE, alpha="2")
+    prepared = _prepared(snapshot, request)
+    real = domain_module.exact_mesh
+    domain_module.exact_mesh = lambda *arguments: real(*arguments[:-1], False)
+    try:
+        _result, counters = _materialized(prepared, request)
+    finally:
+        domain_module.exact_mesh = real
+    assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 1
+    assert counters["MATERIALIZE_RUNG_STATIONS_CONSUMED_PIECE"] == 0
+    assert counters["MATERIALIZE_REGIONS"] == 2
+
+
+def _law_answers(table_joins, rows):
+    """`(table, pending, answers)` закона: `rows` — `[(слот, {пробег: (s, r)}, отравлен)]` в порядке обнаружения."""
+
+    def value(pair):
+        return tuple(SqrtSumV1.rational(Fraction(item)) for item in pair)
+
+    answers = {slot: {run: value(pair) for run, pair in given.items()} for slot, given, _poisoned in rows}
+    pending = [(slot, f"conflict {slot}", poisoned) for slot, _given, poisoned in rows]
+    return SimpleNamespace(joins=table_joins), pending, answers
+
+
+FLOW = {("a", "m"): "v1", ("m", "b"): "v2"}
+
+
+def test_the_consumed_piece_law_proves_the_event_then_every_vertex_of_its_edge_takes_the_half_sum():
+    event = ((0, "node:1"), {"a": (10, 2), "m": (5, 2), "b": (4, 2)}, False)
+    rung = ((0, "node:2"), {"a": (11, 3), "b": (3, 3)}, False)
+    found, conflict = _consumed_piece_facts(*_law_answers(FLOW, [rung, event]))
+    assert conflict is None
+    half = Fraction(7)
+    assert found[(0, "node:1")][0] == SqrtSumV1.rational(half) and found[(0, "node:2")][0] == SqrtSumV1.rational(half)
+    assert found[(0, "node:2")][1] == SqrtSumV1.rational(Fraction(3))
+
+
+@pytest.mark.parametrize(
+    "row",
+    (
+        ((0, "node:9"), {"a": (10, 2), "m": (5, 2), "b": (4, 3)}, False),  # разные r: это не событие
+        ((0, "node:9"), {"a": (10, 2), "m": (5, 2), "b": (4, 2)}, True),  # ответ веера или второй ответ одного пробега
+        ((0, "node:9"), {"a": (10, 2), "b": (4, 2)}, False),  # ребро есть, а события, доказывающего его, нет
+        ((0, "node:9"), {"a": (10, 2), "m": (5, 2)}, False),  # соседи потока: без куска между ними закону нечего доказывать
+        ((0, "node:9"), {"a": (10, 2), "x": (5, 2), "b": (4, 2)}, False),  # пробег вне потока
+    ),
+)
+def test_the_consumed_piece_law_leaves_every_other_conflict_named(row):
+    found, conflict = _consumed_piece_facts(*_law_answers(FLOW, [row]))
+    assert conflict == f"conflict {row[0]}" and row[0] not in found
+
+
+def test_a_vertex_off_the_proven_edge_stays_named_though_its_pair_is_proven():
+    event = ((0, "node:1"), {"a": (10, 2), "m": (5, 2), "b": (4, 2)}, False)
+    off = ((0, "node:2"), {"a": (11, 3), "b": (4, 3)}, False)  # другая сумма: вершина не на ребре события
+    _found, conflict = _consumed_piece_facts(*_law_answers(FLOW, [event, off]))
+    assert conflict == f"conflict {off[0]}"
