@@ -144,6 +144,9 @@ class TolerancePolicyIdV1(str, Enum):
     WALL_CREEP_SPEED_V1 = "WALL_CREEP_SPEED_V1"
     T_NOTCH_BEND_TANGENT_V1 = "T_NOTCH_BEND_TANGENT_V1"
     WALL_NODE_NEAR_WELD_V1 = "WALL_NODE_NEAR_WELD_V1"
+    UNFOLD_DEGENERATE_TRIANGLE_V1 = "UNFOLD_DEGENERATE_TRIANGLE_V1"
+    UNFOLD_STRETCH_GUARD_V1 = "UNFOLD_STRETCH_GUARD_V1"
+    UNFOLD_NATIVE_EQUALITY_V1 = "UNFOLD_NATIVE_EQUALITY_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -227,6 +230,8 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SOURCE_DEFECT_PREFLIGHT = "SOURCE_DEFECT_PREFLIGHT"
     WAVEFRONT_BRIDGE_UNSELECTED_EDGE = "WAVEFRONT_BRIDGE_UNSELECTED_EDGE"
     MESH_WELD_WALL_NODES = "MESH_WELD_WALL_NODES"
+    MATERIALIZE_UV_UNFOLD = "MATERIALIZE_UV_UNFOLD"
+    MATERIALIZE_UV_UNFOLD_NATIVE_PORT = "MATERIALIZE_UV_UNFOLD_NATIVE_PORT"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -283,6 +288,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE = "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE"
     CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA = "CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA"
     CUT_SOURCE_END_ACROSS_A_SOFT_BEND = "CUT_SOURCE_END_ACROSS_A_SOFT_BEND"
+    ZERO_WEIGHT_DEGENERATE_OR_UNORIENTED_TRIANGLE = "ZERO_WEIGHT_DEGENERATE_OR_UNORIENTED_TRIANGLE"
+    REWEIGHT_STRETCHED_TRIANGLE_OF_THE_UNFOLD = "REWEIGHT_STRETCHED_TRIANGLE_OF_THE_UNFOLD"
+    ACCEPT_NATIVE_UNFOLD_WITHIN_EQUALITY = "ACCEPT_NATIVE_UNFOLD_WITHIN_EQUALITY"
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -1534,6 +1542,59 @@ _BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             f"{_KERNEL_TESTS}/test_mesh_weld_wall_nodes.py"
             "::test_wall_nodes_beyond_the_tolerance_stay_and_the_shorter_splits_the_longer"
         ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.UNFOLD_DEGENERATE_TRIANGLE_V1, category=TolerancePolicyCategoryV1.NUMERIC_ERROR_BOUND, value=None, bound_law="UNFOLD_DEGENERATE_TRIANGLE_LAW_V1",
+        units=TolerancePolicyUnitsV1.NONE, coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC, scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Закон UNFOLD_ALONG_U_V1 (Straight strips): треугольник Blender, у которого синус угла при вершине 0 ниже DEGENERATE_SINE = 1e-9 (нет площади), или где линейная станция "
+            "пробега идёт вдоль grad r (доля поперёк ниже UNORIENTED_SINE = 1e-6: направление вдоль цепи не определено), весит НОЛЬ в энергии; |grad r| ниже FLAT_GRADIENT = 1e-6 "
+            "(r постоянна, гребень) - цель вдоль grad s_run. Все три - относительные доли binary64 (двойная точность 2.2e-16 далеко внизу, настоящие треугольники сцен - от 1e-3 и выше). "
+            "Каждый случай назван числом; ответ треугольника с весом ноль - соседи по острову. Тот же DEGENERATE_SINE отсекает от наклонов живой ширины треугольник, вырожденный в карте "
+            "(удвоенная площадь не выше доли суммы квадратов рёбер): без этого вершина иглы получала наклон 6e10 и такт rim уводил UV на 6e10."
+        ),
+        authority="cftuv_envelope.materialize.uv_unfold; DECISIONS.md 2026-11-06 (UNFOLD_ALONG_U_V1)",
+        applied_stage=TolerancePolicyAppliedStageV1.MATERIALIZE_UV_UNFOLD, allowed_effect=TolerancePolicyAllowedEffectV1.ZERO_WEIGHT_DEGENERATE_OR_UNORIENTED_TRIANGLE,
+        changes_topology=False, preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_STRAIGHTEN_UNFOLD_DEGENERATE_TRIANGLES", "MATERIALIZE_STRAIGHTEN_UNFOLD_UNORIENTED_TRIANGLES", "MATERIALIZE_STRAIGHTEN_UNFOLD_FLAT_R_TRIANGLES",
+            "MATERIALIZE_STRAIGHTEN_UNFOLD_SLOPE_SKIPPED_TRIANGLES",
+        ),
+        declaration_sites=("cftuv_envelope.materialize.uv_unfold.DEGENERATE_SINE", "cftuv_envelope.materialize.uv_unfold.UNORIENTED_SINE", "cftuv_envelope.materialize.uv_unfold.FLAT_GRADIENT"),
+        positive_fixture=f"{_KERNEL_TESTS}/test_uv_straighten.py::test_a_triangle_without_area_weighs_nothing_by_name",
+        negative_fixture=f"{_KERNEL_TESTS}/test_uv_straighten.py::test_a_thin_triangle_above_the_bound_is_solved",
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.UNFOLD_STRETCH_GUARD_V1, category=TolerancePolicyCategoryV1.AUTHORING_INTENT, value=None, bound_law="UNFOLD_STRETCH_GUARD_LAW_V1",
+        units=TolerancePolicyUnitsV1.NONE, coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC, scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Эвристика закона UNFOLD_ALONG_U_V1, МЕНЯЕТ ОТВЕТ: треугольник, у которого после решения grad u . t̂ (растяжение вдоль цепи, цель 1) вне [GUARD_FLOOR = 0.5, GUARD_CEILING = 2], "
+            "получает вес в GUARD_FACTOR = 4 раза больше, остров решается заново, не больше GUARD_ROUNDS = 4 раз. Без неё клин у излома цепи сжимается в щель и выворачивается: "
+            "rounded_wall_noise_top, alpha .05: линейное решение без стража - 6 вывернутых и наименьшее отношение ребра 0.036, с ARAP 5 и стражем - 0 и 0.50. Число перевзвешиваний названо."
+        ),
+        authority="cftuv_envelope.materialize.uv_unfold; DECISIONS.md 2026-11-06 (UNFOLD_ALONG_U_V1)",
+        applied_stage=TolerancePolicyAppliedStageV1.MATERIALIZE_UV_UNFOLD, allowed_effect=TolerancePolicyAllowedEffectV1.REWEIGHT_STRETCHED_TRIANGLE_OF_THE_UNFOLD,
+        changes_topology=False, preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("MATERIALIZE_STRAIGHTEN_UNFOLD_REWEIGHTED_TRIANGLES",),
+        declaration_sites=("cftuv_envelope.materialize.uv_unfold.GUARD_FLOOR", "cftuv_envelope.materialize.uv_unfold.GUARD_CEILING", "cftuv_envelope.materialize.uv_unfold.GUARD_FACTOR"),
+        positive_fixture=f"{_KERNEL_TESTS}/test_uv_straighten.py::test_a_squeezed_wedge_is_reweighted_by_name",
+        negative_fixture=f"{_KERNEL_TESTS}/test_uv_straighten.py::test_a_strip_within_the_guard_is_not_reweighted",
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.UNFOLD_NATIVE_EQUALITY_V1, category=TolerancePolicyCategoryV1.NUMERIC_ERROR_BOUND, value=_rational(Fraction(1, 1000000000)), bound_law=None,
+        units=TolerancePolicyUnitsV1.METRES, coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC, scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
+        scope=(
+            "Ответ нативного порта UNFOLD_ALONG_U_V1 (native/cftuv-unfold) принимается за ответ эталона uv_unfold.unfold, если held и числа совпадают ТОЧНО, а u (метры) и "
+            "наклоны u по карте (м/м) расходятся не больше 1e-9. Порт повторяет порядок операций binary64 (+ - * / sqrt, без FMA), поэтому на одной машине ожидается побитовое "
+            "равенство; допуск оставлен на перестановку сложений компилятором и на иную libm - он в 1e6 раз мельче 1 мм ширины трима при alpha 1 и в 30000 раз мельче клетки карты."
+        ),
+        authority="cftuv_envelope.materialize.uv_unfold.results_agree; DECISIONS.md 2026-11-06 (UNFOLD_ALONG_U_V1)",
+        applied_stage=TolerancePolicyAppliedStageV1.MATERIALIZE_UV_UNFOLD_NATIVE_PORT, allowed_effect=TolerancePolicyAllowedEffectV1.ACCEPT_NATIVE_UNFOLD_WITHIN_EQUALITY,
+        changes_topology=False, preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("MATERIALIZE_STRAIGHTEN_UNFOLD_ISLANDS",),
+        declaration_sites=("cftuv_envelope.materialize.uv_unfold.NATIVE_EQUALITY",),
+        positive_fixture=f"{_KERNEL_TESTS}/test_uv_straighten.py::test_answers_within_the_native_equality_agree",
+        negative_fixture=f"{_KERNEL_TESTS}/test_uv_straighten.py::test_answers_beyond_the_native_equality_or_with_other_numbers_disagree",
     ),
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.CORNER_FOLD_SIN2_BUDGET_V1,

@@ -8,6 +8,7 @@ APPROVED = {
     "materialize/assemble.py": "1482868265b88ac0e7873e432b6cdf11a65a83d22835cc631fdc2125c0355424",
     "materialize/source_lift.py": "2ebb0e8e7f8690cd6f37887129d4efae6c50f59c61f83b237b7a6373bd30698f",
     "materialize/uv_law.py": "087abfe35056b6179f40b49cb9c3da4715e8cbfe7f1fd8292983fd502fca38bc",
+    "materialize/uv_unfold.py": "81e6b85522ccd1e602c6e3af533adb30f397d81f46fa7464db916a603e469157",
     "materialize/lift.py": "ed91b42e5d6149d30469501922f8d7abfa65168d98043eccb3bdd2a87a78412b",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "_cpython311.py": "d0ce9f6eccb090f0ef1e0615830f0534ac5211615da0d04103934d017e97e034",

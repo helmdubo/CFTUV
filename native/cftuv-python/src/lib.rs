@@ -33,6 +33,7 @@ mod snapshot_check;
 mod domain_view;
 mod preview_model;
 mod splice;
+mod unfold;
 mod view;
 
 // The digest of the Rust sources, shared with `build.rs` (which embeds it) and exposed for the tests to check the algorithm on a tree of their own.
@@ -970,5 +971,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(batch_checks::batch_checks, module)?)?;
     module.add_function(wrap_pyfunction!(graph_pack::graph_pack, module)?)?;
     module.add_function(wrap_pyfunction!(graph_pack::graph_unpack, module)?)?;
+    module.add_function(wrap_pyfunction!(unfold::unfold_u, module)?)?;
+    module.add_function(wrap_pyfunction!(unfold::unfold_constants, module)?)?;
     Ok(())
 }

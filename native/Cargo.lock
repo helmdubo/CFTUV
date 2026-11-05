@@ -129,6 +129,7 @@ dependencies = [
  "cftuv-skeleton",
  "cftuv-snapshot",
  "cftuv-station",
+ "cftuv-unfold",
  "mimalloc",
  "pyo3",
  "sha2",
@@ -180,6 +181,10 @@ version = "0.1.0"
 dependencies = [
  "dashu-int",
 ]
+
+[[package]]
+name = "cftuv-unfold"
+version = "0.1.0"
 
 [[package]]
 name = "cpufeatures"

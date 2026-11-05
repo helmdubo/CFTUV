@@ -933,7 +933,10 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     uv_values, uv_forms = _uniform_mapping(uv_plan, budget, (frame_faces, layout, polygons, points, facts), lines, source_loci)
     straight_counters = ()
     if request.uv_policy_id == UV_DIRECT_STRIP_V1:
-        uv_values, uv_forms, straight_counters = map_straight_uv(frame_faces, layout, table, cycles, polygons, points, facts, None if shaped is None else shaped.polygons)
+        uv_values, uv_forms, straight_counters = map_straight_uv(
+            frame_faces, layout, polygons if shaped is None else shaped.polygons, points, facts if shaped is None else shaped.facts,
+            sourced.positions if shaped is None else shaped.positions, table.scale,
+        )
     shaped = _uniform_shaped(shaped, budget, request, (points, shaped.facts if shaped is not None else facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
     batch = backend.assemble_compute(
         assemble_batch,

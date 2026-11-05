@@ -80,7 +80,10 @@
             "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL",
             "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE",
             "CREEP_UNSELECTED_EDGE_WITHIN_EPSILON_OF_ALPHA",
-            "CUT_SOURCE_END_ACROSS_A_SOFT_BEND"
+            "CUT_SOURCE_END_ACROSS_A_SOFT_BEND",
+            "ZERO_WEIGHT_DEGENERATE_OR_UNORIENTED_TRIANGLE",
+            "REWEIGHT_STRETCHED_TRIANGLE_OF_THE_UNFOLD",
+            "ACCEPT_NATIVE_UNFOLD_WITHIN_EQUALITY"
           ],
           "type": "string"
         },
@@ -113,7 +116,9 @@
             "SILHOUETTE_VERTEX_DISSOLVE",
             "SOURCE_DEFECT_PREFLIGHT",
             "WAVEFRONT_BRIDGE_UNSELECTED_EDGE",
-            "MESH_WELD_WALL_NODES"
+            "MESH_WELD_WALL_NODES",
+            "MATERIALIZE_UV_UNFOLD",
+            "MATERIALIZE_UV_UNFOLD_NATIVE_PORT"
           ],
           "type": "string"
         },
@@ -201,7 +206,10 @@
             "SOURCE_CONTACT_GAP_V1",
             "WALL_CREEP_SPEED_V1",
             "T_NOTCH_BEND_TANGENT_V1",
-            "WALL_NODE_NEAR_WELD_V1"
+            "WALL_NODE_NEAR_WELD_V1",
+            "UNFOLD_DEGENERATE_TRIANGLE_V1",
+            "UNFOLD_STRETCH_GUARD_V1",
+            "UNFOLD_NATIVE_EQUALITY_V1"
           ],
           "type": "string"
         },

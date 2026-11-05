@@ -380,6 +380,32 @@ def _bound_surface():
     return BoundSurfaceLiftV1
 
 
+_UNFOLD_CHECKED: list = []
+
+
+def unfold_u(mirror, data, native, constants):
+    """`uv_unfold.unfold(data)` (UNFOLD_ALONG_U_V1), the `u` of the islands of Straight strips: the same `UnfoldResultV1` within `UNFOLD_NATIVE_EQUALITY_V1` (bit for bit on one
+    machine by construction). `native`, `constants` are the extension's `unfold_u` and `unfold_constants`; the constants and counter names of the port are checked against the
+    reference once per process (`NativePortStale` naming the file), an input the port cannot read is `NativePortUnsupported` and the reference answers."""
+
+    _begin(mirror)
+    from cftuv_envelope.materialize import uv_unfold
+
+    if not _UNFOLD_CHECKED:
+        wanted = (uv_unfold.DEGENERATE_SINE, uv_unfold.FLAT_GRADIENT, uv_unfold.UNORIENTED_SINE, uv_unfold.GUARD_FLOOR, uv_unfold.GUARD_CEILING, uv_unfold.GUARD_FACTOR, list(uv_unfold.COUNTER_NAMES))
+        pin.check_shapes((("materialize/uv_unfold.py", "the constants and the counter names are the ones the Rust code mirrors", tuple(constants()) == wanted),))
+        _UNFOLD_CHECKED.append(True)
+    if type(data) is not uv_unfold.UnfoldInputV1:
+        raise pin.NativePortUnsupported(f"unfold_u: the port reads an UnfoldInputV1, not a {type(data).__name__}")
+    try:
+        u, slope_x, slope_y, held, counters = native(data)
+    except ValueError as exc:
+        if str(exc).startswith("cftuv_native: unfold declines"):
+            raise pin.NativePortUnsupported(str(exc)) from exc
+        raise
+    return uv_unfold.UnfoldResultV1(tuple(u), tuple(slope_x), tuple(slope_y), tuple(held), tuple(counters))
+
+
 def surface_vertex_facts(mirror, plane, items, floats):
     """`[parametric._surface_vertex_facts(triangle, point, slope, floats) ...]` for `(triangle name, point, slope)` items on a `BoundSurfaceLiftV1` (SURFACE_LIFT_NATIVE_V1)."""
 

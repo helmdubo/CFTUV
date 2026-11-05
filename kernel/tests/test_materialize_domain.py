@@ -60,22 +60,24 @@ CASES = (
 #: `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` кладёт вершины `src:` в позиции хоста и пишет
 #: диагностику; `straight3` не сдвинулся (позиции хоста = подъём). С выключенным законом
 #: батч побитово прежний: `test_materialize_source_lift.test_without_host_positions_...`.
+#: 2026-11-06 (UNFOLD_ALONG_U_V1) сдвинулись все четыре: `u` Straight strips - развёртка по треугольникам Blender, физические факты и топология
+#: те же (`test_uv_straighten`, поле: позиции, грани и швы побитово базовые).
 GOLDEN = {
     "weighted": (
-        "8caec3a61dd416140c22f02ba53cd626dbacf013975525d4fd4a5d1dcb35bc78",
-        "0ef47e04652f3b43904655cbed651fac2ec0627705b5c43008df32bf20a7f5f6",
+        "eb6b50e586765fddd0042b1df1de20c588d7b542197e30a619317486e70da2e5",
+        "ce1171d18644ac96e1c538dd0a1af12ce8d33553e90f13b4d700ad78cd9bc857",
     ),
     "point_contact": (
-        "e44fbc22ba4d4351a19495d70bfd906c90f9d57c64362f6d3f1c1c1d96ff656a",
-        "9f761298edc3a682c8a7d6555296c4581798213047edaaefe6f988d934cb2267",
+        "3f4071d6b5e38ac35c8b74f5be92fe2c1b52f30c44f8bca06ba88f07c0bdff67",
+        "7c432f5dc7f7bf777398af4ed957c34a8d3e069d56d950b66430e69303825d4f",
     ),
     "two_edge": (
-        "d2a3e7f90568c1056cbd2e7e4426385dee291feda4b0f64f477df15ce338c06f",
-        "7829b3870cc259721ccf603531432e56707e3965848839ac77a7dbb39e817d65",
+        "206327d79a2a7b1156bec0b926aa2f9eb58a5348f1fb4ae745761eeb216cc7b8",
+        "75a9787c4bc3a6c12251ce568b895db2d1bcb7980463be6c623a5547b225f968",
     ),
     "straight3": (
-        "2e9294e7de68f084672b0095c594fcb0da251bc407d5bc3feb1cc13e2f8f43a7",
-        "f9988c58176be1d6d0dacdc12aaa86efcfc12116c7d8db26aaf3405e0760e7c1",
+        "60b99ef4e00ef544d4a6b9cf4f159ae65105ab6449a30aede2889ed8765bfd1b",
+        "97e9f3e61a4a3c6a7465140291ecc32afe3ef59e5fb4612b98e99c5c32dc2904",
     ),
 }
 
@@ -218,8 +220,8 @@ def test_a_vertex_fan_is_constant_station_and_its_uv_is_not_degenerate():
         by_region.setdefault(fact.semantic_region_id, set()).add(fact.source_s.value)
     # Станция веера константна во всём его регионе.
     assert all(len(values) == 1 for values in by_region.values())
-    # STRAIGHTEN_RUNGS_V1: физическая станция константна, но UV веера - проекция на ось угла, нулевой площади нет.
-    assert counters["MATERIALIZE_STRAIGHTEN_FAN_VERTICES"] >= 2
+    # UNFOLD_ALONG_U_V1: физическая станция константна, но `u` веера - развёртка его треугольников (свой остров), нулевой площади нет.
+    assert counters["MATERIALIZE_STRAIGHTEN_UNFOLD_ISLANDS"] >= 2
     assert counters["MATERIALIZE_TRIANGLES_UV_DEGENERATE"] == 0
 
 
@@ -269,10 +271,14 @@ def test_the_batch_survives_the_codec_round_trip():
     assert validate_geometry_batch(GeometryBatchCodecV1.loads(payload)) == ()
 
 
-def test_the_semantic_digest_does_not_see_the_triangulation_and_the_content_does(
+def test_another_diagonal_changes_the_content_and_moves_the_uv_by_rounding_only(
     monkeypatch,
 ):
-    """`TessellationDigestEquivalence`: другая диагональ — тот же смысл."""
+    """`TessellationDigestEquivalence` до UNFOLD_ALONG_U_V1: другая диагональ - тот же смысл, семантический дайджест тот же.
+
+    Под Straight strips `u` - решение по треугольникам, которые интерполирует Blender: другая диагональ - другая сумма binary64, и семантический дайджест (он видит UV
+    побитово) сдвигается. Сверяется сама UV: на прямой плоской цепи она та же в пределах округления (1e-12), содержательный дайджест видит треугольники, как раньше.
+    Uniform здесь не проверить: у фабрик нет плана фаз (`UV_UNIFORM_PHASE_PLAN_MISSING`)."""
 
     base = _run("straight3")
     original = mesh.triangulate_exact
@@ -289,7 +295,18 @@ def test_the_semantic_digest_does_not_see_the_triangulation_and_the_content_does
     assert other.outcome is MaterializationOutcome.MATERIALIZED
     assert other.batch.faces != base.batch.faces
     assert other.content_digest != base.content_digest
-    assert other.batch.semantic_digest == base.batch.semantic_digest
+
+    def uv_of(result):
+        return {
+            (face.semantic_region_id.value, key.value): (fact.uv.u, fact.uv.v)
+            for face in result.batch.faces
+            for key, fact in zip(face.ordered_vert_keys, face.uv_facts)
+        }
+
+    left, right = uv_of(base), uv_of(other)
+    assert left.keys() == right.keys()
+    assert max(abs(left[key][0] - right[key][0]) + abs(left[key][1] - right[key][1]) for key in left) <= 1e-12
+    assert all(left[key][1] == right[key][1] for key in left), "v = r / alpha does not see the triangles"
 
 
 # --------------------------------------------------------------------------

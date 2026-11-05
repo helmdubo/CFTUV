@@ -91,6 +91,7 @@ __all__ = (
     "last_w1_timings",
     "lift_vertices",
     "surface_vertex_facts",
+    "unfold_u",
     "source_lift",
     "warm_materialize_hot",
     "last_snapshot_check_timings",
@@ -608,6 +609,12 @@ def lift_vertices(points, plane):
     """`materialize.assemble.lift_vertices(points, plane)` on a `PlaneLiftV1` or a `BoundSurfaceLiftV1` (SURFACE_LIFT_NATIVE_V1), native (see `materialize_hot_op.py`)."""
 
     return materialize_hot_op.lift_vertices(default_mirror(), points, plane)
+
+
+def unfold_u(data):
+    """`materialize.uv_unfold.unfold(data)` (UNFOLD_ALONG_U_V1), native (see `materialize_hot_op.unfold_u`): no state, a refusal of the port changes nothing."""
+
+    return materialize_hot_op.unfold_u(default_mirror(), data, _core.unfold_u, _core.unfold_constants)
 
 
 def surface_vertex_facts(plane, items, floats):

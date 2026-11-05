@@ -1517,6 +1517,23 @@ def source_lift_compute(oracle, plane, positions, triangles, host_positions, ste
     return answer if done else oracle(*arguments)
 
 
+def unfold_compute(oracle, data):
+    """`oracle(data)` (`materialize.uv_unfold.unfold`), посчитанное заказанным бэкендом W1 (UNFOLD_ALONG_U_V1): `u` островов Straight strips. Ни бюджета, ни памяти;
+    ответ порта равен эталону в пределах `UNFOLD_NATIVE_EQUALITY_V1` (реестр допусков), вход, который порт не несёт, - эталон по имени."""
+
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.materialize_native:
+        return oracle(data)
+
+    def call(module):
+        if not hasattr(module, "unfold_u"):
+            raise _OperationAbsent("this cftuv_native wheel has no `unfold_u` (it predates UNFOLD_ALONG_U_V1)")
+        return module.unfold_u(data)
+
+    done, answer = _attempt(ledger, MATERIALIZE_W1, call)
+    return answer if done else oracle(data)
+
+
 def assemble_compute(oracle, **arguments):
     """`oracle(**arguments)` (`materialize.assemble.assemble_batch`), посчитанное заказанным бэкендом W1 (MATERIALIZE_HOT_UNDER_W1_SWITCH_V1): записи батча — нативно, диагностики,
     версии контрактов и сам батч — как у эталона. Ни точной работы, ни памяти; вход, который порт не несёт, — эталон по имени (`NATIVE_PORT_UNSUPPORTED`)."""
