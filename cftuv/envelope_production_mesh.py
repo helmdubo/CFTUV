@@ -68,6 +68,7 @@ import numpy as np
 
 from cftuv_envelope.mesh_glue import glue_domains
 
+from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
 from .envelope_production_weld import (
     COUNTER_SEAM_CLIP_VERTICES,
     COUNTER_SEAM_T_JUNCTIONS,
@@ -75,6 +76,7 @@ from .envelope_production_weld import (
     OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
     WELD_LAW,
+    WELD_LAW_MEAN_LEVEL,
     weld_of_answer,
     COUNTER_WALL_EDGES_SPLIT,
     COUNTER_WALL_SPLITS_UNPLACED,
@@ -182,6 +184,10 @@ class MeshArraysV1:
     domain_tokens: tuple = ()
     #: По записанным доменам: закон `WALL_EDGE_SPLIT_V1`, `(петля вида, перед которой встала новая, петля якоря, петля вершины, доля)` (`mesh_glue.glue_domains`); наклоны петель вида без них короче петель меша.
     domain_wall_splits: tuple = ()
+    #: Закон `WALL_NODE_MEAN_LEVEL_V1` (`WeldV1.means`): пары узлов `(домен, узел, домен, узел)`, ставшие одной вершиной; наклон этой вершины - среднее наклонов двух узлов.
+    wall_means: tuple = ()
+    #: Закон сварки этих массивов (`weld_law_of`): такт превью варит им же.
+    weld_law: tuple = WELD_LAW
     #: По записанным доменам (в порядке `domain_keys`): номера доменов-соседей, чьи нормали входят в смещение узлов стены этого домена (`WeldV1.partners`). В дайджест не входят.
     domain_partners: tuple = ()
     #: `False` у lean-массивов (WIDTH_REFRESH_LEAN_V1): позиции, грани, UV, владельцы и швы те же побитово, а дайджест, счётчик обхода рёбер, отчёты о плоскости и шве
@@ -416,6 +422,12 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True, digest: b
     return _reference_mesh_arrays(ordered, offset, reports, digest) if found is None else found
 
 
+def weld_law_of(results) -> tuple:
+    """Закон сварки прогона: `WALL_NODE_MEAN_LEVEL_V1` только у «Straight strips»; Uniform trim и `DEBUG_NO_UV` - прежний закон."""
+
+    return WELD_LAW_MEAN_LEVEL if any(getattr(item, "uv_policy_id", "") == ENVELOPE_UV_POLICY_DIRECT_STRIP for item in results) else WELD_LAW
+
+
 #: MESH_ASSEMBLY_BUFFERS_V1: операция порта, которая собирает массивы меша из байтов видов одним вызовом.
 MESH_ASSEMBLE_OPERATION = "mesh_assemble"
 OUTCOME_VIEW_NOT_BYTES = "NATIVE_PORT_UNSUPPORTED"
@@ -450,7 +462,7 @@ def _native_mesh_arrays(ordered, offset: float, reports: bool, digest: bool = Tr
         warnings.extend(_domain_warnings(result))
         laws.add(getattr(result, "decal_topology_law", ""))
     answer = native_answer(
-        MESH_ASSEMBLE_OPERATION, [result.__dict__["view_bytes"] for result in pending], [result.patch_id for result in pending], float(offset), WELD_LAW, bool(reports),
+        MESH_ASSEMBLE_OPERATION, [result.__dict__["view_bytes"] for result in pending], [result.patch_id for result in pending], float(offset), weld_law_of(pending), bool(reports),
         *(() if digest else (False,)),
     )
     if answer is None:
@@ -475,6 +487,8 @@ def _native_mesh_arrays(ordered, offset: float, reports: bool, digest: bool = Tr
         ("domain_tokens", tuple(tokens)),
         ("domain_partners", _partners_by_domain(weld.partners, len(pending))),
         ("domain_wall_splits", tuple(wall_splits)),
+        ("wall_means", tuple(weld.means)),
+        ("weld_law", weld_law_of(pending)),
         ("reports", reports),
         ("offset", float(offset)),
         ("buffers", buffers),
@@ -543,7 +557,8 @@ def _reference_mesh_arrays(ordered, offset: float, reports: bool, with_digest: b
         warnings.extend(_domain_warnings(result))
         laws.add(getattr(result, "decal_topology_law", ""))
         revision = revision or view.source_revision
-    weld = weld_vertices([view.vertices for _result, view in entries], float(offset))
+    law = weld_law_of([result for result, _view in entries])
+    weld = weld_vertices([view.vertices for _result, view in entries], float(offset), law)
     faces, uvs, face_domain, face_owner, seam_pairs, wall_splits, unplaced = glue_domains(
         [result.patch_id for result, _view in entries], [view.arrays[1:] for _result, view in entries], weld.index, weld.splits
     )
@@ -585,6 +600,8 @@ def _reference_mesh_arrays(ordered, offset: float, reports: bool, with_digest: b
         offset=float(offset),
         domain_partners=_partners_by_domain(weld.partners, len(entries)),
         domain_wall_splits=tuple(wall_splits),
+        wall_means=tuple(weld.means),
+        weld_law=law,
         reports=reports,
     )
 

@@ -35,6 +35,7 @@ class NativeWeldV1:
     positions: np.ndarray
     index: tuple
     partners: tuple
+    means: tuple = ()
 
 
 def _slope_bytes(slopes):
@@ -77,17 +78,17 @@ def native_ordered() -> bool:
     return mesh_assembly_backend() == MESH_ASSEMBLY_NATIVE
 
 
-def group_weld(inputs: dict, ordered, alpha: float, offset: float) -> NativeWeldV1 | None:
+def group_weld(inputs: dict, ordered, alpha: float, offset: float, law: tuple = WELD_LAW) -> NativeWeldV1 | None:
     """`weld_vertices` над видами группы `ordered` на ширине такта нативно либо `None` (откат назван)."""
 
-    answer = native_answer(SPLICE_WELD_OPERATION, [inputs[number][0] for number in ordered], [inputs[number][1] for number in ordered], alpha, offset, WELD_LAW)
+    answer = native_answer(SPLICE_WELD_OPERATION, [inputs[number][0] for number in ordered], [inputs[number][1] for number in ordered], alpha, offset, law)
     if answer is None:
         return None
-    positions, index, counts, partners = answer
+    positions, index, counts, partners, means = answer
     flat = np.frombuffer(index, dtype=np.uint32).astype(np.int64)
     bounds = np.zeros(len(counts) + 1, dtype=np.int64)
     np.cumsum(np.asarray(counts, dtype=np.int64), out=bounds[1:])
-    return NativeWeldV1(np.frombuffer(positions, dtype=np.float64).reshape(-1, 3), tuple(flat[bounds[at] : bounds[at + 1]] for at in range(len(counts))), tuple(partners))
+    return NativeWeldV1(np.frombuffer(positions, dtype=np.float64).reshape(-1, 3), tuple(flat[bounds[at] : bounds[at + 1]] for at in range(len(counts))), tuple(partners), tuple(means))
 
 
 def rebuilt_pieces(inputs: dict, rebuilt, alpha: float, vertices_of: dict, patch_of):

@@ -346,7 +346,8 @@ def test_a_vertex_without_its_triangle_or_a_loop_without_its_fact_is_the_oracles
             assert found == expected and expected[0] == "ParametricRefusal", expected
             refused.add(expected[1])
         if fact_floats:
-            expected, found = _both((*arguments[:6], {}, source, developable))
+            # Факты петель читает физическая таблица: у карты UV (Straight strips) своя, поэтому отказ по имени проверяется без неё.
+            expected, found = _both((replace(inputs, uv_numerators=None, uv_forms=None), *arguments[1:6], {}, source, developable))
             assert found == expected, expected
             refused.add(expected[1])
     assert {parametric.PARAM_LIFT_UNSUPPORTED, parametric.PARAM_FACT_UNRESOLVED} <= refused, refused

@@ -312,7 +312,7 @@ def test_source_snap_with_new_clip_nodes_names_the_nonaffine_certificate_and_lea
 
     before = {"src:source": (uv.ZERO, uv.ZERO)}
     after = {"src:source": (S.rational(1), uv.ZERO)}
-    inputs = SimpleNamespace(uv_numerators={}, cut=SimpleNamespace(points={"new-clip-node": after["src:source"]}),
+    inputs = SimpleNamespace(uv_numerators={}, uv_anchored=False, cut=SimpleNamespace(points={"new-clip-node": after["src:source"]}),
                              points_before=before, points_after=after, facts_before={(0, "src:source"): (uv.ZERO, uv.ZERO)})
     def unexpected(*args, **kwargs):
         pytest.fail("a nonaffine source clip entered the certificate backend")

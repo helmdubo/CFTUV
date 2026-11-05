@@ -177,10 +177,10 @@ def test_positions_and_scaled_uv_inside_the_certified_interval(name, build, alph
             for corner in corners[3]:
                 chord = line(corners[0][corner], corners[1][corner], origin, near_width, width)
                 curve = parabola(corners[0][corner], corners[1][corner], corners[2][corner], origin, near_width, far_width, width)
-                worst["line_uv"] = max(worst["line_uv"], max(abs(a - b) for a, b in zip(chord, corners[3][corner])))
-                worst["parabola_uv"] = max(worst["parabola_uv"], max(abs(a - b) for a, b in zip(curve, corners[3][corner])))
+                worst["line_uv"] = max(worst["line_uv"], abs(chord[1] - corners[3][corner][1]))  # STRAIGHTEN_RUNGS_V1: аффинна v, u - дробно-линейная доля
+                worst["parabola_uv"] = max(worst["parabola_uv"], abs(curve[1] - corners[3][corner][1]))
                 if within:
-                    reach["parabola_uv"] = max(reach["parabola_uv"], max(abs(a - b) for a, b in zip(curve, corners[3][corner])))
+                    reach["parabola_uv"] = max(reach["parabola_uv"], abs(curve[1] - corners[3][corner][1]))
     print(
         f"AFFINE_PREMISE {name}: judged {judged} widths, structure switched in {switched}; "
         + ", ".join(f"{label} {value:.3e}" for label, value in worst.items())

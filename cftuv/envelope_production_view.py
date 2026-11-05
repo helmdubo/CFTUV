@@ -156,7 +156,7 @@ def build_domain_view(result) -> DomainViewV1:
     )
     return DomainViewV1(
         None,
-        DomainVerticesV1(result.patch_id, tuple(positions), tuple(normals), tuple(refs), walls),
+        DomainVerticesV1(result.patch_id, tuple(positions), tuple(normals), tuple(refs), walls, tuple(faces)),
         tuple(faces),
         tuple(uvs),
         tuple(face_owner),

@@ -822,7 +822,7 @@ def test_every_merged_field_face_is_proved_by_an_independent_exact_predicate_und
 
     def capture(source, budget):
         result = original(source, budget)
-        captured["pair"] = (source, result)
+        captured.setdefault("pair", (source, result))  # первый проход решает топологию; второй (UV закона) только пересчитывает цепи
         return result
 
     monkeypatch.setattr(domain_module, "apply_silhouette", capture)

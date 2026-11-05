@@ -35,7 +35,7 @@ def usable(certificate) -> bool:
     return certificate is not None and certificate.exact is not None and not certificate.markers
 
 
-def theorem_differences(base_step, other_step, alpha0: Fraction, alpha1: Fraction):
+def theorem_differences(base_step, other_step, alpha0: Fraction, alpha1: Fraction, *, judge_u: bool = True):
     """`(исход, список расхождений)` двух материализаций одного домена на ширинах `alpha0` и `alpha1` (метры, точные дроби); пусто - теорема выполнена."""
 
     base_certificate, other_certificate = base_step.result.parametric, other_step.result.parametric
@@ -63,15 +63,15 @@ def theorem_differences(base_step, other_step, alpha0: Fraction, alpha1: Fractio
     twin = {name: index for index, name in enumerate(second.loop_ids)}
     for index, name in enumerate(first.loop_ids):
         other = twin[name]
-        for axis in range(2):
+        for axis in range(2 if judge_u else 1, 2):  # `judge_u=False`: u закона STRAIGHTEN_RUNGS_V1 - дробно-линейная доля, наклон её линеаризация; теорема держит v
             if second.loops0[other][axis] != first.loops0[index][axis] + first.loop_slopes[index][axis].scaled(lattice):
                 found.append(("loop", name, axis))
-        if second.loop_slopes[other] != first.loop_slopes[index]:
+        if judge_u and second.loop_slopes[other] != first.loop_slopes[index]:
             found.append(("loop_slope", name))
     return JUDGED, found
 
 
-def float_errors(base_step, other_step, alpha0: Fraction, alpha1: Fraction):
+def float_errors(base_step, other_step, alpha0: Fraction, alpha1: Fraction, *, judge_u: bool = True):
     """`(наибольшая ошибка позиции батча, наибольшая ошибка u * alpha и v * alpha)` модели `значение + наклон * сдвиг` против настоящего батча на `alpha1` (float, метры и единицы UV).
 
     Это ОКРУГЛЕНИЕ: позиция батча - одно округление точного (плюс позиция хоста и перенос узлов, константы), наклон - float от точного. Вершины и петли в порядке вида домена.
@@ -99,7 +99,7 @@ def float_errors(base_step, other_step, alpha0: Fraction, alpha1: Fraction):
     worst_uv = 0.0
     for index, name in enumerate(_loop_names(base.batch)):
         pair_first, pair_second = ids_first[name], ids_second[name]
-        for axis in range(2):
+        for axis in range(2 if judge_u else 1, 2):
             predicted = (pair_first[axis] * alpha_first + certificate.loop_slopes[index * 2 + axis] * delta) / alpha_second
             worst_uv = max(worst_uv, abs(predicted - pair_second[axis]))
     return worst_position, worst_uv

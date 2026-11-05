@@ -62,16 +62,16 @@ CASES = (
 #: батч побитово прежний: `test_materialize_source_lift.test_without_host_positions_...`.
 GOLDEN = {
     "weighted": (
-        "0e50edfbb9731bd446d992118af2c9042d89b1d46e6dc50552eb50b1100b4a4f",
-        "ac2634e830d812e2290d65d5a7fb8812a93f00205c1eaf870cb597d91137f3a7",
+        "8caec3a61dd416140c22f02ba53cd626dbacf013975525d4fd4a5d1dcb35bc78",
+        "0ef47e04652f3b43904655cbed651fac2ec0627705b5c43008df32bf20a7f5f6",
     ),
     "point_contact": (
-        "92552bce29581d1353d61bd5dceb62500bdf3d1e6746eca68b85331d39b8de00",
-        "b12b6ef587b6fd19f3434cf37bb1329cc622365ae0bb1efdfac598a472912f7e",
+        "e44fbc22ba4d4351a19495d70bfd906c90f9d57c64362f6d3f1c1c1d96ff656a",
+        "9f761298edc3a682c8a7d6555296c4581798213047edaaefe6f988d934cb2267",
     ),
     "two_edge": (
-        "243178d5d8acf76ba274a6bdae8e8f0638d81eabf2f37a62a059f12df22f7b73",
-        "d184f24e9f85eca087ac1404329acc8a777700757c601b53c7d815dcbf10b827",
+        "d2a3e7f90568c1056cbd2e7e4426385dee291feda4b0f64f477df15ce338c06f",
+        "7829b3870cc259721ccf603531432e56707e3965848839ac77a7dbb39e817d65",
     ),
     "straight3": (
         "2e9294e7de68f084672b0095c594fcb0da251bc407d5bc3feb1cc13e2f8f43a7",
@@ -203,7 +203,7 @@ def test_the_station_accumulates_along_a_two_edge_chain():
     assert len(result.batch.semantic_regions) == 1
 
 
-def test_a_vertex_fan_is_constant_station_and_its_uv_is_degenerate_by_name():
+def test_a_vertex_fan_is_constant_station_and_its_uv_is_not_degenerate():
     result = _run("point_contact")
     counters = dict(result.counters)
     constant = [
@@ -218,10 +218,9 @@ def test_a_vertex_fan_is_constant_station_and_its_uv_is_degenerate_by_name():
         by_region.setdefault(fact.semantic_region_id, set()).add(fact.source_s.value)
     # Станция веера константна во всём его регионе.
     assert all(len(values) == 1 for values in by_region.values())
-    # Следствие закона V1, названное числом: треугольники веера вырождены в UV.
-    assert counters["MATERIALIZE_TRIANGLES_UV_DEGENERATE"] >= counters[
-        "MATERIALIZE_FAN_FACES"
-    ]
+    # STRAIGHTEN_RUNGS_V1: физическая станция константна, но UV веера - проекция на ось угла, нулевой площади нет.
+    assert counters["MATERIALIZE_STRAIGHTEN_FAN_VERTICES"] >= 2
+    assert counters["MATERIALIZE_TRIANGLES_UV_DEGENERATE"] == 0
 
 
 def test_a_mirrored_domain_materializes_with_consistent_winding():

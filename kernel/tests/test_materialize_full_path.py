@@ -168,49 +168,32 @@ def test_the_metric_check_is_not_vacuous_on_the_skew_chart():
 
 
 @pytest.mark.parametrize("name", CASES)
-def test_the_strip_texels_are_isotropic_u_and_v_are_one_length_alpha(name, monkeypatch):
-    """`uv_law.py` утверждает: единица `u` и единица `v` — одна и та же длина.
-
-    Якобиан `(u, v) -> 3D` каждого невырожденного треугольника полосы: обе
-    колонки длиной `alpha` и перпендикулярны. Это следствие согласованной
-    метрики `s` и `r`, а не отдельное свойство закона: ошибка метрики в любой из
-    двух координат сломала бы его. Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` двигает
-    вершины `src:` на долю ячейки источника и тем возмущает якобиан на ту же долю, поэтому
-    согласованность метрики проверяется на позициях подъёма (закон выключен).
-    """
+def test_the_strip_base_is_arclength_over_alpha_and_v_is_r_over_alpha(name, monkeypatch):
+    """STRAIGHTEN_RUNGS_V1 больше не обещает изотропии (растяжение трапеций - принятая цена). Держится: ребро основания `r = 0` длиной `L` даёт `|du| = L / alpha`, `v` любой вершины полосы равна `r / alpha` её факта. Ошибка метрики в `s` или `r` ломает эти два равенства; положение вершин `src:` - без подъёма, как и раньше."""
 
     monkeypatch.setattr(domain, "host_positions_of", lambda snapshot: {})
-    prepared, coverage, _request = _case(name)
+    _prepared, coverage, _request = _case(name)
     batch = _run(name).batch
     alpha = float(_alpha_decimal(coverage))
     position = {item.vert_key: item.position for item in batch.vertices}
     strips = set(_strip_regions(batch))
-    checked = 0
+    r_of = {(fact.semantic_region_id, fact.vert_key): float(fact.source_r.value) for fact in batch.station_facts}
+    edges = 0
     for face in batch.faces:
         if face.semantic_region_id not in strips:
             continue
-        points = [position[key] for key in face.ordered_vert_keys]
-        (u0, v0), (u1, v1), (u2, v2) = (
-            (item.uv.u, item.uv.v) for item in face.uv_facts
-        )
-        du1, dv1, du2, dv2 = u1 - u0, v1 - v0, u2 - u0, v2 - v0
-        determinant = du1 * dv2 - du2 * dv1
-        if abs(determinant) < 1e-12:
-            continue
-        edge1 = (points[1].x - points[0].x, points[1].y - points[0].y, points[1].z - points[0].z)
-        edge2 = (points[2].x - points[0].x, points[2].y - points[0].y, points[2].z - points[0].z)
-        d_u = tuple((dv2 * a - dv1 * b) / determinant for a, b in zip(edge1, edge2))
-        d_v = tuple((-du2 * a + du1 * b) / determinant for a, b in zip(edge1, edge2))
-        assert _norm(d_u) == pytest.approx(alpha, rel=1e-6), (name, face.face_id)
-        assert _norm(d_v) == pytest.approx(alpha, rel=1e-6), (name, face.face_id)
-        assert abs(_dot(d_u, d_v)) <= 1e-6 * alpha * alpha, (name, face.face_id)
-        checked += 1
-    assert checked >= 2, name
-
-
-# --------------------------------------------------------------------------
-# «Г», излом цепи, дыра, near-planar
-# --------------------------------------------------------------------------
+        size = len(face.ordered_vert_keys)
+        for at, key in enumerate(face.ordered_vert_keys):
+            region = face.semantic_region_id
+            assert face.uv_facts[at].uv.v * alpha == pytest.approx(r_of[(region, key)], abs=1e-6)
+            other = face.ordered_vert_keys[(at + 1) % size]
+            if r_of[(region, key)] == 0.0 and r_of[(region, other)] == 0.0:
+                a, b = position[key], position[other]
+                length = ((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2) ** 0.5
+                du = abs(face.uv_facts[at].uv.u - face.uv_facts[(at + 1) % size].uv.u)
+                assert du * alpha == pytest.approx(length, rel=1e-6, abs=1e-6)
+                edges += 1
+    assert edges >= 1
 
 
 def _vertex_position(batch):

@@ -785,9 +785,11 @@ class ParametricInputsV1:
     lifted_names: dict
     uv_numerators: dict | None = None
     uv_forms: dict | None = None
+    #: Числители UV вершин источника - станции цепи, а не карта положения (`uv_straighten`): сдвинутая резкой вершина `src:` не двигает их фазу.
+    uv_anchored: bool = False
 
 
-def capture_inputs(stage, points, facts, scalars, cut, lifted_names, *, uv_numerators=None, uv_forms=None) -> ParametricInputsV1:
+def capture_inputs(stage, points, facts, scalars, cut, lifted_names, *, uv_numerators=None, uv_forms=None, uv_anchored=False) -> ParametricInputsV1:
     """`ParametricInputsV1` из объектов сборки (`domain._assemble`): ссылки, ничего не считается.
 
     `stage` - `(подъём, слитые грани, контуры до резки, многоугольники до резки, раскладка, таблица станций, перекладины)`; `points`, `facts` - `(до резки, после)`;
@@ -818,6 +820,7 @@ def capture_inputs(stage, points, facts, scalars, cut, lifted_names, *, uv_numer
         lifted_names=lifted_names,
         uv_numerators=uv_numerators,
         uv_forms=uv_forms,
+        uv_anchored=uv_anchored,
     )
 
 
@@ -864,7 +867,7 @@ def _certificate(inputs, batch, interval, request, prepared, coverage, developab
 def _uniform_source_clip_nonaffine(inputs):
     """Сдвинутый src и новые узлы хорды могут дать 1/alpha; точный пересчёт ширины остаётся владельцем."""
 
-    if inputs.uv_numerators is None or inputs.cut is None or not inputs.cut.points:
+    if inputs.uv_numerators is None or inputs.uv_anchored or inputs.cut is None or not inputs.cut.points:
         return False
     return any(key.startswith("src:") and pair[1].is_zero and inputs.points_before.get(key) != inputs.points_after.get(key)
                for (_region, key), pair in inputs.facts_before.items())

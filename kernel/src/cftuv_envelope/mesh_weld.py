@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ._cpython311 import left_fold_sum
 
@@ -52,7 +52,7 @@ def miter_offset(normals, law):
     `o` ищется в линейной оболочке нормалей (`o = sum a_i n_i`, `G a = 1`, `G` — матрица Грама), и
     она единственна, когда система совместна. Равные побитово нормали дают сразу `n`. Отказ —
     `(None, множитель | None, причина)`: система несовместна (почти противоположные либо
-    несходящиеся плоскости) либо множитель митры выше предела. `law` — `(предел митры, допуск ведущего, допуск невязки, синус стены, допуск узла стены, деление ребра стены: 1.0 да, 0.0 нет)` хоста (`WELD_LAW`).
+    несходящиеся плоскости) либо множитель митры выше предела. `law` — `(предел митры, допуск ведущего, допуск невязки, синус стены, допуск узла стены, деление ребра стены: 1.0 да, 0.0 нет, средняя глубина узлов стены: 1.0 да, 0.0 нет)` хоста (`WELD_LAW`).
     """
 
     first = normals[0]
@@ -60,7 +60,7 @@ def miter_offset(normals, law):
         return first, 1.0, ""
     size = len(normals)
     rows = [[_dot(a, b) for b in normals] + [1.0] for a in normals]
-    limit, pivot_epsilon, residual_epsilon, _sine, _node, _split = law
+    limit, pivot_epsilon, residual_epsilon, _sine, _node, _split, _mean = law
     pivots, rows = _eliminate(rows, size, pivot_epsilon)
     for row in range(len(pivots), size):
         if abs(rows[row][size]) > residual_epsilon:
@@ -137,6 +137,7 @@ class WallPlanV1:
     класса. Числа: смещённые узлы, слитые вершины (`len(classes) - len(miters)`), узлы без соседа, отказы митры с причинами и худшим множителем.
     `near` — сколько пар слито законом `WALL_NODE_NEAR_WELD_V1` (не побитово равны, но в пределах допуска). `splits` — закон `WALL_EDGE_SPLIT_V1`: `(домен длинной стены,
     её якорь, её вершина за якорем, домен узла, узел, доля вдоль ребра)` по одной на каждый более короткий узел; грани меняет склейка (`mesh_glue.glue_domains`).
+    `moved[голова]` и `means` — закон `WALL_NODE_MEAN_LEVEL_V1`: точка слитого узла на средней глубине и `(домен, узел, домен, узел)` каждой пары; `mean_refused` — пары, которым закон отказал (остаётся деление ребра).
     """
 
     lifts: dict
@@ -152,6 +153,9 @@ class WallPlanV1:
     partners: tuple = ()
     near: int = 0
     splits: tuple = ()
+    moved: dict = field(default_factory=dict)
+    means: tuple = ()
+    mean_refused: int = 0
 
     @property
     def welded(self) -> int:
@@ -169,7 +173,7 @@ def _normalised(vector):
 
 
 def _wall_heading(other, chain, at, direction, sine):
-    """`(вершина за якорем, вектор от якоря, его длина)` первой стороны стены соседа, идущей тем же ребром, что `direction`, либо `None`."""
+    """`(вершина за якорем, вектор от якоря, его длина, это конец цепи стены)` первой стороны стены соседа, идущей тем же ребром, что `direction`, либо `None`."""
 
     length = math.sqrt(_dot(direction, direction))
     for step in (-1, 1):
@@ -182,12 +186,12 @@ def _wall_heading(other, chain, at, direction, sine):
             continue
         cross = _cross(direction, heading)
         if _dot(direction, heading) > 0.0 and math.sqrt(_dot(cross, cross)) <= sine * length * reach:
-            return chain[position], heading, reach
+            return chain[position], heading, reach, position in (0, len(chain) - 1)
     return None
 
 
 def _wall_partner(domains, walls, table, ordinal, chain, at, sine):
-    """`(домен соседа, его вершина за якорем, нормаль соседа в точке узла, его якорь, доля узла вдоль ребра соседа до среза единицей)` либо `None`: у узла нет соседа на стене.
+    """`(домен соседа, его вершина за якорем, нормаль соседа в точке узла, его якорь, доля узла вдоль ребра соседа до среза единицей, вершина за якорем - конец цепи стены соседа)` либо `None`: у узла нет соседа на стене.
 
     Якорь узла — соседняя с ним по цепи вершина `src:`; сосед — домен, у которого стена выходит из той же вершины (одна ссылка, побитово равная позиция)
     вдоль того же ребра. Нормаль соседа в точке узла — линейная по длине его стены между нормалью в якоре и нормалью за якорем (дальше конца — она сама).
@@ -208,22 +212,78 @@ def _wall_partner(domains, walls, table, ordinal, chain, at, sine):
             along = _wall_heading(other, other_chain, place, direction, sine)
             if along is None:
                 continue
-            beyond, heading, reach = along
+            beyond, heading, reach, at_end = along
             along_edge = _dot(direction, heading) / (reach * reach)
             share = min(1.0, along_edge)
             blended = _normalised(
                 tuple((1.0 - share) * a + share * b for a, b in zip(other.normals[other_chain[place]], other.normals[beyond]))
             )
             if blended is not None:
-                return other_ordinal, beyond, blended, other_chain[place], along_edge
+                return other_ordinal, beyond, blended, other_chain[place], along_edge, at_end
     return None
+
+
+def _newell(points) -> tuple:
+    """Вектор удвоенной площади кольца (Ньюэлл)."""
+
+    x = y = z = 0.0
+    for at, a in enumerate(points):
+        b = points[(at + 1) % len(points)]
+        x += (a[1] - b[1]) * (a[2] + b[2])
+        y += (a[2] - b[2]) * (a[0] + b[0])
+        z += (a[0] - b[0]) * (a[1] + b[1])
+    return x, y, z
+
+
+def _orient(a, b, c) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _ring_keeps_shape(points, at, target) -> bool:
+    """Кольцо грани с вершиной `at` в точке `target`: та же сторона вектора площади и новые рёбра не задевают остальные рёбра кольца (в проекции на плоскость грани)."""
+
+    before = _newell(points)
+    moved = list(points)
+    moved[at] = target
+    if _dot(before, _newell(moved)) <= 0.0:
+        return False
+    axis = 0
+    for index in (1, 2):
+        if abs(before[index]) > abs(before[axis]):
+            axis = index
+    first, second = ((1, 2), (2, 0), (0, 1))[axis]
+    flat = [(point[first], point[second]) for point in moved]
+    size = len(flat)
+    for start, end in (((at - 1) % size, at), (at, (at + 1) % size)):
+        for other in range(size):
+            following = (other + 1) % size
+            if other in (start, end) or following in (start, end):
+                continue
+            a, b, c, d = flat[start], flat[end], flat[other], flat[following]
+            if _orient(a, b, c) * _orient(a, b, d) <= 0.0 and _orient(c, d, a) * _orient(c, d, b) <= 0.0:
+                return False
+    return True
+
+
+def _mean_level_safe(domain, local, target) -> bool:
+    """Закон `WALL_NODE_MEAN_LEVEL_V1` безопасен для узла домена: у домена есть грани, и каждая грань узла сохраняет форму (ни выворота, ни самопересечения)."""
+
+    faces = getattr(domain, "faces", ())
+    touched = False
+    for ring in faces:
+        if local in ring:
+            touched = True
+            if not _ring_keeps_shape([domain.positions[item] for item in ring], ring.index(local), target):
+                return False
+    return touched
 
 
 def plan_wall_nodes(domains, law) -> WallPlanV1:
     """Закон `WALL_MITER_OFFSET_V1`: сдвиги узлов стены на линию сгиба и слияние пар узлов с равными позициями.
 
     Пара сливается, если узлы побитово равны либо расходятся не больше допуска узла (`law[4]`, закон `WALL_NODE_NEAR_WELD_V1`: шум подъёма двух доменов на одной глубине, число таких пар названо).
-    Разошедшиеся дальше узлы остаются своими вершинами, и более короткий делит ребро длинной стены (закон `WALL_EDGE_SPLIT_V1`, `WallPlanV1.splits`): ступень остаётся, общая часть становится общим ребром.
+    Разошедшиеся дальше концы двух стен (`law[6]`, закон `WALL_NODE_MEAN_LEVEL_V1`) становятся одним узлом на СРЕДНЕЙ глубине: точка лежит на отрезке между двумя узлами на одном ребре, то есть на ребре и в его длине; последний отрезок фронта с каждой стороны наклоняется к ней, UV не меняется.
+    Закон действует, только если каждая грань обоих узлов сохраняет форму (`_mean_level_safe`). Иначе, и для узла против вершины источника у соседа, узлы остаются своими вершинами, и более короткий делит ребро длинной стены (закон `WALL_EDGE_SPLIT_V1`, `WallPlanV1.splits`): ступень остаётся, общая часть становится общим ребром; отказ назван (`mean_refused`).
 
     `domains` — `DomainVerticesV1` с цепями стен (`walls`); домен без них ничего не даёт (поведение прежнее). Предел митры и допуски — те же, что у
     `miter_offset`. Обход по номеру домена, цепям и местам в цепи: ответ от порядка множеств не зависит. Домен прежней раскладки
@@ -241,7 +301,9 @@ def plan_wall_nodes(domains, law) -> WallPlanV1:
     classes: dict = {}
     miters: dict = {}
     seen: set = set()
-    lifted = alone = fallbacks = near = 0
+    lifted = alone = fallbacks = near = mean_refused = 0
+    moved: dict = {}
+    means: list = []
     worst = 0.0
     splits: list = []
     reasons: set = set()
@@ -256,11 +318,26 @@ def plan_wall_nodes(domains, law) -> WallPlanV1:
                 if partner is None:
                     alone += 1
                     continue
-                other_ordinal, beyond, blended, other_anchor, along_edge = partner
+                other_ordinal, beyond, blended, other_anchor, along_edge, other_end = partner
                 other = domains[other_ordinal]
                 same = _hex(other.positions[beyond]) == _hex(domain.positions[local])
                 close = same or math.sqrt(_dot(*(tuple(a - b for a, b in zip(other.positions[beyond], domain.positions[local])),) * 2)) <= law[4]
                 twin = not _is_anchor(other, beyond) and (other_ordinal, beyond) not in seen and close
+                target = None
+                if not close and law[6]:
+                    point, far = domain.positions[local], other.positions[beyond]
+                    middle = tuple(0.5 * (a + b) for a, b in zip(point, far))
+                    if (
+                        at in (0, len(chain) - 1)
+                        and other_end
+                        and not _is_anchor(other, beyond)
+                        and (other_ordinal, beyond) not in seen
+                        and _mean_level_safe(domain, local, middle)
+                        and _mean_level_safe(other, beyond, middle)
+                    ):
+                        target, twin = middle, True
+                    else:
+                        mean_refused += 1
                 offset, factor, reason = miter_offset([domain.normals[local], other.normals[beyond] if twin else blended], law)
                 if offset is None:
                     fallbacks += 1
@@ -274,13 +351,18 @@ def plan_wall_nodes(domains, law) -> WallPlanV1:
                     if law[5] and along_edge < 1.0 and not close:
                         splits.append((other_ordinal, other_anchor, beyond, ordinal, local, along_edge))
                     continue
-                near += 0 if same else 1
+                near += 0 if same or target is not None else 1
                 head = (ordinal, local)
+                if target is not None:
+                    moved[head] = target
+                    means.append((ordinal, local, other_ordinal, beyond))
+                    partners.add((ordinal, other_ordinal))
+                    partners.add((other_ordinal, ordinal))
                 seen.add((other_ordinal, beyond))
                 classes[head] = classes[(other_ordinal, beyond)] = head
                 miters[head] = offset
                 lifted += 2
-    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons), tuple(sorted(partners)), near, tuple(splits))
+    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons), tuple(sorted(partners)), near, tuple(splits), moved, tuple(means), mean_refused)
 
 
 def _cross(left, right):
@@ -296,7 +378,7 @@ def weld_core(domains, offset: float, law) -> tuple:
 
     `(позиции меша, номера вершин по домену, групп сварки, слитых вершин, расхождений позиций, точки расхождений по группе, отказов митры,
     худший множитель митры, причины отказов, узлов стены смещено, слито, без соседа, отказов митры стены, худший множитель стены,
-    причины стены, пары доменов стены, пар узлов слито по допуску, деления рёбер длинных стен)`; причины — по возрастанию.
+    причины стены, пары доменов стены, пар узлов слито по допуску, деления рёбер длинных стен, пары узлов на средней глубине, отказов этого закона)`; причины — по возрастанию.
     """
 
     classes, miters, (mismatches, gaps, fallbacks, factor, reasons) = _plan(domains, law)
@@ -316,6 +398,7 @@ def weld_core(domains, offset: float, law) -> tuple:
                 mapping.append(placed[head])
                 continue
             shift = miters[head] if head is not None else wall.lifts.get((ordinal, local), domain.normals[local])
+            point = wall.moved.get(head, point)
             positions.append(
                 (
                     point[0] + offset * shift[0],
@@ -329,7 +412,7 @@ def weld_core(domains, offset: float, law) -> tuple:
         index.append(tuple(mapping))
     return (
         tuple(positions), tuple(index), groups, merged, mismatches, tuple(gaps), fallbacks, factor, tuple(sorted(reasons)),
-        wall.lifted, wall.welded, wall.alone, wall.fallbacks, wall.worst_factor, tuple(sorted(wall.reasons)), wall.partners, wall.near, wall.splits,
+        wall.lifted, wall.welded, wall.alone, wall.fallbacks, wall.worst_factor, tuple(sorted(wall.reasons)), wall.partners, wall.near, wall.splits, wall.means, wall.mean_refused,
     )
 
 

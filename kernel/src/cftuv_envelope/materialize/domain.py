@@ -117,6 +117,7 @@ from .stations import (
 )
 from .uv_law import UV_DIRECT_STRIP_V1, UV_UNIFORM_TRIM_FAN_V1
 from .uv_phase import station_basis
+from .uv_straighten import map_straight_uv
 from .uv_uniform import UniformUvRefusal, build_uniform_plan, map_uniform_uv, plan_from_context
 
 MATERIALIZER_CONTRACT = "cftuv.envelope.materializer.v1"
@@ -930,6 +931,9 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
     shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
     uv_values, uv_forms = _uniform_mapping(uv_plan, budget, (frame_faces, layout, polygons, points, facts), lines, source_loci)
+    straight_counters = ()
+    if request.uv_policy_id == UV_DIRECT_STRIP_V1:
+        uv_values, uv_forms, straight_counters = map_straight_uv(frame_faces, layout, table, cycles, polygons, points, facts, None if shaped is None else shaped.polygons)
     shaped = _uniform_shaped(shaped, budget, request, (points, shaped.facts if shaped is not None else facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
     batch = backend.assemble_compute(
         assemble_batch,
@@ -973,14 +977,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     clock.lap("ASSEMBLE")
     inputs = (
         capture_inputs((plane, frame_faces, cycles, cut_polygons, layout, table, rungs), (points_before, points), (facts_before, facts), (coverage.alpha, lattice_alpha, law, admission.lift_law.clips_by_faces, inert), cut, lifted_names,
-                       uv_numerators=uv_values, uv_forms=uv_forms)
+                       uv_numerators=uv_values, uv_forms=uv_forms, uv_anchored=request.uv_policy_id == UV_DIRECT_STRIP_V1)
         if capture
         else None
     )
     return (
         batch,
         frame_faces,
-        _lift_counters(plane, sourced, faces_after, cut, tally, () if shaped is None else shaped.counters),
+        _lift_counters(plane, sourced, faces_after, cut, tally, (() if shaped is None else shaped.counters) + straight_counters),
         plane,
         topology,
         "" if cut is None else cut.memo,

@@ -224,7 +224,7 @@ PINS: dict = {
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "mesh_checks.py": "099e4a3a2bf8a9b75b60a39fadc1ad8b4ebc10a2cbfaf58c622af61049140058",
     "mesh_glue.py": "02dbd9ae929160f9c4b418b790ba2acb9f1300a28b8683e6fe6deba24de40236",
-    "mesh_weld.py": "ede059961b6316004513d6ef4e0cba0e5a1f67b95737f28305bc98c5cb16bc77",
+    "mesh_weld.py": "11bcfb408aba930a9b02fa3da3156edb7128f52b4d06c924f78c0415e8fc487c",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
     "planar_metric.py": "eba51fedd37424c13be6e34350fe4d9b23e044f7807a7f071f430cdc72cb0f6a",
     "reference/angle_certificate_sign.py": "3114f1d3784f7ebfbda707455fe499fa9496d8b9a340ce692b584764824191be",
