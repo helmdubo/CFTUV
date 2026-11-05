@@ -37,8 +37,8 @@ import numpy as np
 from . import envelope_composite_native as composite_native
 from .envelope_production_result import PLACEMENT_REBASED
 from .envelope_mesh_assembly import cross_domain_seams
-from .envelope_production_weld import WELD_LOCATION_PREFIX, weld_vertices
-from .envelope_width_preview_model import MeshImageV1, PreviewSampleV1, domain_sample_of, layout_digest_of, positions_and_uvs, relocated_domain
+from .envelope_production_weld import WELD_LAW, WELD_LOCATION_PREFIX, weld_vertices
+from .envelope_width_preview_model import MeshImageV1, PreviewSampleV1, domain_sample_of, layout_digest_of, positions_and_uvs, relocated_domain, with_mean_slopes
 from .envelope_view_bytes import view_parts
 from .envelope_width_rebase import certificate_usable, rebased_view, view_of
 
@@ -252,13 +252,13 @@ def _group_weld(displayed: PreviewSampleV1, fresh: dict, ordered: list, views: d
         if isinstance(inputs, str):
             return inputs
         if inputs is not None:
-            weld = composite_native.group_weld(inputs, ordered, alpha, offset)
+            weld = composite_native.group_weld(inputs, ordered, alpha, offset, displayed.weld_law or WELD_LAW)
             if weld is not None:
                 return weld, inputs
     reason = _python_views(displayed, fresh, ordered, views, alpha=alpha)
     if reason:
         return reason
-    return weld_vertices([views[number].vertices for number in ordered], offset), None
+    return weld_vertices([views[number].vertices for number in ordered], offset, displayed.weld_law or WELD_LAW), None
 
 
 def _weld_into(displayed: PreviewSampleV1, fresh: dict, taken: set, ordered: list, positions: np.ndarray, *, alpha: float, offset: float) -> int | str:
@@ -636,7 +636,7 @@ def _splice(displayed: PreviewSampleV1, fresh: dict, changed: set, positions, *,
     renumbered = _rows_to_renumber(displayed, tables, changed, new_of_pair, new_offsets)
     domains, origins = _splice_rows(displayed, fresh, changed, taken, ordered, weld, new_of_pair, new_offsets, str(alpha), renumbered)
     sample = replace(
-        displayed, alpha_text=str(alpha), alpha=alpha, positions=positions_new, uvs=uvs_new, domains=domains, arrays_digest="", image=image, origins=origins,
+        displayed, alpha_text=str(alpha), alpha=alpha, positions=positions_new, uvs=uvs_new, domains=domains, wall_means=_splice_means(displayed, taken, ordered, weld), arrays_digest="", image=image, origins=origins,
         layout_digest=layout_digest_of(image, int(positions_new.shape[0]), int(uvs_new.shape[0])), cache={"patch_index": _patch_index(displayed)},
     )
     return CompositeV1(sample, len(fresh), len(ordered), int(moved_new.sum()), time.perf_counter() - started, spliced=reason)
@@ -657,10 +657,18 @@ def _rows_to_renumber(displayed: PreviewSampleV1, tables, changed: set, new_of_p
     return renumbered
 
 
+def _splice_means(displayed: PreviewSampleV1, taken: set, ordered: list, weld) -> tuple:
+    """Пары закона `WALL_NODE_MEAN_LEVEL_V1` после перекладки: между принимаемыми доменами - из сварки группы (в номерах образца), прочие - прежние."""
+
+    found = {(ordered[int(a)], int(b), ordered[int(c)], int(d)) for a, b, c, d in weld.means}
+    return tuple(sorted(found | {item for item in displayed.wall_means if item[0] not in taken and item[2] not in taken}))
+
+
 def _splice_rows(displayed: PreviewSampleV1, fresh: dict, changed: set, taken: set, ordered: list, weld, new_of_pair, new_offsets, alpha_text: str, renumbered):
     """Строки доменов после перекладки (номера вершин меша и начала петель - новые, соседи по стене принимаемых - из сварки группы) и результаты образца. Строка домена, у которого не
     сменилось ничего, переходит как есть."""
 
+    means = _splice_means(displayed, taken, ordered, weld)
     partners: dict = {}
     for own, other in weld.partners:
         partners.setdefault(ordered[int(own)], []).append(ordered[int(other)])
@@ -690,7 +698,7 @@ def _splice_rows(displayed: PreviewSampleV1, fresh: dict, changed: set, taken: s
             continue
         rows.append(relocated_domain(domain, vertices, loop_start, mine))
         loop_start += domain.loop_count
-    return tuple(rows), origins
+    return with_mean_slopes(tuple(rows), means), origins
 
 
 def compose_sample(displayed: PreviewSampleV1, model, results, *, alpha: float, offset: float, splice: bool = False) -> CompositeV1 | str:
@@ -739,7 +747,7 @@ def compose_sample(displayed: PreviewSampleV1, model, results, *, alpha: float, 
             return _splice(displayed, fresh, set(), positions, alpha=alpha, offset=offset, started=started, reason=rows, uvs=uvs)
         return rows
     domains, origins, image = rows
-    sample = replace(displayed, alpha_text=str(alpha), alpha=alpha, positions=positions, uvs=uvs, domains=tuple(domains), arrays_digest="", image=image, origins=origins)
+    sample = replace(displayed, alpha_text=str(alpha), alpha=alpha, positions=positions, uvs=uvs, domains=with_mean_slopes(tuple(domains), displayed.wall_means), arrays_digest="", image=image, origins=origins)
     return CompositeV1(sample, len(fresh), group_size, adopted, time.perf_counter() - started)
 
 

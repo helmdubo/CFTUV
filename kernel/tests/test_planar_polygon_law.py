@@ -797,7 +797,10 @@ def test_every_vertex_keeps_its_uv_in_its_region_across_the_rungs(name):
 def test_the_counters_agree_except_the_ones_that_count_faces(name):
     triangles, quads = _both_laws(name)
     result = _polygons_law(name)
-    left, right, own = dict(triangles.counters), dict(quads.counters), dict(result.counters)
+    left, right, own = (
+        {name: value for name, value in item.counters if not name.startswith("MATERIALIZE_STRAIGHTEN_")}  # числа UV считают треугольники своих граней: у разных законов топологии разные
+        for item in (triangles, quads, result)
+    )
     # Ключи: прежний набор без счётчика-обманщика плюс числа закона.
     assert set(own) == (set(right) - {"MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED"}) | LAW_NUMBERS
     assert set(left) == set(right)
@@ -1091,9 +1094,9 @@ def test_a_concave_strip_of_the_corpus_is_one_face_and_changes_nothing_else(monk
 #: (те же сдвинутые позиции, что у `GOLDEN_QUADS`: грани законов тут совпадают), состав
 #: граней не менялся; `straight3` сдвига не имеет.
 GOLDEN_POLYGONS = {
-    "weighted": "61d88c1adce5ad5537917e754c0c6ef01c3a7beb7e87fdbb3775f206f482d89d",
-    "point_contact": "a18d06885f2ae09de58e54807fd921f3eef52f3b7797b7a6b4e9ff5c81815113",
-    "two_edge": "6f7f4f4e71ea11d22aab8c7ed53551b2607986e767814e10e3860a04c6f2352e",
+    "weighted": "0b2e0a152f1c7b78dd4c7e63e0a6e3f91a968c10e46eb183334238130f383747",
+    "point_contact": "600cabeabfefd62d461241bbcf89f80765d594e99010b2f2fd85e98381503f3f",
+    "two_edge": "9076fdb68906e9172803ceb356eb68b54ac78f6e2a9e08b42dfcaf54da772ae2",
     "straight3": "d77838183f8b36115e0bd985fdb966247e55974ff2ee91effb03542328a2b454",
 }
 

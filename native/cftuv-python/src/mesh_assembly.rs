@@ -258,6 +258,8 @@ pub struct Law {
     pub node: f64,
     /// `law[5]` (law `WALL_EDGE_SPLIT_V1`): whether a shorter wall node splits the edge of the longer wall.
     pub split: bool,
+    /// `law[6]` (law `WALL_NODE_MEAN_LEVEL_V1`): whether the two ends of the walls on one seam edge become one node at the mean depth.
+    pub mean: bool,
 }
 const REASON_NOT_MEET: &str = "the offset planes do not meet in one point";
 const REASON_EXCEEDS: &str = "the miter exceeds the limit";
@@ -268,6 +270,8 @@ pub struct WeldDomain {
     /// The id of the `location:src:` reference of each vertex (`None`: no reference, or one that does not weld).
     pub refs: Vec<Option<u32>>,
     pub walls: Vec<Vec<usize>>,
+    /// The rings of the faces of the domain (`DomainVerticesV1.faces`): `WALL_NODE_MEAN_LEVEL_V1` checks them.
+    pub faces: Vec<Vec<usize>>,
 }
 
 type Member = (usize, usize);
@@ -379,13 +383,17 @@ pub struct WeldAnswer {
     pub near: usize,
     /// `WallPlanV1.splits` (law `WALL_EDGE_SPLIT_V1`): `(domain of the long wall, its anchor, its vertex beyond, domain of the node, the node, share along the edge)`.
     pub splits: Vec<(usize, usize, usize, usize, usize, f64)>,
+    /// `WallPlanV1.means` (law `WALL_NODE_MEAN_LEVEL_V1`): `(domain, node, domain, node)` of the pairs that became one node at the mean depth.
+    pub means: Vec<(usize, usize, usize, usize)>,
+    /// `WallPlanV1.mean_refused`.
+    pub mean_refused: usize,
 }
 
 fn sorted_reasons(reasons: &std::collections::BTreeSet<&'static str>) -> Vec<&'static str> {
     reasons.iter().copied().collect()
 }
 
-fn wall_heading(other: &WeldDomain, chain: &[usize], at: usize, direction: &Point, sine: f64) -> Option<(usize, Point, f64)> {
+fn wall_heading(other: &WeldDomain, chain: &[usize], at: usize, direction: &Point, sine: f64) -> Option<(usize, Point, f64, bool)> {
     let length = dot(direction, direction).sqrt();
     for step in [-1i64, 1] {
         let position = at as i64 + step;
@@ -399,13 +407,13 @@ fn wall_heading(other: &WeldDomain, chain: &[usize], at: usize, direction: &Poin
         }
         let turn = cross(direction, &heading);
         if dot(direction, &heading) > 0.0 && dot(&turn, &turn).sqrt() <= sine * length * reach {
-            return Some((chain[position as usize], heading, reach));
+            return Some((chain[position as usize], heading, reach, position == 0 || position as usize == chain.len() - 1));
         }
     }
     None
 }
 
-fn wall_partner(domains: &[WeldDomain], table: &HashMap<u32, Vec<(usize, usize, usize)>>, ordinal: usize, chain: &[usize], at: usize, sine: f64) -> Option<(usize, usize, Point, usize, f64)> {
+fn wall_partner(domains: &[WeldDomain], table: &HashMap<u32, Vec<(usize, usize, usize)>>, ordinal: usize, chain: &[usize], at: usize, sine: f64) -> Option<(usize, usize, Point, usize, f64, bool)> {
     let domain = &domains[ordinal];
     for step in [-1i64, 1] {
         let position = at as i64 + step;
@@ -421,18 +429,80 @@ fn wall_partner(domains: &[WeldDomain], table: &HashMap<u32, Vec<(usize, usize, 
             if other_ordinal == ordinal || bits(&other.positions[other_chain[place]]) != bits(&domain.positions[anchor]) {
                 continue;
             }
-            let Some((beyond, heading, reach)) = wall_heading(other, other_chain, place, &direction, sine) else { continue };
+            let Some((beyond, heading, reach, at_end)) = wall_heading(other, other_chain, place, &direction, sine) else { continue };
             let ratio = dot(&direction, &heading) / (reach * reach);
             let share = if ratio < 1.0 { ratio } else { 1.0 };
             let a = other.normals[other_chain[place]];
             let b = other.normals[beyond];
             let mixed = [(1.0 - share) * a[0] + share * b[0], (1.0 - share) * a[1] + share * b[1], (1.0 - share) * a[2] + share * b[2]];
             if let Some(blended) = normalised(mixed) {
-                return Some((other_ordinal, beyond, blended, other_chain[place], ratio));
+                return Some((other_ordinal, beyond, blended, other_chain[place], ratio, at_end));
             }
         }
     }
     None
+}
+
+fn newell(points: &[Point]) -> Point {
+    let (mut x, mut y, mut z) = (0.0f64, 0.0f64, 0.0f64);
+    for (at, a) in points.iter().enumerate() {
+        let b = &points[(at + 1) % points.len()];
+        x += (a[1] - b[1]) * (a[2] + b[2]);
+        y += (a[2] - b[2]) * (a[0] + b[0]);
+        z += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    [x, y, z]
+}
+
+fn orient(a: &[f64; 2], b: &[f64; 2], c: &[f64; 2]) -> f64 {
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+}
+
+/// `mesh_weld._ring_keeps_shape`.
+fn ring_keeps_shape(points: &[Point], at: usize, target: &Point) -> bool {
+    let before = newell(points);
+    let mut moved = points.to_vec();
+    moved[at] = *target;
+    if dot(&before, &newell(&moved)) <= 0.0 {
+        return false;
+    }
+    let mut axis = 0usize;
+    for index in [1usize, 2] {
+        if before[index].abs() > before[axis].abs() {
+            axis = index;
+        }
+    }
+    let (first, second) = [(1usize, 2usize), (2, 0), (0, 1)][axis];
+    let flat: Vec<[f64; 2]> = moved.iter().map(|point| [point[first], point[second]]).collect();
+    let size = flat.len();
+    for (start, end) in [((at + size - 1) % size, at), (at, (at + 1) % size)] {
+        for other in 0..size {
+            let following = (other + 1) % size;
+            if other == start || other == end || following == start || following == end {
+                continue;
+            }
+            let (a, b, c, d) = (&flat[start], &flat[end], &flat[other], &flat[following]);
+            if orient(a, b, c) * orient(a, b, d) <= 0.0 && orient(c, d, a) * orient(c, d, b) <= 0.0 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `mesh_weld._mean_level_safe`.
+fn mean_level_safe(domain: &WeldDomain, local: usize, target: &Point) -> bool {
+    let mut touched = false;
+    for ring in &domain.faces {
+        if let Some(at) = ring.iter().position(|item| *item == local) {
+            touched = true;
+            let points: Vec<Point> = ring.iter().map(|item| domain.positions[*item]).collect();
+            if !ring_keeps_shape(&points, at, target) {
+                return false;
+            }
+        }
+    }
+    touched
 }
 
 /// `weld_core` over read domains (indices already checked against the arrays).
@@ -518,6 +588,9 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
     let mut partners: BTreeSet<(usize, usize)> = BTreeSet::new();
     let mut near = 0usize;
     let mut splits: Vec<(usize, usize, usize, usize, usize, f64)> = Vec::new();
+    let mut moved: HashMap<Member, Point> = HashMap::new();
+    let mut means: Vec<(usize, usize, usize, usize)> = Vec::new();
+    let mut mean_refused = 0usize;
     for (ordinal, domain) in domains.iter().enumerate() {
         for chain in &domain.walls {
             for (at, &local) in chain.iter().enumerate() {
@@ -525,7 +598,7 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
                     continue;
                 }
                 seen.insert((ordinal, local));
-                let Some((other_ordinal, beyond, blended, other_anchor, along_edge)) = wall_partner(domains, &table, ordinal, chain, at, law.sine) else {
+                let Some((other_ordinal, beyond, blended, other_anchor, along_edge, other_end)) = wall_partner(domains, &table, ordinal, chain, at, law.sine) else {
                     alone += 1;
                     continue;
                 };
@@ -533,7 +606,24 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
                 let same = bits(&other.positions[beyond]) == bits(&domain.positions[local]);
                 let apart = sub(&domain.positions[local], &other.positions[beyond]);
                 let close = same || dot(&apart, &apart).sqrt() <= law.node;
-                let twin = other.refs[beyond].is_none() && !seen.contains(&(other_ordinal, beyond)) && close;
+                let mut twin = other.refs[beyond].is_none() && !seen.contains(&(other_ordinal, beyond)) && close;
+                let mut target: Option<Point> = None;
+                if !close && law.mean {
+                    let (point, far) = (domain.positions[local], other.positions[beyond]);
+                    let middle = [0.5 * (point[0] + far[0]), 0.5 * (point[1] + far[1]), 0.5 * (point[2] + far[2])];
+                    if (at == 0 || at == chain.len() - 1)
+                        && other_end
+                        && other.refs[beyond].is_none()
+                        && !seen.contains(&(other_ordinal, beyond))
+                        && mean_level_safe(domain, local, &middle)
+                        && mean_level_safe(other, beyond, &middle)
+                    {
+                        target = Some(middle);
+                        twin = true;
+                    } else {
+                        mean_refused += 1;
+                    }
+                }
                 let pair = [domain.normals[local], if twin { other.normals[beyond] } else { blended }];
                 let (shift, factor, reason) = miter(&pair, law);
                 let Some(shift) = shift else {
@@ -554,10 +644,16 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
                     }
                     continue;
                 }
-                if !same {
+                if !same && target.is_none() {
                     near += 1;
                 }
                 let head = (ordinal, local);
+                if let Some(middle) = target {
+                    moved.insert(head, middle);
+                    means.push((ordinal, local, other_ordinal, beyond));
+                    partners.insert((ordinal, other_ordinal));
+                    partners.insert((other_ordinal, ordinal));
+                }
                 seen.insert((other_ordinal, beyond));
                 wall_classes.insert(head, head);
                 wall_classes.insert((other_ordinal, beyond), head);
@@ -585,6 +681,7 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
                 Some(head) => miters[&head],
                 None => lifts.get(&(ordinal, local)).copied().unwrap_or(domain.normals[local]),
             };
+            let point = head.and_then(|head| moved.get(&head)).unwrap_or(point);
             positions.push([point[0] + offset * shift[0], point[1] + offset * shift[1], point[2] + offset * shift[2]]);
             mapping.push(positions.len() - 1);
             if let Some(head) = head {
@@ -612,6 +709,8 @@ pub fn weld(domains: &[WeldDomain], offset: f64, law: &Law) -> WeldAnswer {
         partners: partners.into_iter().collect(),
         near,
         splits,
+        means,
+        mean_refused,
     }
 }
 
@@ -699,7 +798,18 @@ fn read_weld_domains(domains: &Bound<'_, PyAny>) -> Result<Vec<WeldDomain>, Decl
             }
             walls.push(locals);
         }
-        found.push(WeldDomain { positions, normals, refs, walls });
+        let faces_object = match domain.getattr("faces") {
+            Ok(faces) => faces,
+            Err(_) => PyTuple::empty(domain.py()).into_any(),
+        };
+        let mut faces = Vec::new();
+        for ring in read_faces(&faces_object)? {
+            if ring.iter().any(|item| *item < 0 || *item as u64 >= positions.len() as u64) {
+                return Err("a face vertex is outside the domain".to_string());
+            }
+            faces.push(ring.iter().map(|item| *item as usize).collect());
+        }
+        found.push(WeldDomain { positions, normals, refs, walls, faces });
     }
     Ok(found)
 }
@@ -712,8 +822,8 @@ fn point_tuple<'py>(py: Python<'py>, point: &Point) -> PyResult<Bound<'py, PyTup
 #[pyfunction]
 pub fn mesh_weld<'py>(py: Python<'py>, domains: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<(Vec<WeldDomain>, f64, Law), Decline> {
-        let numbers = floats(law, 6, "the weld law")?;
-        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0 };
+        let numbers = floats(law, 7, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0, mean: numbers[6] != 0.0 };
         Ok((read_weld_domains(domains)?, exact_float(offset, "the offset")?, law))
     };
     let (domains, offset, law) = match read() {
@@ -749,6 +859,8 @@ pub fn mesh_weld<'py>(py: Python<'py>, domains: &Bound<'py, PyAny>, offset: &Bou
         partners.into_any(),
         answer.near.into_pyobject(py)?.into_any(),
         PyTuple::new(py, answer.splits.iter().copied())?.into_any(),
+        PyTuple::new(py, answer.means.iter().copied())?.into_any(),
+        answer.mean_refused.into_pyobject(py)?.into_any(),
     ];
     Ok(PyTuple::new(py, parts)?.into_any())
 }
@@ -1236,7 +1348,7 @@ pub fn weld_domains(views: &[ParsedView<'_>]) -> Vec<WeldDomain> {
                 Some(*ids.entry(text).or_insert(next))
             })
             .collect();
-        domains.push(WeldDomain { positions: view.positions.clone(), normals: view.normals.clone(), refs, walls: view.walls.clone() });
+        domains.push(WeldDomain { positions: view.positions.clone(), normals: view.normals.clone(), refs, walls: view.walls.clone(), faces: view.faces.clone() });
     }
     domains
 }
@@ -1350,8 +1462,8 @@ pub(crate) fn bytes_of<'py, T: Copy, const N: usize>(py: Python<'py>, values: im
 #[pyo3(signature = (views, patch_ids, offset, law, reports, digest=true))]
 pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>, reports: bool, digest: bool) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<(Vec<Bound<'py, pyo3::types::PyBytes>>, Vec<i64>, f64, Law), Decline> {
-        let numbers = floats(law, 6, "the weld law")?;
-        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0 };
+        let numbers = floats(law, 7, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0, mean: numbers[6] != 0.0 };
         let data = items(views, "views")?
             .into_iter()
             .map(|item| item.cast_into::<pyo3::types::PyBytes>().map_err(|_| "a view is not bytes (it travels as an object)".to_string()))
@@ -1414,6 +1526,8 @@ pub fn mesh_assemble<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, patch_ids:
         PyTuple::new(py, weld.partners.iter().copied())?.into_any(),
         weld.near.into_pyobject(py)?.into_any(),
         PyTuple::new(py, weld.splits.iter().copied())?.into_any(),
+        PyTuple::new(py, weld.means.iter().copied())?.into_any(),
+        weld.mean_refused.into_pyobject(py)?.into_any(),
     ];
     let found_reports = match (digest, answer.reports) {
         (Some(digest), Some((seam, plane, conflicts))) => (digest, seam, plane, conflicts).into_pyobject(py)?.into_any(),

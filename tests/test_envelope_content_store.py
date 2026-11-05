@@ -139,6 +139,7 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "lean",
         # Ширина, на которой заморожены нормали смещения сдвинутой копии (WIDTH_REFRESH_INCREMENTAL_V1): число, ключей в нём нет; у настоящего результата 0.0, а сдвинутая копия lean и хранилищем не принимается.
         "normals_alpha",
+        "uv_policy_id",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}

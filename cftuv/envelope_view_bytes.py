@@ -216,17 +216,19 @@ def decode_view(data: bytes):
     chain_flat = take("I", chain_items).tolist()
     texts = _texts(take("I", strings + 1), data[offset:offset + blob])
     lookup = (None, *texts)
+    face_rings = tuple(tuple(face_corners[a:b]) for a, b in zip(face_starts, face_starts[1:]))
     vertices = DomainVerticesV1(
         patch_id,
         tuple(zip(positions, positions, positions)),
         tuple(zip(normals, normals, normals)),
         tuple(map(lookup.__getitem__, refs)),
         tuple(tuple(wall_flat[a:b]) for a, b in zip(wall_starts, wall_starts[1:])),
+        face_rings,
     )
     return DomainViewV1(
         None,
         vertices,
-        tuple(tuple(face_corners[a:b]) for a, b in zip(face_starts, face_starts[1:])),
+        face_rings,
         tuple(zip(uvs, uvs)),
         owners,
         tuple(zip(seam_pairs, seam_pairs)),

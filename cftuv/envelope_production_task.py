@@ -174,6 +174,7 @@ def produce_domain(
             structure_digest="" if result.structure is None else result.structure.digest,
             step_path=stepped.path,
             parametric=result.parametric,
+            uv_policy_id=str(uv_policy_id),
         )
         if defer:
             produced = (lean_result if lean else deferred_result)(produced).with_changes(seconds=time.perf_counter() - started)

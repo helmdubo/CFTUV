@@ -118,12 +118,12 @@ def test_value_plus_slope_times_shift_is_the_exact_run(name, build, laws, given,
     judged = skipped = 0
     for other_text in shifts(base, alpha0):
         other = step(prepared, other_text, laws)
-        outcome, differences = theorem.theorem_differences(base, other, alpha0, Fraction(other_text))
+        outcome, differences = theorem.theorem_differences(base, other, alpha0, Fraction(other_text), judge_u=False)  # STRAIGHTEN_RUNGS_V1: u - линеаризация доли
         assert not differences, (name, other_text, differences[:5])
         if outcome == theorem.JUDGED:
             judged += 1
             # Модель `значение + наклон * сдвиг` против настоящего батча: округление.
-            errors = theorem.float_errors(base, other, alpha0, Fraction(other_text))
+            errors = theorem.float_errors(base, other, alpha0, Fraction(other_text), judge_u=False)
             assert errors is not None and max(errors) <= FRAME_TOLERANCE, (name, other_text, errors)
         else:
             skipped += 1

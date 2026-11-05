@@ -110,12 +110,12 @@ fn borrowed<'a>(data: &'a [Bound<'_, PyBytes>], moves: &'a [Option<(Bound<'_, Py
     )
 }
 
-/// `(positions f64x3, index u32 (the local vertices of every domain in turn), vertex counts, partners)` of the weld of the group, or the text of a decline.
+/// `(positions f64x3, index u32 (the local vertices of every domain in turn), vertex counts, partners, pairs of `WALL_NODE_MEAN_LEVEL_V1`)` of the weld of the group, or the text of a decline.
 #[pyfunction]
 pub fn mesh_splice_weld<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, rebases: &Bound<'py, PyAny>, alpha: &Bound<'py, PyAny>, offset: &Bound<'py, PyAny>, law: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let read = || -> Result<_, Decline> {
-        let numbers = floats(law, 6, "the weld law")?;
-        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0 };
+        let numbers = floats(law, 7, "the weld law")?;
+        let law = Law { limit: numbers[0], pivot: numbers[1], residual: numbers[2], sine: numbers[3], node: numbers[4], split: numbers[5] != 0.0, mean: numbers[6] != 0.0 };
         let (data, moves, alpha) = read_group(views, rebases, alpha)?;
         Ok((data, moves, alpha, exact_float(offset, "the offset")?, law))
     };
@@ -142,7 +142,8 @@ pub fn mesh_splice_weld<'py>(py: Python<'py>, views: &Bound<'py, PyAny>, rebases
     let index = bytes_of(py, numbers.into_iter(), u32::to_le_bytes)?;
     let counts = PyTuple::new(py, answer.index.iter().map(|mapping| mapping.len()))?;
     let partners = PyTuple::new(py, answer.partners.iter().copied())?;
-    Ok(PyTuple::new(py, [positions.into_any(), index.into_any(), counts.into_any(), partners.into_any()])?.into_any())
+    let means = PyTuple::new(py, answer.means.iter().copied())?;
+    Ok(PyTuple::new(py, [positions.into_any(), index.into_any(), counts.into_any(), partners.into_any(), means.into_any()])?.into_any())
 }
 
 /// The faces, owners and seams of the rebuilt views in the new numbering (`mappings`: int64 little-endian, the mesh vertex of every local vertex).

@@ -1233,7 +1233,7 @@ MODULE_LINE_ALLOWANCE = {
     # 450 -> 459. +9 за VIEW_BYTES_V1: поле `view_bytes`, значение поля `view` без значения класса (`_no_view`: иначе чтение вида из байтов не доходит до `__getattr__`),
     # ветка разбора в `__getattr__` и снятие байтов там, где снимается вид (`__getstate__`, `materialized`, `with_changes`, `rebased_result`). Кодек, запись вида в
     # состояние (`put_view`) и разбор с памятью (`cached_view`) живут в `envelope_view_bytes`; модуль стоял на строку под потолком. Число поднято осознанно, до фактического.
-    "cftuv/envelope_production_result.py": 459,
+    "cftuv/envelope_production_result.py": 461,  # +2: закон UV прогона в результате (`uv_policy_id`), от него зависит закон сварки стен
     "cftuv/envelope_production_task.py": 400,
     # 500 -> 520. +19 за домен из записи сборки без блока бэкенда на домен (SCAN_REUSED_ENTRY_WITHOUT_BACKEND_BLOCK_V1): `_Scan._reused` (запись пустого блока раз на обход,
     # модуль ядра раз на обход) и одна проверка `peek_domain_snapshot` перед блоком. Сама проверка кэшей живёт в `envelope_debug_session`, память идентичности домена - в `envelope_scan_memo`.

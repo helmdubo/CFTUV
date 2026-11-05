@@ -199,6 +199,8 @@ class DomainSampleV1:
     normal_alpha: float = float("nan")
     #: Закон `WALL_EDGE_SPLIT_V1` (`MeshArraysV1.domain_wall_splits`): петли меша этого домена, которых нет в виде домена; их наклоны - те же доли наклонов концов ребра.
     wall_splits: tuple = ()
+    #: Наклоны позиций сертификата домена до закона `WALL_NODE_MEAN_LEVEL_V1` (`with_mean_slopes`); `None` - `slopes` и есть они.
+    own_slopes: object | None = None
 
 
 _DOMAIN_FIELDS = DomainSampleV1.__slots__
@@ -299,6 +301,10 @@ class PreviewSampleV1:
     origins: object = None
     #: Раскладочные справочники образца (номер домена по патчу, домены по общей ссылке вершины, соседи по стене наоборот): считаются один раз и переходят к образцам той же раскладки (`envelope_width_composite`).
     cache: dict = field(default_factory=dict)
+    #: Закон `WALL_NODE_MEAN_LEVEL_V1`: пары узлов `(домен, узел, домен, узел)`, ставшие одной вершиной (`with_mean_slopes`).
+    wall_means: tuple = ()
+    #: Закон сварки, под которым сложен образец (`MeshArraysV1.weld_law`): такт варит тем же законом; пусто - закон хоста по умолчанию.
+    weld_law: tuple = ()
 
     @property
     def vertex_count(self) -> int:
@@ -534,7 +540,9 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
         alpha=float(alpha_text),
         positions=positions,
         uvs=uvs,
-        domains=tuple(domains),
+        domains=with_mean_slopes(tuple(domains), tuple(getattr(arrays, "wall_means", ()) or ())),
+        wall_means=tuple(getattr(arrays, "wall_means", ()) or ()),
+        weld_law=tuple(getattr(arrays, "weld_law", ()) or ()),
         arrays_digest=str(arrays.digest),
         source_revision=str(arrays.source_revision),
         layout_digest=layout_digest_of(image, int(positions.shape[0]), int(uvs.shape[0])),
@@ -542,6 +550,35 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
         offset=float(getattr(arrays, "offset", 0.0) or 0.0),
         origins=origins,
     )
+
+
+def with_mean_slopes(domains: tuple, means: tuple) -> tuple:
+    """Строки доменов, у которых наклон вершины закона `WALL_NODE_MEAN_LEVEL_V1` - среднее наклонов двух её узлов (`(домен, узел, домен, узел)`): вершина лежит посередине между двумя аффинными по ширине узлами, значит её наклон именно он.
+
+    Сварка считает позицию из точных узлов сама (`mesh_weld`); здесь только кадр модели между тактами. Сосед без чисел: строка остаётся как есть, и `_weld_conflicts` назовёт домен. Читает `own_slopes`, поэтому повторный вызов над строками такта верен.
+    """
+
+    if not means:
+        return domains
+    rows = list(domains)
+    edits: dict = {}
+    for first, node, second, other in means:
+        left, right = rows[first], rows[second]
+        own_left = left.slopes if left.own_slopes is None else left.own_slopes
+        own_right = right.slopes if right.own_slopes is None else right.own_slopes
+        if own_left is None or own_right is None:
+            continue
+        middle = 0.5 * (own_left[node] + own_right[other])
+        edits.setdefault(first, []).append((node, middle))
+        edits.setdefault(second, []).append((other, middle))
+    for number, changes in edits.items():
+        row = rows[number]
+        own = row.slopes if row.own_slopes is None else row.own_slopes
+        slopes = np.array(own, dtype=np.float64)
+        for local, value in changes:
+            slopes[local] = value
+        rows[number] = replace(row, slopes=slopes, own_slopes=own)
+    return tuple(rows)
 
 
 def domain_sample_of(result, *, token: str, vertices, loop_start: int, loop_count: int, partners: tuple, alpha_text: str, wall_splits: tuple = ()) -> DomainSampleV1:

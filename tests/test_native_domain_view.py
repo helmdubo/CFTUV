@@ -45,7 +45,7 @@ ORACLE = (
     (weld_module, ("boundary_chain_names",)),
     (codec, ("encode_view", "_encode", "_float_rows", "_index_rows", "_pack")),
 )
-ORACLE_DIGEST = "ba7cb72fd8db9884f0468810fce23e0b8b9cd2c3691ffe77265f535998fd97e2"
+ORACLE_DIGEST = "8b04cb62284a182b2c512413f32dd7b6807051d01edb03801c03bf19cc26a74e"
 
 
 def _oracle_digest() -> str:

@@ -220,6 +220,47 @@ def test_random_welds_answer_as_the_oracle(seed):
     assert _exact(cftuv_native.mesh_weld(domains, offset, LAW)) == _exact(mesh_weld.weld_core(domains, offset, LAW))
 
 
+def _with_faces(domains, seed: int) -> list:
+    from cftuv.envelope_production_weld import DomainVerticesV1
+
+    rng = random.Random(seed + 1000)
+    found = []
+    for domain in domains:
+        size = len(domain.positions)
+        rings = [tuple(rng.sample(range(size), min(size, rng.choice((3, 4, 5))))) for _ in range(rng.randint(0, 4))] if size >= 3 else []
+        # every wall node gets a ring in most scenes, so both answers of the shape check are reached
+        for wall in domain.walls:
+            if size >= 3 and rng.random() < 0.8:
+                others = [item for item in range(size) if item not in wall]
+                rings.append((*wall[:2], *rng.sample(others, min(len(others), 2))))
+        found.append(DomainVerticesV1(domain.patch_id, domain.positions, domain.normals, domain.refs, domain.walls, faces=tuple(ring for ring in rings if len(ring) >= 3)))
+    return found
+
+
+@needs_native
+@pytest.mark.parametrize("seed", range(400))
+def test_random_mean_level_welds_answer_as_the_oracle(seed):
+    from cftuv.envelope_production_weld import WELD_LAW_MEAN_LEVEL
+    from cftuv_envelope import mesh_weld
+
+    domains, offset = _weld_scene(seed)
+    domains = _with_faces(domains, seed)
+    assert _exact(cftuv_native.mesh_weld(domains, offset, WELD_LAW_MEAN_LEVEL)) == _exact(mesh_weld.weld_core(domains, offset, WELD_LAW_MEAN_LEVEL))
+
+
+def test_the_random_mean_level_welds_reach_both_answers():
+    from cftuv.envelope_production_weld import WELD_LAW_MEAN_LEVEL
+    from cftuv_envelope import mesh_weld
+
+    means = refused = 0
+    for seed in range(400):
+        domains, offset = _weld_scene(seed)
+        answer = mesh_weld.weld_core(_with_faces(domains, seed), offset, WELD_LAW_MEAN_LEVEL)
+        means += len(answer[-2])
+        refused += answer[-1]
+    assert means and refused
+
+
 def test_the_random_welds_reach_every_branch():
     from cftuv_envelope import mesh_weld
 

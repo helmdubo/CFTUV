@@ -636,16 +636,16 @@ def test_the_law_is_fed_the_same_canonical_triangles_under_every_topology_law(na
 #: законом батч обязан совпасть с ними побитово, то есть закон — единственное, что их сдвинуло.
 PRE_LIFT_GOLDEN = {
     "weighted": (
-        "a4360476d7143bb595dc2cfc839d394c270a03a57c05faf3173c0d35fd66175d",
-        "6c9595622c6553df029c39e7de416eb99668d03507cc359ae209fbbdffba3fcb",
+        "d84aea2b37914cd347c8248f21d9d9747e407b853b6e8418cf278a83c4d30448",
+        "7a9fe75492796dafb0ca171cca41c11c96858f98498dadce07608d9ecd6c31ba",
     ),
     "point_contact": (
-        "13c9760ddaf4789159392c304703f648a4b48e25fdc4290cf2b0521ff36940be",
-        "1df330928f921ffa0274e7345bafe3fedecb5cf12b745a191c503cebc026f90e",
+        "86f410f4722b11fcfbd3cab18ce9737ddcdec7f575a4c2582194dcc898308174",
+        "cae35cbd60d2b5fa33f329483fe1bd001f82940a96ff22a5c1277bf802d5b11b",
     ),
     "two_edge": (
-        "90759ea94fed3a6102a32fa6bda16a85b83da95dab4ff0c3b0c19a6b555580a0",
-        "15c1a2b06d84c9a9030ee6e79e189360b79730601183583e35d7d3b0b9c54840",
+        "4d6c292b2a3e514e23289f0be3512944294298f2a1618aae737ffbeb563d251f",
+        "cea09b81bb4c596591acec6e3394443f80143257445178ffa83102e90c94aa61",
     ),
     "straight3": (
         "2e9294e7de68f084672b0095c594fcb0da251bc407d5bc3feb1cc13e2f8f43a7",

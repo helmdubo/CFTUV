@@ -852,9 +852,9 @@ def test_the_quad_law_over_the_corpus_fans_back_out_to_the_triangle_batch():
 #: те же, что у треугольников, — они в `test_materialize_domain.GOLDEN`). Меняются
 #: ТОЛЬКО осознанно: любое движение — смена состава граней закона.
 GOLDEN_QUADS = {
-    "weighted": "61d88c1adce5ad5537917e754c0c6ef01c3a7beb7e87fdbb3775f206f482d89d",
-    "point_contact": "a18d06885f2ae09de58e54807fd921f3eef52f3b7797b7a6b4e9ff5c81815113",
-    "two_edge": "d184f24e9f85eca087ac1404329acc8a777700757c601b53c7d815dcbf10b827",
+    "weighted": "0b2e0a152f1c7b78dd4c7e63e0a6e3f91a968c10e46eb183334238130f383747",
+    "point_contact": "600cabeabfefd62d461241bbcf89f80765d594e99010b2f2fd85e98381503f3f",
+    "two_edge": "7829b3870cc259721ccf603531432e56707e3965848839ac77a7dbb39e817d65",
     "straight3": "f9988c58176be1d6d0dacdc12aaa86efcfc12116c7d8db26aaf3405e0760e7c1",
 }
 

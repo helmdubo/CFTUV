@@ -66,7 +66,7 @@ def rebased_view(view: DomainViewV1, certificate, alpha: float) -> DomainViewV1:
     uvs = uvs + (loops - uvs) * (dt / alpha)
     return DomainViewV1(
         None,
-        DomainVerticesV1(vertices.patch_id, tuple(map(tuple, points.tolist())), vertices.normals, vertices.refs, vertices.walls),
+        DomainVerticesV1(vertices.patch_id, tuple(map(tuple, points.tolist())), vertices.normals, vertices.refs, vertices.walls, vertices.faces),
         view.faces,
         tuple(map(tuple, uvs.tolist())),
         view.owners,
