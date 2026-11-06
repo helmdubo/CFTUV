@@ -505,9 +505,44 @@ def _check_mark_up_preparation():
     from cftuv.hotspot_editor import load_draft
 
     assert load_draft(scene, editor.draft_of, discard=True) == "" and not editor.dirty
+    _check_backdrop(scene, sheet, principled)
     _check_overlay_gate(editor)
     mesh_settings.material_name = MATERIAL
     print("HOTSPOT MARK UP preparation: image from nodes, text created and linked, refusals named", flush=True)
+
+
+def _check_backdrop(scene, sheet, principled):
+    """HOTSPOT_BACKDROP_V1: подложка мини-окна из картинок материала; другой размер при метках - отказ по имени (подложка и разметка прежние),
+    без меток разметка переходит в размер картинки; выбор помнится настройкой следующего «Mark Up»."""
+
+    from cftuv.hotspot_blender import HOTSPOT_BACKDROP_SIZE_MISMATCH, read_markup_text
+    from cftuv.hotspot_editor import backdrop_images, commit_draft, switch_backdrop
+    from cftuv.hotspot_markup import HotspotMarkV1
+
+    editor = scene.hotspotuv_hotspot_editor
+    for name, size in (("panel_normal.png", (1024, 512)), ("panel_rough.png", (512, 256))):
+        node = sheet.node_tree.nodes.new("ShaderNodeTexImage")
+        node.image = bpy.data.images.new(name, *size)
+    assert [image.name for image in backdrop_images(editor)] == ["panel_sheet.png", "panel_normal.png", "panel_rough.png"]
+    from cftuv.hotspot_editor import _backdrop_items
+
+    labels = [item[1] for item in _backdrop_items(editor, bpy.context)]
+    assert labels == ["panel_sheet.png (512 x 256 px)", "panel_normal.png (1024 x 512 px) - not the markup's 512 x 256", "panel_rough.png (512 x 256 px)"], labels
+    assert switch_backdrop(scene, "panel_rough.png") == "" and editor.backdrop == "panel_rough.png" and scene.hotspotuv_hotspot.image_name == "panel_rough.png"
+    assert (editor.width, editor.height, editor.image) == (512, 256, "panel_sheet.png"), "a backdrop of the same size is display only"
+    item = editor.marks.add()
+    item.mark_id, item.label, item.kind, item.up, item.x, item.y, item.w, item.h = 0, "a", "trim", "+y", 0, 0, 512, 64
+    assert commit_draft(scene) == () and not editor.dirty
+    assert switch_backdrop(scene, "panel_normal.png") == HOTSPOT_BACKDROP_SIZE_MISMATCH and HOTSPOT_BACKDROP_SIZE_MISMATCH in editor.backdrop_problem
+    assert editor.backdrop == "panel_rough.png" and (editor.width, editor.height) == (512, 256), "a refused switch changes nothing"
+    editor.marks.remove(0)
+    commit_draft(scene)
+    assert switch_backdrop(scene, "panel_normal.png") == "" and (editor.width, editor.height, editor.image) == (1024, 512, "panel_normal.png") and not editor.backdrop_problem
+    markup, _problems = read_markup_text(editor.draft_of)
+    assert (markup.width, markup.height) == (1024, 512), "an empty markup takes the backdrop's size, written validated"
+    assert switch_backdrop(scene, "panel_sheet.png") == "" and (editor.width, editor.height) == (512, 256)
+    scene.hotspotuv_hotspot.image_name = ""
+    print("HOTSPOT BACKDROP: same size shown, another size refused by name with marks, an empty markup rebased", flush=True)
 
 
 def _check_overlay_gate(editor):

@@ -3,7 +3,9 @@
 МИНИ-ОКНО. «Mark Up» панели декали (`hotspotuv.hotspot_mark_up`) берёт материал декали и картинку из его узлов, сам создаёт и связывает
 датаблок разметки, загружает черновик и открывает отдельное маленькое окно: временное окно `screen.info_log_show` (одна область, закрытие
 убирает его экран), область переключается в Image Editor с этой картинкой, вид вписан в видимую часть, боковая панель открыта на вкладке
-Hotspot, инструмент запущен. Повторное нажатие переиспользует окно.
+Hotspot, инструмент запущен. Повторное нажатие переиспользует окно. Подложка (HOTSPOT_BACKDROP_V1) выбирается первой строкой боковой панели
+мини-окна из картинок материала: разметка в пикселях своей текстуры, поэтому картинка другого размера при метках - отказ
+`HOTSPOT_BACKDROP_SIZE_MISMATCH`, без меток разметка переходит в её размер.
 
 ЧЕРНОВИК И ТЕКСТ. Правится черновик - коллекция меток сцены (`hotspotuv_hotspot_editor`, она сохраняется вместе с .blend). После каждой правки
 черновик проверяется (`hotspot_markup.save_markup`): принятый пишется в текстовый датаблок, непринятый НЕ пишется - текст остаётся прежним
@@ -30,7 +32,21 @@ from __future__ import annotations
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
 
-from .hotspot_blender import OVERLAY_EDITOR, ensure_material_markup, linked_markup_name, overlay_where, read_markup_text, scene_material_image, write_markup_text
+from .hotspot_blender import (
+    BACKDROP_REBASE,
+    HOTSPOT_MATERIAL_HAS_NO_IMAGE,
+    OVERLAY_EDITOR,
+    SETTINGS_ATTRIBUTE,
+    backdrop_label,
+    backdrop_switch,
+    ensure_material_markup,
+    linked_markup_name,
+    material_images,
+    overlay_where,
+    read_markup_text,
+    scene_material_image,
+    write_markup_text,
+)
 from .hotspot_markup import KIND_CORNER, KIND_TRIM, KINDS, UP_VECTORS, HotspotMarkV1, HotspotMarkupV1, mark_colours, next_mark_id
 
 EDITOR_ATTRIBUTE = "hotspotuv_hotspot_editor"
@@ -54,6 +70,10 @@ KEY_HINTS = (
 _MINI: dict = {}
 #: Заголовок области мини-окна вместо меню Image Editor (выбор картинки, режим UV, тип области): окно разметки выглядит отдельным окном.
 WINDOW_TITLE = "CFTUV Hotspot Markup"
+#: HOTSPOT_BACKDROP_V1: мини-окно показывает не выбранную подложку (картинку сменили боковой панелью Image): меток нет, строка и кнопка возврата.
+HOTSPOT_BACKDROP_CHANGED = "HOTSPOT_BACKDROP_CHANGED"
+#: Пункты списка подложек (Blender не копирует строки динамического перечня).
+_BACKDROP_ITEMS: list = []
 _RUNNING: set = set()
 #: Перетаскивание инструмента пишет черновик много раз в секунду: проверка и запись текста - на отпускании (флаг ставит инструмент).
 _SUSPEND = {"commit": False}
@@ -83,6 +103,30 @@ def _redraw_image_editors(_self=None, _context=None) -> None:
                 area.tag_redraw()
 
 
+def backdrop_images(editor) -> tuple:
+    """Картинки материала черновика, годные в подложку (правило `hotspot_blender.material_images`: Base Color узла Principled первой)."""
+
+    return material_images(bpy.data.materials.get(editor.material) if editor.material else None)
+
+
+def _backdrop_items(self, _context):
+    size = (int(self.width), int(self.height))
+    _BACKDROP_ITEMS[:] = [(image.name, backdrop_label(image, size), "Image Texture of the material shown under the marks", index) for index, image in enumerate(backdrop_images(self))]
+    _BACKDROP_ITEMS[:] = _BACKDROP_ITEMS or [("-", "no image", "the material has no Image Texture node with an image", 0)]
+    return _BACKDROP_ITEMS
+
+
+def _backdrop_get(self) -> int:
+    names = [image.name for image in backdrop_images(self)]
+    return names.index(self.backdrop) if self.backdrop in names else 0
+
+
+def _backdrop_set(self, value) -> None:
+    images = backdrop_images(self)
+    if 0 <= int(value) < len(images):
+        switch_backdrop(self.id_data, images[int(value)].name)
+
+
 class HOTSPOTUV_HotspotEditor(bpy.types.PropertyGroup):
     draft_of: StringProperty(name="Draft of", description="Text datablock the draft was loaded from and is saved to")
     material: StringProperty(name="Material", description="Material whose markup the draft is (shown in the mini editor)")
@@ -94,6 +138,15 @@ class HOTSPOTUV_HotspotEditor(bpy.types.PropertyGroup):
     grid: IntProperty(name="Grid", default=8, min=1, max=1024, description="Pixel grid of the edit tool ([ and ] halve and double it)")
     dirty: BoolProperty(name="Unsaved draft", default=False)
     problems: StringProperty(name="Problems")
+    backdrop: StringProperty(name="Backdrop", description="Image shown under the marks in the mini editor (same size as the markup's texture)")
+    backdrop_problem: StringProperty(name="Backdrop problem", description="Named refusal of the last backdrop switch")
+    backdrop_choice: EnumProperty(
+        name="Backdrop",
+        items=_backdrop_items,
+        get=_backdrop_get,
+        set=_backdrop_set,
+        description="Image Texture of the material shown under the marks: Base Color of the Principled node first. Another size than the markup's is refused while it has marks",
+    )
     show_in_uv_editor: BoolProperty(
         name="Show marks in UV Editor",
         default=False,
@@ -178,8 +231,75 @@ def prepare_markup(scene) -> tuple:
         refusal = load_draft(scene, name)
         if refusal:
             return None, refusal, f"markup {name!r} does not load"
+    action, refusal, detail = backdrop_switch(tuple(image.size[:2]), (editor.width, editor.height), len(editor.marks))
+    if refusal:  # черновик (а не текст) решает: у непринятого черновика могут быть метки, которых в тексте ещё нет
+        return None, refusal, detail
     editor.material = material.name
+    if action == BACKDROP_REBASE:
+        _rebase(scene, editor, image)
+    editor.backdrop, editor.backdrop_problem = image.name, ""
     return image, "", ""
+
+
+def _rebase(scene, editor, image) -> None:
+    """Разметка без меток переходит в размер картинки (HOTSPOT_BACKDROP_V1): сдвигаться нечему; текст пишется проверенным."""
+
+    print(f"[CFTUV][Hotspot] markup {editor.draft_of!r} has no marks: its texture becomes {image.name!r} ({image.size[0]} x {image.size[1]} px), was {editor.width} x {editor.height}", flush=True)
+    editor.width, editor.height, editor.image = int(image.size[0]), int(image.size[1]), image.name
+    commit_draft(scene)
+
+
+def switch_backdrop(scene, image_name: str) -> str:
+    """Подложка мини-окна - картинка материала `image_name` (список в боковой панели): отказ по имени (пусто - показана), он же в `backdrop_problem`.
+
+    Тот же размер, что у разметки, - показывается, метки и текст не меняются (имя картинки разметки тоже: подложка - только показ). Разметка без
+    меток переходит в размер картинки. С метками другой размер - `HOTSPOT_BACKDROP_SIZE_MISMATCH`, подложка остаётся прежней."""
+
+    editor = editor_of(scene)
+    image = next((item for item in backdrop_images(editor) if item.name == image_name), None)
+    if image is None:
+        refusal, detail = HOTSPOT_MATERIAL_HAS_NO_IMAGE, f"material {editor.material!r} has no Image Texture with image {image_name!r}"
+    else:
+        action, refusal, detail = backdrop_switch(tuple(image.size[:2]), (editor.width, editor.height), len(editor.marks))
+    if refusal:
+        editor.backdrop_problem = f"{refusal}: {image_name}: {detail}"
+        print(f"[CFTUV][Hotspot] {editor.backdrop_problem}", flush=True)
+        return refusal
+    if action == BACKDROP_REBASE:
+        _rebase(scene, editor, image)
+    editor.backdrop_problem = ""
+    show_backdrop(scene, image)
+    return ""
+
+
+def show_backdrop(scene, image) -> None:
+    """Подложка `image` в области мини-окна; выбор помнится настройками (следующий «Mark Up» откроет её)."""
+
+    editor = editor_of(scene)
+    editor.backdrop = image.name
+    settings = getattr(scene, SETTINGS_ATTRIBUTE, None)
+    if settings is not None and settings.image_name != image.name:
+        settings.image_name = image.name
+    window, area = _mini_area()
+    if area is None:
+        return
+    space = area.spaces.active
+    resized = space.image is None or tuple(space.image.size[:2]) != tuple(image.size[:2])
+    space.image = image
+    if resized:  # вид вписывается заново таймером: из обработчика свойства операторы вида не зовутся
+        window_pointer, area_pointer = window.as_pointer(), area.as_pointer()
+        bpy.app.timers.register(lambda: _refit(window_pointer, area_pointer), first_interval=0.05)
+    area.tag_redraw()
+
+
+def _refit(window_pointer, area_pointer):
+    window = _find_window(window_pointer)
+    area = None if window is None else next((item for item in window.screen.areas if item.as_pointer() == area_pointer), None)
+    region = None if area is None else _window_region(area)
+    if region is not None and region.width > 64:
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            _fit_view(area, region)
+    return None
 
 
 def _find_window(pointer):
@@ -223,7 +343,7 @@ def overlay_mode(window, screen, area, editor) -> str:
     registered = (_MINI.get("window"), _MINI.get("screen"), _MINI.get("area"))
     live = mini_key() if key == registered else None  # окна перебираются только для самой области мини-окна
     shown = getattr(getattr(area.spaces.active, "image", None), "name", "")
-    return overlay_where(key, live, shown, (editor.image,), bool(editor.show_in_uv_editor))
+    return overlay_where(key, live, shown, (editor.image, editor.backdrop), bool(editor.show_in_uv_editor))
 
 
 def is_mini_context(context) -> bool:
@@ -374,6 +494,24 @@ class HOTSPOTUV_OT_HotspotMarkupDiscard(bpy.types.Operator):
         refusal = load_draft(context.scene, editor.draft_of, discard=True)
         if refusal:
             self.report({"ERROR"}, f"{refusal}: {editor.draft_of}")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class HOTSPOTUV_OT_HotspotBackdropShow(bpy.types.Operator):
+    bl_idname = "hotspotuv.hotspot_backdrop_show"
+    bl_label = "Show Backdrop"
+    bl_description = "Show the picked backdrop image in this window again (another image was opened over it)"
+
+    @classmethod
+    def poll(cls, context):
+        return is_mini_context(context)
+
+    def execute(self, context):
+        editor = editor_of(context.scene)
+        refusal = switch_backdrop(context.scene, editor.backdrop)
+        if refusal:
+            self.report({"ERROR"}, editor.backdrop_problem)
             return {"CANCELLED"}
         return {"FINISHED"}
 
@@ -686,6 +824,12 @@ def _draw_marks() -> None:
     mode = overlay_mode(context.window, context.screen, context.area, editor)  # HOTSPOT_EDITOR_WINDOW_V1: только мини-окно (или выбор пользователя)
     if not mode:
         return
+    changed = backdrop_changed(context.area, editor) if mode == OVERLAY_EDITOR else ""
+    if changed:  # метки в пикселях своей текстуры поверх чужой картинки не рисуются; имя и что сделать - строкой внизу
+        import blf
+
+        _draw_state(blf, context.area, editor, changed)
+        return
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
     gpu.state.blend_set("ALPHA")
 
@@ -731,12 +875,22 @@ def _draw_marks() -> None:
     gpu.state.blend_set("NONE")
 
 
-def _draw_state(blf, area, editor) -> None:
+def backdrop_changed(area, editor) -> str:
+    """Имя картинки, которую область мини-окна показывает вместо выбранной подложки (сменили боковой панелью Image); пусто - та же."""
+
+    shown = getattr(area.spaces.active, "image", None)
+    name = "" if shown is None else shown.name
+    return "" if not editor.backdrop or name == editor.backdrop else (name or "no image")
+
+
+def _draw_state(blf, area, editor, changed: str = "") -> None:
     """Строки внизу слева: подсказки клавиш, пока инструмент работает (иначе - как его запустить), и состояние черновика по имени."""
 
     running = area is not None and area.as_pointer() in _RUNNING
     hint = (0.85, 0.85, 0.85, 1.0)
-    if running:
+    if changed:
+        lines = [(f"{HOTSPOT_BACKDROP_CHANGED}: the window shows {changed}, the backdrop is {editor.backdrop}: marks hidden; Show Backdrop in the sidebar", (1.0, 0.4, 0.3, 1.0))]
+    elif running:
         lines = [(f"Mark tool, grid {editor.grid} px", hint)] + [("  |  ".join(KEY_HINTS[at:at + 2]), hint) for at in range(0, len(KEY_HINTS), 2)]
     else:
         lines = [("Mark tool stopped: Edit Marks in the sidebar (N) starts it", (1.0, 0.8, 0.3, 1.0))]
@@ -777,13 +931,22 @@ class HOTSPOTUV_PT_HotspotMarkup(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         editor = editor_of(context.scene)
+        # HOTSPOT_BACKDROP_V1: подложка - первая строка окна; разметка - в пикселях своей текстуры (строка Texture), подложка только показ.
+        layout.prop(editor, "backdrop_choice", text="Backdrop", icon="IMAGE_DATA")
+        if editor.backdrop_problem:
+            box = layout.box().column(align=True)
+            name, _colon, detail = editor.backdrop_problem.partition(": ")
+            box.label(text=name, icon="ERROR")
+            box.label(text=f"   {detail[:160]}")
+        changed = backdrop_changed(context.area, editor)
+        if changed:
+            box = layout.box().column(align=True)
+            box.label(text=f"{HOTSPOT_BACKDROP_CHANGED}: shows {changed}", icon="ERROR")
+            box.operator(HOTSPOTUV_OT_HotspotBackdropShow.bl_idname, icon="IMAGE_DATA")
         column = layout.column(align=True)
         column.label(text=f"Material {editor.material or '?'}", icon="MATERIAL")
         column.label(text=f"Markup {editor.draft_of}", icon="TEXT")
-        column.label(text=f"Texture {editor.image}: {editor.width} x {editor.height} px", icon="IMAGE_DATA")
-        shown = getattr(context.space_data, "image", None)
-        if shown is not None and tuple(shown.size) != (editor.width, editor.height) and shown.size[0]:
-            column.label(text=f"Shown image {shown.name} is {shown.size[0]} x {shown.size[1]} px", icon="ERROR")
+        column.label(text=f"Texture {editor.image}: {editor.width} x {editor.height} px", icon="TEXTURE")
         self._draw_state(layout, context, editor)
         layout.prop(editor, "show_in_uv_editor")
         layout.template_list("HOTSPOTUV_UL_HotspotMarks", "", editor, "marks", editor, "active", rows=3)
@@ -830,6 +993,7 @@ _CLASSES = (
     HOTSPOTUV_HotspotEditor,
     HOTSPOTUV_OT_HotspotMarkUp,
     HOTSPOTUV_OT_HotspotMarkupDiscard,
+    HOTSPOTUV_OT_HotspotBackdropShow,
     HOTSPOTUV_OT_HotspotEditorClose,
     HOTSPOTUV_OT_HotspotMarkupEdit,
     HOTSPOTUV_UL_HotspotMarks,
@@ -877,8 +1041,13 @@ __all__ = (
     "HOTSPOT_EDITOR_WINDOW_NOT_OPENED",
     "KEY_HINTS",
     "MARKUP_DRAFT_UNSAVED",
+    "HOTSPOT_BACKDROP_CHANGED",
     "WINDOW_TITLE",
     "area_key",
+    "backdrop_changed",
+    "backdrop_images",
+    "show_backdrop",
+    "switch_backdrop",
     "commit_draft",
     "draft_markup",
     "is_mini_context",

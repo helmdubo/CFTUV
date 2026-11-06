@@ -176,6 +176,41 @@ def test_each_mark_has_its_own_stable_semi_transparent_fill_and_a_contrasting_ba
     assert sum(band[:3]) < sum(fill[:3]), "the corner band is a darker tint of the same hue"
 
 
+def test_the_backdrop_list_names_size_and_a_size_other_than_the_markup_s():
+    from cftuv.hotspot_blender import backdrop_label
+
+    assert backdrop_label(_Image("albedo", 1024, 512), (1024, 512)) == "albedo (1024 x 512 px)"
+    assert backdrop_label(_Image("normal", 2048, 1024), (1024, 512)) == "normal (2048 x 1024 px) - not the markup's 1024 x 512"
+    assert backdrop_label(_Image("any", 64, 64)) == "any (64 x 64 px)"
+
+
+def test_a_backdrop_of_another_size_is_refused_by_name_while_the_markup_has_marks_and_rebases_an_empty_markup():
+    """HOTSPOT_BACKDROP_V1: метка - целые пиксели своей текстуры; растянуть её на чужую картинку молча нельзя."""
+
+    from cftuv.hotspot_blender import BACKDROP_REBASE, BACKDROP_SHOW, HOTSPOT_BACKDROP_SIZE_MISMATCH, backdrop_switch
+
+    assert backdrop_switch((1024, 512), (1024, 512), 3) == (BACKDROP_SHOW, "", "")
+    action, refusal, detail = backdrop_switch((2048, 1024), (1024, 512), 3)
+    assert (action, refusal) == ("", HOTSPOT_BACKDROP_SIZE_MISMATCH) and "1024 x 512" in detail and "2048 x 1024" in detail and "3 mark" in detail
+    assert backdrop_switch((2048, 1024), (1024, 512), 0) == (BACKDROP_REBASE, "", "")
+    assert backdrop_switch((0, 0), (1024, 512), 0)[1] == HOTSPOT_IMAGE_HAS_NO_PIXELS
+
+
+def test_mark_up_picks_a_backdrop_of_the_markup_size_before_refusing():
+    from cftuv.hotspot_blender import HOTSPOT_BACKDROP_SIZE_MISMATCH, pick_backdrop
+
+    big, small, named = _Image("big", 2048, 1024), _Image("small", 1024, 512), _Image("sheet.png", 1024, 512)
+    mark = HotspotMarkV1(0, "drips", "trim", 0, 0, 1024, 128, "+y")
+    marked = HotspotMarkupV1(1024, 512, "sheet.png", (mark,))
+    assert pick_backdrop((big, small, named), big, None) == (big, "", ""), "no markup yet: the first choice"
+    assert pick_backdrop((big, small, named), small, marked)[0] is small, "the user's choice when its size fits"
+    assert pick_backdrop((big, small, named), big, marked)[0] is named, "then the markup's own image"
+    assert pick_backdrop((big, small), big, marked)[0] is small, "then any image of the markup size"
+    image, refusal, detail = pick_backdrop((big,), big, marked)
+    assert image is None and refusal == HOTSPOT_BACKDROP_SIZE_MISMATCH and detail
+    assert pick_backdrop((big,), big, HotspotMarkupV1(1024, 512, "sheet.png", ())) == (big, "", ""), "an empty markup takes the image's size"
+
+
 def test_the_marks_are_drawn_only_in_the_mini_editor_area_unless_the_user_asks_for_them_elsewhere():
     """HOTSPOT_EDITOR_WINDOW_V1: ключ (окно, экран, область) мини-окна; та же картинка в другом Image Editor (UV Editor декали) - не повод рисовать."""
 

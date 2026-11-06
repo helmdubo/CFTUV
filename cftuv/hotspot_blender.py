@@ -189,13 +189,65 @@ def ensure_material_markup(material, image) -> tuple:
     return name, created, ()
 
 
+#: HOTSPOT_BACKDROP_V1: исход выбора подложки мини-окна - показать картинку как есть или (разметка без меток) перевести разметку в её размер.
+BACKDROP_SHOW = "show"
+BACKDROP_REBASE = "rebase"
+#: Подложка другого размера, чем пиксели разметки с метками: отказ по имени, метки не растягиваются на чужую картинку молча.
+HOTSPOT_BACKDROP_SIZE_MISMATCH = "HOTSPOT_BACKDROP_SIZE_MISMATCH"
+
+
+def backdrop_label(image, size=None) -> str:
+    """Пункт списка подложек: `имя (Ш x В px)`; другой размер, чем у разметки, назван в самом пункте."""
+
+    label = f"{image.name} ({image.size[0]} x {image.size[1]} px)"
+    return label if size is None or tuple(image.size[:2]) == tuple(size) else f"{label} - not the markup's {size[0]} x {size[1]}"
+
+
+def backdrop_switch(image_size, markup_size, mark_count: int) -> tuple:
+    """`(исход, отказ, подробность)` подложки размера `image_size` у разметки `markup_size` с `mark_count` метками (HOTSPOT_BACKDROP_V1).
+
+    Тот же размер - показать. Другой: меток нет - разметка переводится в размер картинки (`BACKDROP_REBASE`: пикселей, которые сдвинулись бы,
+    нет); метки есть - отказ `HOTSPOT_BACKDROP_SIZE_MISMATCH`: метка - целые пиксели своей текстуры, растягивать её на картинку другого
+    размера молча нельзя, а пересчитывать пиксели - значит менять метки, которых пользователь не трогал."""
+
+    width, height = int(image_size[0]), int(image_size[1])
+    if (width, height) == (int(markup_size[0]), int(markup_size[1])):
+        return BACKDROP_SHOW, "", ""
+    if not width or not height:
+        return "", HOTSPOT_IMAGE_HAS_NO_PIXELS, "the image has no pixels (missing file?)"
+    if not mark_count:
+        return BACKDROP_REBASE, "", ""
+    return "", HOTSPOT_BACKDROP_SIZE_MISMATCH, (
+        f"the markup is {int(markup_size[0])} x {int(markup_size[1])} px with {mark_count} mark(s), the image is {width} x {height} px: "
+        "marks are pixels of their texture and are never scaled"
+    )
+
+
+def pick_backdrop(candidates, first, markup) -> tuple:
+    """`(картинка | None, отказ, подробность)` подложки «Mark Up»: `first` (выбор пользователя, иначе картинка разметки, иначе первая), если
+    её размер - размер разметки; иначе картинка разметки или первая картинка материала того же размера; иначе - `backdrop_switch` от `first`."""
+
+    if markup is None or first is None:
+        return first, "", ""
+    size = (int(markup.width), int(markup.height))
+    named = next((image for image in candidates if image.name == markup.image), None)
+    for image in (first, named, *candidates):
+        if image is not None and tuple(image.size[:2]) == size:
+            return image, "", ""
+    action, refusal, detail = backdrop_switch(tuple(first.size[:2]), size, len(markup.marks))
+    return (first if action else None), refusal, detail
+
+
 def scene_material_image(scene) -> tuple:
-    """`(материал, картинка | None, отказ, подробность, кандидаты)` разметки сцены: материал декали и его картинка (выбор панели, иначе картинка разметки)."""
+    """`(материал, картинка | None, отказ, подробность, кандидаты)` разметки сцены: материал декали и его картинка-подложка (выбор подложки в
+    мини-окне, иначе картинка разметки, иначе первая; размер - размер разметки, HOTSPOT_BACKDROP_V1)."""
 
     material = decal_material(scene)
     settings = getattr(scene, SETTINGS_ATTRIBUTE, None)
     _name, markup, _problems = read_material_markup(material)
     image, refusal, detail, candidates = resolve_material_image(material, getattr(settings, "image_name", ""), "" if markup is None else markup.image)
+    if image is not None:
+        image, refusal, detail = pick_backdrop(candidates, image, markup)
     return material, image, refusal, detail, candidates
 
 
@@ -285,11 +337,8 @@ def draw_hotspot_rows(layout, context) -> None:
         return
     # Материал разметки И есть материал декали: метка берётся из текстуры, которую декаль покажет (HOTSPOT_PANEL_EDITOR_V1).
     box.prop_search(mesh_settings, "material_name", bpy.data, "materials", text="Material", results_are_suggestions=True)
-    _material, image, image_refusal, image_detail, candidates = scene_material_image(scene)
-    if len(candidates) > 1:
-        box.prop(settings, "image_choice")
-    elif image is not None:
-        box.label(text=f"Texture {image.name}: {image.size[0]} x {image.size[1]} px", icon="IMAGE_DATA")
+    # Текстура-подложка выбирается в самом мини-окне (HOTSPOT_BACKDROP_V1); здесь - только отказ, если подложки нет вовсе.
+    _material, image, image_refusal, image_detail, _candidates = scene_material_image(scene)
     if image is None:
         _refusal_rows(box, image_refusal, image_detail)
     row = box.row()
@@ -581,7 +630,13 @@ __all__ = (
     "OVERLAY_EDITOR",
     "OVERLAY_ELSEWHERE",
     "SETTINGS_ATTRIBUTE",
+    "BACKDROP_REBASE",
+    "BACKDROP_SHOW",
+    "HOTSPOT_BACKDROP_SIZE_MISMATCH",
+    "backdrop_label",
+    "backdrop_switch",
     "overlay_where",
+    "pick_backdrop",
     "carry_record",
     "COUNTER_ROW_WITHOUT_SOURCE",
     "COUNTER_UNWARPED",
