@@ -1570,7 +1570,7 @@ _BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         scope=(
             "Эвристика закона UNFOLD_ALONG_U_V1, МЕНЯЕТ ОТВЕТ: треугольник, у которого после решения grad u . t̂ (растяжение вдоль цепи, цель 1) вне [GUARD_FLOOR = 0.5, GUARD_CEILING = 2], "
             "получает вес в GUARD_FACTOR = 4 раза больше, остров решается заново, не больше GUARD_ROUNDS = 4 раз. Без неё клин у излома цепи сжимается в щель и выворачивается: "
-            "rounded_wall_noise_top, alpha .05: линейное решение без стража - 6 вывернутых и наименьшее отношение ребра 0.036, с ARAP 5 и стражем - 0 и 0.50. Число перевзвешиваний названо."
+            "rounded_wall_noise_top, alpha .05 (замер первого варианта, по треугольникам Blender; на каноническом входе не перемерен): линейное решение без стража - 6 вывернутых и наименьшее отношение ребра 0.036, с ARAP 5 и стражем - 0 и 0.50. Число перевзвешиваний названо."
         ),
         authority="cftuv_envelope.materialize.uv_unfold; DECISIONS.md 2026-11-06 (UNFOLD_ALONG_U_V1)",
         applied_stage=TolerancePolicyAppliedStageV1.MATERIALIZE_UV_UNFOLD, allowed_effect=TolerancePolicyAllowedEffectV1.REWEIGHT_STRETCHED_TRIANGLE_OF_THE_UNFOLD,

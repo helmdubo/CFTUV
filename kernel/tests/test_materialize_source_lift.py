@@ -634,22 +634,23 @@ def test_the_law_is_fed_the_same_canonical_triangles_under_every_topology_law(na
 
 #: Дайджесты малых случаев ДО закона (`test_materialize_domain.GOLDEN` на 89a7d89): с выключенным
 #: законом батч обязан совпасть с ними побитово, то есть закон — единственное, что их сдвинуло.
+#: 2026-11-06 (UNFOLD_ALONG_U_V1): сдвинулись вместе с UV Straight strips (развёртка по каноническим треугольникам в решёточных позициях).
 PRE_LIFT_GOLDEN = {
     "weighted": (
-        "d84aea2b37914cd347c8248f21d9d9747e407b853b6e8418cf278a83c4d30448",
-        "7a9fe75492796dafb0ca171cca41c11c96858f98498dadce07608d9ecd6c31ba",
+        "bfcfb3ca5d37239dda5c9209667364b217beda5199da3c804eff62383028c504",
+        "b78c08862d3dd54ee71dc1c6ea1b76f4213337d288efbb342926935dd19080a9",
     ),
     "point_contact": (
-        "86f410f4722b11fcfbd3cab18ce9737ddcdec7f575a4c2582194dcc898308174",
-        "cae35cbd60d2b5fa33f329483fe1bd001f82940a96ff22a5c1277bf802d5b11b",
+        "7ae7736155f5a5cf1dc34cbb376f7ea28fb817cdf9ac28f60ed180ab7188c7b4",
+        "2c3c5ca48dff8f86cd75fdfecc042643931f08e2a3a114cca6bccb10547014ee",
     ),
     "two_edge": (
-        "4d6c292b2a3e514e23289f0be3512944294298f2a1618aae737ffbeb563d251f",
-        "cea09b81bb4c596591acec6e3394443f80143257445178ffa83102e90c94aa61",
+        "208f623e01a036af2764f5b7f3090545d15427306f172e62ad3163f8a1265da3",
+        "290477b916ec71bba002b41592c9484efb95a03caf04a4d4ebb2ef9f7922ec0c",
     ),
     "straight3": (
-        "2e9294e7de68f084672b0095c594fcb0da251bc407d5bc3feb1cc13e2f8f43a7",
-        "f9988c58176be1d6d0dacdc12aaa86efcfc12116c7d8db26aaf3405e0760e7c1",
+        "60b99ef4e00ef544d4a6b9cf4f159ae65105ab6449a30aede2889ed8765bfd1b",
+        "97e9f3e61a4a3c6a7465140291ecc32afe3ef59e5fb4612b98e99c5c32dc2904",
     ),
 }
 

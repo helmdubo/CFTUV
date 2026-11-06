@@ -60,20 +60,20 @@ CASES = (
 #: `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` кладёт вершины `src:` в позиции хоста и пишет
 #: диагностику; `straight3` не сдвинулся (позиции хоста = подъём). С выключенным законом
 #: батч побитово прежний: `test_materialize_source_lift.test_without_host_positions_...`.
-#: 2026-11-06 (UNFOLD_ALONG_U_V1) сдвинулись все четыре: `u` Straight strips - развёртка по треугольникам Blender, физические факты и топология
+#: 2026-11-06 (UNFOLD_ALONG_U_V1) сдвинулись `weighted`, `point_contact`, `two_edge`: `u` Straight strips - развёртка по каноническим треугольникам, физические факты и топология
 #: те же (`test_uv_straighten`, поле: позиции, грани и швы побитово базовые).
 GOLDEN = {
     "weighted": (
-        "eb6b50e586765fddd0042b1df1de20c588d7b542197e30a619317486e70da2e5",
-        "ce1171d18644ac96e1c538dd0a1af12ce8d33553e90f13b4d700ad78cd9bc857",
+        "42dfc31951e2483c183db95572de33370f80489e98e01aeec49319453fb1ac21",
+        "1ad07519491f61ab547b2fc4701120c12374fdb67e20ad49c81e1e6255666314",
     ),
     "point_contact": (
-        "3f4071d6b5e38ac35c8b74f5be92fe2c1b52f30c44f8bca06ba88f07c0bdff67",
-        "7c432f5dc7f7bf777398af4ed957c34a8d3e069d56d950b66430e69303825d4f",
+        "a10b37e59049ec734fdd0610ce72bcdeff0547d666feda11b15b0d4f952661e9",
+        "d02f902aee6677109b560944bd8d498d41823f063f11da7f165b4916b2e720e9",
     ),
     "two_edge": (
-        "206327d79a2a7b1156bec0b926aa2f9eb58a5348f1fb4ae745761eeb216cc7b8",
-        "75a9787c4bc3a6c12251ce568b895db2d1bcb7980463be6c623a5547b225f968",
+        "658c41b1d04083fec6ab41d471429dc9842bcffe96ff103dc9266d6e0a4946d1",
+        "4bc7581095a5475c43652fe3fd96401c6fb3586d273ea1745da54b4da83b7b72",
     ),
     "straight3": (
         "60b99ef4e00ef544d4a6b9cf4f159ae65105ab6449a30aede2889ed8765bfd1b",

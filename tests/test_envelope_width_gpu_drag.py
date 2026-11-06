@@ -34,7 +34,8 @@ HOST = Path(__file__).resolve().parents[1] / "cftuv"
 
 def _ulps(a, b):
     a, b = np.asarray(a, dtype=np.float32), np.asarray(b, dtype=np.float32)
-    return float((np.abs(a - b) / np.spacing(np.maximum(np.abs(a), np.abs(b)))).max())
+    # UNFOLD_ALONG_U_V1: u - решение в плавающей точке, нулевая u выходит шумом ~1e-18, чьи относительные биты float32 не держит; ниже 2**-20 ulp меряется у 2**-20.
+    return float((np.abs(a - b) / np.spacing(np.maximum(np.maximum(np.abs(a), np.abs(b)), np.float32(2.0**-20)))).max())
 
 
 def _check_equal(model, widths):

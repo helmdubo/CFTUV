@@ -636,6 +636,10 @@ LAW_COUNTERS = frozenset(
         "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
         "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
         "MATERIALIZE_TRIANGLES_UV_REVERSED",
+        # UNFOLD_ALONG_U_V1 меряет выпущенные грани: их треугольники и неаффинность многоугольника в центре.
+        "MATERIALIZE_STRAIGHTEN_UV_EMITTED_FLIPPED_TRIANGLES",
+        "MATERIALIZE_STRAIGHTEN_UV_EMITTED_FLIPPED_AREA_MM2",
+        "MATERIALIZE_STRAIGHTEN_UV_NGON_CENTROID_MAX_MICROMETRES",
     )
 )
 
@@ -851,11 +855,12 @@ def test_the_quad_law_over_the_corpus_fans_back_out_to_the_triangle_batch():
 #: Золотые содержательные дайджесты закона лент для малых случаев (семантические
 #: те же, что у треугольников, — они в `test_materialize_domain.GOLDEN`). Меняются
 #: ТОЛЬКО осознанно: любое движение — смена состава граней закона.
+#: 2026-11-06 (UNFOLD_ALONG_U_V1): сдвинулись вместе с UV Straight strips (развёртка по каноническим треугольникам в решёточных позициях).
 GOLDEN_QUADS = {
-    "weighted": "0b2e0a152f1c7b78dd4c7e63e0a6e3f91a968c10e46eb183334238130f383747",
-    "point_contact": "600cabeabfefd62d461241bbcf89f80765d594e99010b2f2fd85e98381503f3f",
-    "two_edge": "7829b3870cc259721ccf603531432e56707e3965848839ac77a7dbb39e817d65",
-    "straight3": "f9988c58176be1d6d0dacdc12aaa86efcfc12116c7d8db26aaf3405e0760e7c1",
+    "weighted": "666465c6a2a5a1a345233558f7f6a7dd14fd894c1fcfe3c290939373fea7c934",
+    "point_contact": "35a57d456e40f3bb414d03557f534bb77723afb2bf83365cf0deb6b686c7490e",
+    "two_edge": "4bc7581095a5475c43652fe3fd96401c6fb3586d273ea1745da54b4da83b7b72",
+    "straight3": "97e9f3e61a4a3c6a7465140291ecc32afe3ef59e5fb4612b98e99c5c32dc2904",
 }
 
 

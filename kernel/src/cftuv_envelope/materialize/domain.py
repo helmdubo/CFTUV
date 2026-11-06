@@ -722,7 +722,7 @@ def _lifted(plane, points, cut):
     return positions, names
 
 
-def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
+def _at_host_positions(prepared, plane, faces, lifted, canonical, budget, chart_cw):
     """Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` и проверка выпущенных граней: `(грани, итог, числа граней)`.
 
     Позиции не вправе зависеть от закона: ориентация сверяется по каноническим треугольникам
@@ -733,11 +733,6 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
 
     frame_faces, cycles, points = faces
     positions, polygons, cut = lifted
-    canonical = (
-        polygons
-        if law is DecalTopologyLawV1.TRIANGLES_V1 and cut is None
-        else backend.canonical_triangles_compute(canonical_triangles, frame_faces, cycles, budget, chart_cw)
-    )
     return backend.source_lift_compute(
         _sourced,
         plane,
@@ -925,18 +920,17 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     polygons, topology = settle_topology(
         frame_faces, cycles, polygons, names, tessellation_law, tally
     )
+    canonical = _canonical(law, cut, polygons, frame_faces, cycles, budget, chart_cw)
+    lattice = dict(positions) if request.uv_policy_id == UV_DIRECT_STRIP_V1 else None  # UNFOLD_ALONG_U_V1 решает по решёточным позициям: подъём к хосту их в копии не трогает
     polygons, sourced, faces_after = _at_host_positions(
-        prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
+        prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), canonical, budget, chart_cw
     )
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
     shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
     uv_values, uv_forms = _uniform_mapping(uv_plan, budget, (frame_faces, layout, polygons, points, facts), lines, source_loci)
-    straight_counters = ()
-    if request.uv_policy_id == UV_DIRECT_STRIP_V1:
-        uv_values, uv_forms, straight_counters = map_straight_uv(
-            frame_faces, layout, polygons if shaped is None else shaped.polygons, points, facts if shaped is None else shaped.facts,
-            sourced.positions if shaped is None else shaped.positions, table.scale,
-        )
+    uv_values, uv_forms, straight_counters = map_straight_uv(
+        frame_faces, layout, canonical, polygons if shaped is None else shaped.polygons, points, facts, facts if shaped is None else shaped.facts, lattice, table.scale,
+    ) if request.uv_policy_id == UV_DIRECT_STRIP_V1 else (uv_values, uv_forms, ())
     shaped = _uniform_shaped(shaped, budget, request, (points, shaped.facts if shaped is not None else facts, frame_faces, layout, lattice_alpha), chart_cw, uv_values)
     batch = backend.assemble_compute(
         assemble_batch,
@@ -993,6 +987,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         "" if cut is None else cut.memo,
         inputs,
     )
+
+
+def _canonical(law, cut, polygons, frame_faces, cycles, budget, chart_cw):
+    """Канонические треугольники `TRIANGLES_V1` слитых граней до резки: вход UNFOLD_ALONG_U_V1 и подъёма; без резки у закона треугольников это сами многоугольники."""
+
+    if law is DecalTopologyLawV1.TRIANGLES_V1 and cut is None:
+        return polygons
+    return backend.canonical_triangles_compute(canonical_triangles, frame_faces, cycles, budget, chart_cw)
 
 
 def _lift_counters(plane, sourced, faces_after, cut, tally, shaped=()) -> tuple:

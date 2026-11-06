@@ -1093,11 +1093,12 @@ def test_a_concave_strip_of_the_corpus_is_one_face_and_changes_nothing_else(monk
 #: `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` сдвинул вершины `src:` в позиции хоста
 #: (те же сдвинутые позиции, что у `GOLDEN_QUADS`: грани законов тут совпадают), состав
 #: граней не менялся; `straight3` сдвига не имеет.
+#: 2026-11-06 (UNFOLD_ALONG_U_V1): сдвинулись вместе с UV Straight strips (развёртка по каноническим треугольникам в решёточных позициях).
 GOLDEN_POLYGONS = {
-    "weighted": "0b2e0a152f1c7b78dd4c7e63e0a6e3f91a968c10e46eb183334238130f383747",
-    "point_contact": "600cabeabfefd62d461241bbcf89f80765d594e99010b2f2fd85e98381503f3f",
-    "two_edge": "9076fdb68906e9172803ceb356eb68b54ac78f6e2a9e08b42dfcaf54da772ae2",
-    "straight3": "d77838183f8b36115e0bd985fdb966247e55974ff2ee91effb03542328a2b454",
+    "weighted": "666465c6a2a5a1a345233558f7f6a7dd14fd894c1fcfe3c290939373fea7c934",
+    "point_contact": "35a57d456e40f3bb414d03557f534bb77723afb2bf83365cf0deb6b686c7490e",
+    "two_edge": "22dc38a558b9a291ccca2fd471e06c85f599bcc01b2f2cebae92c8291b1f0517",
+    "straight3": "eb210738a19c11ffa2ef5914800cfe1f62f8e427450243767981e4f2bb5a3663",
 }
 
 
