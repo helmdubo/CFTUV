@@ -23,15 +23,9 @@ import os
 import sys
 from pathlib import Path
 
-os.environ["CFTUV_SNAPSHOT_BYTE_CHECK"] = "all"
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _path in (REPO_ROOT, REPO_ROOT / "kernel" / "src"):
-    if str(_path) in sys.path:
-        sys.path.remove(str(_path))
-    sys.path.insert(0, str(_path))
-for _name in tuple(sys.modules):
-    if _name == "cftuv" or _name.startswith("cftuv."):
-        del sys.modules[_name]
+# Общий модуль Blender-тестов ставит CFTUV_SNAPSHOT_BYTE_CHECK=all, пути репозитория и свежий импорт cftuv.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_envelope_debug_bridge import _reset_scene  # noqa: E402
 
 import bmesh  # noqa: E402
 import bpy  # noqa: E402
@@ -53,8 +47,7 @@ def _register():
 
 
 def _build_fold():
-    for obj in list(bpy.data.objects):
-        bpy.data.objects.remove(obj)
+    _reset_scene()
     vertices, faces = [], []
     for k, x in enumerate(STATIONS):
         bend = 1.0 + 0.06 * (-1) ** k  # шов - ломаная: грани полосы не сливаются, общих вершин шва столько же, сколько станций
