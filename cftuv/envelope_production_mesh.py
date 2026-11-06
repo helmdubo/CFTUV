@@ -69,6 +69,7 @@ import numpy as np
 from cftuv_envelope.mesh_glue import glue_domains
 
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
+from .hotspot_mapping import MESH_PROPERTY as HOTSPOT_MESH_PROPERTY
 from .envelope_production_weld import (
     COUNTER_SEAM_CLIP_VERTICES,
     COUNTER_SEAM_T_JUNCTIONS,
@@ -660,11 +661,25 @@ def mesh_content_digest(mesh) -> str:
     return hashlib.sha256(text.encode("ascii")).hexdigest()
 
 
-def _build_mesh(name: str, arrays: MeshArraysV1):
-    """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`."""
+def _build_mesh(name: str, arrays: MeshArraysV1, hotspot: str | None = None):
+    """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`. `hotspot` - запись отображения Hotspot (свойство меша до заливки), `None` - режим выключен."""
 
     mesh = bpy.data.meshes.new(name)
+    if hotspot is not None:
+        mesh[HOTSPOT_MESH_PROPERTY] = hotspot
     return mesh, _fill_mesh(mesh, arrays)
+
+
+def _map_hotspot(mesh) -> None:
+    """HOTSPOT_ATLAS_MAPPING_V1: UV ядра, только что записанные в меш, -> UV атласа метки, если у меша есть запись отображения (её кладёт кнопка
+    под включённым режимом). Записи нет - ничего не делается, и меш побитово тот же, что без режима. Зовут ВСЕ писатели UV меша декали (кнопка,
+    подтверждение, кадры живой ширины), поэтому превью и точный кадр отображаются одной функцией."""
+
+    keys = getattr(mesh, "keys", None)  # свойства ID: у меша Blender они есть всегда
+    if keys is not None and HOTSPOT_MESH_PROPERTY in keys():
+        from .hotspot_blender import map_mesh_uvs
+
+        map_mesh_uvs(mesh, DECAL_UV_LAYER)
 
 
 def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
@@ -678,7 +693,9 @@ def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
     """
 
     if arrays.buffers is not None:
-        return _fill_mesh_buffers(mesh, arrays.buffers)
+        marked = _fill_mesh_buffers(mesh, arrays.buffers)
+        _map_hotspot(mesh)
+        return marked
     mesh.from_pydata([tuple(item) for item in arrays.positions], [], list(arrays.faces))
     mesh.update()
     layer = mesh.uv_layers.new(name=DECAL_UV_LAYER)
@@ -699,6 +716,7 @@ def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
             if tuple(sorted(edge.vertices)) in wanted:
                 edge.use_seam = True
                 marked += 1
+    _map_hotspot(mesh)
     return marked
 
 
@@ -1000,8 +1018,12 @@ def write_decal_object(
     material_name: str = DEFAULT_DECAL_MATERIAL,
     width: float | None = None,
     arrays: MeshArraysV1 | None = None,
+    hotspot: str | None = None,
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
+
+    `hotspot` - запись отображения Hotspot (`hotspot_blender.press_record`): она ложится свойством в НОВЫЙ меш, и его UV - UV атласа метки;
+    `None` (режим выключен) - меш без свойства, побитово тот же, что без режима.
 
     Повторный вызов заменяет меш объекта (идемпотентно: тот же вход — тот же
     дайджест, один объект, один материал); объект ищется по маркеру, а не по
@@ -1036,7 +1058,7 @@ def write_decal_object(
                         material_created=False, warnings=warnings)
     if existing is None:
         _drop_stale_mesh(name)
-    mesh, marked = _build_mesh(name, arrays)
+    mesh, marked = _build_mesh(name, arrays, hotspot)
     material_created = _material_slot(mesh, material_name)
     if existing is None:
         decal = _link_child(source_obj, name, mesh)
@@ -1150,7 +1172,9 @@ def rebuild_mesh_from_image(mesh, positions, uvs, image) -> int:
     for attribute_name, values in ((DECAL_DOMAIN_ATTRIBUTE, image.face_domain), (DECAL_OWNER_ATTRIBUTE, image.face_owner)):
         attribute = mesh.attributes.new(name=attribute_name, type="INT", domain="FACE")
         attribute.data.foreach_set("value", values)
-    return _mark_seams(mesh, image.seams, vertex_count)
+    marked = _mark_seams(mesh, image.seams, vertex_count)
+    _map_hotspot(mesh)
+    return marked
 
 
 def _mark_seams(mesh, seams, vertex_count: int) -> int:
@@ -1214,6 +1238,7 @@ def write_preview_geometry(mesh, positions, uvs, owners=None) -> None:
     _write_uvs(mesh, layer, uvs)
     if attribute is not None:
         attribute.data.foreach_set("value", owners)
+    _map_hotspot(mesh)
     mesh.update()
 
 
