@@ -190,6 +190,22 @@ def test_frontier_runtime_is_free_of_blender():
     )
 
 
+#: HOTSPOT_MARKUP_V1: формат разметки и отображение в атлас - чистые функции; Blender (текст, материал, меш, панель, редактор) - только в своих слоях.
+HOTSPOT_PURE_MODULES = ("hotspot_markup.py",)
+
+
+def test_the_hotspot_format_and_mapping_are_free_of_blender():
+    """Разметка Hotspot и отображение UV ядра в атлас проверяются без Blender: ни `bpy`, ни `bmesh`, ни `gpu`, и ни одного модуля хоста, кроме друг друга."""
+
+    offenders = {}
+    for name in HOTSPOT_PURE_MODULES:
+        roots = _imported_roots(HOST_PACKAGE / name)
+        leaked = ({"bpy", "bmesh", "gpu", "mathutils"} & roots) | {root for root in roots if (HOST_PACKAGE / f"{root}.py").exists() and f"{root}.py" not in HOTSPOT_PURE_MODULES}
+        if leaked:
+            offenders[name] = sorted(leaked)
+    assert not offenders, f"чистые слои Hotspot импортируют Blender или хост: {offenders}"
+
+
 def test_alpha_preview_core_is_free_of_blender_runtime():
     """Планировщик фонового превью alpha не импортирует `bpy`: таймеры и цель приходят параметрами.
 
