@@ -35,6 +35,9 @@ def draw_decal_mesh_rows(layout) -> None:
         text="", results_are_suggestions=True,
     )
     layout.prop(mesh_settings, "uv_policy_id")
+    from .hotspot_blender import draw_hotspot_rows
+
+    draw_hotspot_rows(layout, bpy.context)  # HOTSPOT_MARKUP_V1: необязательный режим разметки
     draw_kernel_backend_row(layout, mesh_settings)
     if mesh_settings.status:
         layout.label(text=mesh_settings.status)

@@ -65,6 +65,7 @@ from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .envelope_width_adjust import WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_live import remember_build, schedule_idle_preparation, tag_view3d_redraw
 from .envelope_width_mesh_preview import build_sample, capture_ownership, note_button_display, sample_key
+from .hotspot_blender import counter_lines, press_record
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
 UNDO_REQUIRED_REASON = (
@@ -275,6 +276,13 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             print(f"[CFTUV][DecalMesh] {refusal}", flush=True)
             self.report({"ERROR"}, refusal)
             return {"CANCELLED"}
+        # HOTSPOT_MARKUP_V1: метка разрешается до анализа и пула; отказ (Uniform, нет разметки, метки, непринятая разметка) - по имени, меш не тронут.
+        hotspot, refusal, detail = press_record(context.scene)
+        if refusal:
+            mesh_settings.status = f"Failed: {refusal}"
+            print(f"[CFTUV][Hotspot] {refusal}: {detail}", flush=True)
+            self.report({"ERROR"}, f"{refusal}: {detail}")
+            return {"CANCELLED"}
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
         selected = [edge.index for edge in source_bm.edges if edge.select]
@@ -290,7 +298,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             return reject_source(self, context, source_obj, source_bm, refusal)
         controller = _session(context)
         try:
-            result = self._build_and_write(context, controller, source_obj, source_bm, selected, kernel_backend)
+            result = self._build_and_write(context, controller, source_obj, source_bm, selected, kernel_backend, hotspot)
         finally:
             # SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1: фоновая проверка первого нажатия стартует ПОСЛЕ хвоста кнопки (она занимает первичные ядра и замедляла хвост); в `finally`, чтобы отказ хвоста её не терял.
             controller.launch_pending_byte_check()
@@ -298,7 +306,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             _watch_byte_check(controller, context.scene.name)
         return result
 
-    def _build_and_write(self, context, controller, source_obj, source_bm, selected, kernel_backend):
+    def _build_and_write(self, context, controller, source_obj, source_bm, selected, kernel_backend, hotspot=None):
         """Прогон, массивы, запись объекта, запись для живой ширины, строки и отчёт; итог оператора. Фоновую проверку запускает вызывающий (`execute`)."""
 
         from .envelope_production_export import (
@@ -358,6 +366,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 material_name=resolve_decal_material_name(mesh_settings.material_name, bpy.data.materials),
                 width=float(settings.envelope_debug_alpha),
                 arrays=arrays,
+                hotspot=hotspot,
             )
         except ProductionWriteError as exc:
             mesh_settings.status = f"Decal mesh not written: {exc.outcome}"
@@ -396,7 +405,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
         )
-        for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend), *receipt_console_lines(receipt, run.results)):
+        for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend), *receipt_console_lines(receipt, run.results), *counter_lines(receipt.object_name)):
             print(line, flush=True)
         self.report(
             {receipt_report_level(receipt)},
@@ -440,6 +449,7 @@ def register_production_operator() -> None:
     """Регистрация настроек, оператора и свойства сцены. Повтор безопасен."""
 
     from .envelope_width_modal import register_width_tools
+    from .hotspot_panel import register_hotspot
 
     for cls in _CLASSES:
         if getattr(cls, "is_registered", False):
@@ -451,6 +461,7 @@ def register_production_operator() -> None:
         PointerProperty(type=HOTSPOTUV_DecalMeshSettings),
     )
     register_width_tools()
+    register_hotspot()  # HOTSPOT_MARKUP_V1: режим Hotspot панели декали
     if _fold_after_load not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_fold_after_load)
     if not bpy.app.timers.is_registered(_fold_once):
@@ -462,9 +473,11 @@ def unregister_production_operator() -> None:
     """Снятие в обратном порядке; без регистрации не делает ничего."""
 
     from .envelope_width_modal import unregister_width_tools
+    from .hotspot_panel import unregister_hotspot
 
     cancel_pool_prewarm()
     unregister_width_tools()
+    unregister_hotspot()
     while _fold_after_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_fold_after_load)
     if bpy.app.timers.is_registered(_fold_once):
