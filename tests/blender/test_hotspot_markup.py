@@ -12,13 +12,15 @@
 5. ЖИВАЯ ШИРИНА: кадр модели и точный кадр той же ширины отображаются одной функцией; разрыв UV атласа напечатан и ограничен; узлы GPU
    affine drag под Hotspot не включаются (их формула двигает UV ядра, а в меше UV атласа);
 6. «Mark Up» без окна (HOTSPOT_PANEL_EDITOR_V1): картинка из узлов материала декали, датаблок разметки создан и связан сам, отказы по именам;
-7. МЕТКИ ОСТРОВОВ (HOTSPOT_ISLAND_MARKS_V1): кнопка с меткой A, «Apply Mark to Selection» с меткой B одному острову - его UV в B, другого в A,
-   выделен ровно он; живая ширина (кадры и подтверждение) и повторная кнопка метки сохраняют; corner одной стороне шва - обе стороны (сосед
-   по шву); Undo (если фоновый Blender его даёт) возвращает UV; отказы по именам, меш при отказе не тронут; режим выключен - ни записи, ни
-   атрибутов `cftuv_hotspot_mark` и `cftuv_strip_uv`;
+7. МЕТКИ ОСТРОВОВ (HOTSPOT_ISLAND_MARKS_V1, HOTSPOT_APPLY_ON_PICK_V1): кнопка с меткой A, выбор метки B в меню панели при одном выделенном
+   острове - его UV в B, другого в A, выделен ровно он (кнопки Apply нет); живая ширина (кадры и подтверждение) и повторная кнопка метки
+   сохраняют; corner одной стороне шва - обе стороны (сосед по шву); Undo (если фоновый Blender его даёт) возвращает UV; отказы по именам,
+   ничего применимого не выделено - метка только выбрана, присваивание настроек из кода (как при Undo/Redo) ничего не применяет, меш не
+   тронут; режим выключен - ни записи, ни атрибутов `cftuv_hotspot_mark` и `cftuv_strip_uv`;
 8. ОТДЕЛЬНОЕ ОКНО (HOTSPOT_EDITOR_WINDOW_V1): метки рисует только область мини-окна; второй Image Editor с той же картинкой - нет;
    подложка (HOTSPOT_BACKDROP_V1): другой размер при метках - отказ по имени, без меток разметка переходит в размер картинки;
-9. OBJECT MODE (HOTSPOT_OBJECT_APPLY_V1): «Apply Mark» на две выделенные декали и не декаль - все острова обеих декалей, не декаль не тронута.
+9. OBJECT MODE (HOTSPOT_OBJECT_APPLY_V1): выбор метки при двух выделенных декалях и не декали - все острова обеих декалей, не декаль не
+   тронута; Swap wings кладёт то же самое с переставленными крыльями.
 
 Прогон: blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_hotspot_markup.py
 Последняя строка при успехе: HOTSPOT_MARKUP_BLENDER_SMOKE_OK
@@ -263,17 +265,19 @@ def _decal_edit(domain=None):
     bmesh.update_edit_mesh(decal.data)
 
 
-def _apply(expect="FINISHED", op="hotspot_apply_mark"):
+def _apply(note=False, op="hotspot_pick_mark"):
+    """Выбор метки панели (HOTSPOT_APPLY_ON_PICK_V1): оператор пункта меню (или Swap wings) кладёт метку настроек на выделение. `note` -
+    вернуть строку панели (отказ по имени или «метка только выбрана»), иначе - числа меша декали, и выбор обязан был что-то применить."""
+
     from cftuv.hotspot_blender import LAST_COUNTERS
 
-    try:
-        result = getattr(bpy.ops.hotspotuv, op)()
-    except RuntimeError as exc:  # отчёт ERROR фонового Blender
-        result, text = {"CANCELLED"}, str(exc)
-    else:
-        text = ""
-    assert result == {expect}, (result, text)
-    return text if expect == "CANCELLED" else dict(LAST_COUNTERS.get(bpy.data.objects[DECAL].data.session_uid, {}))
+    settings = bpy.context.scene.hotspotuv_hotspot
+    result = bpy.ops.hotspotuv.hotspot_pick_mark(mark_id=settings.mark_id) if op == "hotspot_pick_mark" else getattr(bpy.ops.hotspotuv, op)()
+    assert result == {"FINISHED"}, (result, settings.apply_note)
+    if note:
+        return settings.apply_note
+    assert not settings.apply_note.startswith("Mark set for the next") and ":" in settings.apply_note, settings.apply_note
+    return dict(LAST_COUNTERS.get(bpy.data.objects[DECAL].data.session_uid, {}))
 
 
 def _current():
@@ -415,25 +419,35 @@ def LAST_COUNTERS_OF():  # noqa: N802 - строка печати
 
 
 def _check_island_refusals(low):
+    """Отказ декали - по имени в строке панели; ничего применимого не выделено - метка только выбрана (не ошибка); присваивание настроек из
+    кода (так их возвращают Undo/Redo и чтение файла) ничего не применяет. Меш во всех случаях не тронут."""
+
     _object_mode()
     before = _digest()
     _decal_edit(low)
     _hotspot(True, 7)
-    assert "HOTSPOT_MARK_NOT_FOUND" in _apply("CANCELLED")
+    assert "HOTSPOT_MARK_NOT_FOUND" in _apply(note=True)
     _hotspot(True, 2)
     _decal_edit(None)
-    assert "HOTSPOT_SELECTION_EMPTY" in _apply("CANCELLED")
+    assert "no faces of the decal selected" in _apply(note=True)
     _object_mode()
     bpy.ops.object.mode_set(mode="SCULPT")  # ни Object Mode (выделенные декали), ни Edit Mode (выделенные грани)
-    assert "HOTSPOT_NOT_IN_EDIT_MODE" in _apply("CANCELLED")
+    assert "Sculpt applies no mark" in _apply(note=True)
     _object_mode()
     source = bpy.data.objects[SOURCE]
     _only_selected(source)
-    assert "HOTSPOT_NOT_A_DECAL_MESH" in _apply("CANCELLED"), "Object Mode with no decal selected"
+    assert "no decal selected" in _apply(note=True), "Object Mode with no decal selected"
     bpy.ops.object.mode_set(mode="EDIT")
-    assert "HOTSPOT_NOT_A_DECAL_MESH" in _apply("CANCELLED")
+    assert "Edit Mode is not on a decal" in _apply(note=True), "Edit Mode on the source before a build"
     _object_mode()
-    assert _digest() == before, "a refused apply leaves the mesh untouched"
+    assert _digest() == before, "a refused or idle pick leaves the mesh untouched"
+    for mode, select in (("EDIT", low), ("OBJECT", None)):
+        _decal_edit(select) if mode == "EDIT" else _only_selected(bpy.data.objects[DECAL])
+        settings = bpy.context.scene.hotspotuv_hotspot
+        settings.mark_id, settings.swap_wings = 1, not settings.swap_wings  # так значения возвращают Undo/Redo и чтение файла
+        settings.mark_id, settings.swap_wings = 2, not settings.swap_wings
+        _object_mode()
+        assert _digest() == before, (mode, "assigning the settings applies nothing")
     _hotspot(False)
     _select_seam(source)
     _press()
@@ -451,7 +465,7 @@ def _check_island_refusals(low):
     assert json.loads(mesh["cftuv_hotspot"])["default"]["mark"] is None and counters["HOTSPOT_ISLANDS_OFF_DEFAULT"] == 1, counters
     assert np.array_equal(atlas[domain != low].astype(np.float32), kernel_off[domain != low].astype(np.float32)), "islands without a mark keep their kernel UV bit for bit"
     _rows(low, RUST, "applied to a decal built with Hotspot off")
-    print(f"HOTSPOT ISLANDS refusals named: HOTSPOT_MARK_NOT_FOUND, HOTSPOT_SELECTION_EMPTY, HOTSPOT_NOT_IN_EDIT_MODE, HOTSPOT_NOT_A_DECAL_MESH; Hotspot-off decal mapped on apply: {counters}", flush=True)
+    print(f"HOTSPOT ISLANDS pick: HOTSPOT_MARK_NOT_FOUND named; no faces / Sculpt / no decal / Edit Mode on the source only set the mark; assigning the settings applies nothing; Hotspot-off decal mapped on pick: {counters}", flush=True)
 
 
 def _only_selected(*objects):
@@ -485,7 +499,7 @@ def _check_object_apply():
     try:
         _only_selected(source, decal, twin)
         _hotspot(True, 0)
-        assert bpy.ops.hotspotuv.hotspot_apply_mark() == {"FINISHED"}
+        _apply()
         for obj in (decal, twin):
             assert set(_object_codes(obj).tolist()) == {0}, (obj.name, "every island took mark 0")
             record, _error = mesh_record(obj.data)
@@ -496,7 +510,7 @@ def _check_object_apply():
             assert np.max(np.abs(atlas.reshape(-1, 2)[seam, 1] * HEIGHT - DRIPS[0])) <= 1e-3, (obj.name, "seam rows on the trim's bottom edge")
         assert set(source.data.keys()) == source_keys and "cftuv_hotspot_mark" not in source.data.attributes, "the non-decal is skipped, untouched"
         _hotspot(True, 1)
-        assert bpy.ops.hotspotuv.hotspot_apply_mark() == {"FINISHED"}
+        _apply()
         for obj in (decal, twin):
             counters = LAST_COUNTERS[obj.data.session_uid]
             assert counters["HOTSPOT_ISLANDS_SELECTED"] == 2 and counters["HOTSPOT_CORNER_WING_UNPAIRED"] == 0, (obj.name, counters)
@@ -505,8 +519,19 @@ def _check_object_apply():
         if undo:
             bpy.ops.ed.undo()
             assert set(_object_codes(bpy.data.objects[DECAL]).tolist()) == {0}, "one undo step returns both decals"
+        _only_selected(source, decal, twin)
+        _hotspot(True, 1)
+        _apply()
+        swapped = {obj.name: _object_codes(obj).copy() for obj in (decal, twin)}
+        assert "HOTSPOT_NOT_A_DECAL_MESH=1" in _apply(note=True, op="hotspot_swap_wings"), "Swap wings applies like a pick and counts the non-decal"
+        assert bpy.context.scene.hotspotuv_hotspot.swap_wings
+        for obj in (decal, twin):
+            codes = _object_codes(obj)
+            assert set((codes >> 1).tolist()) == {1} and np.array_equal(codes ^ 1, swapped[obj.name]), (obj.name, "every wing swapped")
+        _apply(op="hotspot_swap_wings")
+        assert all(np.array_equal(_object_codes(obj), swapped[obj.name]) for obj in (decal, twin)), "swapping back"
         _only_selected(source)
-        assert "HOTSPOT_NOT_A_DECAL_MESH" in _apply("CANCELLED")
+        assert "no decal selected" in _apply(note=True)
     finally:
         _object_mode()
         twin = bpy.data.objects.get("Hand renamed decal")

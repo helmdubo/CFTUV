@@ -285,6 +285,47 @@ def split_decal_targets(objects, marker: str) -> tuple:
     return tuple(decals), tuple(skipped)
 
 
+#: HOTSPOT_APPLY_ON_PICK_V1: на что ложится метка, только что выбранная в панели (или Swap wings): грани выделения декали в Edit Mode, все
+#: острова выделенных декалей в Object Mode, иначе ни на что - метка только выбрана для следующей сборки.
+PICK_FACES = "faces"
+PICK_DECALS = "decals"
+PICK_NONE = ""
+#: Выбор метки вошёл сам в себя, пока прежний выбор ещё применялся: второй раз не применяется (имя - в консоли).
+HOTSPOT_APPLY_REENTERED = "HOTSPOT_APPLY_REENTERED"
+#: Меню выбора метки панели (пункт - оператор `hotspotuv.hotspot_pick_mark`).
+MARKS_MENU = "HOTSPOTUV_MT_hotspot_marks"
+
+
+def pick_target(mode: str, active_decal: bool, selected_faces: int, selected_decals: int) -> str:
+    """Цель выбора метки (HOTSPOT_APPLY_ON_PICK_V1): Edit Mode на декали с выделенными гранями - `PICK_FACES`, Object Mode с выделенными
+    декалями - `PICK_DECALS`, иначе `PICK_NONE` (Edit Mode источника перед сборкой, пустое выделение, Sculpt...): не ошибка, а выбор метки."""
+
+    if mode == "EDIT_MESH":
+        return PICK_FACES if active_decal and selected_faces > 0 else PICK_NONE
+    if mode == "OBJECT":
+        return PICK_DECALS if selected_decals > 0 else PICK_NONE
+    return PICK_NONE
+
+
+def pick_idle_line(mode: str, active_decal: bool) -> str:
+    """Строка панели, когда выбор метки ничего не применил: что выбрано и почему ничего не тронуто."""
+
+    if mode == "EDIT_MESH":
+        why = "no faces of the decal selected" if active_decal else "Edit Mode is not on a decal"
+    elif mode == "OBJECT":
+        why = "no decal selected"
+    else:
+        why = f"{mode.replace('_', ' ').title()} applies no mark"
+    return f"Mark set for the next Build Decal Mesh ({why})"
+
+
+def mark_label(markup, mark_id: int) -> str:
+    """Подпись меню выбора метки: пункт `mark_items` выбранной метки, иначе её номер и что её в разметке нет."""
+
+    item = next((item for item in mark_items(markup) if item[3] == int(mark_id)), None)
+    return item[1] if item is not None else f"{int(mark_id)}: not in the markup"
+
+
 def mark_items(markup) -> list:
     """Пункты выбора метки кнопки: `id: name (kind)`; нет меток - один пункт «нет меток»."""
 
@@ -367,9 +408,16 @@ def draw_hotspot_rows(layout, context) -> None:
         if image is not None:
             box.label(text=f"{MARKUP_NOT_LINKED}: no marks yet, click Mark Up", icon="INFO")
         return
-    box.prop(settings, "mark_choice")
+    # HOTSPOT_APPLY_ON_PICK_V1: выбор метки и Swap wings - операторы (один шаг Undo), они же кладут метку на выделение; кнопки Apply нет.
+    _name, markup, _problems = read_material_markup(decal_material(scene))
+    row = box.row(align=True)
+    row.label(text="Mark")
+    row.menu(MARKS_MENU, text=mark_label(markup, settings.mark_id))
     if mapping is not None and mapping.mark.kind == KIND_CORNER:
-        box.prop(settings, "swap_wings")
+        swap = bool(settings.swap_wings)
+        box.operator("hotspotuv.hotspot_swap_wings", text="Swap wings", icon="CHECKBOX_HLT" if swap else "CHECKBOX_DEHLT", depress=swap)
+    if settings.apply_note:
+        box.label(text=settings.apply_note[:200], icon="INFO")
     if refusal and refusal != image_refusal:
         _refusal_rows(box, refusal, detail)
     elif mapping is not None:
@@ -650,6 +698,14 @@ __all__ = (
     "BACKDROP_REBASE",
     "BACKDROP_SHOW",
     "HOTSPOT_BACKDROP_SIZE_MISMATCH",
+    "HOTSPOT_APPLY_REENTERED",
+    "MARKS_MENU",
+    "PICK_DECALS",
+    "PICK_FACES",
+    "PICK_NONE",
+    "mark_label",
+    "pick_idle_line",
+    "pick_target",
     "backdrop_label",
     "backdrop_switch",
     "overlay_where",

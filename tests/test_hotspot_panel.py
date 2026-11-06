@@ -254,3 +254,56 @@ def test_the_marks_are_drawn_only_in_the_mini_editor_area_unless_the_user_asks_f
     assert overlay_where((None, None, None), (None, None, None), "sheet.png", ("sheet.png",), False) == ""
     assert overlay_where((1, 2, 4), mini, "sheet.png", ("sheet.png",), True) == OVERLAY_ELSEWHERE, "Show marks in UV Editor"
     assert overlay_where((1, 2, 4), None, "other.png", ("sheet.png", ""), True) == "" and overlay_where((1, 2, 4), None, "", ("",), True) == ""
+
+
+def test_a_picked_mark_lands_on_the_selected_faces_or_decals_and_otherwise_only_waits_for_the_next_build():
+    """HOTSPOT_APPLY_ON_PICK_V1: выбор метки в панели кладёт её сразу - грани выделения декали в Edit Mode, все острова выделенных декалей в
+    Object Mode; ничего применимого не выделено - не ошибка, а выбор для следующей сборки (строка панели называет почему)."""
+
+    from cftuv.hotspot_blender import PICK_DECALS, PICK_FACES, PICK_NONE, pick_idle_line, pick_target
+
+    assert pick_target("EDIT_MESH", True, 12, 0) == PICK_FACES
+    assert pick_target("EDIT_MESH", True, 0, 0) == PICK_NONE, "a decal in Edit Mode with no faces selected"
+    assert pick_target("EDIT_MESH", False, 40, 0) == PICK_NONE, "Edit Mode on the source before a build"
+    assert pick_target("OBJECT", False, 0, 2) == PICK_DECALS and pick_target("OBJECT", True, 0, 0) == PICK_NONE
+    assert pick_target("SCULPT", True, 5, 3) == PICK_NONE and pick_target("", False, 0, 0) == PICK_NONE
+    assert "no faces of the decal selected" in pick_idle_line("EDIT_MESH", True) and "not on a decal" in pick_idle_line("EDIT_MESH", False)
+    assert "no decal selected" in pick_idle_line("OBJECT", False) and "Sculpt" in pick_idle_line("SCULPT", False)
+    assert all(pick_idle_line(mode, False).startswith("Mark set for the next Build Decal Mesh") for mode in ("OBJECT", "EDIT_MESH", "PAINT_WEIGHT"))
+
+
+def test_the_mark_menu_names_the_picked_mark_and_a_mark_the_markup_lost():
+    from cftuv.hotspot_blender import mark_label
+
+    markup = HotspotMarkupV1(1024, 512, "sheet.png", (HotspotMarkV1(3, "edge", "corner", 0, 128, 1024, 96, "+y", 12),))
+    assert mark_label(markup, 3) == "3: edge (corner)" and mark_label(markup, 7) == "7: not in the markup" and mark_label(None, 0) == "0: not in the markup"
+
+
+def _settings_calls():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse((Path(hotspot_blender.__file__).parent / "hotspot_panel.py").read_text(encoding="utf-8"))
+    settings = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "HOTSPOTUV_HotspotSettings")
+    return {item.target.id: item.annotation for item in settings.body if isinstance(item, ast.AnnAssign)}
+
+
+def test_the_settings_carry_no_callback_so_undo_redo_file_load_panel_draw_and_code_never_apply_a_mark():
+    """HOTSPOT_APPLY_ON_PICK_V1: метку на выделение кладут только операторы выбора (один шаг Undo). Свойство с `update`/`set` применяло бы её
+    и при Undo/Redo-повторах, присваивании из кода (тесты, кнопка) и чтении файла - здесь их нет вовсе, а Swap wings пишет только оператор."""
+
+    import ast
+    from pathlib import Path
+
+    calls = _settings_calls()
+    assert {"enabled", "mark_id", "swap_wings"} <= set(calls) and "mark_choice" not in calls, sorted(calls)
+    hooked = {name: [kw.arg for kw in call.keywords if kw.arg in ("update", "set", "get")] for name, call in calls.items()}
+    assert not any(hooked.values()), hooked
+    writers = set()
+    for path in sorted((Path(hotspot_blender.__file__).parent).glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.Assign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(isinstance(target, ast.Attribute) and target.attr == "swap_wings" for target in targets):
+                    writers.add(path.name)
+    assert writers == {"hotspot_island_ops.py"}, writers

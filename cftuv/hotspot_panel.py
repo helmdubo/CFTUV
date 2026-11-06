@@ -3,37 +3,17 @@
 
 Материал разметки - материал декали панели (`hotspotuv_decal_mesh.material_name`): своего поля материала у режима нет, поэтому метка всегда
 берётся из текстуры, которую декаль покажет. Картинку-подложку выбирают в самом мини-окне (HOTSPOT_BACKDROP_V1), `image_name` её помнит. Метка `mark_id` -
-метка по умолчанию нажатия кнопки и метка «Apply Mark to Selection» островов готовой декали (HOTSPOT_ISLAND_MARKS_V1, `hotspot_island_ops`);
-перечень меток строится из разметки материала.
+метка по умолчанию нажатия кнопки; выбирают её меню панели, и сам выбор кладёт её на выделение готовой декали (HOTSPOT_APPLY_ON_PICK_V1,
+`hotspot_island_ops`). У свойств здесь нет обратных вызовов `update`/`set` - их выставляют только операторы выбора: Undo/Redo, загрузка файла,
+рисование панели и присваивание из кода ничего не применяют (`tests/test_hotspot_panel.py` это проверяет).
 """
 
 from __future__ import annotations
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
 
-from .hotspot_blender import SETTINGS_ATTRIBUTE, decal_material, mark_items, read_material_markup
-
-#: Пункты динамических перечней держатся здесь: Blender не копирует строки динамического перечня.
-_MARK_ITEMS: list = []
-
-
-def _scene_of(self, context):
-    return getattr(context, "scene", None) or self.id_data
-
-
-def _mark_items(self, context):
-    _name, markup, _problems = read_material_markup(decal_material(_scene_of(self, context)))
-    _MARK_ITEMS[:] = mark_items(markup)
-    return _MARK_ITEMS
-
-
-def _mark_get(self) -> int:
-    return int(self.mark_id)
-
-
-def _mark_set(self, value) -> None:
-    self.mark_id = max(0, int(value))
+from .hotspot_blender import SETTINGS_ATTRIBUTE
 
 
 class HOTSPOTUV_HotspotSettings(bpy.types.PropertyGroup):
@@ -43,9 +23,9 @@ class HOTSPOTUV_HotspotSettings(bpy.types.PropertyGroup):
         description="Map the decal UVs into one mark of the hotspot markup of the decal material (Straight strips only). Off: the decal is exactly as without Hotspot",
     )
     image_name: StringProperty(name="Image", description="Backdrop image last picked in the Mark Up window: the next Mark Up opens it")
-    mark_id: IntProperty(name="Mark ID", default=0, min=0, description="Mark of the press (every island) and of Apply Mark to Selection (the selected islands of a decal)")
-    mark_choice: EnumProperty(name="Mark", items=_mark_items, get=_mark_get, set=_mark_set, description="Mark of the material's markup the decal lands in")
-    swap_wings: BoolProperty(name="Swap wings", default=False, description="Corner marks: exchange which side of the seam takes which half of the butterfly (per seam pair with Apply Mark to Selection)")
+    mark_id: IntProperty(name="Mark ID", default=0, min=0, description="Mark of the press (every island); picking it in the panel also maps the selected islands of a decal")
+    swap_wings: BoolProperty(name="Swap wings", default=False, description="Corner marks: exchange which side of the seam takes which half of the butterfly")
+    apply_note: StringProperty(name="Last pick", description="What the last pick of a mark (or Swap wings) did to the selection")
 
 
 _CLASSES = (HOTSPOTUV_HotspotSettings,)
@@ -63,7 +43,7 @@ def register_hotspot() -> None:
         bpy.utils.register_class(cls)
     setattr(bpy.types.Scene, SETTINGS_ATTRIBUTE, PointerProperty(type=HOTSPOTUV_HotspotSettings))
     register_editor()
-    register_island_ops()  # HOTSPOT_ISLAND_MARKS_V1: метка выделенным островам готовой декали
+    register_island_ops()  # HOTSPOT_ISLAND_MARKS_V1, HOTSPOT_APPLY_ON_PICK_V1: выбор метки кладёт её выделенным островам готовой декали
 
 
 def unregister_hotspot() -> None:
