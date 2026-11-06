@@ -10,7 +10,8 @@
 4. отказы до прогона по именам: Uniform trim (`HOTSPOT_UV_POLICY_UNSUPPORTED`), нет метки (`HOTSPOT_MARK_NOT_FOUND`), непринятая разметка
    (`HOTSPOT_MARKUP_REFUSED`), нет ссылки материала (`MARKUP_NOT_LINKED`); меш при отказе не тронут;
 5. ЖИВАЯ ШИРИНА: кадр модели и точный кадр той же ширины отображаются одной функцией; разрыв UV атласа напечатан и ограничен; узлы GPU
-   affine drag под Hotspot не включаются (их формула двигает UV ядра, а в меше UV атласа).
+   affine drag под Hotspot не включаются (их формула двигает UV ядра, а в меше UV атласа);
+6. «Mark Up» без окна (HOTSPOT_PANEL_EDITOR_V1): картинка из узлов материала декали, датаблок разметки создан и связан сам, отказы по именам.
 
 Прогон: blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_hotspot_markup.py
 Последняя строка при успехе: HOTSPOT_MARKUP_BLENDER_SMOKE_OK
@@ -221,8 +222,52 @@ def _check_live_width():
     return gap
 
 
+def _check_mark_up_preparation():
+    """HOTSPOT_PANEL_EDITOR_V1 без окна (фоновый Blender окон не открывает): картинка из узлов материала декали, датаблок разметки создан и
+    связан сам, черновик загружен; отказы по именам - материал без картинки, непринятый черновик другой разметки."""
+
+    from cftuv.hotspot_editor import MARKUP_DRAFT_UNSAVED, prepare_markup
+
+    scene = bpy.context.scene
+    mesh_settings = scene.hotspotuv_decal_mesh
+    plain = bpy.data.materials.new("HotspotPlain")
+    plain.use_nodes = True
+    mesh_settings.material_name = plain.name
+    assert prepare_markup(scene)[1] == "HOTSPOT_MATERIAL_HAS_NO_IMAGE"
+    sheet = bpy.data.materials.new("HotspotSheet")
+    sheet.use_nodes = True
+    texture = sheet.node_tree.nodes.new("ShaderNodeTexImage")
+    texture.image = bpy.data.images.new("panel_sheet.png", 512, 256)
+    principled = next(node for node in sheet.node_tree.nodes if node.type == "BSDF_PRINCIPLED")
+    sheet.node_tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+    mesh_settings.material_name = sheet.name
+    image, refusal, detail = prepare_markup(scene)
+    editor = scene.hotspotuv_hotspot_editor
+    assert image is not None and image.name == "panel_sheet.png" and refusal == "", (refusal, detail)
+    assert sheet["cftuv_hotspot_markup"] == "panel_sheet.png.hotspot" and editor.draft_of == "panel_sheet.png.hotspot"
+    assert (editor.width, editor.height, len(editor.marks)) == (512, 256, 0) and not editor.dirty
+    editor.marks.add()  # пустой прямоугольник - черновик не принят
+    from cftuv.hotspot_editor import commit_draft
+
+    assert commit_draft(scene) and editor.dirty
+    other = bpy.data.materials.new("HotspotOther")
+    other.use_nodes = True
+    other.node_tree.nodes.new("ShaderNodeTexImage").image = bpy.data.images.new("panel_other.png", 256, 256)
+    mesh_settings.material_name = other.name
+    assert prepare_markup(scene)[1] == MARKUP_DRAFT_UNSAVED, "an unsaved draft of another markup is never replaced"
+    assert len(editor.marks) == 1 and editor.draft_of == "panel_sheet.png.hotspot" and "panel_other.png.hotspot" not in bpy.data.texts
+    mesh_settings.material_name = sheet.name
+    assert prepare_markup(scene)[1] == "" and len(editor.marks) == 1 and editor.dirty, "the same markup keeps its unsaved draft"
+    from cftuv.hotspot_editor import load_draft
+
+    assert load_draft(scene, editor.draft_of, discard=True) == "" and not editor.dirty
+    mesh_settings.material_name = MATERIAL
+    print("HOTSPOT MARK UP preparation: image from nodes, text created and linked, refusals named", flush=True)
+
+
 def main():
     _register()
+    _check_mark_up_preparation()
     bpy.context.scene.hotspotuv_settings.envelope_debug_alpha = 0.25
     _build_fold()
     _hotspot(False)

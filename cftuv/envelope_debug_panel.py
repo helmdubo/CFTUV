@@ -30,10 +30,12 @@ def draw_decal_mesh_rows(layout) -> None:
     draw_decal_width_rows(layout)
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")
-    row.prop_search(
-        mesh_settings, "material_name", bpy.data, "materials",
-        text="", results_are_suggestions=True,
-    )
+    hotspot = getattr(bpy.context.scene, "hotspotuv_hotspot", None)
+    if not getattr(hotspot, "enabled", False):  # Hotspot включён - материал выбирается в его строках (HOTSPOT_PANEL_EDITOR_V1)
+        row.prop_search(
+            mesh_settings, "material_name", bpy.data, "materials",
+            text="", results_are_suggestions=True,
+        )
     layout.prop(mesh_settings, "uv_policy_id")
     from .hotspot_blender import draw_hotspot_rows
 

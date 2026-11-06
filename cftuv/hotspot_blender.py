@@ -2,6 +2,8 @@
 
 * Разметка - JSON в текстовом датаблоке .blend (`hotspot_markup`); материал декали называет свой датаблок свойством `cftuv_hotspot_markup`.
   Запись идёт только после проверки: непринятая разметка не пишется, прежний текст остаётся, находки возвращаются по именам.
+* HOTSPOT_PANEL_EDITOR_V1: материал разметки - материал декали панели; картинка - из его узлов (Image Texture, питающий Base Color узла
+  Principled, иначе первый с картинкой); «Mark Up» сам создаёт и связывает датаблок (`ensure_material_markup`) и открывает мини-редактор.
 * Режим - НЕОБЯЗАТЕЛЬНЫЙ переключатель панели декали. Выключен - кнопка и меш те же побитово: меш не получает свойства `cftuv_hotspot`, и
   писатель меша (`envelope_production_mesh`) не трогает UV. Включён - кнопка разрешает метку ДО прогона ядра (отказ по имени, ядро не считает),
   кладёт отображение в свойство НОВОГО меша, и каждая запись UV этого меша (кнопка, подтверждение и кадры живой ширины) проходит через
@@ -15,7 +17,7 @@ import bpy
 import numpy as np
 
 from .hotspot_mapping import MESH_PROPERTY, atlas_uvs, mapping_for, mapping_from_json, mapping_to_json
-from .hotspot_markup import KIND_CORNER, MarkupProblemV1, load_markup, save_markup
+from .hotspot_markup import KIND_CORNER, MarkupProblemV1, empty_markup, load_markup, save_markup
 
 #: Свойство материала: имя текстового датаблока его разметки.
 MATERIAL_MARKUP_PROPERTY = "cftuv_hotspot_markup"
@@ -25,6 +27,10 @@ MARKUP_NOT_LINKED = "MARKUP_NOT_LINKED"
 HOTSPOT_UV_POLICY_UNSUPPORTED = "HOTSPOT_UV_POLICY_UNSUPPORTED"
 HOTSPOT_MARK_NOT_FOUND = "HOTSPOT_MARK_NOT_FOUND"
 HOTSPOT_MARKUP_REFUSED = "HOTSPOT_MARKUP_REFUSED"
+#: Разметка открывается от материала (HOTSPOT_PANEL_EDITOR_V1): материала нет, у него нет картинки, у картинки нет пикселей.
+HOTSPOT_MATERIAL_MISSING = "HOTSPOT_MATERIAL_MISSING"
+HOTSPOT_MATERIAL_HAS_NO_IMAGE = "HOTSPOT_MATERIAL_HAS_NO_IMAGE"
+HOTSPOT_IMAGE_HAS_NO_PIXELS = "HOTSPOT_IMAGE_HAS_NO_PIXELS"
 #: Свойство меша есть, но не читается: UV остаются UV ядра, исход назван в консоли и в числах меша.
 HOTSPOT_MAPPING_RECORD_INVALID = "HOTSPOT_MAPPING_RECORD_INVALID"
 #: Числа последнего отображения по session_uid меша (имя нового меша кнопки меняется при подмене): консоль кнопки и смоки; не данные Blender.
@@ -83,6 +89,95 @@ def write_markup_text(text_name: str, markup) -> tuple:
 
 
 # --------------------------------------------------------------------------
+# Текстура материала и разметка материала (HOTSPOT_PANEL_EDITOR_V1)
+# --------------------------------------------------------------------------
+
+
+def _upstream_image_node(socket):
+    """Первый узел Image Texture с картинкой выше по связям сокета (обход в ширину, приглушённые связи не идут)."""
+
+    queue, seen = [link.from_node for link in getattr(socket, "links", ()) if not getattr(link, "is_muted", False)], set()
+    while queue:
+        node = queue.pop(0)
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if node.type == "TEX_IMAGE" and node.image is not None:
+            return node
+        for upstream in node.inputs:
+            queue.extend(link.from_node for link in getattr(upstream, "links", ()) if not getattr(link, "is_muted", False))
+    return None
+
+
+def material_images(material) -> tuple:
+    """Картинки узлов Image Texture материала: та, что питает Base Color узла Principled, первой, затем остальные в порядке узлов, без повторов."""
+
+    tree = getattr(material, "node_tree", None) if material is not None and getattr(material, "use_nodes", True) else None
+    if tree is None:
+        return ()
+    nodes = list(tree.nodes)
+    ordered = []
+    for node in nodes:
+        base = node.inputs.get("Base Color") if node.type == "BSDF_PRINCIPLED" else None
+        found = None if base is None else _upstream_image_node(base)
+        if found is not None:
+            ordered.append(found)
+    ordered += [node for node in nodes if node.type == "TEX_IMAGE" and node.image is not None]
+    images, names = [], set()
+    for node in ordered:
+        if node.image.name not in names:
+            names.add(node.image.name)
+            images.append(node.image)
+    return tuple(images)
+
+
+def resolve_material_image(material, preferred: str = "", markup_image: str = "") -> tuple:
+    """`(картинка | None, отказ, подробность, кандидаты)`: выбранная, иначе картинка разметки, иначе первая; отказ - по имени."""
+
+    if material is None:
+        return None, HOTSPOT_MATERIAL_MISSING, "pick an existing material that has an Image Texture node", ()
+    candidates = material_images(material)
+    if not candidates:
+        return None, HOTSPOT_MATERIAL_HAS_NO_IMAGE, f"material {material.name!r} has no Image Texture node with an image", ()
+    by_name = {image.name: image for image in candidates}
+    image = by_name.get(preferred) or by_name.get(markup_image) or candidates[0]
+    if not image.size[0] or not image.size[1]:
+        return None, HOTSPOT_IMAGE_HAS_NO_PIXELS, f"image {image.name!r} has no pixels (missing file?)", candidates
+    return image, "", "", candidates
+
+
+def ensure_material_markup(material, image) -> tuple:
+    """`(имя датаблока разметки, создан ли, находки)`: связанная разметка материала, иначе `<картинка>.hotspot`; нет датаблока - пустая разметка
+    картинки; материал ссылается на него. Пользователь не трогает ни текст, ни ссылку."""
+
+    name = linked_markup_name(material) or f"{image.name}.hotspot"
+    created = bpy.data.texts.get(name) is None
+    if created:
+        problems = write_markup_text(name, empty_markup(int(image.size[0]), int(image.size[1]), image.name))
+        if problems:
+            return "", False, problems
+    link_markup(material, name)
+    return name, created, ()
+
+
+def scene_material_image(scene) -> tuple:
+    """`(материал, картинка | None, отказ, подробность, кандидаты)` разметки сцены: материал декали и его картинка (выбор панели, иначе картинка разметки)."""
+
+    material = decal_material(scene)
+    settings = getattr(scene, SETTINGS_ATTRIBUTE, None)
+    _name, markup, _problems = read_material_markup(material)
+    image, refusal, detail, candidates = resolve_material_image(material, getattr(settings, "image_name", ""), "" if markup is None else markup.image)
+    return material, image, refusal, detail, candidates
+
+
+def mark_items(markup) -> list:
+    """Пункты выбора метки кнопки: `id: name (kind)`; нет меток - один пункт «нет меток»."""
+
+    items = [] if markup is None else [(str(mark.id), f"{mark.id}: {mark.name} ({mark.kind})", f"{mark.kind}, up {mark.up}, {mark.w} x {mark.h} px", mark.id) for mark in markup.marks]
+    return items or [("-1", "no marks", "the markup of the material has no marks yet: click Mark Up", -1)]
+
+
+# --------------------------------------------------------------------------
 # Настройки и разрешение метки нажатия
 # --------------------------------------------------------------------------
 
@@ -136,25 +231,43 @@ def draw_hotspot_rows(layout, context) -> None:
     settings = getattr(scene, SETTINGS_ATTRIBUTE, None)
     if settings is None:
         return
+    mesh_settings = getattr(scene, "hotspotuv_decal_mesh", None)
     box = layout.box()
     box.prop(settings, "enabled")
-    if not settings.enabled:
+    if not settings.enabled or mesh_settings is None:
         return
-    if decal_material(scene) is None:
-        box.label(text="The decal material does not exist yet: build once or create it", icon="INFO")
-    else:
-        box.prop_search(settings, "markup_name", bpy.data, "texts")
-    box.prop(settings, "mark_choice")
+    # Материал разметки И есть материал декали: метка берётся из текстуры, которую декаль покажет (HOTSPOT_PANEL_EDITOR_V1).
+    box.prop_search(mesh_settings, "material_name", bpy.data, "materials", text="Material", results_are_suggestions=True)
+    _material, image, image_refusal, image_detail, candidates = scene_material_image(scene)
+    if len(candidates) > 1:
+        box.prop(settings, "image_choice")
+    elif image is not None:
+        box.label(text=f"Texture {image.name}: {image.size[0]} x {image.size[1]} px", icon="IMAGE_DATA")
+    if image is None:
+        _refusal_rows(box, image_refusal, image_detail)
+    row = box.row()
+    row.scale_y = 1.4
+    row.enabled = image is not None
+    row.operator("hotspotuv.hotspot_mark_up", text="Mark Up", icon="GREASEPENCIL")
     mapping, refusal, detail = resolve_press(scene)
+    if refusal == MARKUP_NOT_LINKED:  # до первой разметки выбирать нечего: имя отказа кнопки и что сделать
+        if image is not None:
+            box.label(text=f"{MARKUP_NOT_LINKED}: no marks yet, click Mark Up", icon="INFO")
+        return
+    box.prop(settings, "mark_choice")
     if mapping is not None and mapping.mark.kind == KIND_CORNER:
         box.prop(settings, "swap_wings")
-    if refusal:
-        box.label(text=refusal, icon="ERROR")
-        if detail:
-            box.label(text=detail[:200])
+    if refusal and refusal != image_refusal:
+        _refusal_rows(box, refusal, detail)
     elif mapping is not None:
         mark = mapping.mark
         box.label(text=f"{mark.kind} {mark.w} x {mark.h} px, up {mark.up}, texture {mapping.width} x {mapping.height}")
+
+
+def _refusal_rows(box, refusal: str, detail: str) -> None:
+    box.label(text=refusal, icon="ERROR")
+    if detail:
+        box.label(text=detail[:200])
 
 
 # --------------------------------------------------------------------------
@@ -219,9 +332,12 @@ def counter_lines(object_name) -> tuple:
 
 
 __all__ = (
+    "HOTSPOT_IMAGE_HAS_NO_PIXELS",
     "HOTSPOT_MAPPING_RECORD_INVALID",
     "HOTSPOT_MARKUP_REFUSED",
     "HOTSPOT_MARK_NOT_FOUND",
+    "HOTSPOT_MATERIAL_HAS_NO_IMAGE",
+    "HOTSPOT_MATERIAL_MISSING",
     "HOTSPOT_UV_POLICY_UNSUPPORTED",
     "LAST_COUNTERS",
     "MARKUP_NOT_LINKED",
@@ -231,12 +347,17 @@ __all__ = (
     "counter_lines",
     "decal_material",
     "draw_hotspot_rows",
+    "ensure_material_markup",
     "link_markup",
     "linked_markup_name",
     "map_mesh_uvs",
+    "mark_items",
+    "material_images",
     "press_record",
     "read_markup_text",
     "read_material_markup",
+    "resolve_material_image",
     "resolve_press",
+    "scene_material_image",
     "write_markup_text",
 )
