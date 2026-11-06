@@ -29,6 +29,8 @@ UV Editor декали в Edit Mode меток не показывают, пок
 
 from __future__ import annotations
 
+import textwrap
+
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
 
@@ -937,7 +939,8 @@ class HOTSPOTUV_PT_HotspotMarkup(bpy.types.Panel):
             box = layout.box().column(align=True)
             name, _colon, detail = editor.backdrop_problem.partition(": ")
             box.label(text=name, icon="ERROR")
-            box.label(text=f"   {detail[:160]}")
+            for line in textwrap.wrap(detail, 34)[:6]:  # узкая боковая панель мини-окна: размеры и число меток должны читаться целиком
+                box.label(text=f"   {line}")
         changed = backdrop_changed(context.area, editor)
         if changed:
             box = layout.box().column(align=True)
