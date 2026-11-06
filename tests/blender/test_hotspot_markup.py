@@ -19,6 +19,8 @@
    тронут; режим выключен - ни записи, ни атрибутов `cftuv_hotspot_mark` и `cftuv_strip_uv`;
 8. ОТДЕЛЬНОЕ ОКНО (HOTSPOT_EDITOR_WINDOW_V1): метки рисует только область мини-окна; второй Image Editor с той же картинкой - нет;
    подложка (HOTSPOT_BACKDROP_V1): другой размер при метках - отказ по имени, без меток разметка переходит в размер картинки;
+   HOTSPOT_EDITOR_UX_V1: боковой панели нет, заголовок Image Editor обёрнут; поворот на соседа - MARK_ROTATE_BLOCKED, поворот и разворот
+   стрелки, операторы меню правой кнопки на черновике сцены;
 9. OBJECT MODE (HOTSPOT_OBJECT_APPLY_V1): выбор метки при двух выделенных декалях и не декали - все острова обеих декалей, не декаль не
    тронута; Swap wings кладёт то же самое с переставленными крыльями.
 
@@ -599,10 +601,42 @@ def _check_mark_up_preparation():
     from cftuv.hotspot_editor import load_draft
 
     assert load_draft(scene, editor.draft_of, discard=True) == "" and not editor.dirty
+    _check_editor_edits(scene)
     _check_backdrop(scene, sheet, principled)
     _check_overlay_gate(editor)
     mesh_settings.material_name = MATERIAL
     print("HOTSPOT MARK UP preparation: image from nodes, text created and linked, refusals named", flush=True)
+
+
+def _check_editor_edits(scene):
+    """HOTSPOT_EDITOR_UX_V1 на черновике сцены (без окна): поворот на другую метку - отказ MARK_ROTATE_BLOCKED, черновик и текст прежние; без
+    соседа - вертикальная полоса во всю высоту, проверена и записана; разворот стрелки; операторы меню правой кнопки (Rotate, Flip, Kind, Delete)."""
+
+    from cftuv.hotspot_blender import read_markup_text
+    from cftuv.hotspot_editor import commit_draft, flip_active, rotate_active
+
+    editor = scene.hotspotuv_hotspot_editor
+    for mark_id, y in ((0, 0), (1, 128)):
+        item = editor.marks.add()
+        item.mark_id, item.label, item.kind, item.up, item.x, item.y, item.w, item.h = mark_id, f"m{mark_id}", "trim", "+y", 0, y, 512, 64
+    assert commit_draft(scene) == ()
+    editor.active, editor.grid = 0, 8
+    assert rotate_active(editor) == "MARK_ROTATE_BLOCKED" and "overlaps mark(s) 1" in editor.notice
+    assert (editor.marks[0].up, editor.marks[0].w) == ("+y", 512), "a refused turn changes nothing"
+    editor.active = 1
+    assert bpy.ops.hotspotuv.hotspot_mark_delete() == {"FINISHED"} and len(editor.marks) == 1 and not editor.dirty
+    editor.active = 0
+    assert rotate_active(editor) == "" and not editor.notice
+    mark = editor.marks[0]
+    assert (mark.x, mark.y, mark.w, mark.h, mark.up) == (224, 0, 64, 256, "+x"), (mark.x, mark.y, mark.w, mark.h, mark.up)
+    assert commit_draft(scene) == () and read_markup_text(editor.draft_of)[0].marks[0].up == "+x", "the turned strip is valid and saved"
+    assert flip_active(editor) == "" and editor.marks[0].up == "-x"
+    assert bpy.ops.hotspotuv.hotspot_mark_rotate() == {"FINISHED"} and editor.marks[0].up == "+y" and editor.marks[0].w == 512
+    assert bpy.ops.hotspotuv.hotspot_mark_flip() == {"FINISHED"} and editor.marks[0].up == "-y"
+    assert bpy.ops.hotspotuv.hotspot_mark_kind(kind="corner") == {"FINISHED"} and read_markup_text(editor.draft_of)[0].marks[0].kind == "corner"
+    assert bpy.ops.hotspotuv.hotspot_mark_delete() == {"FINISHED"} and len(editor.marks) == 0 and not editor.dirty
+    assert read_markup_text(editor.draft_of)[0].marks == ()
+    print("HOTSPOT EDITOR edits: turn refused by name onto a neighbour, turned to a full-height strip, flipped, menu operators", flush=True)
 
 
 def _check_backdrop(scene, sheet, principled):
@@ -659,9 +693,12 @@ def _check_overlay_gate(editor):
         assert hotspot_editor.overlay_mode(window, screen, first, editor) == OVERLAY_EDITOR
         assert hotspot_editor.overlay_mode(window, screen, second, editor) == "", "a second Image Editor showing the same image draws no marks"
         with bpy.context.temp_override(window=window, area=second):
-            assert not hotspot_editor.is_mini_context(bpy.context) and not hotspot_editor.HOTSPOTUV_PT_HotspotMarkup.poll(bpy.context)
+            assert not hotspot_editor.is_mini_context(bpy.context)
         with bpy.context.temp_override(window=window, area=first):
             assert hotspot_editor.is_mini_context(bpy.context)
+        # HOTSPOT_EDITOR_UX_V1: боковой панели нет; заголовок мини-окна - свой, у других Image Editor - заголовок Blender.
+        assert not hasattr(bpy.types, "HOTSPOTUV_PT_HotspotMarkup") and bpy.types.IMAGE_HT_header.draw is hotspot_editor._image_header_draw
+        assert hotspot_editor._HEADER["draw"] is not hotspot_editor._image_header_draw
         editor.show_in_uv_editor = True
         assert hotspot_editor.overlay_mode(window, screen, second, editor) == OVERLAY_ELSEWHERE
         editor.show_in_uv_editor = False

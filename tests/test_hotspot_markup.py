@@ -208,3 +208,102 @@ def test_the_material_names_its_markup_through_a_custom_property(texts):
     assert (name, problems) == ("Sheet", ()) and markup.mark(0) == TRIM
     hotspot_blender.link_markup(material, "")
     assert hotspot_blender.linked_markup_name(material) == ""
+
+
+# --------------------------------------------------------------------------
+# HOTSPOT_EDITOR_UX_V1: поворот, разворот стрелки, край полосы, сетка
+# --------------------------------------------------------------------------
+
+
+def _trim(mark_id, y, h, width=1024, up="+y", kind="trim", band=0):
+    return HotspotMarkV1(mark_id, f"m{mark_id}", kind, 0, y, width, h, up, band)
+
+
+def test_a_quarter_turn_is_clockwise_in_texture_pixels_and_the_arrow_turns_with_the_strip():
+    """Пиксели текстуры, начало - левый нижний угол, y вверх: по часовой (x, y) -> (y, -x), то есть +y -> +x -> -y -> -x -> +y."""
+
+    from cftuv.hotspot_markup import UP_CLOCKWISE, UP_VECTORS, rotated_mark, validate_markup
+
+    for up, turned in UP_CLOCKWISE.items():
+        (x, y), (tx, ty) = UP_VECTORS[up], UP_VECTORS[turned]
+        assert (tx, ty) == (y, -x), (up, turned)
+    markup = HotspotMarkupV1(1024, 1024, "sheet.png", (_trim(0, 64, 128),))
+    seen = []
+    for _turn in range(4):
+        mark, problem = rotated_mark(markup, 0, 8)
+        assert problem is None and validate_markup(markup.with_marks([mark])) == (), (mark, problem)
+        seen.append(mark.up)
+        markup = markup.with_marks([mark])
+    assert seen == ["+x", "-y", "-x", "+y"]
+
+
+def test_a_horizontal_full_span_strip_turns_into_a_vertical_full_height_strip_of_the_same_thickness_on_a_non_square_texture():
+    from cftuv.hotspot_markup import rotated_mark
+
+    markup = HotspotMarkupV1(1024, 512, "sheet.png", (_trim(3, 64, 128, kind="corner", band=12),))
+    mark, problem = rotated_mark(markup, 0, 8)
+    assert problem is None
+    assert (mark.x, mark.y, mark.w, mark.h, mark.up, mark.thickness, mark.band) == (448, 0, 128, 512, "+x", 128, 12), "centre x 512 kept"
+    back, _problem = rotated_mark(markup.with_marks([mark]), 0, 8)
+    assert (back.x, back.y, back.w, back.h, back.up) == (0, 192, 1024, 128, "-y"), "the centre of the vertical strip along y is the texture middle"
+    coarse, _problem = rotated_mark(HotspotMarkupV1(1024, 512, "", (_trim(0, 0, 100),)), 0, 64)
+    assert coarse.x == 448, "the start snaps to the grid: (512 - 50) / 64 -> 7 * 64"
+
+
+def test_a_turn_keeps_the_centre_but_is_clamped_into_the_texture():
+    from cftuv.hotspot_markup import rotated_mark
+
+    draft = HotspotMarkupV1(1024, 512, "", (HotspotMarkV1(0, "draft", "trim", 1000, 0, 24, 32, "+y"),))
+    mark, problem = rotated_mark(draft, 0, 1)
+    assert problem is None and (mark.x, mark.y, mark.w, mark.h, mark.up) == (992, 0, 32, 512, "+x"), "centre 1012 - 16 = 996 is clamped to 1024 - 32"
+    low = HotspotMarkupV1(1024, 512, "", (HotspotMarkV1(0, "low", "trim", 0, 0, 8, 40, "+y"),))
+    assert rotated_mark(low, 0, 16)[0].x == 0, "a start below 0 is clamped to 0"
+
+
+def test_a_turn_onto_another_mark_or_out_of_the_texture_is_refused_by_name_and_changes_nothing():
+    from cftuv.hotspot_markup import MARK_ROTATE_BLOCKED, rotated_mark
+
+    markup = HotspotMarkupV1(1024, 512, "", (_trim(0, 0, 128), _trim(5, 256, 64)))
+    mark, problem = rotated_mark(markup, 0, 8)
+    assert mark is None and problem.name == MARK_ROTATE_BLOCKED and problem.mark_id == 0 and "overlaps mark(s) 5" in problem.detail
+    thick = HotspotMarkupV1(1024, 512, "", (HotspotMarkV1(0, "wide", "trim", 0, 0, 600, 512, "+x"),))
+    mark, problem = rotated_mark(thick, 0, 8)
+    assert mark is None and problem.name == MARK_ROTATE_BLOCKED and "600 px thick across a 512 px" in problem.detail
+    assert markup.marks[0] == _trim(0, 0, 128), "the pure turn never edits its input"
+
+
+def test_flipping_points_the_arrow_the_other_way_and_leaves_the_rectangle():
+    from cftuv.hotspot_markup import flipped_mark
+
+    for up, other in (("+y", "-y"), ("-y", "+y"), ("+x", "-x"), ("-x", "+x")):
+        mark = HotspotMarkV1(1, "m", "corner", 0, 128, 1024, 96, up, 12)
+        flipped = flipped_mark(mark)
+        assert flipped.up == other and (flipped.x, flipped.y, flipped.w, flipped.h, flipped.band) == (0, 128, 1024, 96, 12)
+
+
+def test_dragging_a_band_edge_keeps_the_band_symmetric_on_the_grid_and_thinner_than_the_mark():
+    from cftuv.hotspot_markup import band_from_edge
+
+    corner = HotspotMarkV1(1, "edge", "corner", 0, 128, 1024, 96, "+y", 12)  # средняя линия y = 176
+    assert band_from_edge(corner, 196, 8) == 40 and band_from_edge(corner, 156, 8) == 40, "either edge, the same symmetric band"
+    assert band_from_edge(corner, 199, 8) == 48, "2 * 23 = 46 rounds to the grid"
+    assert band_from_edge(corner, 176, 8) == 0 and band_from_edge(corner, 900, 8) == 88 and band_from_edge(corner, -50, 1) == 95, "0 .. < 96"
+    vertical = HotspotMarkV1(2, "post", "corner", 400, 0, 64, 512, "-x", 0)  # средняя линия x = 432
+    assert band_from_edge(vertical, 442, 4) == 20 and band_from_edge(vertical, 10, 4) == 60
+    assert band_from_edge(HotspotMarkV1(3, "thin", "corner", 0, 0, 1024, 8, "+y"), 100, 16) == 0, "a grid wider than the mark leaves no band"
+
+
+def test_ctrl_plus_and_ctrl_minus_halve_and_double_the_grid_on_both_keyboards():
+    from cftuv.hotspot_markup import grid_key_step, grid_step
+
+    assert [grid_key_step(key, True) for key in ("EQUAL", "NUMPAD_PLUS", "MINUS", "NUMPAD_MINUS")] == [-1, -1, 1, 1]
+    assert [grid_key_step(key, False) for key in ("EQUAL", "NUMPAD_PLUS", "MINUS", "NUMPAD_MINUS")] == [0, 0, 0, 0], "without Ctrl: the Image Editor's"
+    assert grid_key_step("LEFT_BRACKET", False) == -1 and grid_key_step("RIGHT_BRACKET", True) == 1 and grid_key_step("A", True) == 0
+    assert (grid_step(8, -1), grid_step(8, 1), grid_step(1, -1), grid_step(1024, 1), grid_step(8, 0)) == (4, 16, 1, 1024, 8)
+
+
+def test_the_header_names_the_findings_once_each():
+    from cftuv.hotspot_markup import problem_names
+
+    text = "MARK_RECTS_OVERLAP (mark 1): mark 1 overlaps mark 0; MARK_RECTS_OVERLAP (mark 1): again; MARK_RECT_EMPTY (mark 2): rect 0 x 0 has no area"
+    assert problem_names(text) == ("MARK_RECTS_OVERLAP (mark 1)", "MARK_RECT_EMPTY (mark 2)") and problem_names("") == ()

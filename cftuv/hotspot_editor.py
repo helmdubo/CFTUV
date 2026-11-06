@@ -1,11 +1,13 @@
-"""Редактор разметки Hotspot в Image Editor (HOTSPOT_MARKUP_EDITOR_V1, HOTSPOT_PANEL_EDITOR_V1): мини-окно, показ меток, инструмент и список.
+"""Редактор разметки Hotspot в Image Editor (HOTSPOT_MARKUP_EDITOR_V1, HOTSPOT_PANEL_EDITOR_V1, HOTSPOT_EDITOR_UX_V1): мини-окно, показ меток, инструмент.
 
 МИНИ-ОКНО. «Mark Up» панели декали (`hotspotuv.hotspot_mark_up`) берёт материал декали и картинку из его узлов, сам создаёт и связывает
 датаблок разметки, загружает черновик и открывает отдельное маленькое окно: временное окно `screen.info_log_show` (одна область, закрытие
-убирает его экран), область переключается в Image Editor с этой картинкой, вид вписан в видимую часть, боковая панель открыта на вкладке
-Hotspot, инструмент запущен. Повторное нажатие переиспользует окно. Подложка (HOTSPOT_BACKDROP_V1) выбирается первой строкой боковой панели
-мини-окна из картинок материала: разметка в пикселях своей текстуры, поэтому картинка другого размера при метках - отказ
-`HOTSPOT_BACKDROP_SIZE_MISMATCH`, без меток разметка переходит в её размер.
+убирает его экран), область переключается в Image Editor с этой картинкой, вид вписан, инструмент запущен и работает, пока окно открыто
+(закрытие окна - конец, другого «стопа» нет). Повторное нажатие переиспользует окно. Боковой панели нет (HOTSPOT_EDITOR_UX_V1): имя, размер,
+вид и «вверх» каждой метки нарисованы на ней самой. Заголовок области - свой (`draw_mini_header` вместо меню Image Editor): имя окна,
+выпадающий список подложки (HOTSPOT_BACKDROP_V1: картинки материала; разметка в пикселях своей текстуры, поэтому картинка другого размера при
+метках - отказ `HOTSPOT_BACKDROP_SIZE_MISMATCH`, без меток разметка переходит в её размер), меню Markup («Show marks in UV Editor», сброс
+черновика), сетка и состояние: saved / NOT SAVED с именами находок, отказы по именам.
 
 ЧЕРНОВИК И ТЕКСТ. Правится черновик - коллекция меток сцены (`hotspotuv_hotspot_editor`, она сохраняется вместе с .blend). После каждой правки
 черновик проверяется (`hotspot_markup.save_markup`): принятый пишется в текстовый датаблок, непринятый НЕ пишется - текст остаётся прежним
@@ -13,23 +15,25 @@ Hotspot, инструмент запущен. Повторное нажатие 
 материала поверх непринятого черновика - отказ `MARKUP_DRAFT_UNSAVED`, пока черновик не исправлен или явно не отброшен.
 
 ИНСТРУМЕНТ (`hotspotuv.hotspot_markup_edit`, модальный, в области Image Editor): перетаскивание по пустому месту - новый прямоугольник по сетке
-пикселей (шаг `[` и `]`), щелчок по метке - выбор, перетаскивание внутри - перенос, за ручку (угол, середина стороны) - размер, `D` - копия,
-`X`/`Delete` - удаление, `U` - следующее направление «вверх», `Esc`/правая кнопка - выход. Колесо и средняя кнопка проходят в Image Editor,
-как и всё над боковой панелью и заголовком (там правятся поля меток, пока инструмент работает). Закрытие окна завершает инструмент.
+пикселей, щелчок по метке - выбор, перетаскивание внутри - перенос, за ручку (угол, середина стороны) - размер, у выбранной corner-метки за
+край полосы - ширина полосы (симметрично средней линии, по сетке, `band_from_edge`). Ctrl + щелчок по метке - поворот на 90° по часовой
+(`rotated_mark`, отказ MARK_ROTATE_BLOCKED по имени), Ctrl + правая кнопка - разворот стрелки «вверх» (`flipped_mark`), правая кнопка по метке -
+меню метки (Rotate, Flip Up, Rename, Kind, Delete). Сетка: Ctrl + `+` / Ctrl + `-` (основная и цифровая клавиатура) и `[` / `]` - мельче /
+крупнее. `D` - копия, `X`/`Delete` - удаление, `U` - разворот стрелки, `Esc` - отмена начатого перетаскивания. Колесо и средняя кнопка
+проходят в Image Editor, как и всё над заголовком.
 
-ОТДЕЛЬНОЕ ОКНО (HOTSPOT_EDITOR_WINDOW_V1): метки, вкладка Hotspot боковой панели и инструмент есть ТОЛЬКО в области мини-окна - ключ
-`(окно, экран, область)` из указателей, окно проверяется среди открытых, загрузка файла ключ очищает. Второй Image Editor с той же картинкой и
-UV Editor декали в Edit Mode меток не показывают, пока пользователь сам не включит «Show marks in UV Editor» (по умолчанию выключено). Заголовок
-области - «CFTUV Hotspot Markup — <материал>» вместо меню Image Editor (выбор картинки, режим UV, тип области), картинка закреплена.
+ОТДЕЛЬНОЕ ОКНО (HOTSPOT_EDITOR_WINDOW_V1): метки, свой заголовок и инструмент есть ТОЛЬКО в области мини-окна - ключ `(окно, экран, область)`
+из указателей, окно проверяется среди открытых, загрузка файла ключ очищает. Второй Image Editor с той же картинкой и UV Editor декали в Edit
+Mode меток не показывают, пока пользователь сам не включит «Show marks in UV Editor» (меню Markup заголовка, по умолчанию выключено); их
+заголовок - обычный заголовок Image Editor. Картинка мини-окна закреплена.
 
 ПОКАЗ (обработчик `POST_PIXEL` Image Editor): полупрозрачная заливка своего оттенка у каждой метки (`mark_colours`: оттенок от id), контур,
-номер и имя (с тенью), стрелка «вверх», нижний край (шов `trim`) или средняя линия (шов `corner`) выделены, у `corner` - центральная полоса
-`band` контрастным тоном того же оттенка.
+номер, имя, вид, «вверх» и размер (с тенью), стрелка «вверх», нижний край (шов `trim`) или средняя линия (шов `corner`) выделены, у `corner` -
+центральная полоса `band` контрастным тоном того же оттенка, у выбранной corner-метки - ручки краёв полосы. Внизу слева - клавиши и подробности
+находок.
 """
 
 from __future__ import annotations
-
-import textwrap
 
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
@@ -49,31 +53,56 @@ from .hotspot_blender import (
     scene_material_image,
     write_markup_text,
 )
-from .hotspot_markup import KIND_CORNER, KIND_TRIM, KINDS, UP_VECTORS, HotspotMarkV1, HotspotMarkupV1, mark_colours, next_mark_id
+from .hotspot_markup import (
+    KIND_CORNER,
+    KIND_TRIM,
+    KINDS,
+    UP_OPPOSITE,
+    UP_VECTORS,
+    HotspotMarkV1,
+    HotspotMarkupV1,
+    band_from_edge,
+    grid_key_step,
+    grid_step,
+    mark_colours,
+    next_mark_id,
+    problem_names,
+    rotated_mark,
+)
 
 EDITOR_ATTRIBUTE = "hotspotuv_hotspot_editor"
 MARKUP_DRAFT_UNSAVED = "MARKUP_DRAFT_UNSAVED"
 #: Окно мини-редактора не открылось (ни временное окно, ни новое): нажатие отказывает по имени.
 HOTSPOT_EDITOR_WINDOW_NOT_OPENED = "HOTSPOT_EDITOR_WINDOW_NOT_OPENED"
-#: Область окна не получила размеров за отведённое время: инструмент не запущен, причина - в консоли и в боковой панели (кнопка Edit Marks).
+#: Область окна не получила размеров за отведённое время: инструмент не запущен, причина - в консоли и в заголовке (кнопка Start Mark Tool).
 HOTSPOT_EDITOR_TOOL_NOT_STARTED = "HOTSPOT_EDITOR_TOOL_NOT_STARTED"
+#: Инструмент остановлен исключением: причина - в заголовке и внизу окна, кнопка Start Mark Tool запускает его снова.
+HOTSPOT_EDITOR_TOOL_STOPPED = "HOTSPOT_EDITOR_TOOL_STOPPED"
 UP_ORDER = ("+y", "-y", "+x", "-x")
-#: Подсказки клавиш инструмента: одна строка на действие; их показывают и боковая панель, и строка в окне.
+#: Подсказки клавиш инструмента (строки внизу слева мини-окна, по две в строке).
 KEY_HINTS = (
     "Drag on empty: new mark",
     "Drag a mark: move it",
     "Drag its edge or corner: resize",
-    "[ / ]: halve / double the grid",
-    "D duplicate, X delete, U turn up",
-    "Esc or right click: stop the tool",
+    "Corner: drag a band edge: band width",
+    "Ctrl+click a mark: rotate 90° clockwise",
+    "Ctrl+right click: flip up (U)",
+    "Right click a mark: Rotate, Rename, Kind, Delete",
+    "Ctrl + / Ctrl - or [ / ]: finer / coarser grid",
+    "D duplicate, X delete",
+    "Esc: cancel a drag; close the window to finish",
 )
-#: Окно, его экран и область мини-редактора (указатели; HOTSPOT_EDITOR_WINDOW_V1: метки, боковая панель и инструмент - только там) и области с
+#: Окно, его экран и область мини-редактора (указатели; HOTSPOT_EDITOR_WINDOW_V1: метки, заголовок и инструмент - только там) и области с
 #: работающим инструментом. Закрытое окно не находится среди окон, загрузка файла очищает запись.
 _MINI: dict = {}
-#: Заголовок области мини-окна вместо меню Image Editor (выбор картинки, режим UV, тип области): окно разметки выглядит отдельным окном.
+#: Имя окна разметки - первая строка заголовка мини-окна (вместо меню Image Editor: выбор картинки, режим UV, тип области).
 WINDOW_TITLE = "CFTUV Hotspot Markup"
-#: HOTSPOT_BACKDROP_V1: мини-окно показывает не выбранную подложку (картинку сменили боковой панелью Image): меток нет, строка и кнопка возврата.
+#: HOTSPOT_BACKDROP_V1: мини-окно показывает не выбранную подложку (картинку сменили в обход списка): меток нет, строка и кнопка возврата.
 HOTSPOT_BACKDROP_CHANGED = "HOTSPOT_BACKDROP_CHANGED"
+#: Ручка края полосы corner (HOTSPOT_EDITOR_UX_V1) - отдельный вид захвата, не сторона прямоугольника.
+BAND_HANDLE = "band"
+#: Меню правой кнопки по метке.
+MARK_MENU = "HOTSPOTUV_MT_hotspot_mark_context"
 #: Пункты списка подложек (Blender не копирует строки динамического перечня).
 _BACKDROP_ITEMS: list = []
 _RUNNING: set = set()
@@ -137,9 +166,10 @@ class HOTSPOTUV_HotspotEditor(bpy.types.PropertyGroup):
     image: StringProperty(name="Image")
     marks: CollectionProperty(type=HOTSPOTUV_HotspotMark)
     active: IntProperty(name="Active mark", default=-1)
-    grid: IntProperty(name="Grid", default=8, min=1, max=1024, description="Pixel grid of the edit tool ([ and ] halve and double it)")
+    grid: IntProperty(name="Grid", default=8, min=1, max=1024, description="Pixel grid of the edit tool (Ctrl + and Ctrl -, or [ and ], make it finer and coarser)")
     dirty: BoolProperty(name="Unsaved draft", default=False)
     problems: StringProperty(name="Problems")
+    notice: StringProperty(name="Notice", description="Named refusal of the last edit of the tool (MARK_ROTATE_BLOCKED, a stopped tool); cleared by the next edit")
     backdrop: StringProperty(name="Backdrop", description="Image shown under the marks in the mini editor (same size as the markup's texture)")
     backdrop_problem: StringProperty(name="Backdrop problem", description="Named refusal of the last backdrop switch")
     backdrop_choice: EnumProperty(
@@ -356,15 +386,7 @@ def is_mini_context(context) -> bool:
 
 
 def window_title(editor) -> str:
-    return f"{WINDOW_TITLE} — {editor.material or '?'} | {editor.draft_of}"
-
-
-def _title_stopped(area, editor) -> None:
-    """Заголовок мини-окна, пока инструмент не работает: заголовок остаётся (меню Image Editor не возвращаются), как запустить - словами."""
-
-    if editor is not None and editor.draft_of:
-        area.header_text_set(f"{window_title(editor)} | mark tool stopped: Edit Marks in the sidebar (N) starts it")
-    area.tag_redraw()
+    return f"{WINDOW_TITLE} — {editor.material or '?'}"
 
 
 def _open_window(context):
@@ -398,15 +420,14 @@ def open_mini_editor(context, image) -> str:
     space = area.spaces.active
     space.image = image
     space.mode = "VIEW"
-    space.show_region_ui = True
     if hasattr(space, "use_image_pin"):
         space.use_image_pin = True  # картинка не следует за активной гранью меша в Edit Mode
-    for flag in ("show_region_toolbar", "show_region_tool_header"):
+    for flag in ("show_region_ui", "show_region_toolbar", "show_region_tool_header"):  # HOTSPOT_EDITOR_UX_V1: боковой панели нет
         if hasattr(space, flag):
             setattr(space, flag, False)
-    editor = editor_of(context.scene)
-    if editor is not None and area.as_pointer() not in _RUNNING:
-        area.header_text_set(f"{window_title(editor)} | starting the mark tool")
+    if hasattr(space, "show_region_header"):
+        space.show_region_header = True
+    area.header_text_set(None)  # заголовок рисует `draw_mini_header`, текст поверх него не нужен
     attempts = {"left": 40}
     window_pointer, area_pointer = window.as_pointer(), area.as_pointer()
 
@@ -418,7 +439,8 @@ def open_mini_editor(context, image) -> str:
 
 
 def _start_when_ready(window_pointer, area_pointer, attempts):
-    """Таймер: область окна получила размеры -> вид вписан, вкладка Hotspot, инструмент запущен. Окно закрыто - тихо нечего делать (ничего не начато)."""
+    """Таймер: область окна получила размеры -> вид вписан, инструмент запущен. Окно закрыто - тихо нечего делать (ничего не начато).
+    Не запустился - имя в консоли и в заголовке окна (кнопка Start Mark Tool)."""
 
     window = _find_window(window_pointer)
     area = None if window is None else next((item for item in window.screen.areas if item.as_pointer() == area_pointer), None)
@@ -429,7 +451,8 @@ def _start_when_ready(window_pointer, area_pointer, attempts):
         attempts["left"] -= 1
         if attempts["left"] > 0:
             return 0.05
-        print(f"[CFTUV][Hotspot] {HOTSPOT_EDITOR_TOOL_NOT_STARTED}: the mini editor area has no size; click Edit Marks in its sidebar", flush=True)
+        print(f"[CFTUV][Hotspot] {HOTSPOT_EDITOR_TOOL_NOT_STARTED}: the mini editor area has no size; Start Mark Tool in its header", flush=True)
+        area.tag_redraw()
         return None
     with bpy.context.temp_override(window=window, area=area, region=region):  # экран временного окна переопределять нельзя: он берётся из окна
         _fit_view(area, region)
@@ -437,20 +460,13 @@ def _start_when_ready(window_pointer, area_pointer, attempts):
             if bpy.ops.hotspotuv.hotspot_markup_edit.poll():
                 bpy.ops.hotspotuv.hotspot_markup_edit("INVOKE_DEFAULT")
             else:
-                print(f"[CFTUV][Hotspot] {HOTSPOT_EDITOR_TOOL_NOT_STARTED}: the mark tool does not poll in the mini editor area; click Edit Marks", flush=True)
-                _title_stopped(area, editor_of(bpy.context.scene))
-    for item in area.regions:
-        if item.type == "UI":
-            try:
-                item.active_panel_category = HOTSPOTUV_PT_HotspotMarkup.bl_category
-            except (AttributeError, TypeError) as exc:  # Blender без записи вкладки: панель на вкладке Hotspot, вкладка - щелчком
-                print(f"[CFTUV][Hotspot] sidebar tab not switched: {exc}", flush=True)
+                print(f"[CFTUV][Hotspot] {HOTSPOT_EDITOR_TOOL_NOT_STARTED}: the mark tool does not poll in the mini editor area; Start Mark Tool in its header", flush=True)
     area.tag_redraw()
     return None
 
 
 def _fit_view(area, region) -> None:
-    """Картинка целиком в видимой части области: слева от перекрывающей боковой панели, с полями."""
+    """Картинка целиком в видимой части области (перекрывающая боковая панель, если пользователь её открыл, не закрывает картинку), с полями."""
 
     space = area.spaces.active
     image = space.image
@@ -518,21 +534,6 @@ class HOTSPOTUV_OT_HotspotBackdropShow(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class HOTSPOTUV_OT_HotspotEditorClose(bpy.types.Operator):
-    bl_idname = "hotspotuv.hotspot_editor_close"
-    bl_label = "Close Mini Editor"
-    bl_description = "Close this window; the accepted markup is already in its text, an unsaved draft stays in the scene"
-
-    @classmethod
-    def poll(cls, context):
-        window = getattr(context, "window", None)
-        return window is not None and window.as_pointer() == _MINI.get("window")
-
-    def execute(self, context):
-        bpy.ops.wm.window_close()
-        return {"FINISHED"}
-
-
 #: Регионы области, которые перекрывают изображение (боковая панель при перекрытии регионов) или лежат рядом: события над ними - не инструменту.
 _PANEL_REGIONS = frozenset(("UI", "HEADER", "TOOL_HEADER", "TOOLS", "ASSET_SHELF", "ASSET_SHELF_HEADER", "FOOTER"))
 
@@ -570,8 +571,45 @@ def _snap(value, grid, limit):
 HANDLE_PIXELS = 7
 
 
+def mark_of(item) -> HotspotMarkV1:
+    """Метка черновика (элемент коллекции) как `HotspotMarkV1` - для чистых правок `hotspot_markup`."""
+
+    return HotspotMarkV1(item.mark_id, item.label, item.kind, item.x, item.y, item.w, item.h, item.up, item.band)
+
+
+def _band_edges(mark) -> tuple:
+    """Края полосы corner в пикселях: `(ось, (координата, координата))`; ось `"y"` - края - горизонтальные линии (up ±y)."""
+
+    if mark.up in ("+y", "-y"):
+        centre = mark.y + mark.h / 2.0
+        return "y", (centre - mark.band / 2.0, centre + mark.band / 2.0)
+    centre = mark.x + mark.w / 2.0
+    return "x", (centre - mark.band / 2.0, centre + mark.band / 2.0)
+
+
+def _near_band(region, editor, mark, mx, my) -> bool:
+    """Мышь у края полосы выбранной corner-метки (в пределах длины метки): ручка ширины полосы, а не перенос."""
+
+    if mark.kind != KIND_CORNER:
+        return False
+    axis, edges = _band_edges(mark)
+    for edge in edges:
+        if axis == "y":
+            x0, ey = _to_region(region, editor, mark.x, edge)
+            x1, _ey = _to_region(region, editor, mark.x + mark.w, edge)
+            if x0 <= mx <= x1 and abs(my - ey) <= HANDLE_PIXELS:
+                return True
+        else:
+            ex, y0 = _to_region(region, editor, edge, mark.y)
+            _ex, y1 = _to_region(region, editor, edge, mark.y + mark.h)
+            if y0 <= my <= y1 and abs(mx - ex) <= HANDLE_PIXELS:
+                return True
+    return False
+
+
 def _hit(region, editor, mx, my):
-    """`(индекс метки, ручка)`: ручка - пара сторон `(dx, dy)` из {-1, 0, 1} (у угла обе), `(0, 0)` - внутри; `(-1, None)` - мимо."""
+    """`(индекс метки, ручка)`: ручка - пара сторон `(dx, dy)` из {-1, 0, 1} (у угла обе), `(0, 0)` - внутри, `BAND_HANDLE` - край полосы
+    выбранной corner-метки (стороны прямоугольника важнее); `(-1, None)` - мимо."""
 
     order = list(range(len(editor.marks)))
     if 0 <= editor.active < len(editor.marks):
@@ -585,15 +623,33 @@ def _hit(region, editor, mx, my):
             continue
         dx = -1 if abs(mx - x0) <= HANDLE_PIXELS else (1 if abs(mx - x1) <= HANDLE_PIXELS else 0)
         dy = -1 if abs(my - y0) <= HANDLE_PIXELS else (1 if abs(my - y1) <= HANDLE_PIXELS else 0)
+        if index == editor.active and (dx, dy) == (0, 0) and _near_band(region, editor, mark, mx, my):
+            return index, BAND_HANDLE
         if index == editor.active or (dx, dy) == (0, 0):
             return index, (dx, dy)
     return -1, None
 
 
+def _mark_at(region, editor, mx, my) -> int:
+    """Индекс метки под мышью (выбранная первой, внутри прямоугольника) для правой кнопки и Ctrl + щелчка; `-1` - пусто."""
+
+    order = list(range(len(editor.marks)))
+    if 0 <= editor.active < len(editor.marks):
+        order.remove(editor.active)
+        order.insert(0, editor.active)
+    for index in order:
+        mark = editor.marks[index]
+        x0, y0 = _to_region(region, editor, mark.x, mark.y)
+        x1, y1 = _to_region(region, editor, mark.x + mark.w, mark.y + mark.h)
+        if x0 <= mx <= x1 and y0 <= my <= y1:
+            return index
+    return -1
+
+
 class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
     bl_idname = "hotspotuv.hotspot_markup_edit"
-    bl_label = "Edit Hotspot Marks"
-    bl_description = "Draw, select, move, resize, duplicate and delete marks on a pixel grid; every finished edit is validated and saved only when accepted"
+    bl_label = "Start Mark Tool"
+    bl_description = "Draw, select, move, resize, rotate, flip, duplicate and delete marks on a pixel grid; every finished edit is validated and saved only when accepted. Runs while the window is open"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -603,25 +659,22 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         return area is not None and area.as_pointer() not in _RUNNING and editor is not None and editor.width > 0 and is_mini_context(context)
 
     def invoke(self, context, event):
-        # Область, а не регион вызова: кнопка боковой панели вызывает из региона UI, координаты мыши считаются в регионе изображения.
+        # Область, а не регион вызова: кнопка заголовка вызывает из региона HEADER, координаты мыши считаются в регионе изображения.
         self._drag = None
         self._area = context.area
         self._area_pointer = context.area.as_pointer()  # после закрытия окна область освобождена: `cancel` держит только число
         _RUNNING.add(self._area_pointer)
-        context.window_manager.modal_handler_add(self)
-        self._header(context)
-        return {"RUNNING_MODAL"}
-
-    def _header(self, context):
         editor = editor_of(context.scene)
-        state = f"NOT SAVED: {editor.problems}" if editor.dirty else "saved"
-        self._area.header_text_set(f"{window_title(editor)} | grid {editor.grid} px ([ ]) | drag: new, move, resize | D duplicate | X delete | U up | Esc stop | {state}")
+        if editor.notice.startswith((HOTSPOT_EDITOR_TOOL_STOPPED, HOTSPOT_EDITOR_TOOL_NOT_STARTED)):
+            editor.notice = ""
+        context.window_manager.modal_handler_add(self)
         self._area.tag_redraw()
+        return {"RUNNING_MODAL"}
 
     def _finish(self, context):
         _SUSPEND["commit"] = False
         _RUNNING.discard(self._area_pointer)
-        _title_stopped(self._area, editor_of(context.scene))
+        self._area.tag_redraw()
         return {"FINISHED"}
 
     def cancel(self, context):
@@ -637,10 +690,13 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
     def modal(self, context, event):
         try:
             return self._modal(context, event)
-        except Exception as exc:  # noqa: BLE001 - инструмент не оставляет флаг подвешенным; причина - владельцу
+        except Exception as exc:  # noqa: BLE001 - инструмент не оставляет флаг подвешенным; причина - владельцу, по имени
             self._drag = None
             commit_draft(context.scene)
-            self.report({"ERROR"}, f"hotspot edit stopped: {type(exc).__name__}: {exc}")
+            editor = editor_of(context.scene)
+            editor.notice = f"{HOTSPOT_EDITOR_TOOL_STOPPED}: {type(exc).__name__}: {exc}"
+            print(f"[CFTUV][Hotspot] {editor.notice}", flush=True)
+            self.report({"ERROR"}, editor.notice)
             return self._finish(context)
 
     def _modal(self, context, event):
@@ -648,38 +704,66 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         region = _window_region(self._area)
         if region is None:
             return self._finish(context)
+        if event.value == "PRESS":
+            step = grid_key_step(event.type, event.ctrl)
+            if step:  # сетка - где бы ни была мышь в окне
+                editor.grid = grid_step(editor.grid, step)
+                self._area.tag_redraw()
+                return {"RUNNING_MODAL"}
+            if event.type == "ESC":  # Esc отменяет начатое перетаскивание; инструмент живёт, пока открыто окно
+                if self._drag is not None:
+                    self._restore(editor)
+                    commit_draft(context.scene)
+                self._area.tag_redraw()
+                return {"RUNNING_MODAL"}
         mx, my = event.mouse_x - region.x, event.mouse_y - region.y
-        stop = event.value == "PRESS" and (event.type == "ESC" or (event.type == "RIGHTMOUSE" and _over_image(self._area, region, event)))
-        if not stop and self._drag is None and not _over_image(self._area, region, event):
-            return {"PASS_THROUGH"}  # боковая панель, заголовок, другая область: там правят поля, инструмент не мешает
-        if stop:
-            if self._drag is not None:
-                self._restore(editor)
-            commit_draft(context.scene)
-            return self._finish(context)
+        if self._drag is None and not _over_image(self._area, region, event):
+            return {"PASS_THROUGH"}  # заголовок, другая область: там меню и список подложки, инструмент не мешает
         if event.type == "MOUSEMOVE" and self._drag is not None:
             self._move(editor, region, mx, my)
             self._area.tag_redraw()
             return {"RUNNING_MODAL"}
+        if event.type in {"LEFTMOUSE", "RIGHTMOUSE"} and event.value == "PRESS" and (event.ctrl or event.type == "RIGHTMOUSE"):
+            return self._on_mark(context, editor, region, mx, my, event)
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             self._press(editor, region, mx, my)
             self._area.tag_redraw()
             return {"RUNNING_MODAL"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self._drag is not None:
             self._release(editor)
+            editor.notice = ""
             commit_draft(context.scene)
-            self._header(context)
+            self._area.tag_redraw()
             return {"RUNNING_MODAL"}
-        if event.value == "PRESS" and event.type in {"LEFT_BRACKET", "RIGHT_BRACKET"}:
-            editor.grid = max(1, min(1024, editor.grid // 2 if event.type == "LEFT_BRACKET" else editor.grid * 2))
-            self._header(context)
-            return {"RUNNING_MODAL"}
+        if event.type == "RIGHTMOUSE":
+            return {"RUNNING_MODAL"}  # отпускание правой кнопки - тоже инструменту: правая кнопка над картинкой - только меню метки
         if event.value == "PRESS" and event.type in {"D", "X", "DEL", "U"} and 0 <= editor.active < len(editor.marks):
-            {"D": duplicate_active, "X": delete_active, "DEL": delete_active, "U": cycle_up}[event.type](editor)
+            {"D": duplicate_active, "X": delete_active, "DEL": delete_active, "U": flip_active}[event.type](editor)
+            editor.notice = ""
             commit_draft(context.scene)
-            self._header(context)
+            self._area.tag_redraw()
             return {"RUNNING_MODAL"}
         return {"PASS_THROUGH"}
+
+    def _on_mark(self, context, editor, region, mx, my, event):
+        """Ctrl + щелчок - поворот, Ctrl + правая кнопка - разворот стрелки, правая кнопка - меню метки; по пустому месту - ничего."""
+
+        if self._drag is not None:
+            return {"RUNNING_MODAL"}
+        index = _mark_at(region, editor, mx, my)
+        if index < 0:
+            return {"RUNNING_MODAL"}
+        editor.active = index
+        if event.type == "RIGHTMOUSE" and not event.ctrl:
+            self._area.tag_redraw()
+            bpy.ops.wm.call_menu(name=MARK_MENU)
+            return {"RUNNING_MODAL"}
+        refusal = rotate_active(editor) if event.type == "LEFTMOUSE" else flip_active(editor)
+        if refusal:
+            self.report({"WARNING"}, editor.notice)
+        commit_draft(context.scene)
+        self._area.tag_redraw()
+        return {"RUNNING_MODAL"}
 
     def _press(self, editor, region, mx, my):
         index, handle = _hit(region, editor, mx, my)
@@ -688,7 +772,8 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         if index >= 0:
             editor.active = index
             mark = editor.marks[index]
-            self._drag = {"mode": "move" if handle == (0, 0) else "resize", "handle": handle, "start": (px, py), "rect": (mark.x, mark.y, mark.w, mark.h)}
+            mode = "band" if handle == BAND_HANDLE else "move" if handle == (0, 0) else "resize"
+            self._drag = {"mode": mode, "handle": handle, "start": (px, py), "rect": (mark.x, mark.y, mark.w, mark.h), "band": mark.band}
             return
         grid = editor.grid
         sx, sy = _snap(px, grid, editor.width), _snap(py, grid, editor.height)
@@ -706,6 +791,9 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
             ax, ay = drag["anchor"]
             bx, by = _snap(px, grid, width), _snap(py, grid, height)
             mark.x, mark.y, mark.w, mark.h = min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)
+            return
+        if drag["mode"] == "band":
+            mark.band = band_from_edge(mark_of(mark), py if mark.up in ("+y", "-y") else px, grid)
             return
         x, y, w, h = drag["rect"]
         dx, dy = px - drag["start"][0], py - drag["start"][1]
@@ -742,6 +830,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
             mark = editor.marks[editor.active]
             _SUSPEND["commit"] = True
             mark.x, mark.y, mark.w, mark.h = drag["rect"]
+            mark.band = drag["band"]
             _SUSPEND["commit"] = False
 
 
@@ -768,13 +857,159 @@ def delete_active(editor) -> None:
     editor.active = min(editor.active, len(editor.marks) - 1)
 
 
-def cycle_up(editor) -> None:
+def flip_active(editor) -> str:
+    """Стрелка «вверх» активной метки в обратную сторону (`flipped_mark`), прямоугольник на месте. Отказов нет: пусто."""
+
     mark = editor.marks[editor.active]
     _SUSPEND["commit"] = True
     try:
-        mark.up = UP_ORDER[(UP_ORDER.index(mark.up) + 1) % len(UP_ORDER)]
+        mark.up = UP_OPPOSITE.get(mark.up, "-y")
     finally:
         _SUSPEND["commit"] = False
+    editor.notice = ""
+    return ""
+
+
+def rotate_active(editor) -> str:
+    """Активная метка на 90° по часовой (`rotated_mark`): толщина та же, длина во всю текстуру по новой оси, середина по сетке. Отказ
+    MARK_ROTATE_BLOCKED (имя возвращается, полный текст - в `notice`): метка не меняется."""
+
+    rotated, problem = rotated_mark(draft_markup(editor), editor.active, editor.grid)
+    if problem is not None:
+        editor.notice = problem.text()
+        print(f"[CFTUV][Hotspot] {editor.notice}", flush=True)
+        return problem.name
+    mark = editor.marks[editor.active]
+    _SUSPEND["commit"] = True
+    try:
+        mark.up, mark.x, mark.y, mark.w, mark.h = rotated.up, rotated.x, rotated.y, rotated.w, rotated.h
+    finally:
+        _SUSPEND["commit"] = False
+    editor.notice = ""
+    return ""
+
+
+# --------------------------------------------------------------------------
+# Меню метки (правая кнопка) и его операторы
+# --------------------------------------------------------------------------
+
+
+def _active_mark(context):
+    editor = editor_of(context.scene)
+    if editor is None or not editor.draft_of or not 0 <= editor.active < len(editor.marks):
+        return editor, None
+    return editor, editor.marks[editor.active]
+
+
+class _ActiveMarkOperator:
+    """Правка выбранной метки из меню правой кнопки: как правки инструмента - без своего шага Undo, черновик проверяется и пишется сразу."""
+
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        return _active_mark(context)[1] is not None
+
+    def _done(self, context, refusal: str = ""):
+        editor = editor_of(context.scene)
+        if refusal:
+            self.report({"WARNING"}, editor.notice)
+        else:
+            editor.notice = ""  # отказ прошлой правки снимает следующая удачная
+        commit_draft(context.scene)
+        _redraw_image_editors()
+        return {"FINISHED"}
+
+
+class HOTSPOTUV_OT_HotspotMarkRotate(_ActiveMarkOperator, bpy.types.Operator):
+    bl_idname = "hotspotuv.hotspot_mark_rotate"
+    bl_label = "Rotate 90° Clockwise"
+    bl_description = "Turn the mark a quarter clockwise: the same thickness, the full texture along the new axis, up turns with it (Ctrl + click)"
+
+    def execute(self, context):
+        return self._done(context, rotate_active(editor_of(context.scene)))
+
+
+class HOTSPOTUV_OT_HotspotMarkFlip(_ActiveMarkOperator, bpy.types.Operator):
+    bl_idname = "hotspotuv.hotspot_mark_flip"
+    bl_label = "Flip Up"
+    bl_description = "Point the up arrow the other way; the rectangle stays (Ctrl + right click, U)"
+
+    def execute(self, context):
+        return self._done(context, flip_active(editor_of(context.scene)))
+
+
+class HOTSPOTUV_OT_HotspotMarkDelete(_ActiveMarkOperator, bpy.types.Operator):
+    bl_idname = "hotspotuv.hotspot_mark_delete"
+    bl_label = "Delete"
+    bl_description = "Delete the mark (X)"
+
+    def execute(self, context):
+        editor = editor_of(context.scene)
+        delete_active(editor)
+        editor.notice = ""
+        return self._done(context)
+
+
+class HOTSPOTUV_OT_HotspotMarkRename(_ActiveMarkOperator, bpy.types.Operator):
+    bl_idname = "hotspotuv.hotspot_mark_rename"
+    bl_label = "Rename Mark"
+    bl_description = "Rename the mark"
+
+    name: StringProperty(name="Name")
+
+    def invoke(self, context, _event):
+        self.name = _active_mark(context)[1].label
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        _editor, mark = _active_mark(context)
+        _SUSPEND["commit"] = True
+        try:
+            mark.label = self.name
+        finally:
+            _SUSPEND["commit"] = False
+        return self._done(context)
+
+
+class HOTSPOTUV_OT_HotspotMarkKind(_ActiveMarkOperator, bpy.types.Operator):
+    bl_idname = "hotspotuv.hotspot_mark_kind"
+    bl_label = "Kind"
+    bl_description = "Trim: bottom edge on the seam, top edge at the outer skirt edge. Corner: seam on the centre line, the two skirts as mirrored wings"
+
+    kind: EnumProperty(name="Kind", items=((KIND_TRIM, "Trim", ""), (KIND_CORNER, "Corner", "")))
+
+    def execute(self, context):
+        _editor, mark = _active_mark(context)
+        _SUSPEND["commit"] = True
+        try:
+            mark.kind = self.kind
+        finally:
+            _SUSPEND["commit"] = False
+        return self._done(context)
+
+
+class HOTSPOTUV_MT_HotspotMarkContext(bpy.types.Menu):
+    bl_idname = MARK_MENU
+    bl_label = "Mark"
+
+    def draw(self, context):
+        layout = self.layout
+        _editor, mark = _active_mark(context)
+        if mark is None:
+            layout.label(text="no mark")
+            return
+        layout.label(text=f"{mark.mark_id}: {mark.label}", icon="UV")
+        layout.separator()
+        layout.operator(HOTSPOTUV_OT_HotspotMarkRotate.bl_idname, icon="LOOP_FORWARDS")
+        layout.operator(HOTSPOTUV_OT_HotspotMarkFlip.bl_idname, icon="ARROW_LEFTRIGHT")
+        layout.operator_context = "INVOKE_DEFAULT"
+        layout.operator(HOTSPOTUV_OT_HotspotMarkRename.bl_idname, text="Rename...", icon="SORTALPHA")
+        layout.separator()
+        for kind, text in ((KIND_TRIM, "Trim"), (KIND_CORNER, "Corner")):
+            layout.operator(HOTSPOTUV_OT_HotspotMarkKind.bl_idname, text=f"Kind: {text}", icon="RADIOBUT_ON" if mark.kind == kind else "RADIOBUT_OFF").kind = kind
+        layout.separator()
+        layout.operator(HOTSPOTUV_OT_HotspotMarkDelete.bl_idname, icon="TRASH")
 
 
 # --------------------------------------------------------------------------
@@ -863,13 +1098,22 @@ def _draw_marks() -> None:
         lines(outline, edge, 2.0 if active else 1.0)
         lines(seam, (1.0, 0.3, 0.2, 1.0), 3.0)
         lines(arrow, (0.4, 1.0, 0.4, 1.0), 2.0)
+        if active and mode == OVERLAY_EDITOR and mark.kind == KIND_CORNER:  # ручки краёв полосы: тянуть - ширина полосы
+            handles = _band_handles(mark)
+            lines(handles[0], (1.0, 0.85, 0.2, 1.0), 2.0)
+            for point in handles[1]:
+                hx, hy = _to_region(region, editor, *point)
+                box = [(hx - 4, hy - 4), (hx + 4, hy - 4), (hx + 4, hy + 4), (hx - 4, hy + 4)]
+                batch = batch_for_shader(shader, "TRIS", {"pos": box}, indices=((0, 1, 2), (0, 2, 3)))
+                shader.uniform_float("color", (1.0, 0.85, 0.2, 1.0))
+                batch.draw(shader)
         x, y = _to_region(region, editor, mark.x, mark.y + mark.h)
         blf.position(0, x + 4, y - 16, 0)
         blf.size(0, 13)
         blf.enable(0, blf.SHADOW)  # подпись читается и на заливке
         blf.shadow(0, 3, 0.0, 0.0, 0.0, 0.9)
         blf.color(0, 1.0, 1.0, 1.0, 1.0)
-        blf.draw(0, f"{mark.mark_id}: {mark.label} ({mark.kind}, up {mark.up})")
+        blf.draw(0, mark_caption(mark))
         blf.disable(0, blf.SHADOW)
     if mode == OVERLAY_EDITOR:
         _draw_state(blf, context.area, editor)
@@ -877,8 +1121,28 @@ def _draw_marks() -> None:
     gpu.state.blend_set("NONE")
 
 
+def mark_caption(mark) -> str:
+    """Подпись метки на картинке: всё, что раньше показывала боковая панель (номер, имя, вид, «вверх», размер, полоса corner)."""
+
+    band = f", band {mark.band}" if mark.kind == KIND_CORNER else ""
+    return f"{mark.mark_id}: {mark.label} ({mark.kind}, up {mark.up}, {mark.w} x {mark.h} px{band})"
+
+
+def _band_handles(mark) -> tuple:
+    """`(края полосы отрезками, точки ручек)` в пикселях: края полосы corner по всей длине метки и ручки на их серединах (и на её концах)."""
+
+    axis, edges = _band_edges(mark)
+    if axis == "y":
+        segments = [((mark.x, edge), (mark.x + mark.w, edge)) for edge in edges]
+        points = [(x, edge) for edge in edges for x in (mark.x + 0.5 * mark.w, mark.x + 0.1 * mark.w, mark.x + 0.9 * mark.w)]
+    else:
+        segments = [((edge, mark.y), (edge, mark.y + mark.h)) for edge in edges]
+        points = [(edge, y) for edge in edges for y in (mark.y + 0.5 * mark.h, mark.y + 0.1 * mark.h, mark.y + 0.9 * mark.h)]
+    return segments, points
+
+
 def backdrop_changed(area, editor) -> str:
-    """Имя картинки, которую область мини-окна показывает вместо выбранной подложки (сменили боковой панелью Image); пусто - та же."""
+    """Имя картинки, которую область мини-окна показывает вместо выбранной подложки (сменили в обход списка подложки); пусто - та же."""
 
     shown = getattr(area.spaces.active, "image", None)
     name = "" if shown is None else shown.name
@@ -886,18 +1150,22 @@ def backdrop_changed(area, editor) -> str:
 
 
 def _draw_state(blf, area, editor, changed: str = "") -> None:
-    """Строки внизу слева: подсказки клавиш, пока инструмент работает (иначе - как его запустить), и состояние черновика по имени."""
+    """Строки внизу слева: подсказки клавиш, пока инструмент работает (иначе - как его запустить), подробности отказов и находок по именам."""
 
     running = area is not None and area.as_pointer() in _RUNNING
-    hint = (0.85, 0.85, 0.85, 1.0)
+    hint, alarm = (0.85, 0.85, 0.85, 1.0), (1.0, 0.4, 0.3, 1.0)
     if changed:
-        lines = [(f"{HOTSPOT_BACKDROP_CHANGED}: the window shows {changed}, the backdrop is {editor.backdrop}: marks hidden; Show Backdrop in the sidebar", (1.0, 0.4, 0.3, 1.0))]
+        lines = [(f"{HOTSPOT_BACKDROP_CHANGED}: the window shows {changed}, the backdrop is {editor.backdrop}: marks hidden; Show Backdrop in the header", alarm)]
     elif running:
         lines = [(f"Mark tool, grid {editor.grid} px", hint)] + [("  |  ".join(KEY_HINTS[at:at + 2]), hint) for at in range(0, len(KEY_HINTS), 2)]
     else:
-        lines = [("Mark tool stopped: Edit Marks in the sidebar (N) starts it", (1.0, 0.8, 0.3, 1.0))]
+        lines = [("Mark tool not running: Start Mark Tool in the header", (1.0, 0.8, 0.3, 1.0))]
+    for text in (editor.notice, editor.backdrop_problem):
+        if text:
+            lines.append((text[:220], alarm))
     if editor.dirty:
-        lines.append((f"NOT SAVED (the text keeps the last valid markup): {editor.problems[:160]}", (1.0, 0.4, 0.3, 1.0)))
+        lines.append(("NOT SAVED (the text keeps the last valid markup):", alarm))
+        lines += [(f"  {item[:200]}", alarm) for item in editor.problems.split("; ")[:6]]
     else:
         lines.append((f"Saved to {editor.draft_of}", (0.5, 1.0, 0.5, 1.0)))
     blf.size(0, 12)
@@ -908,87 +1176,93 @@ def _draw_state(blf, area, editor, changed: str = "") -> None:
 
 
 # --------------------------------------------------------------------------
-# Боковая панель Image Editor
+# Заголовок мини-окна (HOTSPOT_EDITOR_UX_V1)
 # --------------------------------------------------------------------------
 
 
-class HOTSPOTUV_UL_HotspotMarks(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        row = layout.row(align=True)
-        row.label(text=f"{item.mark_id}")
-        row.prop(item, "label", text="", emboss=False)
-        row.label(text=f"{item.kind} {item.up}")
-
-
-class HOTSPOTUV_PT_HotspotMarkup(bpy.types.Panel):
-    bl_space_type = "IMAGE_EDITOR"
-    bl_region_type = "UI"
-    bl_category = "Hotspot"
-    bl_label = "Hotspot Markup"
-
-    @classmethod
-    def poll(cls, context):
-        return is_mini_context(context)  # HOTSPOT_EDITOR_WINDOW_V1: вкладка Hotspot есть только в мини-окне разметки
+class HOTSPOTUV_MT_HotspotMarkupMenu(bpy.types.Menu):
+    bl_idname = "HOTSPOTUV_MT_hotspot_markup_menu"
+    bl_label = "Markup"
 
     def draw(self, context):
         layout = self.layout
         editor = editor_of(context.scene)
-        # HOTSPOT_BACKDROP_V1: подложка - первая строка окна; разметка - в пикселях своей текстуры (строка Texture), подложка только показ.
-        layout.prop(editor, "backdrop_choice", text="Backdrop", icon="IMAGE_DATA")
-        if editor.backdrop_problem:
-            box = layout.box().column(align=True)
-            name, _colon, detail = editor.backdrop_problem.partition(": ")
-            box.label(text=name, icon="ERROR")
-            for line in textwrap.wrap(detail, 34)[:6]:  # узкая боковая панель мини-окна: размеры и число меток должны читаться целиком
-                box.label(text=f"   {line}")
-        changed = backdrop_changed(context.area, editor)
-        if changed:
-            box = layout.box().column(align=True)
-            box.label(text=f"{HOTSPOT_BACKDROP_CHANGED}: shows {changed}", icon="ERROR")
-            box.operator(HOTSPOTUV_OT_HotspotBackdropShow.bl_idname, icon="IMAGE_DATA")
-        column = layout.column(align=True)
-        column.label(text=f"Material {editor.material or '?'}", icon="MATERIAL")
-        column.label(text=f"Markup {editor.draft_of}", icon="TEXT")
-        column.label(text=f"Texture {editor.image}: {editor.width} x {editor.height} px", icon="TEXTURE")
-        self._draw_state(layout, context, editor)
         layout.prop(editor, "show_in_uv_editor")
-        layout.template_list("HOTSPOTUV_UL_HotspotMarks", "", editor, "marks", editor, "active", rows=3)
-        if 0 <= editor.active < len(editor.marks):
-            mark = editor.marks[editor.active]
-            column = layout.column(align=True)
-            for name in ("mark_id", "label", "kind", "up"):
-                column.prop(mark, name)
-            if mark.kind == KIND_CORNER:
-                column.prop(mark, "band")
-            for pair in (("x", "y"), ("w", "h")):
-                row = layout.row(align=True)
-                for name in pair:
-                    row.prop(mark, name)
-        if HOTSPOTUV_OT_HotspotEditorClose.poll(context):
-            layout.operator(HOTSPOTUV_OT_HotspotEditorClose.bl_idname, icon="CHECKMARK")
-
-    @staticmethod
-    def _draw_state(layout, context, editor) -> None:
-        """Состояние черновика по имени и запуск инструмента - видны без поиска (подсказки клавиш - строки внизу окна)."""
-
-        if editor.dirty:
-            box = layout.box().column(align=True)
-            box.label(text="NOT SAVED (text keeps last valid)", icon="ERROR")
-            for line in editor.problems.split("; ")[:6]:
-                name, _colon, detail = line.partition(": ")
-                box.label(text=name)
-                if detail:
-                    box.label(text=f"   {detail[:120]}")
-            box.operator(HOTSPOTUV_OT_HotspotMarkupDiscard.bl_idname, icon="TRASH")
-        else:
-            layout.label(text=f"Valid, saved to {editor.draft_of}", icon="CHECKMARK")
-        area = getattr(context, "area", None)
+        layout.separator()
+        layout.label(text=f"Text {editor.draft_of}", icon="TEXT")
+        layout.label(text=f"Texture {editor.image}: {editor.width} x {editor.height} px", icon="TEXTURE")
+        layout.separator()
+        layout.operator(HOTSPOTUV_OT_HotspotBackdropShow.bl_idname, icon="IMAGE_DATA")
         row = layout.row()
-        if area is not None and area.as_pointer() in _RUNNING:
-            row.label(text="Tool running", icon="RADIOBUT_ON")  # клавиши - строки внизу окна и заголовок
-        else:
-            row.operator(HOTSPOTUV_OT_HotspotMarkupEdit.bl_idname, text="Edit Marks", icon="SELECT_SET")
-        row.prop(editor, "grid")
+        row.enabled = bool(editor.dirty)
+        row.operator(HOTSPOTUV_OT_HotspotMarkupDiscard.bl_idname, icon="TRASH")
+
+
+def draw_mini_header(layout, context) -> None:
+    """Заголовок области мини-окна вместо меню Image Editor: имя окна, подложка, меню Markup, сетка и состояние по именам - сохранено или
+    NOT SAVED с именами находок (подробности - строками внизу картинки), отказы правки и подложки, инструмент не работает - кнопка запуска."""
+
+    editor = editor_of(context.scene)
+    area = context.area
+    layout.label(text=window_title(editor))
+    row = layout.row()
+    row.ui_units_x = 8  # мини-окно узкое: имя картинки в списке подложки сокращается, состояние справа должно читаться
+    row.prop(editor, "backdrop_choice", text="", icon="IMAGE_DATA")
+    layout.menu(HOTSPOTUV_MT_HotspotMarkupMenu.bl_idname)
+    changed = backdrop_changed(area, editor)
+    if changed:
+        row = layout.row()
+        row.alert = True
+        row.operator(HOTSPOTUV_OT_HotspotBackdropShow.bl_idname, text=f"{HOTSPOT_BACKDROP_CHANGED}: Show Backdrop", icon="ERROR")
+    layout.separator_spacer()
+    layout.label(text=f"Grid {editor.grid} px")
+    if area.as_pointer() not in _RUNNING:
+        row = layout.row()
+        row.alert = True
+        row.operator(HOTSPOTUV_OT_HotspotMarkupEdit.bl_idname, icon="PLAY")
+    for text in (editor.notice, editor.backdrop_problem):
+        if text:
+            row = layout.row()
+            row.alert = True
+            row.label(text=", ".join(problem_names(text)), icon="ERROR")
+    if editor.dirty:
+        row = layout.row(align=True)
+        row.alert = True
+        names = problem_names(editor.problems)
+        row.label(text=f"NOT SAVED: {', '.join(names[:3])}" + (f" +{len(names) - 3}" if len(names) > 3 else ""), icon="ERROR")
+        row.operator(HOTSPOTUV_OT_HotspotMarkupDiscard.bl_idname, text="", icon="TRASH")
+    else:
+        layout.label(text="saved", icon="CHECKMARK")
+
+
+#: Исходный `IMAGE_HT_header.draw` Blender: обёртка рисует свой заголовок только в области мини-окна, всюду иначе - его.
+_HEADER: dict = {}
+
+
+def _image_header_draw(self, context):
+    if not _HEADER.get("off") and is_mini_context(context):
+        draw_mini_header(self.layout, context)
+        return
+    _HEADER["draw"](self, context)
+
+
+def _wrap_image_header() -> None:
+    """Заголовок Image Editor: в области мини-окна - `draw_mini_header`, во всех прочих - как был (HOTSPOT_EDITOR_UX_V1). `header_text_set`
+    не годится: текст заменяет заголовок целиком, и в нём не будет списка подложки."""
+
+    header = bpy.types.IMAGE_HT_header
+    if header.draw is _image_header_draw:
+        return
+    _HEADER["draw"], _HEADER["off"] = header.draw, False
+    header.draw = _image_header_draw
+
+
+def _unwrap_image_header() -> None:
+    header = getattr(bpy.types, "IMAGE_HT_header", None)
+    if header is not None and header.draw is _image_header_draw:
+        header.draw = _HEADER["draw"]
+    else:  # поверх обёртки кто-то добавил свои строки (`IMAGE_HT_header.append`): обёртка остаётся и только пропускает
+        _HEADER["off"] = True
 
 
 _CLASSES = (
@@ -997,10 +1271,14 @@ _CLASSES = (
     HOTSPOTUV_OT_HotspotMarkUp,
     HOTSPOTUV_OT_HotspotMarkupDiscard,
     HOTSPOTUV_OT_HotspotBackdropShow,
-    HOTSPOTUV_OT_HotspotEditorClose,
     HOTSPOTUV_OT_HotspotMarkupEdit,
-    HOTSPOTUV_UL_HotspotMarks,
-    HOTSPOTUV_PT_HotspotMarkup,
+    HOTSPOTUV_OT_HotspotMarkRotate,
+    HOTSPOTUV_OT_HotspotMarkFlip,
+    HOTSPOTUV_OT_HotspotMarkDelete,
+    HOTSPOTUV_OT_HotspotMarkRename,
+    HOTSPOTUV_OT_HotspotMarkKind,
+    HOTSPOTUV_MT_HotspotMarkContext,
+    HOTSPOTUV_MT_HotspotMarkupMenu,
 )
 _HANDLE: dict = {}
 
@@ -1023,9 +1301,11 @@ def register_editor() -> None:
         _HANDLE["draw"] = bpy.types.SpaceImageEditor.draw_handler_add(_draw_marks, (), "WINDOW", "POST_PIXEL")
     if _forget_windows not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_forget_windows)
+    _wrap_image_header()
 
 
 def unregister_editor() -> None:
+    _unwrap_image_header()
     if _forget_windows in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_forget_windows)
     handle = _HANDLE.pop("draw", None)
@@ -1039,16 +1319,24 @@ def unregister_editor() -> None:
 
 
 __all__ = (
+    "BAND_HANDLE",
     "EDITOR_ATTRIBUTE",
     "HOTSPOT_EDITOR_TOOL_NOT_STARTED",
+    "HOTSPOT_EDITOR_TOOL_STOPPED",
     "HOTSPOT_EDITOR_WINDOW_NOT_OPENED",
     "KEY_HINTS",
+    "MARK_MENU",
     "MARKUP_DRAFT_UNSAVED",
     "HOTSPOT_BACKDROP_CHANGED",
     "WINDOW_TITLE",
     "area_key",
     "backdrop_changed",
     "backdrop_images",
+    "draw_mini_header",
+    "flip_active",
+    "mark_caption",
+    "mark_of",
+    "rotate_active",
     "show_backdrop",
     "switch_backdrop",
     "commit_draft",

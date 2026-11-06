@@ -268,6 +268,101 @@ def load_markup(text: str) -> tuple:
     return markup, tuple(problems)
 
 
+# --------------------------------------------------------------------------
+# Правки редактора (HOTSPOT_EDITOR_UX_V1): поворот, разворот «вверх», полоса corner
+# --------------------------------------------------------------------------
+
+#: Поворот метки отказан: повёрнутая полоса легла бы на другую метку или вышла бы из текстуры; метка остаётся как была.
+MARK_ROTATE_BLOCKED = "MARK_ROTATE_BLOCKED"
+#: «Вверх» после поворота на 90° ПО ЧАСОВОЙ стрелке в пикселях текстуры (начало - левый нижний угол, x вправо, y вверх, как UV Blender):
+#: вектор (x, y) -> (y, -x), то есть +y -> +x -> -y -> -x -> +y.
+UP_CLOCKWISE = {"+y": "+x", "+x": "-y", "-y": "-x", "-x": "+y"}
+#: Разворот стрелки: «вверх» в обратную сторону, прямоугольник тот же.
+UP_OPPOSITE = {"+y": "-y", "-y": "+y", "+x": "-x", "-x": "+x"}
+
+
+def _grid_start(centre: float, size: int, grid: int, full: int) -> int:
+    """Начало отрезка длины `size` с серединой у `centre`: по сетке `grid`, внутри `0..full` (текстура важнее сетки)."""
+
+    start = round((centre - size / 2.0) / max(1, int(grid))) * max(1, int(grid))
+    return int(max(0, min(full - size, start)))
+
+
+def rotated_mark(markup: HotspotMarkupV1, index: int, grid: int = 1) -> tuple:
+    """`(метка | None, находка | None)`: метка `markup.marks[index]` повёрнута на 90° по часовой стрелке (`UP_CLOCKWISE`).
+
+    Толщина (размер вдоль «вверх») та же, длина - во всю текстуру по новой оси (метка повторяется по длине, HOTSPOT_MARKUP_V1); середина
+    по толщине - середина прежнего прямоугольника по той же оси, по сетке и внутри текстуры. Толщина больше стороны текстуры или пересечение
+    с другой меткой - отказ `MARK_ROTATE_BLOCKED` с номерами меток, метка не меняется. Корень - чистый: правит только редактор."""
+
+    mark = markup.marks[index]
+    up = UP_CLOCKWISE.get(mark.up, "+x")
+    thickness = mark.thickness
+    if up in ("+y", "-y"):
+        full = markup.height
+        rotated = replace(mark, up=up, x=0, y=_grid_start(mark.y + mark.h / 2.0, thickness, grid, full), w=markup.width, h=thickness)
+    else:
+        full = markup.width
+        rotated = replace(mark, up=up, x=_grid_start(mark.x + mark.w / 2.0, thickness, grid, full), y=0, w=thickness, h=markup.height)
+    if thickness > full or thickness <= 0:
+        return None, MarkupProblemV1(MARK_ROTATE_BLOCKED, mark.id, f"turned to up {up}, the mark is {thickness} px thick across a {full} px texture side")
+    blocking = [other.id for at, other in enumerate(markup.marks) if at != index and _overlaps(rotated, other)]
+    if blocking:
+        return None, MarkupProblemV1(MARK_ROTATE_BLOCKED, mark.id, f"turned to up {up} ({rotated.x}, {rotated.y}, {rotated.w}, {rotated.h}) it overlaps mark(s) {', '.join(map(str, blocking))}")
+    return rotated, None
+
+
+def flipped_mark(mark: HotspotMarkV1) -> HotspotMarkV1:
+    """Стрелка «вверх» в обратную сторону (`UP_OPPOSITE`), прямоугольник не двигается."""
+
+    return replace(mark, up=UP_OPPOSITE.get(mark.up, "-y"))
+
+
+def band_from_edge(mark: HotspotMarkV1, along: float, grid: int = 1) -> int:
+    """Ширина полосы corner, когда край полосы тянут в точку `along` (пиксели по оси «вверх»): полоса симметрична средней линии метки,
+    кратна сетке, не меньше 0 и строго меньше толщины метки."""
+
+    centre = mark.y + mark.h / 2.0 if mark.up in ("+y", "-y") else mark.x + mark.w / 2.0
+    grid = max(1, int(grid))
+    widest = max(0, (mark.thickness - 1) // grid * grid)
+    return int(max(0, min(widest, round(2.0 * abs(float(along) - centre) / grid) * grid)))
+
+
+#: Сетка инструмента: шаг в пикселях от 1 до 1024.
+GRID_MIN, GRID_MAX = 1, 1024
+
+
+def grid_key_step(event_type: str, ctrl: bool) -> int:
+    """Клавиша сетки редактора: -1 - мельче (шаг пополам: `[`, Ctrl + `=` / Ctrl + плюс цифровой клавиатуры), +1 - крупнее (шаг вдвое: `]`,
+    Ctrl + `-` / Ctrl + минус цифровой клавиатуры), 0 - не клавиша сетки (`=` и `-` без Ctrl остаются Image Editor)."""
+
+    if event_type in ("LEFT_BRACKET", "RIGHT_BRACKET"):
+        return -1 if event_type == "LEFT_BRACKET" else 1
+    if ctrl and event_type in ("EQUAL", "NUMPAD_PLUS"):
+        return -1
+    if ctrl and event_type in ("MINUS", "NUMPAD_MINUS"):
+        return 1
+    return 0
+
+
+def grid_step(grid: int, step: int) -> int:
+    """Шаг сетки после клавиши `grid_key_step`: пополам или вдвое, в пределах `GRID_MIN..GRID_MAX`."""
+
+    grid = int(grid)
+    return int(max(GRID_MIN, min(GRID_MAX, grid // 2 if step < 0 else grid * 2 if step > 0 else grid)))
+
+
+def problem_names(text: str) -> tuple:
+    """Имена находок (с номером метки) из строки `MarkupProblemV1.text()`, соединённой `; `: короткая строка заголовка мини-окна."""
+
+    names = []
+    for item in str(text).split("; "):
+        name = item.partition(": ")[0].strip()
+        if name and name not in names:
+            names.append(name)
+    return tuple(names)
+
+
 def empty_markup(width: int, height: int, image: str = "") -> HotspotMarkupV1:
     return HotspotMarkupV1(int(width), int(height), str(image), ())
 
@@ -302,10 +397,21 @@ __all__ = (
     "KINDS",
     "KIND_CORNER",
     "KIND_TRIM",
+    "MARK_ROTATE_BLOCKED",
     "MarkupProblemV1",
     "PROBLEM_NAMES",
+    "UP_CLOCKWISE",
+    "UP_OPPOSITE",
     "UP_VECTORS",
+    "band_from_edge",
     "empty_markup",
+    "flipped_mark",
+    "GRID_MAX",
+    "GRID_MIN",
+    "grid_key_step",
+    "grid_step",
+    "problem_names",
+    "rotated_mark",
     "load_markup",
     "mark_colours",
     "markup_to_dict",
