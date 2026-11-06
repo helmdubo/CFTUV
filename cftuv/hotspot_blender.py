@@ -199,6 +199,23 @@ def scene_material_image(scene) -> tuple:
     return material, image, refusal, detail, candidates
 
 
+#: HOTSPOT_EDITOR_WINDOW_V1: где рисуются метки - область мини-окна разметки или (по выбору пользователя) другой Image Editor с её картинкой.
+OVERLAY_EDITOR = "editor"
+OVERLAY_ELSEWHERE = "elsewhere"
+
+
+def overlay_where(area_key, editor_key, shown_image: str, backdrops, show_elsewhere: bool) -> str:
+    """Где рисовать метки (HOTSPOT_EDITOR_WINDOW_V1): `OVERLAY_EDITOR` - область мини-окна (ключ `(окно, экран, область)` совпал целиком),
+    `OVERLAY_ELSEWHERE` - другой Image Editor с картинкой разметки или подложки, если пользователь включил «Show marks in UV Editor»,
+    иначе пусто: ни второй Image Editor с той же картинкой, ни UV Editor декали меток не показывают."""
+
+    if editor_key and None not in editor_key and tuple(area_key) == tuple(editor_key):
+        return OVERLAY_EDITOR
+    if show_elsewhere and shown_image and shown_image in {name for name in backdrops if name}:
+        return OVERLAY_ELSEWHERE
+    return ""
+
+
 def mark_items(markup) -> list:
     """Пункты выбора метки кнопки: `id: name (kind)`; нет меток - один пункт «нет меток»."""
 
@@ -561,7 +578,10 @@ __all__ = (
     "MARKUP_NOT_LINKED",
     "MARKUP_TEXT_MISSING",
     "MATERIAL_MARKUP_PROPERTY",
+    "OVERLAY_EDITOR",
+    "OVERLAY_ELSEWHERE",
     "SETTINGS_ATTRIBUTE",
+    "overlay_where",
     "carry_record",
     "COUNTER_ROW_WITHOUT_SOURCE",
     "COUNTER_UNWARPED",

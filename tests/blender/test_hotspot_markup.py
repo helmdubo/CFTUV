@@ -15,7 +15,8 @@
 7. МЕТКИ ОСТРОВОВ (HOTSPOT_ISLAND_MARKS_V1): кнопка с меткой A, «Apply Mark to Selection» с меткой B одному острову - его UV в B, другого в A,
    выделен ровно он; живая ширина (кадры и подтверждение) и повторная кнопка метки сохраняют; corner одной стороне шва - обе стороны (сосед
    по шву); Undo (если фоновый Blender его даёт) возвращает UV; отказы по именам, меш при отказе не тронут; режим выключен - ни записи, ни
-   атрибутов `cftuv_hotspot_mark` и `cftuv_strip_uv`.
+   атрибутов `cftuv_hotspot_mark` и `cftuv_strip_uv`;
+8. ОТДЕЛЬНОЕ ОКНО (HOTSPOT_EDITOR_WINDOW_V1): метки рисует только область мини-окна; второй Image Editor с той же картинкой - нет.
 
 Прогон: blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_hotspot_markup.py
 Последняя строка при успехе: HOTSPOT_MARKUP_BLENDER_SMOKE_OK
@@ -504,8 +505,43 @@ def _check_mark_up_preparation():
     from cftuv.hotspot_editor import load_draft
 
     assert load_draft(scene, editor.draft_of, discard=True) == "" and not editor.dirty
+    _check_overlay_gate(editor)
     mesh_settings.material_name = MATERIAL
     print("HOTSPOT MARK UP preparation: image from nodes, text created and linked, refusals named", flush=True)
+
+
+def _check_overlay_gate(editor):
+    """HOTSPOT_EDITOR_WINDOW_V1: метки рисует только область мини-окна; второй Image Editor с той же картинкой - нет (пока пользователь не включит
+    «Show marks in UV Editor»); закрытое окно (запись очищена) - нигде; вкладка Hotspot и инструмент - тоже только там."""
+
+    from cftuv import hotspot_editor
+    from cftuv.hotspot_blender import OVERLAY_EDITOR, OVERLAY_ELSEWHERE
+
+    window = bpy.context.window_manager.windows[0]
+    screen = window.screen
+    first, second = sorted(screen.areas, key=lambda area: -area.width * area.height)[:2]
+    kinds = (first.type, second.type)
+    image = bpy.data.images[editor.image]
+    try:
+        for area in (first, second):
+            area.type = "IMAGE_EDITOR"
+            area.spaces.active.image = image
+        hotspot_editor._MINI.update(window=window.as_pointer(), screen=screen.as_pointer(), area=first.as_pointer())
+        assert hotspot_editor.overlay_mode(window, screen, first, editor) == OVERLAY_EDITOR
+        assert hotspot_editor.overlay_mode(window, screen, second, editor) == "", "a second Image Editor showing the same image draws no marks"
+        with bpy.context.temp_override(window=window, area=second):
+            assert not hotspot_editor.is_mini_context(bpy.context) and not hotspot_editor.HOTSPOTUV_PT_HotspotMarkup.poll(bpy.context)
+        with bpy.context.temp_override(window=window, area=first):
+            assert hotspot_editor.is_mini_context(bpy.context)
+        editor.show_in_uv_editor = True
+        assert hotspot_editor.overlay_mode(window, screen, second, editor) == OVERLAY_ELSEWHERE
+        editor.show_in_uv_editor = False
+        hotspot_editor._MINI.clear()
+        assert hotspot_editor.overlay_mode(window, screen, first, editor) == "", "the closed mini editor draws nowhere"
+    finally:
+        hotspot_editor._MINI.clear()
+        first.type, second.type = kinds
+    print("HOTSPOT OVERLAY gate: the mini editor area only; a second Image Editor with the same image draws nothing", flush=True)
 
 
 def main():

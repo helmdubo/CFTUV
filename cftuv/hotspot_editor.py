@@ -15,6 +15,11 @@ Hotspot, инструмент запущен. Повторное нажатие 
 `X`/`Delete` - удаление, `U` - следующее направление «вверх», `Esc`/правая кнопка - выход. Колесо и средняя кнопка проходят в Image Editor,
 как и всё над боковой панелью и заголовком (там правятся поля меток, пока инструмент работает). Закрытие окна завершает инструмент.
 
+ОТДЕЛЬНОЕ ОКНО (HOTSPOT_EDITOR_WINDOW_V1): метки, вкладка Hotspot боковой панели и инструмент есть ТОЛЬКО в области мини-окна - ключ
+`(окно, экран, область)` из указателей, окно проверяется среди открытых, загрузка файла ключ очищает. Второй Image Editor с той же картинкой и
+UV Editor декали в Edit Mode меток не показывают, пока пользователь сам не включит «Show marks in UV Editor» (по умолчанию выключено). Заголовок
+области - «CFTUV Hotspot Markup — <материал>» вместо меню Image Editor (выбор картинки, режим UV, тип области), картинка закреплена.
+
 ПОКАЗ (обработчик `POST_PIXEL` Image Editor): полупрозрачная заливка своего оттенка у каждой метки (`mark_colours`: оттенок от id), контур,
 номер и имя (с тенью), стрелка «вверх», нижний край (шов `trim`) или средняя линия (шов `corner`) выделены, у `corner` - центральная полоса
 `band` контрастным тоном того же оттенка.
@@ -25,7 +30,7 @@ from __future__ import annotations
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
 
-from .hotspot_blender import ensure_material_markup, linked_markup_name, read_markup_text, scene_material_image, write_markup_text
+from .hotspot_blender import OVERLAY_EDITOR, ensure_material_markup, linked_markup_name, overlay_where, read_markup_text, scene_material_image, write_markup_text
 from .hotspot_markup import KIND_CORNER, KIND_TRIM, KINDS, UP_VECTORS, HotspotMarkV1, HotspotMarkupV1, mark_colours, next_mark_id
 
 EDITOR_ATTRIBUTE = "hotspotuv_hotspot_editor"
@@ -44,8 +49,11 @@ KEY_HINTS = (
     "D duplicate, X delete, U turn up",
     "Esc or right click: stop the tool",
 )
-#: Окно и область мини-редактора (указатели; после закрытия окна или загрузки файла не находятся) и области с работающим инструментом.
+#: Окно, его экран и область мини-редактора (указатели; HOTSPOT_EDITOR_WINDOW_V1: метки, боковая панель и инструмент - только там) и области с
+#: работающим инструментом. Закрытое окно не находится среди окон, загрузка файла очищает запись.
 _MINI: dict = {}
+#: Заголовок области мини-окна вместо меню Image Editor (выбор картинки, режим UV, тип области): окно разметки выглядит отдельным окном.
+WINDOW_TITLE = "CFTUV Hotspot Markup"
 _RUNNING: set = set()
 #: Перетаскивание инструмента пишет черновик много раз в секунду: проверка и запись текста - на отпускании (флаг ставит инструмент).
 _SUSPEND = {"commit": False}
@@ -68,6 +76,13 @@ class HOTSPOTUV_HotspotMark(bpy.types.PropertyGroup):
     band: IntProperty(name="Band", min=0, update=_changed, description="Corner: width of the centre band of the detail in pixels (display only)")
 
 
+def _redraw_image_editors(_self=None, _context=None) -> None:
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "IMAGE_EDITOR":
+                area.tag_redraw()
+
+
 class HOTSPOTUV_HotspotEditor(bpy.types.PropertyGroup):
     draft_of: StringProperty(name="Draft of", description="Text datablock the draft was loaded from and is saved to")
     material: StringProperty(name="Material", description="Material whose markup the draft is (shown in the mini editor)")
@@ -79,6 +94,12 @@ class HOTSPOTUV_HotspotEditor(bpy.types.PropertyGroup):
     grid: IntProperty(name="Grid", default=8, min=1, max=1024, description="Pixel grid of the edit tool ([ and ] halve and double it)")
     dirty: BoolProperty(name="Unsaved draft", default=False)
     problems: StringProperty(name="Problems")
+    show_in_uv_editor: BoolProperty(
+        name="Show marks in UV Editor",
+        default=False,
+        update=_redraw_image_editors,
+        description="Also draw the marks (without the tool) in every other Image or UV Editor that shows the markup's texture, for laying UVs",
+    )
 
 
 def editor_of(scene):
@@ -170,10 +191,58 @@ def _mini_area():
     """`(окно, область)` мини-редактора, если оно ещё открыто и его область - Image Editor; иначе `(None, None)`."""
 
     window = _find_window(_MINI.get("window"))
-    area = None if window is None else next((item for item in window.screen.areas if item.as_pointer() == _MINI.get("area")), None)
+    area = None if window is None or window.screen.as_pointer() != _MINI.get("screen") else next((item for item in window.screen.areas if item.as_pointer() == _MINI.get("area")), None)
     if area is None or area.type != "IMAGE_EDITOR":
         return None, None
     return window, area
+
+
+def area_key(window, screen, area) -> tuple:
+    """Ключ области для показа меток: указатели окна, его экрана и области (`None` - нет)."""
+
+    return tuple(None if item is None else item.as_pointer() for item in (window, screen, area))
+
+
+def mini_key():
+    """Ключ области мини-окна, пока оно открыто (окно среди окон, экран окна - тот же); иначе `None`."""
+
+    if not _MINI.get("area"):
+        return None
+    window = _find_window(_MINI.get("window"))
+    if window is None or window.screen.as_pointer() != _MINI.get("screen"):
+        return None
+    return _MINI.get("window"), _MINI.get("screen"), _MINI.get("area")
+
+
+def overlay_mode(window, screen, area, editor) -> str:
+    """Где эта область рисует метки (`hotspot_blender.overlay_where`): мини-окно, другой Image Editor по выбору пользователя, или нигде."""
+
+    if editor is None or not editor.draft_of or area is None or area.type != "IMAGE_EDITOR":
+        return ""
+    key = area_key(window, screen, area)
+    registered = (_MINI.get("window"), _MINI.get("screen"), _MINI.get("area"))
+    live = mini_key() if key == registered else None  # окна перебираются только для самой области мини-окна
+    shown = getattr(getattr(area.spaces.active, "image", None), "name", "")
+    return overlay_where(key, live, shown, (editor.image,), bool(editor.show_in_uv_editor))
+
+
+def is_mini_context(context) -> bool:
+    """Контекст - область мини-окна разметки: только там боковая панель Hotspot и инструмент меток."""
+
+    area = getattr(context, "area", None)
+    return area is not None and overlay_mode(getattr(context, "window", None), getattr(context, "screen", None), area, editor_of(context.scene)) == OVERLAY_EDITOR
+
+
+def window_title(editor) -> str:
+    return f"{WINDOW_TITLE} — {editor.material or '?'} | {editor.draft_of}"
+
+
+def _title_stopped(area, editor) -> None:
+    """Заголовок мини-окна, пока инструмент не работает: заголовок остаётся (меню Image Editor не возвращаются), как запустить - словами."""
+
+    if editor is not None and editor.draft_of:
+        area.header_text_set(f"{window_title(editor)} | mark tool stopped: Edit Marks in the sidebar (N) starts it")
+    area.tag_redraw()
 
 
 def _open_window(context):
@@ -203,14 +272,19 @@ def open_mini_editor(context, image) -> str:
         if area is None:
             return HOTSPOT_EDITOR_WINDOW_NOT_OPENED
         area.type = "IMAGE_EDITOR"
-    _MINI.update(window=window.as_pointer(), area=area.as_pointer())
+    _MINI.update(window=window.as_pointer(), screen=window.screen.as_pointer(), area=area.as_pointer())
     space = area.spaces.active
     space.image = image
     space.mode = "VIEW"
     space.show_region_ui = True
+    if hasattr(space, "use_image_pin"):
+        space.use_image_pin = True  # картинка не следует за активной гранью меша в Edit Mode
     for flag in ("show_region_toolbar", "show_region_tool_header"):
         if hasattr(space, flag):
             setattr(space, flag, False)
+    editor = editor_of(context.scene)
+    if editor is not None and area.as_pointer() not in _RUNNING:
+        area.header_text_set(f"{window_title(editor)} | starting the mark tool")
     attempts = {"left": 40}
     window_pointer, area_pointer = window.as_pointer(), area.as_pointer()
 
@@ -238,7 +312,11 @@ def _start_when_ready(window_pointer, area_pointer, attempts):
     with bpy.context.temp_override(window=window, area=area, region=region):  # экран временного окна переопределять нельзя: он берётся из окна
         _fit_view(area, region)
         if area.as_pointer() not in _RUNNING:
-            bpy.ops.hotspotuv.hotspot_markup_edit("INVOKE_DEFAULT")
+            if bpy.ops.hotspotuv.hotspot_markup_edit.poll():
+                bpy.ops.hotspotuv.hotspot_markup_edit("INVOKE_DEFAULT")
+            else:
+                print(f"[CFTUV][Hotspot] {HOTSPOT_EDITOR_TOOL_NOT_STARTED}: the mark tool does not poll in the mini editor area; click Edit Marks", flush=True)
+                _title_stopped(area, editor_of(bpy.context.scene))
     for item in area.regions:
         if item.type == "UI":
             try:
@@ -382,7 +460,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
     def poll(cls, context):
         editor = editor_of(context.scene)
         area = getattr(context, "area", None)
-        return getattr(area, "type", "") == "IMAGE_EDITOR" and area.as_pointer() not in _RUNNING and editor is not None and bool(editor.draft_of) and editor.width > 0
+        return area is not None and area.as_pointer() not in _RUNNING and editor is not None and editor.width > 0 and is_mini_context(context)
 
     def invoke(self, context, event):
         # Область, а не регион вызова: кнопка боковой панели вызывает из региона UI, координаты мыши считаются в регионе изображения.
@@ -396,15 +474,14 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
 
     def _header(self, context):
         editor = editor_of(context.scene)
-        state = f"NOT SAVED: {editor.problems}" if editor.dirty else f"saved to {editor.draft_of}"
-        self._area.header_text_set(f"Hotspot marks | grid {editor.grid} px ([ ]) | drag: new, move, resize | D duplicate | X delete | U up | Esc stop | {state}")
+        state = f"NOT SAVED: {editor.problems}" if editor.dirty else "saved"
+        self._area.header_text_set(f"{window_title(editor)} | grid {editor.grid} px ([ ]) | drag: new, move, resize | D duplicate | X delete | U up | Esc stop | {state}")
         self._area.tag_redraw()
 
     def _finish(self, context):
         _SUSPEND["commit"] = False
         _RUNNING.discard(self._area_pointer)
-        self._area.header_text_set(None)
-        self._area.tag_redraw()
+        _title_stopped(self._area, editor_of(context.scene))
         return {"FINISHED"}
 
     def cancel(self, context):
@@ -604,7 +681,10 @@ def _draw_marks() -> None:
     context = bpy.context
     editor = editor_of(context.scene)
     region = context.region
-    if editor is None or not editor.draft_of or editor.width <= 0 or region is None or not _shows_draft(context, editor):
+    if editor is None or editor.width <= 0 or region is None:
+        return
+    mode = overlay_mode(context.window, context.screen, context.area, editor)  # HOTSPOT_EDITOR_WINDOW_V1: только мини-окно (или выбор пользователя)
+    if not mode:
         return
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
     gpu.state.blend_set("ALPHA")
@@ -645,19 +725,10 @@ def _draw_marks() -> None:
         blf.color(0, 1.0, 1.0, 1.0, 1.0)
         blf.draw(0, f"{mark.mark_id}: {mark.label} ({mark.kind}, up {mark.up})")
         blf.disable(0, blf.SHADOW)
-    _draw_state(blf, context.area, editor)
+    if mode == OVERLAY_EDITOR:
+        _draw_state(blf, context.area, editor)
     gpu.state.line_width_set(1.0)
     gpu.state.blend_set("NONE")
-
-
-def _shows_draft(context, editor) -> bool:
-    """Метки рисуются в мини-редакторе и в Image Editor, где открыта картинка черновика, а не в каждом Image Editor (UV Editing и т. п.)."""
-
-    area = getattr(context, "area", None)
-    if area is not None and area.as_pointer() == _MINI.get("area"):
-        return True
-    image = getattr(getattr(context, "space_data", None), "image", None)
-    return image is not None and image.name == editor.image
 
 
 def _draw_state(blf, area, editor) -> None:
@@ -699,15 +770,13 @@ class HOTSPOTUV_PT_HotspotMarkup(bpy.types.Panel):
     bl_category = "Hotspot"
     bl_label = "Hotspot Markup"
 
+    @classmethod
+    def poll(cls, context):
+        return is_mini_context(context)  # HOTSPOT_EDITOR_WINDOW_V1: вкладка Hotspot есть только в мини-окне разметки
+
     def draw(self, context):
         layout = self.layout
         editor = editor_of(context.scene)
-        if editor is None:
-            return
-        if not editor.draft_of:
-            layout.label(text="Pick a material in the CFTUV decal panel", icon="INFO")
-            layout.label(text="and click Mark Up")
-            return
         column = layout.column(align=True)
         column.label(text=f"Material {editor.material or '?'}", icon="MATERIAL")
         column.label(text=f"Markup {editor.draft_of}", icon="TEXT")
@@ -716,6 +785,7 @@ class HOTSPOTUV_PT_HotspotMarkup(bpy.types.Panel):
         if shown is not None and tuple(shown.size) != (editor.width, editor.height) and shown.size[0]:
             column.label(text=f"Shown image {shown.name} is {shown.size[0]} x {shown.size[1]} px", icon="ERROR")
         self._draw_state(layout, context, editor)
+        layout.prop(editor, "show_in_uv_editor")
         layout.template_list("HOTSPOTUV_UL_HotspotMarks", "", editor, "marks", editor, "active", rows=3)
         if 0 <= editor.active < len(editor.marks):
             mark = editor.marks[editor.active]
@@ -807,10 +877,16 @@ __all__ = (
     "HOTSPOT_EDITOR_WINDOW_NOT_OPENED",
     "KEY_HINTS",
     "MARKUP_DRAFT_UNSAVED",
+    "WINDOW_TITLE",
+    "area_key",
     "commit_draft",
     "draft_markup",
+    "is_mini_context",
     "load_draft",
+    "mini_key",
     "open_mini_editor",
+    "overlay_mode",
+    "window_title",
     "prepare_markup",
     "register_editor",
     "unregister_editor",

@@ -174,3 +174,19 @@ def test_each_mark_has_its_own_stable_semi_transparent_fill_and_a_contrasting_ba
     active_fill, active_band, active_outline = mark_colours(3, True)
     assert 0.2 <= fill[3] <= 0.25 and active_fill[3] > fill[3] and active_band[3] > band[3] and active_outline == (1.0, 1.0, 1.0, 1.0)
     assert sum(band[:3]) < sum(fill[:3]), "the corner band is a darker tint of the same hue"
+
+
+def test_the_marks_are_drawn_only_in_the_mini_editor_area_unless_the_user_asks_for_them_elsewhere():
+    """HOTSPOT_EDITOR_WINDOW_V1: ключ (окно, экран, область) мини-окна; та же картинка в другом Image Editor (UV Editor декали) - не повод рисовать."""
+
+    from cftuv.hotspot_blender import OVERLAY_EDITOR, OVERLAY_ELSEWHERE, overlay_where
+
+    mini = (1, 2, 3)
+    assert overlay_where((1, 2, 3), mini, "sheet.png", ("sheet.png",), False) == OVERLAY_EDITOR
+    assert overlay_where((1, 2, 3), mini, "other.png", ("sheet.png",), False) == OVERLAY_EDITOR, "the window is keyed, not the image"
+    assert overlay_where((1, 2, 4), mini, "sheet.png", ("sheet.png",), False) == "", "a second Image Editor with the same image"
+    assert overlay_where((9, 8, 3), mini, "sheet.png", ("sheet.png",), False) == "", "the same area address in another window"
+    assert overlay_where((1, 2, 3), None, "sheet.png", ("sheet.png",), False) == "", "the mini editor is closed"
+    assert overlay_where((None, None, None), (None, None, None), "sheet.png", ("sheet.png",), False) == ""
+    assert overlay_where((1, 2, 4), mini, "sheet.png", ("sheet.png",), True) == OVERLAY_ELSEWHERE, "Show marks in UV Editor"
+    assert overlay_where((1, 2, 4), None, "other.png", ("sheet.png", ""), True) == "" and overlay_where((1, 2, 4), None, "", ("",), True) == ""
