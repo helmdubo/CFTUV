@@ -502,10 +502,22 @@ def code_label(record: HotspotRecordV2, code: int) -> str:
 def selection_text(record: HotspotRecordV2, codes) -> str:
     """Строка панели: метка выделенных граней, несколько - `mixed: ...`, пусто - пустая строка."""
 
-    labels = [code_label(record, code) for code in sorted({int(code) for code in codes})]
-    if not labels:
+    return labels_text(selection_labels(record, codes))
+
+
+def selection_labels(record: HotspotRecordV2, codes) -> list:
+    """Подписи меток кодов граней по возрастанию кода, без повторов."""
+
+    return [code_label(record, code) for code in sorted({int(code) for code in codes})]
+
+
+def labels_text(labels) -> str:
+    """Одна подпись - она сама, несколько (без повторов, порядок первых появлений) - `mixed: ...`; в Object Mode - подписи всех выделенных декалей."""
+
+    unique = list(dict.fromkeys(labels))
+    if not unique:
         return ""
-    return labels[0] if len(labels) == 1 else "mixed: " + ", ".join(labels)
+    return unique[0] if len(unique) == 1 else "mixed: " + ", ".join(unique)
 
 
 __all__ = (
@@ -548,6 +560,8 @@ __all__ = (
     "remember_islands",
     "seam_points",
     "seam_snap",
+    "labels_text",
+    "selection_labels",
     "selection_text",
     "strip_from_atlas",
     "unmapped_record",

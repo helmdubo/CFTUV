@@ -211,6 +211,35 @@ def test_mark_up_picks_a_backdrop_of_the_markup_size_before_refusing():
     assert pick_backdrop((big,), big, HotspotMarkupV1(1024, 512, "sheet.png", ())) == (big, "", ""), "an empty markup takes the image's size"
 
 
+class _Object(dict):
+    def __init__(self, name, kind="MESH", decal=True, data=None):
+        super().__init__()
+        self.name, self.type, self.data = name, kind, data if data is not None else object()
+        if decal:
+            self["cftuv_source_revision"] = "r"
+
+
+def test_object_mode_apply_targets_every_selected_decal_by_its_marker_and_counts_the_rest_by_name():
+    """HOTSPOT_OBJECT_APPLY_V1: декаль - по маркеру, а не по имени; не декали - по именам; связанные копии одного меша - одна декаль."""
+
+    from cftuv.hotspot_blender import split_decal_targets
+
+    shared = object()
+    a, b = _Object("wall.CFTUV_Decal"), _Object("renamed by hand")
+    fake, lamp = _Object("floor.CFTUV_Decal", decal=False), _Object("Light", kind="LIGHT", decal=False)
+    twin_a, twin_b = _Object("twin", data=shared), _Object("twin.001", data=shared)
+    decals, skipped = split_decal_targets((a, fake, b, lamp, twin_a, twin_b), "cftuv_source_revision")
+    assert decals == (a, b, twin_a) and skipped == ("floor.CFTUV_Decal", "Light")
+    assert split_decal_targets((), "cftuv_source_revision") == ((), ())
+
+
+def test_the_selection_line_aggregates_the_labels_of_every_selected_decal():
+    from cftuv.hotspot_islands import labels_text
+
+    assert labels_text([]) == "" and labels_text(["0: drips (trim)", "0: drips (trim)"]) == "0: drips (trim)"
+    assert labels_text(["0: drips (trim)", "2: rust (trim)", "0: drips (trim)"]) == "mixed: 0: drips (trim), 2: rust (trim)"
+
+
 def test_the_marks_are_drawn_only_in_the_mini_editor_area_unless_the_user_asks_for_them_elsewhere():
     """HOTSPOT_EDITOR_WINDOW_V1: ключ (окно, экран, область) мини-окна; та же картинка в другом Image Editor (UV Editor декали) - не повод рисовать."""
 

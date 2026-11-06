@@ -268,6 +268,23 @@ def overlay_where(area_key, editor_key, shown_image: str, backdrops, show_elsewh
     return ""
 
 
+def split_decal_targets(objects, marker: str) -> tuple:
+    """«Apply Mark» в Object Mode (HOTSPOT_OBJECT_APPLY_V1): `(декали, имена пропущенных)` выделения. Декаль - меш с маркером декали
+    (`marker` - свойство объекта, а не имя `<источник>.CFTUV_Decal`); остальные - по имени в счёт HOTSPOT_NOT_A_DECAL_MESH. Объекты с одним
+    мешем (связанные копии) - одна декаль: метка ложится на меш один раз."""
+
+    decals, skipped, meshes = [], [], set()
+    for obj in objects:
+        if getattr(obj, "type", "") != "MESH" or marker not in obj.keys():
+            skipped.append(obj.name)
+            continue
+        key = id(obj.data) if not hasattr(obj.data, "as_pointer") else obj.data.as_pointer()
+        if key not in meshes:
+            meshes.add(key)
+            decals.append(obj)
+    return tuple(decals), tuple(skipped)
+
+
 def mark_items(markup) -> list:
     """Пункты выбора метки кнопки: `id: name (kind)`; нет меток - один пункт «нет меток»."""
 
@@ -637,6 +654,7 @@ __all__ = (
     "backdrop_switch",
     "overlay_where",
     "pick_backdrop",
+    "split_decal_targets",
     "carry_record",
     "COUNTER_ROW_WITHOUT_SOURCE",
     "COUNTER_UNWARPED",

@@ -8,7 +8,9 @@ Hotspot, «Apply Mark to Selection» - UV островов выделения с
   `NO_MARK`), пока на ней не нажали, она та же побитово.
 * Запись Edit Mode: оператор выходит в Object Mode, пишет UV, коды граней и запись меша и возвращается; один шаг Undo возвращает UV и коды
   граней (правду островов), запись меша догоняет их перед следующей пересборкой граней.
-* Отказы по именам: не декаль (HOTSPOT_NOT_A_DECAL_MESH), не Edit Mode (HOTSPOT_NOT_IN_EDIT_MODE), пустое выделение
+* HOTSPOT_OBJECT_APPLY_V1: в Object Mode «Apply Mark to Selected Decals» - метка ВСЕМ островам каждой выделенной декали (маркер декали, не
+  имя), один шаг Undo; не декали пропускаются и считаются по именам (HOTSPOT_NOT_A_DECAL_MESH), пары corner - то же правило топологии шва.
+* Отказы по именам: не декаль (HOTSPOT_NOT_A_DECAL_MESH), ни Object, ни Edit Mode (HOTSPOT_NOT_IN_EDIT_MODE), пустое выделение
   (HOTSPOT_SELECTION_EMPTY), метки нет в разметке (HOTSPOT_MARK_NOT_FOUND), разметка панели не та, что у декали (HOTSPOT_MARKUP_MISMATCH),
   запись меша не читается (HOTSPOT_MAPPING_RECORD_INVALID).
 """
@@ -37,6 +39,7 @@ from .hotspot_blender import (
     read_material_markup,
     remap_mesh,
     remembered_record,
+    split_decal_targets,
 )
 from .hotspot_islands import (
     COUNTER_EXPANDED,
@@ -49,7 +52,9 @@ from .hotspot_islands import (
     decode,
     map_islands,
     record_to_json,
+    labels_text,
     refresh_marks,
+    selection_labels,
     selection_text,
     unmapped_record,
 )
@@ -122,14 +127,18 @@ def build_strip(mesh, record, codes):
     return kernel if np.array_equal(expected.astype(np.float32), current_atlas(mesh, DECAL_UV_LAYER)) else None
 
 
-def apply_to_selection(mesh, record, markup, mark, swap, source=None) -> tuple:
+def apply_to_selection(mesh, record, markup, mark, swap, source=None, faces=None) -> tuple:
     """Object Mode: `(маска граней островов | None, числа | (отказ, подробность))` - метка выделенным островам, запись меша. UV ядра - путь
     `remap_path`: UV ядра последней записи сессии, если меш показывает ровно их (HOTSPOT_REMAP_FROM_BUILD), иначе обращение меток, у сторон
-    corner-пары - с развёрткой по длине ряда шва по вершинам источника `source` (HOTSPOT_REMAP_BY_SEAM_ARC; HOTSPOT_REMAP_BY_INVERSION)."""
+    corner-пары - с развёрткой по длине ряда шва по вершинам источника `source` (HOTSPOT_REMAP_BY_SEAM_ARC; HOTSPOT_REMAP_BY_INVERSION).
+    `faces` - маска граней вместо выделения меша (HOTSPOT_OBJECT_APPLY_V1: все грани декали)."""
 
     _vertices, totals, group = mesh_arrays(mesh)
     selected = np.zeros(len(mesh.polygons), dtype=bool)
-    mesh.polygons.foreach_get("select", selected)
+    if faces is None:
+        mesh.polygons.foreach_get("select", selected)
+    else:
+        selected[:] = np.asarray(faces, dtype=bool)
     if not selected.any():
         return None, (HOTSPOT_SELECTION_EMPTY, "select faces of the decal")
     old_codes = face_codes(mesh, len(totals))
@@ -176,16 +185,26 @@ def _refused(operator, refusal, detail):
     return {"CANCELLED"}
 
 
+#: Подписи кнопки по режиму (HOTSPOT_OBJECT_APPLY_V1): на что она действует, видно до нажатия.
+APPLY_FACES_TEXT = "Apply Mark to Selected Faces"
+APPLY_DECALS_TEXT = "Apply Mark to Selected Decals"
+
+
 class HOTSPOTUV_OT_HotspotApplyMark(bpy.types.Operator):
     bl_idname = "hotspotuv.hotspot_apply_mark"
-    bl_label = "Apply Mark to Selection"
-    bl_description = "Map the UVs of the selected decal islands (whole pChain sides; corner marks: both sides of the seam) into the mark of the panel, without a rebuild"
+    bl_label = "Apply Mark"
+    bl_description = (
+        "Map decal UVs into the mark of the panel, without a rebuild. Edit Mode: the islands of the selected faces (whole pChain sides; corner "
+        "marks: both sides of the seam). Object Mode: every island of every selected decal; other selected objects are skipped and counted"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        if context.mode == "OBJECT":
+            return self._apply_objects(context)
         obj, record, refusal, detail = decal_state(context)
         if not refusal and obj.mode != "EDIT":
-            refusal, detail = HOTSPOT_NOT_IN_EDIT_MODE, "enter Edit Mode on the decal and select faces"
+            refusal, detail = HOTSPOT_NOT_IN_EDIT_MODE, "Object Mode (selected decals) or Edit Mode on the decal (selected faces)"
         if not refusal:
             mark, swap, name, markup, refusal, detail = resolve_mark(context, record)
         if not refusal and not obj.data.total_face_sel:
@@ -210,6 +229,54 @@ class HOTSPOTUV_OT_HotspotApplyMark(bpy.types.Operator):
         self.report({"INFO"}, line)
         return {"FINISHED"}
 
+    def _apply_objects(self, context):
+        """Object Mode (HOTSPOT_OBJECT_APPLY_V1): метка всем островам каждой выделенной декали, один шаг Undo на всё нажатие; не декали -
+        счёт HOTSPOT_NOT_A_DECAL_MESH по именам, декаль с отказом (запись, другая разметка) - по имени, остальные всё равно получают метку."""
+
+        decals, skipped = split_decal_targets(context.selected_objects, DECAL_REVISION_PROPERTY)
+        skip = f"{HOTSPOT_NOT_A_DECAL_MESH}={len(skipped)}" + (f" ({', '.join(skipped)[:160]})" if skipped else "")
+        if not decals:
+            return _refused(self, HOTSPOT_NOT_A_DECAL_MESH, f"no selected object is a CFTUV decal (<source>.CFTUV_Decal); {skip}")
+        done, refused, mark, swap = [], [], None, False
+        for obj in decals:
+            mask, counters, mark_used, swap = apply_to_decal(context, obj)
+            if mask is None:
+                refused.append((obj.name, *counters))
+                continue
+            mark = mark_used
+            done.append(counters)
+            print(f"[CFTUV][Hotspot] {obj.data.name}: {mark.id}: {mark.name} -> {counters[COUNTER_SELECTED]} island(s), {remap_name(counters)}; " + ", ".join(f"{key}={value}" for key, value in counters.items()), flush=True)
+        refusals = "; ".join(f"{name}: {refusal}: {detail}" for name, refusal, detail in refused)
+        if not done:
+            return _refused(self, refused[0][1], f"{refusals}; {skip}")
+        line = (
+            f"{mark.id}: {mark.name} ({mark.kind}{', swapped' if swap and mark.kind == 'corner' else ''}) -> {len(done)} decal(s), "
+            f"{sum(item[COUNTER_SELECTED] for item in done)} island(s); {COUNTER_UNPAIRED}={sum(item.get(COUNTER_UNPAIRED, 0) for item in done)}, {skip}"
+            + (f"; refused {len(refused)}: {refusals}" if refused else "")
+        )
+        print(f"[CFTUV][Hotspot] {line}", flush=True)
+        self.report({"WARNING"} if skipped or refused else {"INFO"}, line)
+        return {"FINISHED"}
+
+
+def remap_name(counters) -> str:
+    return next((name for name in (HOTSPOT_REMAP_FROM_BUILD, HOTSPOT_REMAP_BY_SEAM_ARC, HOTSPOT_REMAP_BY_INVERSION) if name in counters), "")
+
+
+def apply_to_decal(context, obj) -> tuple:
+    """Object Mode: метка панели всем граням декали `obj` - `(маска | None, числа | (отказ, подробность), метка, swap)`; та же функция и пути,
+    что у Edit Mode (пары corner по топологии шва, сторона без пары - одно крыло)."""
+
+    record, error = mesh_record(obj.data)
+    if error:
+        return None, (HOTSPOT_MAPPING_RECORD_INVALID, error), None, False
+    mark, swap, name, markup, refusal, detail = resolve_mark(context, record)
+    if refusal:
+        return None, (refusal, detail), None, False
+    record = unmapped_record(name, markup.width, markup.height) if record is None else record
+    mask, counters = apply_to_selection(obj.data, record, markup, mark, swap, obj.parent, faces=np.ones(len(obj.data.polygons), dtype=bool))
+    return mask, counters, mark, swap
+
 
 class HOTSPOTUV_OT_HotspotSelectMark(bpy.types.Operator):
     bl_idname = "hotspotuv.hotspot_select_mark"
@@ -232,9 +299,40 @@ class HOTSPOTUV_OT_HotspotSelectMark(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def draw_island_rows(layout, context) -> None:
-    """Строки островов в строках Hotspot: только у активной декали; в Edit Mode - метка выделения и кнопки."""
+def _draw_object_rows(layout, context) -> None:
+    """Object Mode (HOTSPOT_OBJECT_APPLY_V1): метка всех граней выделенных декалей (одна или `mixed`), пропущенные не-декали числом, кнопка."""
 
+    decals, skipped = split_decal_targets(context.selected_objects, DECAL_REVISION_PROPERTY)
+    if not decals:
+        return
+    box = layout.box()
+    labels, invalid = [], []
+    for decal in decals:
+        record, error = mesh_record(decal.data)
+        if error:
+            invalid.append(decal.name)
+            continue
+        if not len(decal.data.polygons):
+            continue
+        record = unmapped_record("", 0, 0) if record is None else record
+        codes = face_codes(decal.data, len(decal.data.polygons))  # атрибута нет - все грани с меткой по умолчанию записи
+        labels += selection_labels(record, [record.default] if codes is None else np.unique(codes).tolist())
+    text = labels_text(labels)
+    box.label(text=f"Selection, {len(decals)} decal(s): {text or 'no faces'}", icon="UV")
+    if skipped:
+        box.label(text=f"{HOTSPOT_NOT_A_DECAL_MESH}: {len(skipped)} selected object(s) skipped", icon="INFO")
+    if invalid:
+        box.label(text=f"{HOTSPOT_MAPPING_RECORD_INVALID}: {', '.join(invalid)[:160]}", icon="ERROR")
+    box.operator(HOTSPOTUV_OT_HotspotApplyMark.bl_idname, text=APPLY_DECALS_TEXT, icon="CHECKMARK")
+
+
+def draw_island_rows(layout, context) -> None:
+    """Строки островов в строках Hotspot: в Object Mode - выделенные декали и кнопка на все их острова; в Edit Mode активной декали - метка
+    выделения граней и кнопки."""
+
+    if getattr(context, "mode", "") == "OBJECT":
+        _draw_object_rows(layout, context)
+        return
     obj = getattr(context, "active_object", None)
     if obj is None or obj.type != "MESH" or DECAL_REVISION_PROPERTY not in obj.keys():
         return
@@ -245,7 +343,7 @@ def draw_island_rows(layout, context) -> None:
         box.label(text=detail[:200])
         return
     if obj.mode != "EDIT":
-        box.label(text="Island marks: Edit Mode on the decal, select faces, Apply Mark", icon="INFO")
+        box.label(text="Island marks: Object Mode (selected decals) or Edit Mode (selected faces)", icon="INFO")
         return
     bm = bmesh.from_edit_mesh(obj.data)
     layer = bm.faces.layers.int.get(MARK_ATTRIBUTE)
@@ -254,7 +352,7 @@ def draw_island_rows(layout, context) -> None:
     text = selection_text(unmapped_record("", 0, 0) if record is None else record, codes)
     box.label(text=f"Selection: {text}" if text else "Selection: no faces", icon="UV")
     row = box.row(align=True)
-    row.operator(HOTSPOTUV_OT_HotspotApplyMark.bl_idname, icon="CHECKMARK")
+    row.operator(HOTSPOTUV_OT_HotspotApplyMark.bl_idname, text=APPLY_FACES_TEXT, icon="CHECKMARK")
     row.operator(HOTSPOTUV_OT_HotspotSelectMark.bl_idname, text="Select by Mark", icon="RESTRICT_SELECT_OFF")
 
 
@@ -284,7 +382,11 @@ __all__ = (
     "HOTSPOT_REMAP_BY_SEAM_ARC",
     "HOTSPOT_REMAP_FROM_BUILD",
     "HOTSPOT_SELECTION_EMPTY",
+    "APPLY_DECALS_TEXT",
+    "APPLY_FACES_TEXT",
+    "apply_to_decal",
     "apply_to_selection",
+    "remap_name",
     "build_strip",
     "decal_state",
     "draw_island_rows",
