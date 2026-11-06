@@ -1,4 +1,4 @@
-"""Настройки режима Hotspot (HOTSPOT_MARKUP_V1): переключатель, разметка материала, метка, крылья; регистрация. Строки панели - `hotspot_blender.draw_hotspot_rows`.
+"""Настройки режима Hotspot (HOTSPOT_MARKUP_V1): переключатель, разметка материала, метка, крылья; регистрация режима и редактора разметки (hotspot_editor). Строки панели - `hotspot_blender.draw_hotspot_rows`.
 
 Разметку выбирает МАТЕРИАЛ декали: поле «Markup» читает и пишет его свойство `cftuv_hotspot_markup` (своего значения у настройки нет), поэтому
 материал и разметка не расходятся. Метка одна на всё выделение (`mark_id`); перечень меток строится из разметки материала.
@@ -63,16 +63,22 @@ _CLASSES = (HOTSPOTUV_HotspotSettings,)
 
 
 def register_hotspot() -> None:
-    """Регистрация настроек Hotspot (свойство сцены). Повтор безопасен."""
+    """Регистрация настроек Hotspot (свойство сцены) и редактора разметки в Image Editor. Повтор безопасен."""
+
+    from .hotspot_editor import register_editor
 
     for cls in _CLASSES:
         if getattr(cls, "is_registered", False):
             bpy.utils.unregister_class(cls)
         bpy.utils.register_class(cls)
     setattr(bpy.types.Scene, SETTINGS_ATTRIBUTE, PointerProperty(type=HOTSPOTUV_HotspotSettings))
+    register_editor()
 
 
 def unregister_hotspot() -> None:
+    from .hotspot_editor import unregister_editor
+
+    unregister_editor()
     if hasattr(bpy.types.Scene, SETTINGS_ATTRIBUTE):
         delattr(bpy.types.Scene, SETTINGS_ATTRIBUTE)
     for cls in reversed(_CLASSES):

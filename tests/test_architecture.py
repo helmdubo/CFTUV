@@ -200,7 +200,7 @@ def test_the_hotspot_format_and_mapping_are_free_of_blender():
     offenders = {}
     for name in HOTSPOT_PURE_MODULES:
         roots = _imported_roots(HOST_PACKAGE / name)
-        leaked = ({"bpy", "bmesh", "gpu", "mathutils"} & roots) | {root for root in roots if (HOST_PACKAGE / f"{root}.py").exists() and f"{root}.py" not in HOTSPOT_PURE_MODULES}
+        leaked = ({"bpy", "bmesh", "gpu", "mathutils", "blf"} & roots) | {root for root in roots if (HOST_PACKAGE / f"{root}.py").exists() and f"{root}.py" not in HOTSPOT_PURE_MODULES}
         if leaked:
             offenders[name] = sorted(leaked)
     assert not offenders, f"чистые слои Hotspot импортируют Blender или хост: {offenders}"
@@ -2498,7 +2498,7 @@ def test_the_installers_swap_directories_and_never_erase_the_installed_copy_firs
 # (4) матрица Python покрывает и заявленный пол (`kernel/pyproject.toml`), и интерпретатор Blender (3.11, на нём собирается нативное колесо).
 
 #: Даёт сам Blender (4.5: CPython 3.11.11, numpy 1.26.4); в CI заменяется заглушками `tests/conftest.py`.
-_BLENDER_PROVIDED = frozenset({"bpy", "bmesh", "mathutils", "gpu", "gpu_extras", "bpy_extras", "addon_utils"})
+_BLENDER_PROVIDED = frozenset({"bpy", "bmesh", "mathutils", "gpu", "gpu_extras", "bpy_extras", "addon_utils", "blf"})
 #: Нативное расширение собирается отдельно (`native/`), не из PyPI; host-тесты пропускают его по названному статусу `unavailable`.
 _NATIVE_EXTENSION = frozenset({"cftuv_native"})
 #: Зависимость, которая приходит вместе с объявленной (`sympy` тянет `mpmath`).
