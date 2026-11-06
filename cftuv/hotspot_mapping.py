@@ -219,8 +219,9 @@ def corner_plan(loop_vertex, loop_group, seam_mask) -> CornerPlanV1:
 
 
 #: План зависит только от топологии меша (углы, группы, углы шва): кадры живой ширины его не пересчитывают. Ключ - байты трёх массивов.
+#: Метки по островам (HOTSPOT_ISLAND_MARKS_V1) строят план на каждую corner-метку меша и один на весь меш (пары шва выделения): 16, а не 4.
 _PLANS: dict = {}
-PLAN_CACHE_SIZE = 4
+PLAN_CACHE_SIZE = 16
 
 
 def cached_corner_plan(loop_vertex, loop_group, seam_mask) -> CornerPlanV1:

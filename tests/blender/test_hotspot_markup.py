@@ -11,7 +11,11 @@
    (`HOTSPOT_MARKUP_REFUSED`), нет ссылки материала (`MARKUP_NOT_LINKED`); меш при отказе не тронут;
 5. ЖИВАЯ ШИРИНА: кадр модели и точный кадр той же ширины отображаются одной функцией; разрыв UV атласа напечатан и ограничен; узлы GPU
    affine drag под Hotspot не включаются (их формула двигает UV ядра, а в меше UV атласа);
-6. «Mark Up» без окна (HOTSPOT_PANEL_EDITOR_V1): картинка из узлов материала декали, датаблок разметки создан и связан сам, отказы по именам.
+6. «Mark Up» без окна (HOTSPOT_PANEL_EDITOR_V1): картинка из узлов материала декали, датаблок разметки создан и связан сам, отказы по именам;
+7. МЕТКИ ОСТРОВОВ (HOTSPOT_ISLAND_MARKS_V1): кнопка с меткой A, «Apply Mark to Selection» с меткой B одному острову - его UV в B, другого в A,
+   выделен ровно он; живая ширина (кадры и подтверждение) и повторная кнопка метки сохраняют; corner одной стороне шва - обе стороны (сосед
+   по шву); Undo (если фоновый Blender его даёт) возвращает UV; отказы по именам, меш при отказе не тронут; режим выключен - ни записи, ни
+   атрибутов `cftuv_hotspot_mark` и `cftuv_strip_uv`.
 
 Прогон: blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_hotspot_markup.py
 Последняя строка при успехе: HOTSPOT_MARKUP_BLENDER_SMOKE_OK
@@ -189,8 +193,9 @@ def _check_refusals():
     _markup(HotspotMarkV1(0, "drips", "trim", 0, 64, 1024, 128, "+y"), HotspotMarkV1(1, "edge", "corner", 0, 256, 1024, 96, "+y", 12))
 
 
-def _check_live_width():
-    """Кадр модели и точный кадр той же ширины под Hotspot: разрыв UV атласа - числом; GPU affine drag не включается."""
+def _check_live_width(strict=True):
+    """Кадр модели и точный кадр той же ширины под Hotspot: разрыв UV атласа - числом; GPU affine drag не включается. `strict=False` - после
+    правки меша вне живой ширины (Apply Mark): модель снята (PREVIEW_DECAL_CHANGED_EXTERNALLY), и кадры до её новой сборки могут меш не двигать."""
 
     from cftuv.envelope_width_adjust import KIND_CONFIRM, KIND_MOVE, WidthEventV1
     from cftuv.envelope_width_session import ViewScaleV1, apply_step, begin_adjust, finish_adjust
@@ -199,6 +204,7 @@ def _check_live_width():
     controller = bpy.context.window_manager._cftuv_envelope_debug_session
     bpy.context.scene.hotspotuv_decal_mesh.drag_gpu_affine = True
     view = ViewScaleV1(pivot=(0.0, 0.0), metres_per_pixel=1.0)
+    before, _vertex, _domain = _arrays()
     runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
     assert not isinstance(runtime, str), runtime
     assert controller.width_gpu_drag is False, "GPU affine drag stays off under Hotspot"
@@ -206,6 +212,7 @@ def _check_live_width():
         step = runtime.session.handle(WidthEventV1(KIND_MOVE, offset, 0.0))
         apply_step(bpy.context, runtime, step)
     preview, _vertex, _domain = _arrays()
+    moved = float(np.max(np.abs(preview - before))) if preview.shape == before.shape else float("nan")
     closing = runtime.session.handle(WidthEventV1(KIND_CONFIRM))
     apply_step(bpy.context, runtime, closing)
     assert finish_adjust(bpy.context, runtime, confirmed=True) == "FINISHED"
@@ -216,10 +223,246 @@ def _check_live_width():
         assert time.perf_counter() < end
     exact, _vertex, _domain = _arrays()
     gap = float(np.max(np.abs(exact - preview)))
-    print(f"HOTSPOT LIVE preview vs exact atlas uv: max {gap:.3e} UV ({gap * WIDTH:.3f} px of {WIDTH})")
-    assert gap < 1e-3, gap
+    print(f"HOTSPOT LIVE preview vs exact atlas uv: max {gap:.3e} UV ({gap * WIDTH:.3f} px of {WIDTH}); the frames moved the mesh by {moved:.3e} UV", flush=True)
+    assert gap < 1e-3 or not strict, gap
     bpy.context.scene.hotspotuv_decal_mesh.drag_gpu_affine = False
     return gap
+
+
+RUST = (400.0, 464.0)  # метка 2 (trim): шов и внешний ряд в пикселях
+DRIPS = (64.0, 192.0)  # метка 0 (trim)
+
+
+def _object_mode():
+    if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _decal_edit(domain=None):
+    """Edit Mode на декали, выделены грани домена `domain` (`None` - ничего)."""
+
+    _object_mode()
+    decal = bpy.data.objects[DECAL]
+    for item in bpy.context.view_layer.objects:
+        item.select_set(False)
+    bpy.context.view_layer.objects.active = decal
+    decal.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.context.tool_settings.mesh_select_mode = (False, False, True)
+    bm = bmesh.from_edit_mesh(decal.data)
+    layer = bm.faces.layers.int["cftuv_domain"]
+    for item in (*bm.verts, *bm.edges, *bm.faces):
+        item.select = False
+    for face in bm.faces:
+        if domain is not None and face[layer] == domain:
+            face.select_set(True)
+    bm.select_flush_mode()
+    bmesh.update_edit_mesh(decal.data)
+
+
+def _apply(expect="FINISHED", op="hotspot_apply_mark"):
+    from cftuv.hotspot_blender import LAST_COUNTERS
+
+    try:
+        result = getattr(bpy.ops.hotspotuv, op)()
+    except RuntimeError as exc:  # отчёт ERROR фонового Blender
+        result, text = {"CANCELLED"}, str(exc)
+    else:
+        text = ""
+    assert result == {expect}, (result, text)
+    return text if expect == "CANCELLED" else dict(LAST_COUNTERS.get(bpy.data.objects[DECAL].data.session_uid, {}))
+
+
+def _current():
+    """`(UV атласа, UV ядра обращением меток островов, домен угла)` меша декали сейчас (ширина могла смениться - маски по его же UV ядра)."""
+
+    from cftuv.hotspot_blender import face_codes, mesh_record, recovered_strip
+
+    _object_mode()
+    atlas, _vertex, domain = _arrays()
+    mesh = bpy.data.objects[DECAL].data
+    record, _error = mesh_record(mesh)
+    return atlas, recovered_strip(mesh, record, face_codes(mesh, len(mesh.polygons))), domain
+
+
+def _rows(domain_rows, mark_rows, where):
+    """Шов и внешний ряд углов домена `domain_rows` лежат на нижнем и верхнем крае trim-метки `mark_rows` (пиксели)."""
+
+    atlas, strip, domain = _current()
+    pixels = atlas * (WIDTH, HEIGHT)
+    seam, outer = (np.abs(strip[:, 1]) <= 1e-7) & (domain == domain_rows), (np.abs(strip[:, 1] - 1.0) <= 1e-7) & (domain == domain_rows)
+    assert seam.any() and outer.any(), where
+    error = max(float(np.max(np.abs(pixels[seam, 1] - mark_rows[0]))), float(np.max(np.abs(pixels[outer, 1] - mark_rows[1]))))
+    assert error <= 1e-3, (where, domain_rows, mark_rows, error)
+    return error
+
+
+def _undo_available():
+    try:
+        return bool(bpy.ops.ed.undo.poll())
+    except RuntimeError:
+        return False
+
+
+def _check_island_marks(kernel):
+    """HOTSPOT_ISLAND_MARKS_V1: метка островам выделения готовой декали, без пересборки; живая ширина и кнопка их сохраняют; отказы по именам."""
+
+    from cftuv.hotspot_markup import HotspotMarkV1
+
+    _uv, _vertex, domain = kernel
+    low, high = sorted(np.unique(domain))
+    source = bpy.data.objects[SOURCE]
+    _markup(
+        HotspotMarkV1(0, "drips", "trim", 0, 64, 1024, 128, "+y"),
+        HotspotMarkV1(1, "edge", "corner", 0, 256, 1024, 96, "+y", 12),
+        HotspotMarkV1(2, "rust", "trim", 0, 400, 1024, 64, "+y"),
+    )
+    _select_seam(source)
+    _hotspot(True, 0)
+    _press()
+    _decal_edit(low)
+    _hotspot(True, 2)
+    counters = _apply()
+    assert counters["HOTSPOT_ISLANDS_SELECTED"] == 1 and counters["HOTSPOT_CORNER_PAIR_EXPANDED"] == 0 and counters["HOTSPOT_ISLANDS_OFF_DEFAULT"] == 1, counters
+    selected = [face.select for face in bmesh.from_edit_mesh(bpy.data.objects[DECAL].data).faces]
+    _rows(low, RUST, "applied")
+    _rows(high, DRIPS, "untouched")
+    record = json.loads(bpy.data.objects[DECAL].data["cftuv_hotspot"])
+    assert record["version"] == 2 and [item["mark"] for item in record["islands"]] == [2], record["islands"]
+    assert all(selected[index] == (value == low) for index, value in enumerate(_face_domains())), "exactly the applied island is selected"
+    undo = _undo_available()
+    if undo:
+        _decal_edit(low)
+        _hotspot(True, 0)
+        _apply()
+        bpy.ops.ed.undo()
+        _rows(low, RUST, "undo")
+    print(f"HOTSPOT ISLANDS apply: {counters}; undo {'checked' if undo else 'not available in background (windowed proof)'}", flush=True)
+    drift = _drift(low)
+    _select_seam(source)
+    gap = _check_live_width(strict=False)
+    _rows(low, RUST, "after the live width")
+    _rows(high, DRIPS, "after the live width")
+    print(f"HOTSPOT ISLANDS live width keeps the marks: preview vs exact {gap:.2e} UV, {LAST_COUNTERS_OF()}; drift {drift}", flush=True)
+    _decal_edit(high)
+    _hotspot(True, 1, True)
+    counters = _apply()
+    assert counters["HOTSPOT_ISLANDS_SELECTED"] == 2 and counters["HOTSPOT_CORNER_PAIR_EXPANDED"] == 1 and counters["HOTSPOT_CORNER_WING_UNPAIRED"] == 0, counters
+    atlas, strip, _domain = _current()
+    seam = np.abs(strip[:, 1]) <= 1e-7
+    assert np.max(np.abs(atlas[seam, 1] * HEIGHT - 304.0)) <= 1e-3, "both sides of the seam took the corner mark"
+    _select_seam(source)
+    _hotspot(True, 0)
+    _press()
+    record = json.loads(bpy.data.objects[DECAL].data["cftuv_hotspot"])
+    assert record["default"] == {"mark": 0, "swap": False} and sorted((item["mark"], item["swap"]) for item in record["islands"]) == [(1, True), (1, True)], record
+    atlas, strip, _domain = _current()
+    assert np.max(np.abs(atlas[np.abs(strip[:, 1]) <= 1e-7, 1] * HEIGHT - 304.0)) <= 1e-3, "the press carries the island marks over"
+    print(f"HOTSPOT ISLANDS corner pair: {counters}; press carried {len(record['islands'])} island marks", flush=True)
+    _check_island_refusals(low)
+    _select_seam(source)
+
+
+def _drift(low):
+    """50 нажатий «Apply Mark» по очереди rust <-> edge (corner, пара шва) на одном острове, через float32 слоя UV: накопление против первого круга."""
+
+    from cftuv.hotspot_blender import KERNEL_UVS
+
+    result = {}
+    for session in (True, False):  # UV ядра сессии есть (точно) / нет, как после перезагрузки файла (обращение, развёртка ряда шва)
+        seen = []
+        for step in range(50):
+            if not session:
+                KERNEL_UVS.clear()
+            _decal_edit(low)
+            _hotspot(True, 1 if step % 2 == 0 else 2)
+            counters = _apply()
+            _object_mode()
+            seen.append((_arrays()[0], next(key for key in counters if key.startswith("HOTSPOT_REMAP_"))))
+        drift = max(float(np.max(np.abs(seen[-1][0] - seen[1][0]))), float(np.max(np.abs(seen[-2][0] - seen[0][0])))) * WIDTH
+        result[sorted({item[1] for item in seen})[0] if session else "+".join(sorted({item[1] for item in seen}))] = drift
+        assert drift < 1e-2, (session, drift)
+    paths = sorted(result)
+    drift = result
+    print(f"HOTSPOT ISLANDS drift after 50 alternating applies, px of {WIDTH}: {result}", flush=True)
+    _decal_edit(_other(low))  # corner ушёл и на пару шва: её возвращаем в drips
+    _hotspot(True, 0)
+    _apply()
+    _rows(low, RUST, "after the alternating applies")
+    _rows(_other(low), DRIPS, "after the alternating applies")
+    return drift, paths
+
+
+def _other(low):
+    return next(value for value in set(_face_domains()) if value != low)
+
+
+def _face_domains():
+    mesh = bpy.data.objects[DECAL].data
+    values = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.attributes["cftuv_domain"].data.foreach_get("value", values)
+    return values.tolist()
+
+
+def LAST_COUNTERS_OF():  # noqa: N802 - строка печати
+    from cftuv.hotspot_blender import LAST_COUNTERS
+
+    return LAST_COUNTERS.get(bpy.data.objects[DECAL].data.session_uid)
+
+
+def _check_island_refusals(low):
+    _object_mode()
+    before = _digest()
+    _decal_edit(low)
+    _hotspot(True, 7)
+    assert "HOTSPOT_MARK_NOT_FOUND" in _apply("CANCELLED")
+    _hotspot(True, 2)
+    _decal_edit(None)
+    assert "HOTSPOT_SELECTION_EMPTY" in _apply("CANCELLED")
+    _object_mode()
+    assert "HOTSPOT_NOT_IN_EDIT_MODE" in _apply("CANCELLED")
+    source = bpy.data.objects[SOURCE]
+    bpy.context.view_layer.objects.active = source
+    bpy.ops.object.mode_set(mode="EDIT")
+    assert "HOTSPOT_NOT_A_DECAL_MESH" in _apply("CANCELLED")
+    _object_mode()
+    assert _digest() == before, "a refused apply leaves the mesh untouched"
+    _hotspot(False)
+    _select_seam(source)
+    _press()
+    _decal_edit(low)
+    _object_mode()
+    mesh = bpy.data.objects[DECAL].data
+    assert "cftuv_hotspot" not in mesh.keys() and "cftuv_hotspot_mark" not in mesh.attributes, "Hotspot off: no record, no attribute"
+    kernel_off, _vertex, domain = _arrays()
+    _decal_edit(low)
+    _hotspot(True, 2)
+    counters = _apply()  # декаль без Hotspot - тождественный случай: UV слоя и есть UV ядра
+    _object_mode()
+    atlas, _vertex, _domain = _arrays()
+    mesh = bpy.data.objects[DECAL].data
+    assert json.loads(mesh["cftuv_hotspot"])["default"]["mark"] is None and counters["HOTSPOT_ISLANDS_OFF_DEFAULT"] == 1, counters
+    assert np.array_equal(atlas[domain != low].astype(np.float32), kernel_off[domain != low].astype(np.float32)), "islands without a mark keep their kernel UV bit for bit"
+    _rows(low, RUST, "applied to a decal built with Hotspot off")
+    print(f"HOTSPOT ISLANDS refusals named: HOTSPOT_MARK_NOT_FOUND, HOTSPOT_SELECTION_EMPTY, HOTSPOT_NOT_IN_EDIT_MODE, HOTSPOT_NOT_A_DECAL_MESH; Hotspot-off decal mapped on apply: {counters}", flush=True)
+
+
+def _select_seam(source):
+    """Источник активен в Edit Mode с выделенным швом (выделение сборки)."""
+
+    _object_mode()
+    for item in bpy.context.view_layer.objects:
+        item.select_set(False)
+    bpy.context.view_layer.objects.active = source
+    source.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.context.tool_settings.mesh_select_mode = (False, True, False)
+    bm = bmesh.from_edit_mesh(source.data)
+    for item in (*bm.verts, *bm.edges, *bm.faces):
+        item.select = False
+    for edge in bm.edges:
+        edge.select = edge.seam
+    bmesh.update_edit_mesh(source.data)
 
 
 def _check_mark_up_preparation():
@@ -285,6 +528,7 @@ def main():
     _hotspot(True, 1)
     _press()
     _check_live_width()
+    _check_island_marks(kernel)
     _hotspot(False)
     bpy.context.scene.hotspotuv_settings.envelope_debug_alpha = 0.25
     _press()

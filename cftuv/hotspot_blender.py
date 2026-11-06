@@ -13,10 +13,30 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import bpy
 import numpy as np
 
-from .hotspot_mapping import MESH_PROPERTY, atlas_uvs, mapping_for, mapping_from_json, mapping_to_json
+from .hotspot_islands import (
+    COUNTER_DROPPED,
+    MARK_ATTRIBUTE,
+    anchor_tolerance,
+    carry_islands,
+    island_codes,
+    loop_next,
+    map_islands,
+    paired_corner_groups,
+    record_from_json,
+    record_of,
+    record_to_json,
+    remap_atlas,
+    remember_islands,
+    seam_points,
+    strip_from_atlas,
+    unwarp_paired,
+)
+from .hotspot_mapping import MESH_PROPERTY, mapping_for
 from .hotspot_markup import KIND_CORNER, MarkupProblemV1, empty_markup, load_markup, save_markup
 
 #: Свойство материала: имя текстового датаблока его разметки.
@@ -35,6 +55,15 @@ HOTSPOT_IMAGE_HAS_NO_PIXELS = "HOTSPOT_IMAGE_HAS_NO_PIXELS"
 HOTSPOT_MAPPING_RECORD_INVALID = "HOTSPOT_MAPPING_RECORD_INVALID"
 #: Числа последнего отображения по session_uid меша (имя нового меша кнопки меняется при подмене): консоль кнопки и смоки; не данные Blender.
 LAST_COUNTERS: dict = {}
+#: Ширина, с которой записан меш декали (`envelope_production_mesh.DECAL_WIDTH_PROPERTY`): развёртка ряда шва делит его длину на неё.
+DECAL_WIDTH_KEY = "cftuv_decal_width"
+#: «Apply Mark» без UV ядра сессии: сторон corner-пары, развёрнутых по ряду шва, и вершин ряда без вершины источника рядом.
+COUNTER_UNWARPED = "HOTSPOT_CORNER_SIDES_UNWARPED_BY_SEAM_ARC"
+COUNTER_ROW_WITHOUT_SOURCE = "HOTSPOT_SEAM_ROW_VERTEX_WITHOUT_SOURCE"
+#: UV ядра последней записи писателя по session_uid меша (HOTSPOT_ISLAND_MARKS_V1): «Apply Mark» отображает от них точно, если меш показывает ровно
+#: их отображение текущими кодами; после перезагрузки файла их нет - метка обращается. Только память сессии, в .blend не пишется.
+KERNEL_UVS: dict = {}
+KERNEL_UVS_SIZE = 8
 
 
 def linked_markup_name(material) -> str:
@@ -218,10 +247,11 @@ def resolve_press(scene) -> tuple:
 
 
 def press_record(scene) -> tuple:
-    """`(запись для свойства меша | None, отказ, подробность)`: то, что кнопка кладёт в новый меш."""
+    """`(запись для свойства меша | None, отказ, подробность)`: то, что кнопка кладёт в новый меш (запись v2 без островов, HOTSPOT_ISLAND_MARKS_V1;
+    острова прежнего меша декали переносит `carry_record` писателя)."""
 
     mapping, refusal, detail = resolve_press(scene)
-    return (None if mapping is None else mapping_to_json(mapping)), refusal, detail
+    return (None if mapping is None else record_to_json(record_of(mapping))), refusal, detail
 
 
 def draw_hotspot_rows(layout, context) -> None:
@@ -262,6 +292,9 @@ def draw_hotspot_rows(layout, context) -> None:
     elif mapping is not None:
         mark = mapping.mark
         box.label(text=f"{mark.kind} {mark.w} x {mark.h} px, up {mark.up}, texture {mapping.width} x {mapping.height}")
+    from .hotspot_island_ops import draw_island_rows
+
+    draw_island_rows(box, context)  # HOTSPOT_ISLAND_MARKS_V1: метка выделенных островов готовой декали
 
 
 def _refusal_rows(box, refusal: str, detail: str) -> None:
@@ -288,23 +321,20 @@ def _uv_store(mesh, layer_name: str):
     return mesh.uv_layers[layer_name].data, "uv"
 
 
-def map_mesh_uvs(mesh, layer_name: str = "UVMap") -> dict:
-    """UV ядра в слое `layer_name` меша -> UV атласа по записи `cftuv_hotspot` меша (её кладёт кнопка). Числа отображения; они же в `LAST_COUNTERS`.
+def mesh_record(mesh) -> tuple:
+    """`(запись v2 | None, ошибка)` свойства `cftuv_hotspot` меша; свойства нет - `(None, "")`."""
 
-    Читается то, что лежит в меше (float32 UV ядра, вершины углов, домен и владелец граней), поэтому кадр модели, подтверждение и кнопка
-    отображаются одной функцией от одних чисел. Запись не читается - UV ядра остаются, исход `HOTSPOT_MAPPING_RECORD_INVALID` назван.
-    """
-
+    if MESH_PROPERTY not in mesh.keys():
+        return None, ""
     try:
-        mapping = mapping_from_json(str(mesh[MESH_PROPERTY]))
-    except (KeyError, TypeError, ValueError) as exc:
-        counters = {HOTSPOT_MAPPING_RECORD_INVALID: 1}
-        print(f"[CFTUV][Hotspot] {HOTSPOT_MAPPING_RECORD_INVALID}: mesh {mesh.name!r}: {type(exc).__name__}: {exc}", flush=True)
-        LAST_COUNTERS[mesh.session_uid] = counters
-        return counters
-    loops = len(mesh.loops)
-    store, field = _uv_store(mesh, layer_name)
-    uvs = _read(store, field, np.float32, 2).reshape(-1, 2)
+        return record_from_json(str(mesh[MESH_PROPERTY])), ""
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def mesh_arrays(mesh) -> tuple:
+    """`(вершины углов, число углов граней, группа грани)` меша декали: группа - `домен * 2^20 + владелец` (сторона шва отображения, остров)."""
+
     corner = mesh.attributes.get(".corner_vert")
     vertices = _read(corner.data, "value", np.int32) if corner is not None and corner.domain == "CORNER" else _read(mesh.loops, "vertex_index", np.int32)
     totals = _read(mesh.polygons, "loop_total", np.int32)
@@ -313,11 +343,198 @@ def map_mesh_uvs(mesh, layer_name: str = "UVMap") -> dict:
         attribute = mesh.attributes.get(name)
         if attribute is not None and attribute.domain == "FACE" and len(attribute.data) == len(totals):
             group += _read(attribute.data, "value", np.int32).astype(np.int64) * scale
-    loop_group = np.repeat(group, totals) if loops else group[:0]
-    atlas, counters = atlas_uvs(uvs, vertices, loop_group, mapping)
-    store.foreach_set(field, atlas.astype(np.float32).reshape(-1))
+    return vertices.astype(np.int64), totals, group
+
+
+def _positions(mesh):
+    attribute = mesh.attributes.get("position")
+    if attribute is not None and attribute.data_type == "FLOAT_VECTOR" and attribute.domain == "POINT":
+        return _read(attribute.data, "vector", np.float32, 3).reshape(-1, 3).astype(np.float64)
+    return _read(mesh.vertices, "co", np.float32, 3).reshape(-1, 3).astype(np.float64)
+
+
+def face_codes(mesh, count: int):
+    """Коды меток граней (атрибут `cftuv_hotspot_mark`) либо `None`: атрибута нет или он не того вида и размера (грани пересобраны)."""
+
+    attribute = mesh.attributes.get(MARK_ATTRIBUTE)
+    if attribute is None or attribute.domain != "FACE" or attribute.data_type != "INT" or len(attribute.data) != count:
+        return None
+    return _read(attribute.data, "value", np.int32).astype(np.int64)
+
+
+def current_atlas(mesh, layer_name: str = "UVMap"):
+    """UV слоя меша, (L, 2) float32."""
+
+    store, field = _uv_store(mesh, layer_name)
+    return _read(store, field, np.float32, 2).reshape(-1, 2)
+
+
+def recovered_strip(mesh, record, codes, layer_name: str = "UVMap"):
+    """UV ядра островов по текущим UV слоя: обращение метки каждого острова (`strip_from_atlas`; `NO_MARK` - как есть)."""
+
+    _vertices, totals, group = mesh_arrays(mesh)
+    return strip_from_atlas(current_atlas(mesh, layer_name), np.repeat(group, totals), np.repeat(codes, totals), record)
+
+
+def row_positions(mesh, source, vertices) -> tuple:
+    """`(позиции вершин меша, вершин ряда без вершины источника)`: вершины `vertices` (ряд шва) - ближайшая вершина источника (декаль - потомок
+    источника с единичным преобразованием: координаты общие), чтобы длина ряда была длиной цепи источника, а не сдвинутой митрой копии."""
+
+    positions = _positions(mesh)
+    vertices = np.unique(np.asarray(vertices, dtype=np.int64))
+    data = getattr(source, "data", None)
+    if data is None or not hasattr(data, "vertices") or not vertices.shape[0] or not len(data.vertices):
+        return positions, int(vertices.shape[0])
+    width = float(mesh.get(DECAL_WIDTH_KEY, 0.0)) if hasattr(mesh, "get") else 0.0
+    reach = max(0.5 * width, 1e-4)
+    points = positions[vertices]
+    low, high = points.min(axis=0) - reach, points.max(axis=0) + reach
+    source_points = _read(data.vertices, "co", np.float32, 3).reshape(-1, 3).astype(np.float64)
+    source_points = source_points[np.all((source_points >= low) & (source_points <= high), axis=1)]
+    lost = 0
+    if not source_points.shape[0]:
+        return positions, int(vertices.shape[0])
+    for start in range(0, vertices.shape[0], 256):
+        chunk = points[start:start + 256]
+        distance = np.linalg.norm(chunk[:, None, :] - source_points[None, :, :], axis=2)
+        nearest = np.argmin(distance, axis=1)
+        close = distance[np.arange(chunk.shape[0]), nearest] <= reach
+        lost += int(np.count_nonzero(~close))
+        positions[vertices[start:start + 256][close]] = source_points[nearest[close]]
+    return positions, lost
+
+
+def exact_strip(mesh, record, codes, source=None, layer_name: str = "UVMap") -> tuple:
+    """`(UV ядра, числа)` по текущим UV слоя: обращение меток; у сторон corner-пары `along` выровнен - он разворачивается по длине ряда шва
+    (`unwarp_paired`, длина - по вершинам источника `source`, без него - по самому мешу). Числа: сколько сторон развёрнуто и сколько вершин ряда
+    не нашли вершину источника."""
+
+    vertices, totals, group = mesh_arrays(mesh)
+    loop_group, loop_code = np.repeat(group, totals), np.repeat(codes, totals)
+    strip = strip_from_atlas(current_atlas(mesh, layer_name), loop_group, loop_code, record)
+    paired = paired_corner_groups(vertices, loop_group, loop_code, strip[:, 1], record)
+    if not paired.shape[0]:
+        return strip, {COUNTER_UNWARPED: 0}
+    row = np.isin(loop_group, paired) & (strip[:, 1] == 0.0)
+    positions, lost = row_positions(mesh, source, vertices[row])
+    strip, done = unwarp_paired(strip, vertices, loop_group, paired, positions, float(mesh.get(DECAL_WIDTH_KEY, 0.0)))
+    return strip, {COUNTER_UNWARPED: done, COUNTER_ROW_WITHOUT_SOURCE: lost}
+
+
+def _write_attribute(mesh, name: str, kind: str, domain: str, field: str, values) -> None:
+    """Атрибут (создаётся, если нет; иного вида - заводится заново). Зовётся ПОСЛЕ записи UV: новый слой может сдвинуть массив слоёв."""
+
+    attribute = mesh.attributes.get(name)
+    if attribute is not None and (attribute.data_type != kind or attribute.domain != domain):
+        mesh.attributes.remove(attribute)
+        attribute = None
+    if attribute is None:
+        attribute = mesh.attributes.new(name=name, type=kind, domain=domain)
+    attribute.data.foreach_set(field, values)
+
+
+def _seam_points(mesh, strip, vertices, totals, group) -> tuple:
+    positions = _positions(mesh)
+    points, groups = seam_points(strip[:, 1], vertices, loop_next(totals), np.repeat(group, totals), positions)
+    return points, groups, anchor_tolerance(positions)
+
+
+def _write_uvs_and_codes(mesh, layer_name, atlas, face_code, counters) -> None:
+    store, field = _uv_store(mesh, layer_name)
+    store.foreach_set(field, np.asarray(atlas, dtype=np.float32).reshape(-1))
+    _write_attribute(mesh, MARK_ATTRIBUTE, "INT", "FACE", "value", np.asarray(face_code, dtype=np.int32))
     LAST_COUNTERS[mesh.session_uid] = counters
+
+
+def map_with_codes(mesh, record, strip, codes, layer_name: str = "UVMap") -> tuple:
+    """`(коды граней, числа)`: UV атласа по UV ядра `strip` и кодам граней (`None` - по якорям записи) в слой, коды - в атрибут граней."""
+
+    vertices, totals, group = mesh_arrays(mesh)
+    points = groups = None
+    tolerance = 0.0
+    if codes is None and record.islands:
+        points, groups, tolerance = _seam_points(mesh, strip, vertices, totals, group)
+    face_code, counters = island_codes(record, group, codes, points, groups, tolerance)
+    atlas, numbers = map_islands(strip, vertices, np.repeat(group, totals), np.repeat(face_code, totals), record)
+    counters.update(numbers)
+    _write_uvs_and_codes(mesh, layer_name, atlas, face_code, counters)
+    return face_code, counters
+
+
+def remap_mesh(mesh, old, new, old_codes, new_codes, layer_name: str = "UVMap", strip=None) -> dict:
+    """«Apply Mark»: UV слоя `M_new(M_old^-1(UV))` по кодам граней до и после (`remap_atlas`; `strip` - готовые UV ядра), коды - в атрибут."""
+
+    vertices, totals, group = mesh_arrays(mesh)
+    loop_group = np.repeat(group, totals)
+    atlas, counters = remap_atlas(current_atlas(mesh, layer_name), vertices, loop_group, np.repeat(old_codes, totals), np.repeat(new_codes, totals), old, new, strip)
+    _face, numbers = island_codes(new, group, new_codes)
+    counters.update(numbers)
+    _write_uvs_and_codes(mesh, layer_name, atlas, new_codes, counters)
     return counters
+
+
+def map_mesh_uvs(mesh, layer_name: str = "UVMap") -> dict:
+    """UV ядра в слое `layer_name` меша -> UV атласа по записи `cftuv_hotspot` меша (её кладёт кнопка). Числа отображения; они же в `LAST_COUNTERS`.
+
+    Читается то, что лежит в меше (float32 UV ядра, вершины углов, домен и владелец граней), поэтому кадр модели, подтверждение и кнопка
+    отображаются одной функцией от одних чисел. Метки островов - из атрибута граней (меш тот же), иначе по якорям записи (грани пересобраны;
+    HOTSPOT_ISLAND_MARKS_V1). Запись не читается - UV ядра остаются, исход `HOTSPOT_MAPPING_RECORD_INVALID` назван.
+    """
+
+    record, error = mesh_record(mesh)
+    if record is None:
+        counters = {HOTSPOT_MAPPING_RECORD_INVALID: 1}
+        print(f"[CFTUV][Hotspot] {HOTSPOT_MAPPING_RECORD_INVALID}: mesh {mesh.name!r}: {error or 'no record'}", flush=True)
+        LAST_COUNTERS[mesh.session_uid] = counters
+        return counters
+    kernel = current_atlas(mesh, layer_name)
+    KERNEL_UVS.pop(mesh.session_uid, None)
+    if len(KERNEL_UVS) >= KERNEL_UVS_SIZE:
+        KERNEL_UVS.pop(next(iter(KERNEL_UVS)))
+    KERNEL_UVS[mesh.session_uid] = kernel
+    return map_with_codes(mesh, record, kernel, face_codes(mesh, len(mesh.polygons)), layer_name)[1]
+
+
+def remembered_record(mesh, record, layer_name: str = "UVMap"):
+    """Запись с островами НЕ по умолчанию по атрибуту граней меша (его правда; запись могла отстать после Undo в Edit Mode). Атрибута нет - та же запись."""
+
+    vertices, totals, group = mesh_arrays(mesh)
+    codes = face_codes(mesh, len(totals))
+    if codes is None:
+        return record
+    if not np.any(codes != record.default):
+        return replace(record, islands=())
+    strip = recovered_strip(mesh, record, codes, layer_name)
+    points, groups, _tolerance = _seam_points(mesh, strip, vertices, totals, group)
+    return remember_islands(record, group, codes, points, groups)
+
+
+
+def remember_mesh_islands(mesh) -> None:
+    """Перед пересборкой граней (`_clear_mesh_in_place`): метки островов из атрибута граней - в запись меша, чтобы новые грани нашли их по якорям."""
+
+    record, _error = mesh_record(mesh)
+    if record is None:
+        return
+    text = record_to_json(remembered_record(mesh, record))
+    if str(mesh[MESH_PROPERTY]) != text:
+        mesh[MESH_PROPERTY] = text
+
+
+def carry_record(old_mesh, text: str) -> str:
+    """Запись кнопки `text` поверх прежнего меша декали: метка по умолчанию - выбор панели, острова прежнего меша - их метки (свежие из разметки)."""
+
+    old, _error = mesh_record(old_mesh) if old_mesh is not None else (None, "")
+    if old is None:
+        return text
+    new = record_from_json(text)
+    markup, _problems = read_markup_text(new.markup)
+    record, dropped = carry_islands(remembered_record(old_mesh, old), new, () if markup is None else markup.marks)
+    if dropped:
+        print(f"[CFTUV][Hotspot] {COUNTER_DROPPED}={dropped}: the previous decal mesh used markup {old.markup!r} ({old.width} x {old.height}), the press uses {new.markup!r} ({new.width} x {new.height})", flush=True)
+    if record.islands:
+        print(f"[CFTUV][Hotspot] {len(record.islands)} island mark(s) of the previous decal mesh carried over", flush=True)
+    return record_to_json(record)
 
 
 def counter_lines(object_name) -> tuple:
@@ -339,21 +556,37 @@ __all__ = (
     "HOTSPOT_MATERIAL_HAS_NO_IMAGE",
     "HOTSPOT_MATERIAL_MISSING",
     "HOTSPOT_UV_POLICY_UNSUPPORTED",
+    "KERNEL_UVS",
     "LAST_COUNTERS",
     "MARKUP_NOT_LINKED",
     "MARKUP_TEXT_MISSING",
     "MATERIAL_MARKUP_PROPERTY",
     "SETTINGS_ATTRIBUTE",
+    "carry_record",
+    "COUNTER_ROW_WITHOUT_SOURCE",
+    "COUNTER_UNWARPED",
+    "DECAL_WIDTH_KEY",
     "counter_lines",
+    "current_atlas",
     "decal_material",
     "draw_hotspot_rows",
     "ensure_material_markup",
+    "exact_strip",
+    "face_codes",
     "link_markup",
     "linked_markup_name",
     "map_mesh_uvs",
+    "map_with_codes",
     "mark_items",
     "material_images",
+    "mesh_arrays",
+    "mesh_record",
     "press_record",
+    "recovered_strip",
+    "remap_mesh",
+    "remember_mesh_islands",
+    "remembered_record",
+    "row_positions",
     "read_markup_text",
     "read_material_markup",
     "resolve_material_image",

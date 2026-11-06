@@ -191,7 +191,8 @@ def test_frontier_runtime_is_free_of_blender():
 
 
 #: HOTSPOT_MARKUP_V1: формат разметки и отображение в атлас - чистые функции; Blender (текст, материал, меш, панель, редактор) - только в своих слоях.
-HOTSPOT_PURE_MODULES = ("hotspot_markup.py", "hotspot_mapping.py")
+#: HOTSPOT_ISLAND_MARKS_V1: острова, запись v2 и якоря - тоже чистые (`hotspot_islands`); операторы и панель - `hotspot_island_ops`.
+HOTSPOT_PURE_MODULES = ("hotspot_markup.py", "hotspot_mapping.py", "hotspot_islands.py")
 
 
 def test_the_hotspot_format_and_mapping_are_free_of_blender():

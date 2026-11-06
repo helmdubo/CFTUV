@@ -2,8 +2,9 @@
 редактора разметки (hotspot_editor). Строки панели - `hotspot_blender.draw_hotspot_rows`.
 
 Материал разметки - материал декали панели (`hotspotuv_decal_mesh.material_name`): своего поля материала у режима нет, поэтому метка всегда
-берётся из текстуры, которую декаль покажет. Картинку выбирает `image_choice`, если узлов Image Texture у материала несколько. Метка одна на
-всё выделение (`mark_id`); перечень меток строится из разметки материала.
+берётся из текстуры, которую декаль покажет. Картинку выбирает `image_choice`, если узлов Image Texture у материала несколько. Метка `mark_id` -
+метка по умолчанию нажатия кнопки и метка «Apply Mark to Selection» островов готовой декали (HOTSPOT_ISLAND_MARKS_V1, `hotspot_island_ops`);
+перечень меток строится из разметки материала.
 """
 
 from __future__ import annotations
@@ -62,9 +63,9 @@ class HOTSPOTUV_HotspotSettings(bpy.types.PropertyGroup):
     )
     image_name: StringProperty(name="Image", description="Image of the decal material to mark up when it has several Image Texture nodes")
     image_choice: EnumProperty(name="Texture", items=_image_items, get=_image_get, set=_image_set, description="Image Texture of the material the marks are drawn on")
-    mark_id: IntProperty(name="Mark ID", default=0, min=0, description="One mark for the whole selection")
+    mark_id: IntProperty(name="Mark ID", default=0, min=0, description="Mark of the press (every island) and of Apply Mark to Selection (the selected islands of a decal)")
     mark_choice: EnumProperty(name="Mark", items=_mark_items, get=_mark_get, set=_mark_set, description="Mark of the material's markup the decal lands in")
-    swap_wings: BoolProperty(name="Swap wings", default=False, description="Corner marks: exchange which side of the seam takes which half of the butterfly")
+    swap_wings: BoolProperty(name="Swap wings", default=False, description="Corner marks: exchange which side of the seam takes which half of the butterfly (per seam pair with Apply Mark to Selection)")
 
 
 _CLASSES = (HOTSPOTUV_HotspotSettings,)
@@ -74,6 +75,7 @@ def register_hotspot() -> None:
     """Регистрация настроек Hotspot (свойство сцены) и редактора разметки в Image Editor. Повтор безопасен."""
 
     from .hotspot_editor import register_editor
+    from .hotspot_island_ops import register_island_ops
 
     for cls in _CLASSES:
         if getattr(cls, "is_registered", False):
@@ -81,11 +83,14 @@ def register_hotspot() -> None:
         bpy.utils.register_class(cls)
     setattr(bpy.types.Scene, SETTINGS_ATTRIBUTE, PointerProperty(type=HOTSPOTUV_HotspotSettings))
     register_editor()
+    register_island_ops()  # HOTSPOT_ISLAND_MARKS_V1: метка выделенным островам готовой декали
 
 
 def unregister_hotspot() -> None:
     from .hotspot_editor import unregister_editor
+    from .hotspot_island_ops import unregister_island_ops
 
+    unregister_island_ops()
     unregister_editor()
     if hasattr(bpy.types.Scene, SETTINGS_ATTRIBUTE):
         delattr(bpy.types.Scene, SETTINGS_ATTRIBUTE)

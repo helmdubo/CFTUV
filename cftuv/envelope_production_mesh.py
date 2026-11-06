@@ -682,6 +682,27 @@ def _map_hotspot(mesh) -> None:
         map_mesh_uvs(mesh, DECAL_UV_LAYER)
 
 
+def _remember_hotspot(mesh) -> None:
+    """HOTSPOT_ISLAND_MARKS_V1: перед пересборкой граней метки островов (атрибут граней) уходят в запись меша - новые грани найдут их по якорям шва.
+    Записи нет - ничего (меш побитово тот же, что без режима)."""
+
+    keys = getattr(mesh, "keys", None)
+    if keys is not None and HOTSPOT_MESH_PROPERTY in keys():
+        from .hotspot_blender import remember_mesh_islands
+
+        remember_mesh_islands(mesh)
+
+
+def _carry_hotspot(existing, hotspot: str | None) -> str | None:
+    """HOTSPOT_ISLAND_MARKS_V1: запись кнопки поверх прежнего меша декали несёт метки его островов (метка по умолчанию - выбор панели)."""
+
+    if hotspot is None or existing is None or existing.data is None:
+        return hotspot
+    from .hotspot_blender import carry_record
+
+    return carry_record(existing.data, hotspot)
+
+
 def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
     """Геометрия, UV, атрибуты и швы в ПУСТОЙ меш; число реально помеченных швов.
 
@@ -794,6 +815,7 @@ def _clear_mesh_in_place(mesh) -> None:
     снимаются явно, чтобы `_fill_mesh` не наткнулся на слой, не равный новым граням.
     """
 
+    _remember_hotspot(mesh)
     mesh.clear_geometry()
     for layer in list(mesh.uv_layers):
         mesh.uv_layers.remove(layer)
@@ -1022,7 +1044,8 @@ def write_decal_object(
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
 
-    `hotspot` - запись отображения Hotspot (`hotspot_blender.press_record`): она ложится свойством в НОВЫЙ меш, и его UV - UV атласа метки;
+    `hotspot` - запись отображения Hotspot (`hotspot_blender.press_record`): она ложится свойством в НОВЫЙ меш (с метками островов прежнего меша
+    декали, `_carry_hotspot`), и его UV - UV атласа метки;
     `None` (режим выключен) - меш без свойства, побитово тот же, что без режима.
 
     Повторный вызов заменяет меш объекта (идемпотентно: тот же вход — тот же
@@ -1058,7 +1081,7 @@ def write_decal_object(
                         material_created=False, warnings=warnings)
     if existing is None:
         _drop_stale_mesh(name)
-    mesh, marked = _build_mesh(name, arrays, hotspot)
+    mesh, marked = _build_mesh(name, arrays, _carry_hotspot(existing, hotspot))
     material_created = _material_slot(mesh, material_name)
     if existing is None:
         decal = _link_child(source_obj, name, mesh)
