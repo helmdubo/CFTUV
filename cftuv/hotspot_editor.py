@@ -15,8 +15,9 @@ Hotspot, инструмент запущен. Повторное нажатие 
 `X`/`Delete` - удаление, `U` - следующее направление «вверх», `Esc`/правая кнопка - выход. Колесо и средняя кнопка проходят в Image Editor,
 как и всё над боковой панелью и заголовком (там правятся поля меток, пока инструмент работает). Закрытие окна завершает инструмент.
 
-ПОКАЗ (обработчик `POST_PIXEL` Image Editor): контур, номер и имя, стрелка «вверх», нижний край (шов `trim`) или средняя линия (шов `corner`)
-выделены, у `corner` - центральная полоса `band`.
+ПОКАЗ (обработчик `POST_PIXEL` Image Editor): полупрозрачная заливка своего оттенка у каждой метки (`mark_colours`: оттенок от id), контур,
+номер и имя (с тенью), стрелка «вверх», нижний край (шов `trim`) или средняя линия (шов `corner`) выделены, у `corner` - центральная полоса
+`band` контрастным тоном того же оттенка.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
 
 from .hotspot_blender import ensure_material_markup, linked_markup_name, read_markup_text, scene_material_image, write_markup_text
-from .hotspot_markup import KIND_CORNER, KIND_TRIM, KINDS, UP_VECTORS, HotspotMarkV1, HotspotMarkupV1, next_mark_id
+from .hotspot_markup import KIND_CORNER, KIND_TRIM, KINDS, UP_VECTORS, HotspotMarkV1, HotspotMarkupV1, mark_colours, next_mark_id
 
 EDITOR_ATTRIBUTE = "hotspotuv_hotspot_editor"
 MARKUP_DRAFT_UNSAVED = "MARKUP_DRAFT_UNSAVED"
@@ -629,16 +630,21 @@ def _draw_marks() -> None:
     for index, mark in enumerate(editor.marks):
         active = index == editor.active
         outline, seam, arrow, band = _segments(mark)
-        fill(band, (1.0, 0.85, 0.2, 0.3))
-        lines(band, (1.0, 0.85, 0.2, 0.9), 1.0)
-        lines(outline, (1.0, 1.0, 1.0, 1.0) if active else (0.3, 0.8, 1.0, 0.9), 2.0 if active else 1.0)
+        body, tint, edge = mark_colours(mark.mark_id, active)
+        fill([outline[0], (outline[2][1], outline[2][0])], body)
+        fill(band, tint)
+        lines(band, (*tint[:3], 0.9), 1.0)
+        lines(outline, edge, 2.0 if active else 1.0)
         lines(seam, (1.0, 0.3, 0.2, 1.0), 3.0)
         lines(arrow, (0.4, 1.0, 0.4, 1.0), 2.0)
         x, y = _to_region(region, editor, mark.x, mark.y + mark.h)
         blf.position(0, x + 4, y - 16, 0)
         blf.size(0, 13)
+        blf.enable(0, blf.SHADOW)  # подпись читается и на заливке
+        blf.shadow(0, 3, 0.0, 0.0, 0.0, 0.9)
         blf.color(0, 1.0, 1.0, 1.0, 1.0)
         blf.draw(0, f"{mark.mark_id}: {mark.label} ({mark.kind}, up {mark.up})")
+        blf.disable(0, blf.SHADOW)
     _draw_state(blf, context.area, editor)
     gpu.state.line_width_set(1.0)
     gpu.state.blend_set("NONE")

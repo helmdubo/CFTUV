@@ -162,3 +162,15 @@ def test_the_mark_selector_lists_id_name_and_kind_of_the_material_markup():
     items = mark_items(markup)
     assert [(item[0], item[1], item[3]) for item in items] == [("0", "0: drips (trim)", 0), ("3", "3: edge (corner)", 3)]
     assert mark_items(None)[0][:2] == ("-1", "no marks") and mark_items(HotspotMarkupV1(1024, 512, "", ()))[0][0] == "-1"
+
+
+def test_each_mark_has_its_own_stable_semi_transparent_fill_and_a_contrasting_band_tint():
+    from cftuv.hotspot_markup import mark_colours
+
+    fills = [mark_colours(mark_id, False)[0] for mark_id in range(8)]
+    assert len({tuple(round(value, 3) for value in fill[:3]) for fill in fills}) == 8, "neighbouring ids get distinct hues"
+    assert mark_colours(3, False) == mark_colours(3, False)
+    fill, band, _outline = mark_colours(3, False)
+    active_fill, active_band, active_outline = mark_colours(3, True)
+    assert 0.2 <= fill[3] <= 0.25 and active_fill[3] > fill[3] and active_band[3] > band[3] and active_outline == (1.0, 1.0, 1.0, 1.0)
+    assert sum(band[:3]) < sum(fill[:3]), "the corner band is a darker tint of the same hue"

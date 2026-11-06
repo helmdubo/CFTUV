@@ -22,6 +22,8 @@
 
 from __future__ import annotations
 
+import colorsys
+
 import json
 from dataclasses import dataclass, field, replace
 
@@ -275,6 +277,23 @@ def next_mark_id(markup: HotspotMarkupV1) -> int:
     return max(ids) + 1 if ids else 0
 
 
+#: Заливка метки: свой оттенок у каждого id (золотое сечение по кругу оттенков - соседние id далеко друг от друга), прозрачность ~0.2;
+#: выделенная метка плотнее; полоса corner - контрастный (тёмный насыщенный) тон того же оттенка.
+GOLDEN_HUE_STEP = 0.618033988749895
+FILL_ALPHA, FILL_ALPHA_ACTIVE = 0.2, 0.3
+BAND_ALPHA, BAND_ALPHA_ACTIVE = 0.4, 0.5
+
+
+def mark_colours(mark_id: int, active: bool) -> tuple:
+    """`(заливка, полоса, контур)` RGBA метки: оттенок от id, стабильный между сеансами."""
+
+    hue = (int(mark_id) * GOLDEN_HUE_STEP) % 1.0
+    fill = (*colorsys.hsv_to_rgb(hue, 0.6, 1.0), FILL_ALPHA_ACTIVE if active else FILL_ALPHA)
+    band = (*colorsys.hsv_to_rgb(hue, 0.95, 0.45), BAND_ALPHA_ACTIVE if active else BAND_ALPHA)
+    outline = (1.0, 1.0, 1.0, 1.0) if active else (*colorsys.hsv_to_rgb(hue, 0.5, 1.0), 0.95)
+    return fill, band, outline
+
+
 __all__ = (
     "FORMAT_NAME",
     "FORMAT_VERSION",
@@ -288,6 +307,7 @@ __all__ = (
     "UP_VECTORS",
     "empty_markup",
     "load_markup",
+    "mark_colours",
     "markup_to_dict",
     "next_mark_id",
     "save_markup",
