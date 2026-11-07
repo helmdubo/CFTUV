@@ -51,7 +51,12 @@ class SourcePreflightRefusalV1:
 def zero_length_edge_refusal(bm, selected_edge_indices) -> SourcePreflightRefusalV1 | None:
     """`None`, если у патчей выделения нет ребра нулевой длины; иначе — отказ с именем."""
 
-    faces = faces_of_patches_touching_edges(bm, selected_edge_indices)
+    return zero_length_refusal_in_faces(bm, faces_of_patches_touching_edges(bm, selected_edge_indices))
+
+
+def zero_length_refusal_in_faces(bm, faces) -> SourcePreflightRefusalV1 | None:
+    """То же для явного набора граней (нажатие по граням бевела проверяет грани своего анализа)."""
+
     found = find_zero_length_edges(bm, faces)
     if not found:
         return None
@@ -91,4 +96,5 @@ __all__ = (
     "SourcePreflightRefusalV1",
     "reject_source",
     "zero_length_edge_refusal",
+    "zero_length_refusal_in_faces",
 )

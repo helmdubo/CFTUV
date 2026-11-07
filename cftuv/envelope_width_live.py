@@ -167,6 +167,9 @@ class LastProductionBuildV1:
     #: Закон UV фактического прогона кнопки: настройка сцены не переопределяет запомненную сборку.
     uv_policy_id: str = field(default=PRODUCTION_UV_POLICY, kw_only=True)
     uv_context: object | None = field(default=None, kw_only=True)
+    #: Отпечаток МЕША источника при кнопке (с ним шаг сверяет меш сейчас). Пусто - тот же, что `source_digest`; у нажатия по граням бевела
+    #: отпечаток анализа другой (BEVEL_FACES_INWARD_OUTWARD_V1: грани и разрез в нём), а меш - тот же.
+    mesh_digest: str = field(default="", kw_only=True)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self, "kernel_backend")
@@ -237,6 +240,7 @@ def remember_build(
     skeleton_backend: str | None = None,
     embedding_backend: str | None = None,
     density_backend: str | None = None,
+    mesh_digest: str = "",
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
@@ -259,6 +263,7 @@ def remember_build(
         density_backend=run.density_backend if density_backend is None else density_backend,
         uv_policy_id=run.uv_policy_id,
         uv_context=run.uv_context,
+        mesh_digest="" if str(mesh_digest) == bundle.source_revision.digest else str(mesh_digest),
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -779,7 +784,7 @@ def _begin(controller, request):
     decal = find_decal_object(source)
     if decal is None:
         raise PreviewUnavailable(DECAL_GONE)
-    if _source_digest(controller, source) != record.source_digest:
+    if _source_digest(controller, source) != (record.mesh_digest or record.source_digest):
         raise PreviewUnavailable(SOURCE_CHANGED)
     from .envelope_domain_pool import peek_domain_pool
 

@@ -42,6 +42,8 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty
 
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
+from .bevel_faces import INWARD, plan_console_lines, plan_summary
+from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection
 from .envelope_gc_pause import gc_paused_call
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
@@ -61,7 +63,7 @@ from .envelope_production_mesh import (
 )
 from .envelope_pool_prewarm import cancel_pool_prewarm, schedule_pool_prewarm
 from .envelope_request_policy import ENVELOPE_PRODUCT_UV_POLICY_ITEMS, ENVELOPE_UV_POLICY_DIRECT_STRIP
-from .envelope_source_preflight import reject_source, zero_length_edge_refusal
+from .envelope_source_preflight import reject_source, zero_length_edge_refusal, zero_length_refusal_in_faces
 from .envelope_width_adjust import WIDTH_NOT_POSITIVE, width_refusal
 from .envelope_width_live import remember_build, schedule_idle_preparation, tag_view3d_redraw
 from .envelope_width_mesh_preview import build_sample, capture_ownership, note_button_display, sample_key
@@ -171,6 +173,15 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
             "Confirming still recomputes and writes the committed result. On by default; acts only with the live exact mesh"
         ),
     )
+    face_side: EnumProperty(
+        name="Faces",
+        items=FACE_SIDE_ITEMS,
+        default=INWARD,
+        description=(
+            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1): Inward fills the selected bevel faces, "
+            "Outward the faces around them; edge selection is unchanged"
+        ),
+    )
     status: StringProperty(name="Decal Mesh Status", default="")
     timing: StringProperty(name="Decal Mesh Timing", default="")
 
@@ -256,7 +267,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             obj is not None
             and obj.type == "MESH"
             and obj.mode == "EDIT"
-            and bool(context.tool_settings.mesh_select_mode[1])
+            and (bool(context.tool_settings.mesh_select_mode[1]) or bool(context.tool_settings.mesh_select_mode[2]))
         )
 
     # GC_PAUSED_DURING_BUTTON_V1: циклический сборщик стоит на паузе, пока идёт кнопка (прежнее состояние возвращается в `finally`).
@@ -285,20 +296,28 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             return {"CANCELLED"}
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
-        selected = [edge.index for edge in source_bm.edges if edge.select]
-        if not selected:
-            mesh_settings.status = "Failed: select a whole PhysicalChain"
-            self.report({"WARNING"}, "ENVELOPE_DEBUG_EMPTY_SELECTION")
-            return {"CANCELLED"}
-        # Предполёт источника: ребро нулевой длины называется здесь, до анализа и
-        # расчёта, и остаётся выделенным; хост ничего не сваривает молча.
-        refusal = zero_length_edge_refusal(source_bm, selected)
+        face_side = face_side_of(context, mesh_settings)  # BEVEL_FACES_INWARD_OUTWARD_V1: режим граней без режима рёбер - нажатие по граням бевела
+        face = None
+        if face_side is None:
+            selected = [edge.index for edge in source_bm.edges if edge.select]
+            if not selected:
+                mesh_settings.status = "Failed: select a whole PhysicalChain"
+                self.report({"WARNING"}, "ENVELOPE_DEBUG_EMPTY_SELECTION")
+                return {"CANCELLED"}
+            # Предполёт источника: ребро нулевой длины называется здесь, до анализа и
+            # расчёта, и остаётся выделенным; хост ничего не сваривает молча.
+            refusal = zero_length_edge_refusal(source_bm, selected)
+        else:
+            face = self._plan_faces(mesh_settings, source_obj, source_bm, face_side)
+            if face is None:
+                return {"CANCELLED"}
+            selected, refusal = (), zero_length_refusal_in_faces(source_bm, face.plan.scope)
         if refusal is not None:
             mesh_settings.status = f"Failed: {refusal.message}"
             return reject_source(self, context, source_obj, source_bm, refusal)
         controller = _session(context)
         try:
-            result = self._build_and_write(context, controller, source_obj, source_bm, selected, kernel_backend, hotspot)
+            result = self._build_and_write(context, controller, source_obj, source_bm, selected, kernel_backend, hotspot, face)
         finally:
             # SNAPSHOT_BYTE_CHECK_LAUNCH_AFTER_BUTTON_V1: фоновая проверка первого нажатия стартует ПОСЛЕ хвоста кнопки (она занимает первичные ядра и замедляла хвост); в `finally`, чтобы отказ хвоста её не терял.
             controller.launch_pending_byte_check()
@@ -306,8 +325,25 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             _watch_byte_check(controller, context.scene.name)
         return result
 
-    def _build_and_write(self, context, controller, source_obj, source_bm, selected, kernel_backend, hotspot=None):
-        """Прогон, массивы, запись объекта, запись для живой ширины, строки и отчёт; итог оператора. Фоновую проверку запускает вызывающий (`execute`)."""
+    def _plan_faces(self, mesh_settings, source_obj, source_bm, side):
+        """План нажатия по граням бевела (BEVEL_FACES_INWARD_OUTWARD_V1) либо `None`: отказ плана назван в статусе и консоли."""
+
+        try:
+            face_build = plan_face_build(source_bm, source_obj, side)  # отпечаток меша нажатия берёт он, один раз
+        except BevelFacesRefused as exc:
+            mesh_settings.status = f"Failed: {exc.outcome}"
+            print(f"[CFTUV][BevelFaces] REFUSED {exc}", flush=True)
+            self.report({"ERROR"}, str(exc))
+            return None
+        for line in plan_console_lines(face_build.plan):
+            print(line, flush=True)
+        return face_build
+
+    def _build_and_write(self, context, controller, source_obj, source_bm, selected, kernel_backend, hotspot=None, face_build=None):
+        """Прогон, массивы, запись объекта, запись для живой ширины, строки и отчёт; итог оператора. Фоновую проверку запускает вызывающий (`execute`).
+
+        `face_build` (`FaceBuildV1`) - нажатие по граням бевела: анализ его граней, источники из его пакета, выделение граней возвращается.
+        """
 
         from .envelope_production_export import (
             production_timing_text,
@@ -323,17 +359,16 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         source_object_key = _runtime_key(source_obj)
         source_data_key = _runtime_key(source_obj.data)
         source_bm.faces.ensure_lookup_table()
-        face_indices = tuple(face.index for face in source_bm.faces)
-        source_revision = source_revision_from_bmesh(
-            source_bm, source_obj, face_indices
-        )
+        if face_build is None:
+            face_indices = tuple(face.index for face in source_bm.faces)
+            source_revision = mesh_revision = source_revision_from_bmesh(source_bm, source_obj, face_indices)
+            build = lambda: build_analysis_bundle(source_bm, face_indices, source_obj, source_revision)  # noqa: E731 - отпечаток уже взят выше: второй раз его не берут
+        else:
+            source_revision, mesh_revision = face_build.revision, face_build.mesh_revision
+            build = lambda: face_build.build_bundle(source_bm, source_obj)  # noqa: E731
         try:
-            bundle = controller.get_analysis_bundle(
-                source_object_key,
-                source_data_key,
-                source_revision,
-                lambda: build_analysis_bundle(source_bm, face_indices, source_obj, source_revision),  # отпечаток уже взят выше: второй раз его не берут
-            )
+            bundle = controller.get_analysis_bundle(source_object_key, source_data_key, source_revision, build)
+            selected = selected if face_build is None else face_build.sources(bundle)
             run = run_production(
                 controller,
                 bundle,
@@ -350,11 +385,15 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 defer_byte_check=True,
             )
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу
-            mesh_settings.status = f"Decal mesh failed: {type(exc).__name__}"
+            outcome = getattr(exc, "outcome", None)  # отказ хоста или граней - по имени исхода, иное исключение - по типу
+            mesh_settings.status = f"Failed: {getattr(outcome, 'value', outcome)}" if outcome else f"Decal mesh failed: {type(exc).__name__}"
             self.report({"ERROR"}, f"Envelope decal mesh failed: {exc}")
             return {"CANCELLED"}
         finally:
-            _restore_edge_selection(source_obj, selected)
+            if face_build is None:
+                _restore_edge_selection(source_obj, selected)
+            else:
+                restore_face_selection(source_obj, face_build.plan.selected)
         try:
             offset = float(mesh_settings.offset)
             # Массивы строятся один раз: их же читает образец превью ширины (`envelope_width_mesh_preview`), а писатель берёт готовые.
@@ -390,6 +429,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 kernel_backend=run.kernel_backend,
                 skeleton_backend=run.skeleton_backend,
                 embedding_backend=run.embedding_backend,
+                mesh_digest=mesh_revision.digest,
             )
             sample = build_sample(run.results, arrays, sample_key(record, offset), float(settings.envelope_debug_alpha))
             note_button_display(controller, sample)
@@ -400,15 +440,16 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             controller.width_build = None
             print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
         # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`) и мягкая находка стоят в них наравне с отказом продуктового пути.
-        mesh_settings.status = receipt_status_text(receipt)
+        mesh_settings.status = receipt_status_text(receipt) + ("" if face_build is None else f" | {plan_summary(face_build.plan)}")
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
         )
         for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend), *receipt_console_lines(receipt, run.results), *counter_lines(receipt.object_name)):
             print(line, flush=True)
+        unresolved = face_build is not None and face_build.plan.split is not None and face_build.plan.split.unresolved
         self.report(
-            {receipt_report_level(receipt)},
+            {"WARNING" if unresolved else receipt_report_level(receipt)},
             f"Decal mesh: {mesh_settings.status}",
         )
         return {"FINISHED"}

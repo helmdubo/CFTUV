@@ -84,6 +84,8 @@ class EnvelopeDebugHostOutcome(str, Enum):
     # Предполёт ИСТОЧНИКА (`envelope_source_contacts`): имена хоста, ядро их не бросает. Зазор — `SOURCE_CONTACT_GAP_V1` реестра допусков.
     SOURCE_T_VERTEX = "SOURCE_T_VERTEX"
     SOURCE_FACE_SELF_INTERSECTION = "SOURCE_FACE_SELF_INTERSECTION"
+    # У пакета анализа нет ни одной граничной цепи (замкнутый меш без швов, анализ без границы): источнику фронта не на чем стоять.
+    SOURCE_HAS_NO_BOUNDARY_CHAIN = "SOURCE_HAS_NO_BOUNDARY_CHAIN"
     ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED = "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
 
 

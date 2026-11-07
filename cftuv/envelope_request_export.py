@@ -595,8 +595,8 @@ def _collect_raw_host_chains(
                 )
     if not records:
         raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
-            "AnalysisBundle contains no BoundaryChain records",
+            EnvelopeDebugHostOutcome.SOURCE_HAS_NO_BOUNDARY_CHAIN,
+            "AnalysisBundle contains no BoundaryChain records: mark a UV seam or select an open boundary",
         )
     return tuple(records)
 

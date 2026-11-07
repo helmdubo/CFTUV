@@ -27,6 +27,10 @@ def draw_decal_mesh_rows(layout) -> None:
         text="Build Decal Mesh",
         icon="MESH_DATA",
     )
+    active = getattr(bpy.context, "active_object", None)
+    select_mode = tuple(getattr(getattr(bpy.context, "tool_settings", None), "mesh_select_mode", (False, True, False)))
+    if getattr(active, "mode", "") == "EDIT" and select_mode[2] and not select_mode[1]:
+        layout.row(align=True).prop(mesh_settings, "face_side", expand=True)  # BEVEL_FACES_INWARD_OUTWARD_V1: только в режиме граней
     draw_decal_width_rows(layout)
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")
