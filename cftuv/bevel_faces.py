@@ -371,27 +371,426 @@ def plan_console_lines(plan: BevelFacesPlanV1) -> list[str]:
     return lines
 
 
+# --- Выделение граней бевела по всему мешу (BEVEL_SELECT_FACES_V1) -------------------------------------------------------------
+#
+# Подсказка владельцу перед нажатием по граням: кнопка выделяет грани бевела, владелец правит выделение руками, нажатие по граням
+# по-прежнему считает выделение правдой. Порядок источников:
+# 1. атрибут Face Strength есть и в нём есть STRONG (16384, режим All: так помечены ВСЕ исходные грани) - грани со значением <= 0
+#    (полоса 0, узел -16384), точный ответ `BEVEL_SELECT_FACE_STRENGTH`;
+# 2. атрибут есть, STRONG нет (режим New: полоса 0 неотличима от исходной 0) - не гадать молча: геометрия с именем
+#    `BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS`; узлы WEAK (-16384) точны и добавляются к геометрии, расхождение - числом;
+# 3. атрибута нет - геометрия `BEVEL_SELECT_GEOMETRIC`; ничего не найдено - `BEVEL_SELECT_NONE_FOUND`, выделение не тронуто.
+# Геометрия (порт classify.py исследования бевела): узкий квад с параллельными рельсами, которые гнут поверхность, - кандидат; ряд
+# кандидатов, связанных общими рельсами, проходится тем же путём колонки (`_walk_column`), что и разбиение «узел | полоса»; ряд принят,
+# если профиль поворачивает в одну сторону на 10-170 градусов и уже `BEVEL_SELECT_MAX_WIDTH`; узел - малая грань, где сходятся
+# полосы. Каждое решение эвристики - событие с числом.
+
+BEVEL_SELECT_FACE_STRENGTH = "BEVEL_SELECT_FACE_STRENGTH"
+BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS = "BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS"
+BEVEL_SELECT_GEOMETRIC = "BEVEL_SELECT_GEOMETRIC"
+BEVEL_SELECT_NONE_FOUND = "BEVEL_SELECT_NONE_FOUND"
+# Узлы атрибута против геометрии (путь 2): WEAK-грань, которую геометрия не нашла (добавлена), и узел геометрии без WEAK (оставлен).
+BEVEL_SELECT_NODE_FROM_ATTRIBUTE = "BEVEL_SELECT_NODE_FROM_ATTRIBUTE"
+BEVEL_SELECT_NODE_NOT_WEAK = "BEVEL_SELECT_NODE_NOT_WEAK"
+# События геометрии: почему ряд узких квадов не стал (целиком) полосой.
+BEVEL_BAND_NOT_PARALLEL = "BEVEL_BAND_NOT_PARALLEL"
+BEVEL_ROW_WRAPS = "BEVEL_ROW_WRAPS"
+BEVEL_ROW_TRIMMED_FLAT_END = "BEVEL_ROW_TRIMMED_FLAT_END"
+BEVEL_ROW_SPLIT_AT_WIDEST_FACE = "BEVEL_ROW_SPLIT_AT_WIDEST_FACE"
+BEVEL_ROW_REJECTED = "BEVEL_ROW_REJECTED"
+# Узкий квад с параллельными рельсами шире предела ширины (но не вдвое): не кандидат, число названо (поднять «Max Bevel Width»).
+BEVEL_FACE_WIDER_THAN_MAX = "BEVEL_FACE_WIDER_THAN_MAX"
+
+FACE_STRENGTH_STRONG = 16384
+FACE_STRENGTH_WEAK = -16384
+
+#: Наибольшая ширина полосы бевела по умолчанию (метры мира; кнопка даёт её править): шире - стена или уступ, а не фаска.
+#: Фикстуры Unbevel владельца: 0.25 - P 0.977 R 0.985, 0.10 - P 0.991 R 0.983; 0.10 уже фаски 0.08 в один сегмент (полоса 0.113).
+BEVEL_SELECT_MAX_WIDTH = 0.25
+#: Рельсы квада и рельсы ряда параллельны в этом допуске.
+BEVEL_PARALLEL_DEGREES = 5.0
+#: Ребро, повёрнутое меньше этого, - плоское (конец ряда обрезается).
+BEVEL_FLAT_RAIL_DEGREES = 0.5
+#: Ребро узла не к полосе и не к узлу гнёт поверхность хотя бы на столько. classify.py пускал и плоское ребро к малой грани:
+#: на кубе с сеткой это 24 лишних угловых грани (плоские обрезки сетки у фаски), а убрать допуск ничего не стоило ни синтетике,
+#: ни фикстурам Unbevel.
+BEVEL_NODE_MIN_TURN_DEGREES = 2.0
+#: Профиль ряда поворачивает не меньше и не больше этого (больше - тонкая стенка или уступ).
+BEVEL_ROW_MIN_TURN_DEGREES = 10.0
+BEVEL_ROW_MAX_TURN_DEGREES = 170.0
+#: Узел помещается в этот множитель ширины полосы, которой касается (с запасом 1.5).
+BEVEL_NODE_DIAMETER_FACTOR = 2.5
+
+
+@dataclass(frozen=True, slots=True)
+class BevelMeshViewV1:
+    """Весь меш: координаты (мир), циклы вершин всех граней, значения Face Strength всех граней либо `None` (атрибута нет)."""
+
+    coords: Mapping[int, tuple[float, float, float]]
+    faces: Mapping[int, tuple[int, ...]]
+    face_strength: Mapping[int, int] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BevelSelectionV1:
+    """Предложение выделения: исход (один из четырёх `BEVEL_SELECT_*`), каким путём искали, полосы, узлы, события (имя, число)."""
+
+    outcome: str
+    source: str
+    strip: frozenset[int] = frozenset()
+    node: frozenset[int] = frozenset()
+    events: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def faces(self) -> frozenset[int]:
+        return self.strip | self.node
+
+
+def _dot(a, b) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _angle_degrees(a, b) -> float:
+    return math.degrees(math.acos(max(-1.0, min(1.0, _dot(a, b)))))
+
+
+def _count(events: dict[str, int], name: str) -> None:
+    events[name] = events.get(name, 0) + 1
+
+
+class _MeshGeometry:
+    """Нормали, центры, поперечники граней и знаковые двугранные углы рёбер (+ выпуклое), лениво и с памятью."""
+
+    def __init__(self, view: BevelMeshViewV1, max_width: float):
+        self.view = view
+        self.max_width = float(max_width)
+        self.table = _edge_faces(view)
+        self._normals: dict[int, tuple | None] = {}
+        self._dihedrals: dict[frozenset, float | None] = {}
+        self._diameters: dict[int, float] = {}
+
+    def normal(self, face_id):
+        if face_id not in self._normals:
+            self._normals[face_id] = face_normal(self.view.coords, self.view.faces[face_id])
+        return self._normals[face_id]
+
+    def traversal(self, face_id, key):
+        """Ребро `key` в обходе грани: вектор от первой вершины ко второй."""
+
+        cycle = self.view.faces[face_id]
+        for position, first in enumerate(cycle):
+            second = cycle[(position + 1) % len(cycle)]
+            if frozenset((first, second)) == key:
+                return _sub(self.view.coords[second], self.view.coords[first])
+        raise KeyError(key)
+
+    def diameter(self, face_id) -> float:
+        if face_id not in self._diameters:
+            points = [self.view.coords[index] for index in self.view.faces[face_id]]
+            self._diameters[face_id] = max(_length(_sub(a, b)) for a in points for b in points)
+        return self._diameters[face_id]
+
+    def dihedral(self, key):
+        """Градусы, + выпуклое, - вогнутое; `None` у ребра не двух граней или у вырожденной грани."""
+
+        if key not in self._dihedrals:
+            faces = self.table.get(key, ())
+            value = None
+            if len(faces) == 2:
+                first, second = faces
+                n1, n2 = self.normal(first), self.normal(second)
+                if n1 is not None and n2 is not None:
+                    # Выпукло, если n1 x n2 смотрит по обходу ребра первой гранью (согласованные нормали). Центр второй грани
+                    # (classify.py) ошибается у невыпуклой грани: центр L-образной грани лежит по другую сторону ребра внутреннего угла.
+                    angle = _angle_degrees(n1, n2)
+                    value = angle if _dot(_cross(n1, n2), self.traversal(first, key)) > 0.0 else -angle
+            self._dihedrals[key] = value
+        return self._dihedrals[key]
+
+
+def _rail_candidate(geometry: _MeshGeometry, face_id):
+    """Узкий квад: `(рельс, рельс, ширина, направление)`; `None` - не квад, рельсы не параллельны, не узок, рельс не двух граней;
+    узкий квад шире предела, но не вдвое, - имя `BEVEL_FACE_WIDER_THAN_MAX`."""
+
+    cycle = geometry.view.faces[face_id]
+    if len(cycle) != 4:
+        return None
+    coords = geometry.view.coords
+    edges = _edges_of(cycle)
+    best = None
+    for k in (0, 1):
+        d1 = _sub(coords[cycle[k + 1]], coords[cycle[k]])
+        d2 = _sub(coords[cycle[(k + 3) % 4]], coords[cycle[k + 2]])
+        u1, u2 = _unit(d1), _unit(d2)
+        if u1 is None or u2 is None:
+            continue
+        parallel = min(_angle_degrees(u1, u2), _angle_degrees(u1, (-u2[0], -u2[1], -u2[2])))
+        widths = []
+        for index in (cycle[k + 2], cycle[(k + 3) % 4]):
+            offset = _sub(coords[index], coords[cycle[k]])
+            along = _dot(offset, u1)
+            widths.append(_length(_sub(offset, (u1[0] * along, u1[1] * along, u1[2] * along))))
+        width = sum(widths) / 2.0
+        length = min(_length(d1), _length(d2))
+        if best is None or width / max(length, 1e-9) < best[1] / max(best[2], 1e-9):
+            best = (parallel, width, length, edges[k], edges[k + 2], u1)
+    if best is None:
+        return None
+    parallel, width, length, first, second, direction = best
+    if parallel > BEVEL_PARALLEL_DEGREES or width > 0.5 * length:
+        return None
+    if geometry.dihedral(first) is None or geometry.dihedral(second) is None:
+        return None
+    if width > geometry.max_width:  # близкий промах (до двух пределов) назван: фаска чуть шире предела; дальше - просто не фаска
+        return BEVEL_FACE_WIDER_THAN_MAX if width <= 2.0 * geometry.max_width else None
+    return first, second, width, direction
+
+
+def _bands(candidates):
+    """Ряды кандидатов: компоненты связности по общим рельсам (порядок - по наименьшей грани)."""
+
+    rail_faces: dict[frozenset, list[int]] = {}
+    for face_id in sorted(candidates):
+        for key in candidates[face_id][:2]:
+            rail_faces.setdefault(key, []).append(face_id)
+    seen: set[int] = set()
+    bands = []
+    for start in sorted(candidates):
+        if start in seen:
+            continue
+        band, stack = [], [start]
+        seen.add(start)
+        while stack:
+            face_id = stack.pop()
+            band.append(face_id)
+            for key in candidates[face_id][:2]:
+                for other in rail_faces[key]:
+                    if other not in seen:
+                        seen.add(other)
+                        stack.append(other)
+        bands.append(sorted(band))
+    return bands, rail_faces
+
+
+def _accept_row(geometry, candidates, row, rails, events):
+    """Ряд граней между рельсами `rails[i]`, `rails[i + 1]`: плоские концы обрезаются, неудачный ряд режется по широчайшей грани."""
+
+    while row and abs(geometry.dihedral(rails[0])) < BEVEL_FLAT_RAIL_DEGREES:
+        row, rails = row[1:], rails[1:]
+        _count(events, BEVEL_ROW_TRIMMED_FLAT_END)
+    while row and abs(geometry.dihedral(rails[-1])) < BEVEL_FLAT_RAIL_DEGREES:
+        row, rails = row[:-1], rails[:-1]
+        _count(events, BEVEL_ROW_TRIMMED_FLAT_END)
+    if not row:
+        return []
+    turns = [geometry.dihedral(key) for key in rails]
+    signs = {turn > 0.0 for turn in turns if abs(turn) >= BEVEL_FLAT_RAIL_DEGREES}
+    width = sum(candidates[face_id][2] for face_id in row)
+    turn = abs(sum(turns))
+    if BEVEL_ROW_MIN_TURN_DEGREES <= turn <= BEVEL_ROW_MAX_TURN_DEGREES and width <= geometry.max_width and len(signs) == 1:
+        return [(row, width)]
+    if len(row) == 1:
+        _count(events, BEVEL_ROW_REJECTED)
+        return []
+    widest = max(range(len(row)), key=lambda index: candidates[row[index]][2])
+    _count(events, BEVEL_ROW_SPLIT_AT_WIDEST_FACE)
+    return (
+        _accept_row(geometry, candidates, row[:widest], rails[: widest + 1], events)
+        + _accept_row(geometry, candidates, row[widest + 1 :], rails[widest + 1 :], events)
+    )
+
+
+def _parallel_degrees(a, b) -> float:
+    return min(_angle_degrees(a, b), _angle_degrees(a, (-b[0], -b[1], -b[2])))
+
+
+def _band_rows(geometry, candidates, band, rail_faces, events):
+    """Ряды полосы из ряда кандидатов: рельсы параллельны, путь колонки (`_walk_column`) от конца ряда; иначе событие с числом."""
+
+    first = candidates[band[0]][3]
+    if any(_parallel_degrees(first, candidates[face_id][3]) >= BEVEL_PARALLEL_DEGREES for face_id in band):
+        _count(events, BEVEL_BAND_NOT_PARALLEL)
+        return []
+    members = frozenset(band)
+
+    def lonely(key):
+        return sum(1 for face_id in rail_faces[key] if face_id in members) == 1
+
+    ends = [face_id for face_id in band if any(lonely(key) for key in candidates[face_id][:2])]
+    if not ends:
+        _count(events, BEVEL_ROW_WRAPS)
+        return []
+    start = ends[0]
+    entry = next(key for key in candidates[start][:2] if lonely(key))
+    walk_view = BevelFacesViewV1(geometry.view.coords, geometry.view.faces, members, {})
+    walked = _walk_column(walk_view, geometry.table, entry, start)
+    if isinstance(walked, str):
+        _count(events, walked)
+        return []
+    row = list(walked[0])
+    rails, key = [entry], entry
+    for face_id in row:
+        key = _opposite(geometry.view.faces[face_id], key)
+        rails.append(key)
+    return _accept_row(geometry, candidates, row, rails, events)
+
+
+def _node_edge_ok(geometry, face_id, key, taken) -> bool:
+    """Ребро узла: за ним полоса или узел, либо оно гнёт поверхность."""
+
+    others = [other for other in geometry.table.get(key, ()) if other != face_id]
+    if not others:
+        return False
+    if others[0] in taken:
+        return True
+    turn = geometry.dihedral(key)
+    return turn is not None and abs(turn) >= BEVEL_NODE_MIN_TURN_DEGREES
+
+
+def _grow_nodes(geometry, strip: frozenset[int], band_width) -> frozenset[int]:
+    """Узлы: малая грань, касающаяся ребром >= 2 граней полос или узлов; каждое её иное ребро гнёт поверхность."""
+
+    table = geometry.table
+    taken = set(strip)
+    node: set[int] = set()
+    changed = True
+    while changed:
+        changed = False
+        frontier = {other for face_id in taken for key in _edges_of(geometry.view.faces[face_id]) for other in table.get(key, ())}
+        for face_id in sorted(frontier - taken):
+            edges = _edges_of(geometry.view.faces[face_id])
+            touch = {other for key in edges for other in table.get(key, ()) if other != face_id and other in taken}
+            if len(touch) < 2:
+                continue
+            width = max(band_width.get(other, 0.0) for other in touch)
+            if width <= 0.0:
+                width = geometry.max_width / BEVEL_NODE_DIAMETER_FACTOR
+            limit = BEVEL_NODE_DIAMETER_FACTOR * max(width, 1e-6) * 1.5
+            if geometry.diameter(face_id) > limit:
+                continue
+            if all(_node_edge_ok(geometry, face_id, key, taken) for key in edges):
+                node.add(face_id)
+                taken.add(face_id)
+                changed = True
+    return frozenset(node)
+
+
+def detect_bevel_faces(view: BevelMeshViewV1, max_width: float = BEVEL_SELECT_MAX_WIDTH):
+    """Геометрия всего меша: `(полосы, узлы, события)`; атрибут не читается. `max_width` - наибольшая ширина полосы (метры мира)."""
+
+    geometry = _MeshGeometry(view, max_width)
+    candidates = {}
+    events: dict[str, int] = {}
+    for face_id in sorted(view.faces):
+        found = _rail_candidate(geometry, face_id)
+        if isinstance(found, str):
+            _count(events, found)
+        elif found is not None:
+            candidates[face_id] = found
+    bands, rail_faces = _bands(candidates)
+    strip: set[int] = set()
+    band_width: dict[int, float] = {}
+    for band in bands:
+        for row, width in _band_rows(geometry, candidates, band, rail_faces, events):
+            for face_id in row:
+                strip.add(face_id)
+                band_width[face_id] = width
+    node = _grow_nodes(geometry, frozenset(strip), band_width)
+    return frozenset(strip), node, tuple(sorted(events.items()))
+
+
+def select_bevel_faces(view: BevelMeshViewV1, max_width: float = BEVEL_SELECT_MAX_WIDTH) -> BevelSelectionV1:
+    """Предложение выделения граней бевела по порядку источников (атрибут All, иначе геометрия по имени); ничего - по имени."""
+
+    strength = view.face_strength
+    if strength is not None and any(int(value) == FACE_STRENGTH_STRONG for value in strength.values()):
+        strip = frozenset(face_id for face_id, value in strength.items() if int(value) == 0)
+        node = frozenset(face_id for face_id, value in strength.items() if int(value) < 0)
+        source, events = BEVEL_SELECT_FACE_STRENGTH, ()
+    else:
+        strip, node, events = detect_bevel_faces(view, max_width)
+        source = BEVEL_SELECT_GEOMETRIC
+        if strength is not None:
+            source = BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS
+            weak = frozenset(face_id for face_id, value in strength.items() if int(value) == FACE_STRENGTH_WEAK)
+            extra = ((BEVEL_SELECT_NODE_FROM_ATTRIBUTE, len(weak - node)), (BEVEL_SELECT_NODE_NOT_WEAK, len(node - weak)))
+            events = tuple(sorted((*events, *(item for item in extra if item[1]))))
+            node = node | weak
+            strip = strip - node
+    if not strip and not node:
+        return BevelSelectionV1(BEVEL_SELECT_NONE_FOUND, source, events=events)
+    return BevelSelectionV1(source, source, strip, node, events)
+
+
+_SOURCE_WORD = {
+    BEVEL_SELECT_FACE_STRENGTH: "face strength",
+    BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS: "face strength not All, geometric",
+    BEVEL_SELECT_GEOMETRIC: "geometric",
+}
+
+
+def selection_line(name: str, selection: BevelSelectionV1) -> str:
+    """Строка объекта: исход и числа; неоднозначный атрибут называет, что даёт точный ответ."""
+
+    if selection.outcome == BEVEL_SELECT_NONE_FOUND:
+        text = f"{name}: {BEVEL_SELECT_NONE_FOUND} ({_SOURCE_WORD[selection.source]})"
+    else:
+        text = f"{name}: {selection.outcome} {len(selection.strip)} strip / {len(selection.node)} node"
+    if selection.source == BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS:
+        text += " - set the Bevel Face Strength mode to All for the exact answer"
+    return text
+
+
+def selection_console_lines(name: str, selection: BevelSelectionV1) -> list[str]:
+    """Строка объекта и каждое событие эвристики - строкой консоли с префиксом `[CFTUV]`."""
+
+    lines = [f"[CFTUV][BevelSelect] {selection_line(name, selection)}"]
+    lines.extend(f"[CFTUV][BevelSelect] {name}: {event} {count}" for event, count in selection.events)
+    return lines
+
+
 __all__ = (
+    "BEVEL_BAND_NOT_PARALLEL",
     "BEVEL_CLASS_DISAGREES",
     "BEVEL_FACES_EMPTY_SELECTION",
     "BEVEL_FACES_NOTHING_OUTSIDE",
     "BEVEL_FACES_NO_SOURCE",
+    "BEVEL_FACE_WIDER_THAN_MAX",
+    "BEVEL_ROW_REJECTED",
+    "BEVEL_ROW_SPLIT_AT_WIDEST_FACE",
+    "BEVEL_ROW_TRIMMED_FLAT_END",
+    "BEVEL_ROW_WRAPS",
+    "BEVEL_SELECT_FACE_STRENGTH",
+    "BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS",
+    "BEVEL_SELECT_GEOMETRIC",
+    "BEVEL_SELECT_MAX_WIDTH",
+    "BEVEL_SELECT_NODE_FROM_ATTRIBUTE",
+    "BEVEL_SELECT_NODE_NOT_WEAK",
+    "BEVEL_SELECT_NONE_FOUND",
     "BEVEL_SPLIT_FACE_STRENGTH",
     "BEVEL_SPLIT_GEOMETRIC",
     "BEVEL_SPLIT_UNRESOLVED",
     "BevelFacesPlanV1",
     "BevelFacesViewV1",
+    "BevelMeshViewV1",
+    "BevelSelectionV1",
     "BevelSplitV1",
     "FACE_SIDES",
     "FACE_STRENGTH_ATTRIBUTE",
+    "FACE_STRENGTH_STRONG",
+    "FACE_STRENGTH_WEAK",
     "INWARD",
     "OUTWARD",
     "cut_edges",
+    "detect_bevel_faces",
     "geometric_split",
     "outward_sources",
     "plan_console_lines",
     "plan_faces",
     "plan_summary",
     "scope_digest",
+    "select_bevel_faces",
+    "selection_console_lines",
+    "selection_line",
     "split_bevel_faces",
 )

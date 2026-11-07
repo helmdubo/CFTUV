@@ -1,0 +1,348 @@
+"""Blender 4.5 background: кнопка «Select Bevel Faces» (BEVEL_SELECT_FACES_V1) на синтетике в памяти (ничего не сохраняется).
+
+Правда - материал 1 (его ставит сам бевел; кнопка материал не читает). Меши: куб, L-профиль, плита с отверстием; бевел модификатором
+(применён: `new_from_object`) в 1, 2 и 4 сегмента с Face Strength All, New и без него, и ручной `bmesh.ops.bevel`; контроли без бевела
+(узкие плоские вставки, тонкая стенка, цилиндр, чистый куб).
+
+1. Face Strength All - путь `BEVEL_SELECT_FACE_STRENGTH`, выделено ровно множество граней бевела (полосы 0, узлы -16384);
+2. Face Strength New - путь `BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS` (геометрия с именем, строка называет режим All), узлы WEAK - точные;
+3. без атрибута и ручной бевел - `BEVEL_SELECT_GEOMETRIC`; точность и полнота каждого случая печатаются и проверяются;
+4. контроли - `BEVEL_SELECT_NONE_FOUND`: выделение и режим выделения не тронуты, оператор отменён (шага отмены нет);
+5. замена и добавление (`extend`), режим выделения переключён на грани, меш не изменён (ни одного шва, те же грани);
+6. несколько объектов в Edit Mode - каждый получает свои грани, строка отчёта называет каждый;
+7. кнопка рисуется в Edit Mode в любом режиме выделения, строка «Faces» - только в режиме граней; оператор с шагом отмены.
+
+Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_select_faces.py
+Последняя строка при успехе: BEVEL_SELECT_FACES_BLENDER_OK
+"""
+
+from __future__ import annotations
+
+import math
+import sys
+from pathlib import Path
+
+import bpy
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_bevel_faces_build import BASES, WIDTH, _clean, _object  # noqa: E402
+
+import bmesh  # noqa: E402
+
+SUMMARY = []
+
+
+def _modifier_bevel(name, base, segments, mode):
+    source = _object(name + "_base", BASES[base]())
+    modifier = source.modifiers.new("Bevel", "BEVEL")
+    modifier.width, modifier.segments, modifier.limit_method, modifier.material = WIDTH, segments, "ANGLE", 1
+    modifier.face_strength_mode = mode
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mesh = bpy.data.meshes.new_from_object(source.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph)
+    bpy.data.objects.remove(source, do_unlink=True)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def _manual_bevel(name, base, segments):
+    bm = BASES[base]()
+    sharp = [edge for edge in bm.edges if len(edge.link_faces) == 2 and edge.calc_face_angle(0.0) > math.radians(30.0)]
+    bmesh.ops.bevel(bm, geom=sharp, offset=WIDTH, offset_type="OFFSET", segments=segments, profile=0.5, affect="EDGES",
+                    clamp_overlap=True, material=1, loop_slide=True, face_strength_mode="NONE")
+    return _object(name, bm)
+
+
+def _planar_cuts():
+    """Куб, верх которого дважды вставлен узкими плоскими квадами (0.05): узкие грани без изгиба - не бевел."""
+
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    for _round in range(2):
+        top = max((face for face in bm.faces if face.normal.z > 0.9), key=lambda face: face.calc_area())
+        bmesh.ops.inset_region(bm, faces=[top], thickness=0.05, depth=0.0)
+    return bm
+
+
+def _thin_ledge():
+    """Стенка 2 x 0.1 x 1: узкие грани с выпуклыми рёбрами по 90 градусов с двух сторон - уступ, а не фаска."""
+
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    for vertex in bm.verts:
+        vertex.co.x *= 2.0
+        vertex.co.y *= 0.1
+    return bm
+
+
+def _cylinder():
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=32, radius1=1.0, radius2=1.0, depth=2.0)
+    return bm
+
+
+def _plain_cube():
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    return bm
+
+
+def _grid_cube_bevel():
+    """Куб 2 с сеткой 15 x 15 на грани, ручной бевел 0.03 в три сегмента по острым рёбрам (материал 1)."""
+
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=14, use_grid_fill=True)
+    sharp = [edge for edge in bm.edges if len(edge.link_faces) == 2 and edge.calc_face_angle(0.0) > math.radians(30.0)]
+    bmesh.ops.bevel(bm, geom=sharp, offset=0.03, offset_type="OFFSET", segments=3, profile=0.5, affect="EDGES",
+                    clamp_overlap=True, material=1, loop_slide=True, face_strength_mode="NONE")
+    return bm
+
+
+CONTROLS = {"planar_cuts": _planar_cuts, "thin_ledge": _thin_ledge, "cylinder32": _cylinder, "plain_cube": _plain_cube}
+
+
+def _truth(obj):
+    return frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
+
+
+def _enter(objects, mode=(False, False, True), faces=()):
+    if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.context.tool_settings.mesh_select_mode = mode
+    for obj in objects:
+        bm = bmesh.from_edit_mesh(obj.data)
+        for element in (*bm.faces, *bm.edges, *bm.verts):
+            element.select = False
+        bm.faces.ensure_lookup_table()
+        for index in faces:
+            bm.faces[index].select_set(True)
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(obj.data)
+
+
+def _state(obj):
+    bm = bmesh.from_edit_mesh(obj.data)
+    selected = frozenset(face.index for face in bm.faces if face.select)
+    return selected, sum(1 for edge in bm.edges if edge.seam), len(bm.faces), len(bm.verts)
+
+
+def _press(**kwargs):
+    from cftuv.bevel_faces import select_bevel_faces
+    from cftuv.bevel_faces_blender import read_mesh_view
+
+    obj = bpy.context.active_object
+    selection = select_bevel_faces(read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world))
+    result = bpy.ops.hotspotuv.select_bevel_faces(**kwargs)
+    return result, selection
+
+
+def _score(selected, truth):
+    tp = len(selected & truth)
+    precision = tp / len(selected) if selected else 1.0
+    recall = tp / len(truth) if truth else 1.0
+    return round(precision, 3), round(recall, 3)
+
+
+def _run_case(name, obj, outcome, exact=True):
+    """Нажатие на меше с бевелом: путь, выделенные грани против правды, режим граней, меш не изменён."""
+
+    truth = _truth(obj)
+    _enter([obj], mode=(False, True, False))
+    before = _state(obj)
+    result, selection = _press()
+    after = _state(obj)
+    assert "FINISHED" in result and selection.outcome == outcome, (name, result, selection.outcome, selection.events)
+    assert tuple(bpy.context.tool_settings.mesh_select_mode) == (False, False, True), name
+    assert after[1:] == before[1:] == (0, *before[2:]), (name, "the mesh is not changed")
+    assert after[0] == selection.faces, (name, "the selection is the proposal")
+    precision, recall = _score(after[0], truth)
+    if exact:
+        assert after[0] == truth, (name, sorted(after[0] - truth), sorted(truth - after[0]))
+    SUMMARY.append(f"{name}: {selection.outcome} {len(selection.strip)} strip / {len(selection.node)} node, truth {len(truth)}, "
+                   f"P {precision} R {recall} events {dict(selection.events)}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return selection, precision, recall
+
+
+def _run_bevel_cases():
+    from cftuv import bevel_faces as bf
+
+    for base in BASES:
+        for segments in (1, 2, 4):
+            for mode, outcome in (("FSTR_ALL", bf.BEVEL_SELECT_FACE_STRENGTH), ("FSTR_NEW", bf.BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS),
+                                  ("FSTR_NONE", bf.BEVEL_SELECT_GEOMETRIC)):
+                _clean()
+                name = f"{base}_s{segments}_{mode[5:].lower()}"
+                selection, _precision, _recall = _run_case(name, _modifier_bevel(name, base, segments, mode), outcome)
+                if mode == "FSTR_NEW":
+                    assert "Face Strength mode to All" in bf.selection_line(name, selection)
+        for segments in (1, 2):
+            _clean()
+            name = f"{base}_s{segments}_manual"
+            _run_case(name, _manual_bevel(name, base, segments), bf.BEVEL_SELECT_GEOMETRIC)
+    _clean()  # Affected на полном бевеле: все исходные грани затронуты, STRONG - тот же точный ответ, что у All
+    _run_case("cube_s2_affected", _modifier_bevel("cube_s2_affected", "cube", 2, "FSTR_AFFECTED"), bf.BEVEL_SELECT_FACE_STRENGTH)
+    _clean()  # куб с сеткой: плоские обрезки сетки у фаски - не узлы
+    _run_case("grid_cube_s3_manual", _object("grid_cube_s3_manual", _grid_cube_bevel()), bf.BEVEL_SELECT_GEOMETRIC)
+
+
+def _run_a_triangulated_bevel_is_exact_only_with_face_strength_all():
+    """Геометрия слепа на треугольниках: All - точно; без атрибута - ничего не найдено по имени, выделение не тронуто."""
+
+    from cftuv import bevel_faces as bf
+
+    for mode in ("FSTR_ALL", "FSTR_NONE"):
+        _clean()
+        obj = _modifier_bevel(f"tri_{mode}", "cube", 2, mode)
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bmesh.ops.triangulate(bm, faces=[face for face in bm.faces if face.material_index == 1])
+        bm.to_mesh(obj.data)
+        bm.free()
+        if mode == "FSTR_ALL":
+            _run_case(f"tri_cube_s2_{mode[5:].lower()}", obj, bf.BEVEL_SELECT_FACE_STRENGTH)
+            continue
+        _enter([obj], mode=(False, True, False), faces=(0,))
+        before = _state(obj)
+        result, selection = _press()
+        assert "CANCELLED" in result and selection.outcome == bf.BEVEL_SELECT_NONE_FOUND, (result, selection)
+        assert _state(obj) == before and tuple(bpy.context.tool_settings.mesh_select_mode) == (False, True, False)
+        SUMMARY.append(f"tri_cube_s2_none: {selection.outcome}, truth {len(_truth(obj))} (geometry is blind on triangles)")
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _run_controls_find_nothing_and_keep_the_selection():
+    from cftuv import bevel_faces as bf
+
+    for name, make in CONTROLS.items():
+        _clean()
+        obj = _object(name, make())
+        _enter([obj], mode=(False, True, False), faces=(0,))
+        before = _state(obj)
+        result, selection = _press()
+        assert "CANCELLED" in result and selection.outcome == bf.BEVEL_SELECT_NONE_FOUND, (name, result, selection)
+        assert _state(obj) == before and tuple(bpy.context.tool_settings.mesh_select_mode) == (False, True, False), name
+        SUMMARY.append(f"control {name}: {selection.outcome} events {dict(selection.events)}")
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _run_replace_and_extend():
+    _clean()
+    obj = _modifier_bevel("extend_cube", "cube", 2, "FSTR_ALL")
+    truth = _truth(obj)
+    flat = min(set(range(len(obj.data.polygons))) - truth)
+    _enter([obj], faces=(flat,))
+    bpy.ops.hotspotuv.select_bevel_faces()
+    assert _state(obj)[0] == truth, "replace drops the previous selection"
+    _enter([obj], faces=(flat,))
+    bpy.ops.hotspotuv.select_bevel_faces(extend=True)
+    assert _state(obj)[0] == truth | {flat}, "extend keeps the previous selection"
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _run_the_max_width_bounds_the_geometric_guess_only():
+    """Ширина полосы 0.113 (фаска 0.08): предел 0.05 - геометрия ничего не находит по имени; атрибут All предел не читает."""
+
+    from cftuv import bevel_faces as bf
+
+    for mode, outcome in (("FSTR_NONE", bf.BEVEL_SELECT_NONE_FOUND), ("FSTR_ALL", bf.BEVEL_SELECT_FACE_STRENGTH)):
+        _clean()
+        obj = _modifier_bevel(f"narrow_{mode}", "cube", 1, mode)
+        _enter([obj], mode=(False, True, False))
+        result = bpy.ops.hotspotuv.select_bevel_faces(max_width=0.05)
+        assert ("CANCELLED" in result) == (outcome == bf.BEVEL_SELECT_NONE_FOUND), (mode, result)
+        assert _state(obj)[0] == (frozenset() if outcome == bf.BEVEL_SELECT_NONE_FOUND else _truth(obj)), mode
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _run_every_mesh_in_edit_mode():
+    from cftuv import bevel_faces as bf
+
+    _clean()
+    exact = _modifier_bevel("multi_all", "cube", 2, "FSTR_ALL")
+    guessed = _modifier_bevel("multi_none", "lprofile", 2, "FSTR_NONE")
+    control = _object("multi_control", _plain_cube())
+    _enter([exact, guessed, control], mode=(False, True, False))
+    result = bpy.ops.hotspotuv.select_bevel_faces()
+    assert "FINISHED" in result
+    assert _state(exact)[0] == _truth(exact) and _state(guessed)[0] == _truth(guessed) and not _state(control)[0]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    lines = []
+    for obj in (exact, guessed, control):
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        from cftuv.bevel_faces_blender import read_mesh_view
+
+        lines.append(bf.selection_line(obj.name, bf.select_bevel_faces(read_mesh_view(bm, obj.matrix_world))))
+        bm.free()
+    assert [line.split(": ")[1].split(" ")[0] for line in lines] == [
+        bf.BEVEL_SELECT_FACE_STRENGTH, bf.BEVEL_SELECT_GEOMETRIC, bf.BEVEL_SELECT_NONE_FOUND
+    ], lines
+
+
+def _run_the_button_is_drawn_in_edit_mode_in_every_select_mode():
+    from cftuv.envelope_debug_panel import draw_decal_mesh_rows
+    from cftuv.bevel_select_operator import HOTSPOTUV_OT_SelectBevelFaces
+
+    assert "UNDO" in HOTSPOTUV_OT_SelectBevelFaces.bl_options
+    _clean()
+    obj = _modifier_bevel("panel_cube", "cube", 1, "FSTR_ALL")
+    drawn = []
+
+    class _Logged:
+        """Заглушка `UILayout`: `prop` пишет имя свойства, `operator` - имя оператора, остальное - заглушка."""
+
+        def __init__(self, log):
+            self.log = log
+
+        def __getattr__(self, name):
+            def call(*args, **_kwargs):
+                if name == "prop" and len(args) > 1:
+                    self.log.append(args[1])
+                if name == "operator" and args:
+                    self.log.append(args[0])
+                return _Logged(self.log)
+
+            return call
+
+    for mode, side in (((False, False, True), True), ((False, True, False), False), ((True, False, False), False)):
+        _enter([obj], mode=mode)
+        drawn.clear()
+        draw_decal_mesh_rows(_Logged(drawn))
+        assert "hotspotuv.select_bevel_faces" in drawn and ("face_side" in drawn) == side, (mode, drawn)
+        bpy.ops.object.mode_set(mode="OBJECT")
+    drawn.clear()
+    draw_decal_mesh_rows(_Logged(drawn))
+    assert "hotspotuv.select_bevel_faces" not in drawn, "Object Mode draws no select button"
+
+
+def _main():
+    import cftuv
+
+    try:
+        cftuv.register()
+    except Exception:  # уже зарегистрирован
+        pass
+    _run_the_button_is_drawn_in_edit_mode_in_every_select_mode()
+    _run_replace_and_extend()
+    _run_every_mesh_in_edit_mode()
+    _run_the_max_width_bounds_the_geometric_guess_only()
+    _run_controls_find_nothing_and_keep_the_selection()
+    _run_a_triangulated_bevel_is_exact_only_with_face_strength_all()
+    _run_bevel_cases()
+    for line in SUMMARY:
+        print("[BevelSelectTest]", line, flush=True)
+    from cftuv.envelope_domain_pool import shutdown_domain_pool
+
+    shutdown_domain_pool()
+    print("BEVEL_SELECT_FACES_BLENDER_OK", flush=True)
+
+
+if __name__ == "__main__":
+    _main()

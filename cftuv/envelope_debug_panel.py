@@ -29,8 +29,11 @@ def draw_decal_mesh_rows(layout) -> None:
     )
     active = getattr(bpy.context, "active_object", None)
     select_mode = tuple(getattr(getattr(bpy.context, "tool_settings", None), "mesh_select_mode", (False, True, False)))
-    if getattr(active, "mode", "") == "EDIT" and select_mode[2] and not select_mode[1]:
-        layout.row(align=True).prop(mesh_settings, "face_side", expand=True)  # BEVEL_FACES_INWARD_OUTWARD_V1: только в режиме граней
+    if getattr(active, "mode", "") == "EDIT":
+        row = layout.row(align=True)
+        if select_mode[2] and not select_mode[1]:
+            row.prop(mesh_settings, "face_side", expand=True)  # BEVEL_FACES_INWARD_OUTWARD_V1: только в режиме граней
+        row.operator("hotspotuv.select_bevel_faces", text="Select Bevel", icon="FACESEL")  # BEVEL_SELECT_FACES_V1: в любом режиме выделения
     draw_decal_width_rows(layout)
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")

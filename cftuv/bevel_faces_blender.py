@@ -10,6 +10,9 @@
 - отпечаток анализа - отпечаток меша плюс сторона, грани и разрез (`scope_digest`): кэши сессии не путают его с нажатием по рёбрам,
   а живая ширина сверяет с мешем ОТПЕЧАТОК МЕША (`mesh_digest` записи кнопки).
 Путь по рёбрам сюда не заходит и не меняется.
+
+Кнопка «Select Bevel Faces» (BEVEL_SELECT_FACES_V1): вид всего меша в координатах мира (`read_mesh_view`) и запись предложенного
+выделения граней (`apply_face_selection`); что выделять, решает `bevel_faces.select_bevel_faces`.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from .bevel_faces import (
     OUTWARD,
     BevelFacesPlanV1,
     BevelFacesViewV1,
+    BevelMeshViewV1,
     plan_faces,
     scope_digest,
 )
@@ -135,6 +139,35 @@ def plan_face_build(bm, obj, side: str) -> FaceBuildV1:
     return FaceBuildV1(plan, mesh_revision, revision)
 
 
+def read_mesh_view(bm, matrix_world) -> BevelMeshViewV1:
+    """Все грани меша, координаты вершин в мире (ширина бевела - метры сцены) и Face Strength всех граней либо `None`.
+
+    Номера элементов обновляются (`index_update`): после правки топологии в Edit Mode они бывают устаревшими, а выделение пишется
+    по тем же номерам. Меш не меняется.
+    """
+
+    bm.verts.index_update()
+    bm.faces.index_update()
+    coords = {int(vertex.index): tuple(float(value) for value in matrix_world @ vertex.co) for vertex in bm.verts}
+    faces = {int(face.index): tuple(int(vertex.index) for vertex in face.verts) for face in bm.faces}
+    layer = bm.faces.layers.int.get(FACE_STRENGTH_ATTRIBUTE)
+    strength = None if layer is None else {int(face.index): int(face[layer]) for face in bm.faces}
+    return BevelMeshViewV1(coords, faces, strength)
+
+
+def apply_face_selection(bm, face_ids, extend: bool) -> None:
+    """Выделение граней `face_ids` (номера `read_mesh_view`) в режиме граней: заменяет выделение либо добавляет к нему."""
+
+    bm.select_mode = {"FACE"}
+    if not extend:
+        for element in (*bm.faces, *bm.edges, *bm.verts):
+            element.select = False
+    bm.faces.ensure_lookup_table()
+    for index in sorted(face_ids):
+        bm.faces[index].select_set(True)
+    bm.select_flush_mode()
+
+
 def restore_face_selection(obj, face_ids) -> None:
     """Выделение граней владельца после анализа (анализ многопетлевого патча переставлял выделение)."""
 
@@ -158,8 +191,10 @@ __all__ = (
     "BevelFacesRefused",
     "FACE_SIDE_ITEMS",
     "FaceBuildV1",
+    "apply_face_selection",
     "face_side_of",
     "plan_face_build",
+    "read_mesh_view",
     "read_view",
     "restore_face_selection",
 )
