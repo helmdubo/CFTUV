@@ -592,12 +592,13 @@ def map_with_codes(mesh, record, strip, codes, layer_name: str = "UVMap") -> tup
     return face_code, counters
 
 
-def remap_mesh(mesh, old, new, old_codes, new_codes, layer_name: str = "UVMap", strip=None) -> dict:
-    """«Apply Mark»: UV слоя `M_new(M_old^-1(UV))` по кодам граней до и после (`remap_atlas`; `strip` - готовые UV ядра), коды - в атрибут."""
+def remap_mesh(mesh, old, new, old_codes, new_codes, layer_name: str = "UVMap", strip=None, transfer: bool = True) -> dict:
+    """«Apply Mark» и обновление после разметки: UV слоя `M_new(M_old^-1(UV))` по кодам граней до и после (`remap_atlas`; `strip` - готовые UV
+    ядра, `transfer` - перенос рамки у меток, сменивших только прямоугольник), коды - в атрибут."""
 
     vertices, totals, group = mesh_arrays(mesh)
     loop_group = np.repeat(group, totals)
-    atlas, counters = remap_atlas(current_atlas(mesh, layer_name), vertices, loop_group, np.repeat(old_codes, totals), np.repeat(new_codes, totals), old, new, strip)
+    atlas, counters = remap_atlas(current_atlas(mesh, layer_name), vertices, loop_group, np.repeat(old_codes, totals), np.repeat(new_codes, totals), old, new, strip, transfer)
     _face, numbers = island_codes(new, group, new_codes)
     counters.update(numbers)
     _write_uvs_and_codes(mesh, layer_name, atlas, new_codes, counters)

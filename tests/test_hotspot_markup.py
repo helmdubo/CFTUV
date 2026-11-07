@@ -307,3 +307,30 @@ def test_the_header_names_the_findings_once_each():
 
     text = "MARK_RECTS_OVERLAP (mark 1): mark 1 overlaps mark 0; MARK_RECTS_OVERLAP (mark 1): again; MARK_RECT_EMPTY (mark 2): rect 0 x 0 has no area"
     assert problem_names(text) == ("MARK_RECTS_OVERLAP (mark 1)", "MARK_RECT_EMPTY (mark 2)") and problem_names("") == ()
+
+def test_mark_ids_are_never_reused_and_a_markup_without_the_counter_takes_the_floor_of_the_decals():
+    """HOTSPOT_MARK_ID_MONOTONIC_V1: удалили метку с наибольшим номером - новая метка получает следующий номер, а не её."""
+
+    from dataclasses import replace
+
+    from cftuv.hotspot_markup import MARKUP_NEXT_ID_INVALID, WHOLE_TEXTURE_MARK_ID
+
+    legacy = _sheet(TRIM, VERTICAL).with_marks([TRIM])  # метка 2 удалена, счётчика нет (разметка до него)
+    assert next_mark_id(legacy) == 1, "without the counter only the marks are known"
+    assert next_mark_id(legacy, floor=3) == 3, "the decals of the file still name mark 2: the floor keeps it from coming back"
+    counted = replace(legacy, next_id=3)
+    assert next_mark_id(counted) == 3 and next_mark_id(counted, floor=1) == 3
+    text, problems = save_markup(counted)
+    assert problems == () and json.loads(text)["next_id"] == 3
+    loaded, problems = load_markup(text)
+    assert problems == () and loaded.next_id == 3 and next_mark_id(loaded) == 3
+    old_text, _problems = save_markup(legacy)
+    assert "next_id" not in json.loads(old_text), "a markup that never had the counter is written as before"
+    assert load_markup(old_text) == (legacy, ()), "the old JSON reads unchanged"
+    data = json.loads(text)
+    for bad in (-1, "3", 2.5, True):
+        data["next_id"] = bad
+        assert MARKUP_NEXT_ID_INVALID in _names(load_markup(json.dumps(data))[1]), bad
+    reserved = HotspotMarkV1(WHOLE_TEXTURE_MARK_ID, "x", "trim", 0, 400, 1024, 64, "+y")
+    assert MARK_ID_INVALID in _names(validate_markup(_sheet(TRIM, reserved))), "the whole-texture id is not a mark id of a markup"
+    assert next_mark_id(_sheet(TRIM)) < WHOLE_TEXTURE_MARK_ID

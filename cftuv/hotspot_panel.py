@@ -36,6 +36,7 @@ def register_hotspot() -> None:
 
     from .hotspot_editor import register_editor
     from .hotspot_island_ops import register_island_ops
+    from .hotspot_refresh import register_refresh
 
     for cls in _CLASSES:
         if getattr(cls, "is_registered", False):
@@ -44,12 +45,15 @@ def register_hotspot() -> None:
     setattr(bpy.types.Scene, SETTINGS_ATTRIBUTE, PointerProperty(type=HOTSPOTUV_HotspotSettings))
     register_editor()
     register_island_ops()  # HOTSPOT_ISLAND_MARKS_V1, HOTSPOT_APPLY_ON_PICK_V1: выбор метки кладёт её выделенным островам готовой декали
+    register_refresh()  # HOTSPOT_REFRESH_ON_CLOSE_V1: закрытие окна разметки обновляет её декали одним шагом отмены
 
 
 def unregister_hotspot() -> None:
     from .hotspot_editor import unregister_editor
     from .hotspot_island_ops import unregister_island_ops
+    from .hotspot_refresh import unregister_refresh
 
+    unregister_refresh()
     unregister_island_ops()
     unregister_editor()
     if hasattr(bpy.types.Scene, SETTINGS_ATTRIBUTE):

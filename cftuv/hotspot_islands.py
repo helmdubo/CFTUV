@@ -31,8 +31,8 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .hotspot_mapping import COUNTER_SHIFT, MAPPING_FORMAT, SEAM_V_TOLERANCE, HotspotMappingV1, atlas_uvs, cached_corner_plan, mapping_from_json
-from .hotspot_markup import KIND_CORNER, HotspotMarkV1
+from .hotspot_mapping import COUNTER_SHIFT, MAPPING_FORMAT, SEAM_V_TOLERANCE, HotspotMappingV1, _frame_to_atlas, atlas_uvs, cached_corner_plan, mapping_from_json
+from .hotspot_markup import KIND_CORNER, KIND_TRIM, WHOLE_TEXTURE_MARK_ID, HotspotMarkV1, whole_texture_mark
 
 RECORD_VERSION = 2
 #: Атрибут граней: код метки острова `метка * 2 + swap` (INT).
@@ -59,6 +59,19 @@ COUNTER_SELECTED = "HOTSPOT_ISLANDS_SELECTED"
 COUNTER_EXPANDED = "HOTSPOT_CORNER_PAIR_EXPANDED"
 #: Острова записи прежнего меша, которые кнопка не перенесла: другая разметка или размер текстуры.
 COUNTER_DROPPED = "HOTSPOT_ISLAND_MARKS_DROPPED"
+#: Острова, чья метка сменила только прямоугольник или «вверх» (вид и swap те же): UV перенесены рамкой метки `M_new(M_old^-1)` точно.
+COUNTER_TRANSFERRED = "HOTSPOT_ISLANDS_FRAME_TRANSFERRED"
+#: HOTSPOT_MARK_FALLBACK_V1 (острова): метки острова больше нет в разметке - замена по виду; псевдометка «вся текстура» уступает настоящей метке.
+COUNTER_FALLBACK_SAME_KIND = "HOTSPOT_MARK_FALLBACK_SAME_KIND"
+COUNTER_FALLBACK_CORNER_TO_TRIM = "HOTSPOT_MARK_FALLBACK_CORNER_TO_TRIM"
+COUNTER_FALLBACK_TRIM_TO_WING = "HOTSPOT_MARK_FALLBACK_TRIM_TO_CORNER_WING"
+COUNTER_FALLBACK_WHOLE = "HOTSPOT_MARK_FALLBACK_WHOLE_TEXTURE"
+COUNTER_WHOLE_REPLACED = "HOTSPOT_MARK_FALLBACK_WHOLE_TEXTURE_REPLACED"
+FALLBACK_COUNTERS = (COUNTER_FALLBACK_SAME_KIND, COUNTER_FALLBACK_CORNER_TO_TRIM, COUNTER_FALLBACK_TRIM_TO_WING, COUNTER_FALLBACK_WHOLE, COUNTER_WHOLE_REPLACED)
+#: HOTSPOT_REFRESH_ON_CLOSE_V1: меток таблицы записи, чьи вид, прямоугольник, «вверх» или полоса в разметке другие (метки, не острова).
+COUNTER_MARKS_CHANGED = "HOTSPOT_REFRESH_MARKS_CHANGED"
+COUNTER_REMAPPED = "HOTSPOT_REFRESH_ISLANDS_REMAPPED"
+COUNTER_KEPT = "HOTSPOT_REFRESH_ISLANDS_KEPT"
 
 
 def encode(mark_id, swap) -> int:
@@ -331,17 +344,40 @@ def seam_snap(mapping: HotspotMappingV1) -> float:
     return max(SEAM_V_TOLERANCE, SEAM_SNAP * max(mapping.width, mapping.height) / max(float(scale), 1.0))
 
 
+def _frame(mapping: HotspotMappingV1) -> tuple:
+    """`(пикселей на ширину, начало рамки)` метки - те же, что у `atlas_uvs`: corner - половина толщины от средней линии, trim - толщина от низа."""
+
+    mark = mapping.mark
+    if mark.kind == KIND_CORNER:
+        return mark.thickness / 2.0, mapping.left_end(0.0)
+    return float(mark.thickness), mapping.left_end(-mark.thickness / 2.0)
+
+
 def _invert(mapping: HotspotMappingV1, atlas) -> np.ndarray:
     """`(along, across)` в единицах ширины по UV атласа одной метки: обращение `_frame_to_atlas` (оси `вправо`, `вверх` ортонормированы)."""
 
     (ux, uy), (rx, ry) = mapping.up, mapping.right
-    mark = mapping.mark
-    if mark.kind == KIND_CORNER:
-        scale, (bx, by) = mark.thickness / 2.0, mapping.left_end(0.0)
-    else:
-        scale, (bx, by) = float(mark.thickness), mapping.left_end(-mark.thickness / 2.0)
+    scale, (bx, by) = _frame(mapping)
     px, py = atlas[:, 0] * float(mapping.width) - bx, atlas[:, 1] * float(mapping.height) - by
     return np.stack(((px * rx + py * ry) / scale, (px * ux + py * uy) / scale), axis=1)
+
+
+def transfer_frame(before: HotspotMappingV1, after: HotspotMappingV1, atlas) -> np.ndarray:
+    """UV атласа острова из метки `before` в метку `after` того же вида и swap: `M_new(M_old^-1(atlas))` по одной рамке. Выравнивание corner
+    (`corner_along`) от прямоугольника не зависит, поэтому его обращать не надо: перенос точен до float и для corner-пары."""
+
+    frame = _invert(before, np.asarray(atlas, dtype=np.float64).reshape(-1, 2))
+    scale, base = _frame(after)
+    return _frame_to_atlas(after, frame[:, 0] * scale, frame[:, 1] * scale, base)
+
+
+def same_geometry(before, after) -> bool:
+    """Отображения метки дают одни UV: размер текстуры, swap, вид, прямоугольник и «вверх» те же (имя и полоса - только показ)."""
+
+    if before is None or after is None:
+        return before is None and after is None
+    a, b = before.mark, after.mark
+    return (before.width, before.height, before.swap, a.kind, a.x, a.y, a.w, a.h, a.up) == (after.width, after.height, after.swap, b.kind, b.x, b.y, b.w, b.h, b.up)
 
 
 def strip_from_atlas(atlas, loop_group, loop_code, record: HotspotRecordV2) -> np.ndarray:
@@ -413,9 +449,11 @@ def unwarp_paired(strip, loop_vertex, loop_group, groups, positions, alpha: floa
     return strip, done
 
 
-def remap_atlas(atlas, loop_vertex, loop_group, old_code, new_code, old: HotspotRecordV2, new: HotspotRecordV2, strip=None) -> tuple:
-    """`(UV атласа, числа)` после смены кодов: `M_new(M_old^-1(atlas))` (либо от готового `strip`). Углы кода, чей состав островов и метка не
-    изменились, остаются побитово (пары corner не трогаются без нужды, ошибка float32 не копится на нетронутых)."""
+def remap_atlas(atlas, loop_vertex, loop_group, old_code, new_code, old: HotspotRecordV2, new: HotspotRecordV2, strip=None, transfer: bool = True) -> tuple:
+    """`(UV атласа, числа)` после смены кодов: `M_new(M_old^-1(atlas))` (либо от готового `strip`). Углы кода, чей состав островов и геометрия
+    метки (`same_geometry`) не изменились, остаются побитово (пары corner не трогаются без нужды, ошибка float32 не копится на нетронутых); у кода
+    того же состава, чья метка сменила только прямоугольник или «вверх», при `transfer` - перенос рамки (`transfer_frame`, точно;
+    HOTSPOT_ISLANDS_FRAME_TRANSFERRED), без него (в `strip` UV ядра сессии - уже точно) - отображение от `strip`."""
 
     atlas = np.asarray(atlas).reshape(-1, 2)
     old_code, new_code = np.asarray(old_code, dtype=np.int64), np.asarray(new_code, dtype=np.int64)
@@ -423,11 +461,18 @@ def remap_atlas(atlas, loop_vertex, loop_group, old_code, new_code, old: Hotspot
     strip = strip_from_atlas(atlas, loop_group, old_code, old) if strip is None else strip
     mapped, counters = map_islands(strip, loop_vertex, loop_group, new_code, new)
     out = mapped
+    counters[COUNTER_TRANSFERRED] = 0
     for code in np.unique(new_code).tolist():
         rows = new_code == code
         same_islands = np.array_equal(np.unique(loop_group[rows]), np.unique(loop_group[old_code == code]))
-        if same_islands and old.mapping(code) == new.mapping(code) and old.known(code):
+        if not (same_islands and old.known(code)):
+            continue
+        before, after = old.mapping(code), new.mapping(code)
+        if same_geometry(before, after):
             out[rows] = atlas[rows]
+        elif transfer and before is not None and after is not None and before.mark.kind == after.mark.kind:
+            out[rows] = transfer_frame(before, after, atlas[rows])
+            counters[COUNTER_TRANSFERRED] += int(np.unique(loop_group[rows]).shape[0])
     return out, counters
 
 
@@ -460,6 +505,122 @@ def refresh_marks(record: HotspotRecordV2, markup) -> HotspotRecordV2:
     """Таблица записи по текущей разметке: каждая метка, что в разметке есть, - её прямоугольник; ушедшая из разметки остаётся снимком."""
 
     return record.with_marks([mark for mark in (markup.mark(item.id) for item in record.marks) if mark is not None])
+
+
+# --------------------------------------------------------------------------
+# Обновление декалей после правки разметки (HOTSPOT_REFRESH_ON_CLOSE_V1, HOTSPOT_MARK_FALLBACK_V1)
+# --------------------------------------------------------------------------
+
+
+def fallback_mark(markup, kind: str) -> tuple:
+    """`(метка, имя исхода)` для острова, чьей метки вида `kind` в разметке больше нет (HOTSPOT_MARK_FALLBACK_V1): corner - corner с наименьшим
+    номером, иначе trim с наименьшим; trim (и псевдометка) - trim с наименьшим, иначе corner с наименьшим (одно крыло, если у острова нет пары
+    в той же метке); меток нет - псевдометка «вся текстура» (в разметку не пишется)."""
+
+    first = {item: min((mark for mark in markup.marks if mark.kind == item), key=lambda mark: mark.id, default=None) for item in (KIND_TRIM, KIND_CORNER)}
+    if kind == KIND_CORNER:
+        order = ((KIND_CORNER, COUNTER_FALLBACK_SAME_KIND), (KIND_TRIM, COUNTER_FALLBACK_CORNER_TO_TRIM))
+    else:
+        order = ((KIND_TRIM, COUNTER_FALLBACK_SAME_KIND), (KIND_CORNER, COUNTER_FALLBACK_TRIM_TO_WING))
+    for item, name in order:
+        if first[item] is not None:
+            return first[item], name
+    return whole_texture_mark(markup.width, markup.height), COUNTER_FALLBACK_WHOLE
+
+
+def known_codes(record: HotspotRecordV2, codes) -> np.ndarray:
+    """Коды граней, как их отобразил `map_islands`: код без метки в таблице - метка по умолчанию (HOTSPOT_ISLAND_MARK_NOT_IN_RECORD)."""
+
+    codes = np.asarray(codes, dtype=np.int64)
+    unique = np.unique(codes)
+    lost = unique[~np.array([record.known(code) for code in unique.tolist()], dtype=bool)]
+    return np.where(np.isin(codes, lost), record.default, codes)
+
+
+def _refreshed_code(record: HotspotRecordV2, markup, code: int, table: dict) -> tuple:
+    """`(новый код, имя исхода замены | "")` кода по текущей разметке; метка нового кода - в `table`."""
+
+    mark_id, swap = decode(code)
+    current = None if mark_id == WHOLE_TEXTURE_MARK_ID else markup.mark(mark_id)
+    if current is not None:
+        table[current.id] = current
+        return code_for(current, swap), ""
+    snapshot = record.mark(mark_id)
+    target, name = fallback_mark(markup, KIND_TRIM if snapshot is None else snapshot.kind)
+    table[target.id] = target
+    if mark_id == WHOLE_TEXTURE_MARK_ID:
+        name = "" if target.id == WHOLE_TEXTURE_MARK_ID else COUNTER_WHOLE_REPLACED
+    return code_for(target, swap and name == COUNTER_FALLBACK_SAME_KIND), name
+
+
+def _changed_snapshot(mark: HotspotMarkV1, current) -> bool:
+    return current is not None and (mark.kind, mark.x, mark.y, mark.w, mark.h, mark.up, mark.band) != (current.kind, current.x, current.y, current.w, current.h, current.up, current.band)
+
+
+def refresh_record(record: HotspotRecordV2, markup, face_group, codes) -> tuple:
+    """`(запись, коды граней, числа)` декали по текущей разметке (HOTSPOT_REFRESH_ON_CLOSE_V1): таблица - текущие метки, на которые ссылаются
+    коды, и обновлённые снимки остальных меток таблицы, что в разметке ещё есть (ушедших нет); размер текстуры - разметки. Код ушедшей метки -
+    замена `fallback_mark` (swap остаётся только у corner -> corner), число островов - под именем исхода. `codes` - как `known_codes`."""
+
+    codes = np.asarray(codes, dtype=np.int64)
+    face_group = np.asarray(face_group, dtype=np.int64)
+    used = sorted(set(np.unique(codes).tolist()) | {int(record.default)} | {int(island.code) for island in record.islands})
+    table: dict = {}
+    code_map: dict = {}
+    counters = dict.fromkeys(FALLBACK_COUNTERS, 0)
+    for code in used:
+        if code == NO_MARK:
+            code_map[code] = code
+            continue
+        code_map[code], name = _refreshed_code(record, markup, code, table)
+        if name:
+            counters[name] += int(np.unique(face_group[codes == code]).shape[0])
+    for mark in record.marks:
+        current = None if mark.id == WHOLE_TEXTURE_MARK_ID else markup.mark(mark.id)
+        if current is not None:
+            table.setdefault(current.id, current)
+    counters[COUNTER_MARKS_CHANGED] = sum(1 for mark in record.marks if _changed_snapshot(mark, table.get(mark.id)))
+    keys = np.array(sorted(code_map), dtype=np.int64)
+    values = np.array([code_map[key] for key in sorted(code_map)], dtype=np.int64)
+    new_codes = values[np.searchsorted(keys, codes)] if codes.shape[0] else codes.copy()
+    islands = tuple(replace(island, code=code_map[int(island.code)]) for island in record.islands)
+    fresh = HotspotRecordV2(record.markup, int(markup.width), int(markup.height), code_map[int(record.default)], tuple(table[key] for key in sorted(table)), islands)
+    return fresh, new_codes, counters
+
+
+def record_is_current(record: HotspotRecordV2, markup) -> bool:
+    """Обновлять декаль нечего, что бы ни лежало в кодах граней: размер текстуры тот же, каждая метка таблицы есть в разметке такой же
+    (псевдометка - пока меток нет и квадрат тот же). Читается одна запись: у меша в Edit Mode атрибутов граней не прочесть."""
+
+    if (int(record.width), int(record.height)) != (int(markup.width), int(markup.height)):
+        return False
+    for mark in record.marks:
+        if mark.id == WHOLE_TEXTURE_MARK_ID:
+            if markup.marks or mark != whole_texture_mark(markup.width, markup.height):
+                return False
+        elif markup.mark(mark.id) != mark:
+            return False
+    return True
+
+
+def changed_islands(before, after, loop_group) -> tuple:
+    """`(островов с другими UV, островов побитово тех же)`: сравнение UV слоя (float32) до и после."""
+
+    before = np.asarray(before, dtype=np.float32).reshape(-1, 2)
+    after = np.asarray(after, dtype=np.float32).reshape(-1, 2)
+    loop_group = np.asarray(loop_group, dtype=np.int64)
+    changed = np.unique(loop_group[np.any(before != after, axis=1)]).shape[0]
+    return int(changed), int(np.unique(loop_group).shape[0] - changed)
+
+
+def referenced_mark_ids(record: HotspotRecordV2, codes=()) -> set:
+    """Номера меток, на которые ссылается декаль: таблица записи, метка по умолчанию, острова и коды граней (без псевдометки). Пол номера новой
+    метки разметки (HOTSPOT_MARK_ID_MONOTONIC_V1)."""
+
+    ids = {mark.id for mark in record.marks}
+    listed = (record.default, *(island.code for island in record.islands), *np.unique(np.asarray(codes, dtype=np.int64)).tolist())
+    ids |= {decode(code)[0] for code in listed}
+    return {int(item) for item in ids if item is not None and int(item) != WHOLE_TEXTURE_MARK_ID}
 
 
 # --------------------------------------------------------------------------
@@ -522,6 +683,24 @@ def labels_text(labels) -> str:
 
 __all__ = (
     "ANCHORS_PER_ISLAND",
+    "COUNTER_FALLBACK_CORNER_TO_TRIM",
+    "COUNTER_FALLBACK_SAME_KIND",
+    "COUNTER_FALLBACK_TRIM_TO_WING",
+    "COUNTER_FALLBACK_WHOLE",
+    "COUNTER_KEPT",
+    "COUNTER_MARKS_CHANGED",
+    "COUNTER_REMAPPED",
+    "COUNTER_TRANSFERRED",
+    "COUNTER_WHOLE_REPLACED",
+    "FALLBACK_COUNTERS",
+    "changed_islands",
+    "fallback_mark",
+    "known_codes",
+    "record_is_current",
+    "referenced_mark_ids",
+    "refresh_record",
+    "same_geometry",
+    "transfer_frame",
     "COUNTER_DROPPED",
     "COUNTER_EXPANDED",
     "COUNTER_ISLANDS",

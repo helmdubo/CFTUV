@@ -16,6 +16,8 @@
 * `trim`: нижний край (противоположный `up`) - шов, верхний - внешний край юбки. Толщина метки = ширина декали.
 * `corner`: шов - средняя линия по толщине, юбки двух сторон шва - крылья бабочки, каждое на свою половину; `band` - ширина центральной полосы
   детали в пикселях (только для показа), не шире толщины.
+* `next_id` (необязательно, HOTSPOT_MARK_ID_MONOTONIC_V1) - счётчик номеров: номер удалённой метки не достаётся новой. Разметка без него читается
+  как прежде; номер новой метки - наибольший из счётчика, номеров меток плюс один и номеров, на которые ссылаются записи декалей файла.
 
 Экспорт в файлы (в том числе Valve `.rect`) - позже: всё, что ему нужно, уже здесь (прямоугольник в пикселях, размер текстуры, направление).
 """
@@ -61,15 +63,19 @@ MARK_REPEAT_WITHOUT_FULL_SPAN = "MARK_REPEAT_WITHOUT_FULL_SPAN"
 MARK_BAND_INVALID = "MARK_BAND_INVALID"
 MARK_BAND_ON_TRIM = "MARK_BAND_ON_TRIM"
 MARK_CORNER_BAND_WIDER_THAN_RECT = "MARK_CORNER_BAND_WIDER_THAN_RECT"
+#: HOTSPOT_MARK_ID_MONOTONIC_V1: счётчик номеров разметки (`next_id`) - не целое число >= 0.
+MARKUP_NEXT_ID_INVALID = "MARKUP_NEXT_ID_INVALID"
+#: HOTSPOT_MARK_FALLBACK_V1: номер псевдометки «вся текстура» (её нет в разметке, она только в записи меша); код грани `2 * id` влезает в INT32.
+WHOLE_TEXTURE_MARK_ID = (1 << 30) - 1
 
 PROBLEM_NAMES = (
     MARKUP_NOT_JSON, MARKUP_NOT_AN_OBJECT, MARKUP_FORMAT_UNKNOWN, MARKUP_VERSION_UNSUPPORTED, MARKUP_FIELD_UNKNOWN, MARKUP_TEXTURE_INVALID,
     MARKUP_MARKS_INVALID, MARK_NOT_AN_OBJECT, MARK_FIELD_MISSING, MARK_FIELD_UNKNOWN, MARK_ID_INVALID, MARK_ID_DUPLICATE, MARK_NAME_INVALID,
     MARK_KIND_UNKNOWN, MARK_UP_INVALID, MARK_RECT_INVALID, MARK_RECT_EMPTY, MARK_RECT_OUT_OF_TEXTURE, MARK_RECTS_OVERLAP,
-    MARK_REPEAT_WITHOUT_FULL_SPAN, MARK_BAND_INVALID, MARK_BAND_ON_TRIM, MARK_CORNER_BAND_WIDER_THAN_RECT,
+    MARK_REPEAT_WITHOUT_FULL_SPAN, MARK_BAND_INVALID, MARK_BAND_ON_TRIM, MARK_CORNER_BAND_WIDER_THAN_RECT, MARKUP_NEXT_ID_INVALID,
 )
 
-_MARKUP_FIELDS = frozenset(("format", "version", "texture", "marks"))
+_MARKUP_FIELDS = frozenset(("format", "version", "texture", "marks", "next_id"))
 _TEXTURE_FIELDS = frozenset(("width", "height", "image"))
 _MARK_REQUIRED = ("id", "name", "kind", "rect", "up")
 _MARK_FIELDS = frozenset(_MARK_REQUIRED + ("band",))
@@ -118,12 +124,14 @@ class HotspotMarkV1:
 
 @dataclass(frozen=True, slots=True)
 class HotspotMarkupV1:
-    """Разметка одной текстуры: размер в пикселях, имя изображения (для показа) и метки по возрастанию `id`."""
+    """Разметка одной текстуры: размер в пикселях, имя изображения (для показа), метки по возрастанию `id` и счётчик номеров `next_id`
+    (HOTSPOT_MARK_ID_MONOTONIC_V1: номер удалённой метки не достаётся новой; 0 - счётчика нет, разметка до него)."""
 
     width: int
     height: int
     image: str = ""
     marks: tuple = field(default=())
+    next_id: int = 0
 
     def mark(self, mark_id: int):
         return next((item for item in self.marks if item.id == int(mark_id)), None)
@@ -151,6 +159,8 @@ def validate_markup(markup: HotspotMarkupV1) -> tuple:
     if not (_is_int(markup.width) and _is_int(markup.height) and markup.width > 0 and markup.height > 0):
         _problem(problems, MARKUP_TEXTURE_INVALID, None, f"texture size {markup.width!r} x {markup.height!r} is not two positive integers")
         return tuple(problems)
+    if not _is_int(markup.next_id) or markup.next_id < 0:
+        _problem(problems, MARKUP_NEXT_ID_INVALID, None, f"next_id {markup.next_id!r} is not a non-negative integer")
     seen: dict = {}
     for mark in markup.marks:
         _check_mark(problems, markup, mark)
@@ -170,6 +180,8 @@ def _check_mark(problems: list, markup: HotspotMarkupV1, mark: HotspotMarkV1) ->
     mark_id = mark.id if _is_int(mark.id) else None
     if not _is_int(mark.id) or mark.id < 0:
         _problem(problems, MARK_ID_INVALID, mark_id, f"id {mark.id!r} is not a non-negative integer")
+    elif mark.id >= WHOLE_TEXTURE_MARK_ID:
+        _problem(problems, MARK_ID_INVALID, mark_id, f"id {mark.id} is reserved (ids from {WHOLE_TEXTURE_MARK_ID} on belong to the whole-texture fallback)")
     if not isinstance(mark.name, str):
         _problem(problems, MARK_NAME_INVALID, mark_id, f"name {mark.name!r} is not a string")
     if mark.kind not in KINDS:
@@ -205,7 +217,10 @@ def markup_to_dict(markup: HotspotMarkupV1) -> dict:
         if mark.kind == KIND_CORNER:
             item["band"] = mark.band
         marks.append(item)
-    return {"format": FORMAT_NAME, "version": FORMAT_VERSION, "texture": {"width": markup.width, "height": markup.height, "image": markup.image}, "marks": marks}
+    data = {"format": FORMAT_NAME, "version": FORMAT_VERSION, "texture": {"width": markup.width, "height": markup.height, "image": markup.image}, "marks": marks}
+    if _is_int(markup.next_id) and markup.next_id > 0:
+        data["next_id"] = markup.next_id
+    return data
 
 
 def save_markup(markup: HotspotMarkupV1) -> tuple:
@@ -261,7 +276,7 @@ def load_markup(text: str) -> tuple:
     if not isinstance(marks_data, list):
         return None, (MarkupProblemV1(MARKUP_MARKS_INVALID, None, "marks must be a list"),)
     marks = [mark for mark in (_mark_from(problems, at, item) for at, item in enumerate(marks_data)) if mark is not None]
-    markup = HotspotMarkupV1(texture["width"], texture["height"], texture.get("image", ""), tuple(marks))
+    markup = HotspotMarkupV1(texture["width"], texture["height"], texture.get("image", ""), tuple(marks), data.get("next_id", 0))
     problems.extend(validate_markup(markup))
     if _is_int(markup.width) and _is_int(markup.height):
         markup = markup.with_marks(marks) if all(_is_int(mark.id) for mark in marks) else markup
@@ -367,9 +382,19 @@ def empty_markup(width: int, height: int, image: str = "") -> HotspotMarkupV1:
     return HotspotMarkupV1(int(width), int(height), str(image), ())
 
 
-def next_mark_id(markup: HotspotMarkupV1) -> int:
-    ids = [mark.id for mark in markup.marks if _is_int(mark.id)]
-    return max(ids) + 1 if ids else 0
+def next_mark_id(markup: HotspotMarkupV1, floor: int = 0) -> int:
+    """Номер новой метки (HOTSPOT_MARK_ID_MONOTONIC_V1): не меньше счётчика разметки, чем любой номер её меток плюс один и чем `floor` (номера,
+    на которые ссылаются записи декалей файла). Номер удалённой метки поэтому не достаётся новой: декали не перескакивают на неё молча."""
+
+    ids = [mark.id for mark in markup.marks if _is_int(mark.id) and mark.id < WHOLE_TEXTURE_MARK_ID]
+    counter = markup.next_id if _is_int(markup.next_id) and markup.next_id > 0 else 0
+    return max(counter, max(ids) + 1 if ids else 0, int(floor))
+
+
+def whole_texture_mark(width: int, height: int) -> HotspotMarkV1:
+    """Псевдометка «вся текстура» (HOTSPOT_MARK_FALLBACK_V1): trim во весь квадрат UV, «вверх» +y. В разметку не пишется."""
+
+    return HotspotMarkV1(WHOLE_TEXTURE_MARK_ID, "whole texture", KIND_TRIM, 0, 0, int(width), int(height), "+y", 0)
 
 
 #: Заливка метки: свой оттенок у каждого id (золотое сечение по кругу оттенков - соседние id далеко друг от друга), прозрачность ~0.2;
@@ -398,6 +423,8 @@ __all__ = (
     "KIND_CORNER",
     "KIND_TRIM",
     "MARK_ROTATE_BLOCKED",
+    "MARKUP_NEXT_ID_INVALID",
+    "WHOLE_TEXTURE_MARK_ID",
     "MarkupProblemV1",
     "PROBLEM_NAMES",
     "UP_CLOCKWISE",
@@ -418,4 +445,5 @@ __all__ = (
     "next_mark_id",
     "save_markup",
     "validate_markup",
+    "whole_texture_mark",
 )

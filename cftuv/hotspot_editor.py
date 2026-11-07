@@ -69,6 +69,7 @@ from .hotspot_markup import (
     problem_names,
     rotated_mark,
 )
+from .hotspot_refresh import record_mark_floor, schedule_refresh
 
 EDITOR_ATTRIBUTE = "hotspotuv_hotspot_editor"
 MARKUP_DRAFT_UNSAVED = "MARKUP_DRAFT_UNSAVED"
@@ -164,6 +165,7 @@ class HOTSPOTUV_HotspotEditor(bpy.types.PropertyGroup):
     width: IntProperty(name="Texture width", min=0)
     height: IntProperty(name="Texture height", min=0)
     image: StringProperty(name="Image")
+    next_id: IntProperty(name="Next mark id", min=0, description="HOTSPOT_MARK_ID_MONOTONIC_V1: id of the next new mark; ids of deleted marks are never given again")
     marks: CollectionProperty(type=HOTSPOTUV_HotspotMark)
     active: IntProperty(name="Active mark", default=-1)
     grid: IntProperty(name="Grid", default=8, min=1, max=1024, description="Pixel grid of the edit tool (Ctrl + and Ctrl -, or [ and ], make it finer and coarser)")
@@ -193,7 +195,15 @@ def editor_of(scene):
 
 def draft_markup(editor) -> HotspotMarkupV1:
     marks = [HotspotMarkV1(item.mark_id, item.label, item.kind, item.x, item.y, item.w, item.h, item.up, item.band if item.kind == KIND_CORNER else 0) for item in editor.marks]
-    return HotspotMarkupV1(int(editor.width), int(editor.height), str(editor.image), tuple(marks))
+    return HotspotMarkupV1(int(editor.width), int(editor.height), str(editor.image), tuple(marks), int(editor.next_id))
+
+
+def new_mark_id(editor) -> int:
+    """Номер новой метки черновика (HOTSPOT_MARK_ID_MONOTONIC_V1): счётчик идёт только вперёд, номер удалённой метки не достаётся новой."""
+
+    mark_id = next_mark_id(draft_markup(editor))
+    editor.next_id = mark_id + 1
+    return mark_id
 
 
 def commit_draft(scene) -> tuple:
@@ -224,6 +234,8 @@ def load_draft(scene, text_name: str, *, discard: bool = False) -> str:
         for mark in markup.marks:
             _append(editor, mark)
         editor.active = 0 if len(editor.marks) else -1
+        # Разметка без счётчика (прежняя): пол - и номера, на которые ссылаются декали файла (удалённая метка помнится только там).
+        editor.next_id = next_mark_id(markup, record_mark_floor(text_name))
     finally:
         _SUSPEND["commit"] = False
     editor.dirty = bool(problems)
@@ -683,9 +695,11 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         editor = editor_of(context.scene)
         if self._drag is not None and editor is not None:
             self._restore(editor)
-        commit_draft(context.scene)
+        problems = commit_draft(context.scene)
         _SUSPEND["commit"] = False
         _RUNNING.discard(self._area_pointer)
+        if editor is not None and editor.draft_of:
+            schedule_refresh(editor.draft_of, problems)  # HOTSPOT_REFRESH_ON_CLOSE_V1: декали разметки - таймером, одним шагом отмены
 
     def modal(self, context, event):
         try:
@@ -777,10 +791,10 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
             return
         grid = editor.grid
         sx, sy = _snap(px, grid, editor.width), _snap(py, grid, editor.height)
-        item = _append(editor, HotspotMarkV1(next_mark_id(draft_markup(editor)), "", KIND_TRIM, sx, sy, 0, 0, "+y", 0))
+        item = _append(editor, HotspotMarkV1(new_mark_id(editor), "", KIND_TRIM, sx, sy, 0, 0, "+y", 0))
         item.label = f"mark {item.mark_id}"
         editor.active = len(editor.marks) - 1
-        self._drag = {"mode": "new", "anchor": (sx, sy), "rect": None}
+        self._drag = {"mode": "new", "anchor": (sx, sy), "rect": None, "id": int(item.mark_id)}
 
     def _move(self, editor, region, mx, my):
         mark = editor.marks[editor.active]
@@ -820,18 +834,27 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
             mark = editor.marks[editor.active]
             if mark.w <= 0 or mark.h <= 0:
                 delete_active(editor)  # щелчок без перетаскивания - не метка
+                _give_back(editor, drag)
 
     def _restore(self, editor):
         drag, self._drag = self._drag, None
         _SUSPEND["commit"] = False
         if drag["mode"] == "new":
             delete_active(editor)
+            _give_back(editor, drag)
         elif 0 <= editor.active < len(editor.marks):
             mark = editor.marks[editor.active]
             _SUSPEND["commit"] = True
             mark.x, mark.y, mark.w, mark.h = drag["rect"]
             mark.band = drag["band"]
             _SUSPEND["commit"] = False
+
+
+def _give_back(editor, drag) -> None:
+    """Новая метка не родилась (щелчок без перетаскивания, Esc): её номер ни разу не был записан в текст - счётчик возвращается."""
+
+    if int(editor.next_id) == drag.get("id", -2) + 1:
+        editor.next_id = drag["id"]
 
 
 def duplicate_active(editor) -> None:
@@ -841,7 +864,7 @@ def duplicate_active(editor) -> None:
     ux, uy = UP_VECTORS[source.up]
     _SUSPEND["commit"] = True
     try:
-        item = _append(editor, HotspotMarkV1(next_mark_id(draft_markup(editor)), f"{source.label} copy", source.kind, source.x + ux * source.w, source.y + uy * source.h, source.w, source.h, source.up, source.band))
+        item = _append(editor, HotspotMarkV1(new_mark_id(editor), f"{source.label} copy", source.kind, source.x + ux * source.w, source.y + uy * source.h, source.w, source.h, source.up, source.band))
     finally:
         _SUSPEND["commit"] = False
     editor.active = len(editor.marks) - 1
@@ -1344,6 +1367,7 @@ __all__ = (
     "is_mini_context",
     "load_draft",
     "mini_key",
+    "new_mark_id",
     "open_mini_editor",
     "overlay_mode",
     "window_title",

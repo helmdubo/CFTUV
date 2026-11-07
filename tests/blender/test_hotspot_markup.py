@@ -23,6 +23,12 @@
    стрелки, операторы меню правой кнопки на черновике сцены;
 9. OBJECT MODE (HOTSPOT_OBJECT_APPLY_V1): выбор метки при двух выделенных декалях и не декали - все острова обеих декалей, не декаль не
    тронута; Swap wings кладёт то же самое с переставленными крыльями.
+10. ЗАКРЫТИЕ ОКНА (HOTSPOT_REFRESH_ON_CLOSE_V1, HOTSPOT_MARK_FALLBACK_V1, HOTSPOT_MARK_ID_MONOTONIC_V1): хвост `cancel` инструмента меток
+   заказывает обновление, таймер (здесь - вручную) зовёт оператор; сдвинутая метка - остров на новом месте, остальные побитово, снимок записи
+   новый, меш скрытого объекта другой сцены - один раз, «связанный» меш пропущен по имени; удалённая метка - замена наименьшей trim; номер
+   новой метки не берёт номер удалённой (и у разметки без счётчика - по записям декалей); меток нет - вся текстура; закрытие из Edit
+   Mode декали оставляет её в Object Mode (шаг отмены - memfile); живая ширина держит всю текстуру, новая метка её заменяет; Undo (если
+   фоновый Blender его даёт) возвращает UV.
 
 Прогон: blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_hotspot_markup.py
 Последняя строка при успехе: HOTSPOT_MARKUP_BLENDER_SMOKE_OK
@@ -544,6 +550,119 @@ def _check_object_apply():
     print(f"HOTSPOT OBJECT apply: 2 decals + 1 non-decal, every island trim then corner pairs; undo {'checked' if undo else 'not available in background (windowed proof)'}", flush=True)
 
 
+def _close_editor():
+    """Закрытие мини-окна разметки: хвост `cancel` инструмента меток (окна в фоне нет), затем таймер обновления - фоновый Blender таймеров не крутит."""
+
+    import types
+
+    from cftuv import hotspot_refresh
+    from cftuv.hotspot_editor import HOTSPOTUV_OT_HotspotMarkupEdit
+
+    HOTSPOTUV_OT_HotspotMarkupEdit.cancel(types.SimpleNamespace(_drag=None, _area_pointer=0), bpy.context)
+    pending = [name for name, _generation in hotspot_refresh._STATE["pending"]]
+    assert pending == [TEXT] and bpy.app.timers.is_registered(hotspot_refresh.run_pending), pending
+    bpy.app.timers.unregister(hotspot_refresh.run_pending)
+    hotspot_refresh.run_pending()
+    return bpy.context.scene.hotspotuv_hotspot.apply_note
+
+
+def _draft_index(editor, mark_id):
+    return next(index for index, item in enumerate(editor.marks) if item.mark_id == mark_id)
+
+
+def _check_refresh_on_close(kernel):
+    """HOTSPOT_REFRESH_ON_CLOSE_V1: закрытие окна обновляет декали разметки по её тексту; удалённые метки - замена (HOTSPOT_MARK_FALLBACK_V1)."""
+
+    from cftuv import hotspot_refresh
+    from cftuv.hotspot_blender import LAST_COUNTERS, mesh_record
+    from cftuv.hotspot_editor import load_draft, new_mark_id
+    from cftuv.hotspot_markup import WHOLE_TEXTURE_MARK_ID, HotspotMarkV1
+
+    _uv, _vertex, domain = kernel
+    low, high = sorted(np.unique(domain))
+    scene, source = bpy.context.scene, bpy.data.objects[SOURCE]
+    marks = (HotspotMarkV1(0, "drips", "trim", 0, 64, 1024, 128, "+y"), HotspotMarkV1(1, "edge", "corner", 0, 256, 1024, 96, "+y", 12), HotspotMarkV1(2, "rust", "trim", 0, 400, 1024, 64, "+y"))
+    _markup(*marks)
+    _select_seam(source)
+    _hotspot(True, 0)
+    _press()
+    _decal_edit(low)
+    _hotspot(True, 2)
+    _apply()
+    _object_mode()
+    _markup(*marks[:2])  # текст без счётчика забыл метку 2, декаль её ещё называет
+    assert load_draft(scene, TEXT, discard=True) == "" and scene.hotspotuv_hotspot_editor.next_id == 3, "a markup without the counter takes the floor of its decals"
+    _markup(*marks)
+    assert load_draft(scene, TEXT, discard=True) == ""
+    editor = scene.hotspotuv_hotspot_editor
+    mesh = bpy.data.objects[DECAL].data
+    other = bpy.data.scenes.new("HotspotOtherScene")
+    hidden = bpy.data.objects.new("Hidden decal user", mesh)
+    other.collection.objects.link(hidden)
+    hidden.hide_viewport = hidden.hide_render = True
+    linked = bpy.data.objects[DECAL].copy()
+    linked.data = mesh.copy()
+    scene.collection.objects.link(linked)
+    linked_digest, original_linked = str(linked.data["cftuv_hotspot"]), hotspot_refresh._linked
+    hotspot_refresh._linked = lambda item: item.name == linked.data.name  # библиотека в фоне не собирается: тот же путь пропуска
+    try:
+        before, _vertex, _domain = _arrays()
+        _decal_edit(high)  # Edit Mode на декали, а сдвинута метка ДРУГОГО острова (не по умолчанию): коды граней читаются после выхода
+        editor.marks[_draft_index(editor, 2)].y = 420
+        note = _close_editor()
+        assert "1 decal(s) (2 object(s)) updated, 1 island(s) remapped, 1 kept bitwise" in note and f"HOTSPOT_REFRESH_SKIPPED_LINKED=1 ({linked.data.name})" in note, note
+        assert "HOTSPOT_REFRESH_EDIT_MODE_LEFT=1" in note and bpy.context.object.mode == "OBJECT", note
+        assert str(linked.data["cftuv_hotspot"]) == linked_digest, "the linked mesh is skipped, untouched"
+    finally:
+        _object_mode()
+        hotspot_refresh._linked = original_linked
+        copy = linked.data
+        bpy.data.objects.remove(linked)
+        bpy.data.meshes.remove(copy)
+        bpy.data.objects.remove(hidden)
+        bpy.data.scenes.remove(other)
+    after, _vertex, _domain = _arrays()
+    assert np.array_equal(after[domain == high], before[domain == high]), "islands of unchanged marks stay bit for bit"
+    _rows(low, (420.0, 484.0), "the moved mark")
+    assert mesh_record(mesh)[0].mark(2).y == 420, "the snapshot of the record moves with the UVs"
+    undo = _undo_available()
+    if undo:
+        bpy.ops.ed.undo()
+        _rows(low, RUST, "undo of the refresh")
+        bpy.ops.ed.redo()
+        _rows(low, (420.0, 484.0), "redo of the refresh")
+    editor.marks.remove(_draft_index(editor, 2))
+    note = _close_editor()
+    assert LAST_COUNTERS[mesh.session_uid]["HOTSPOT_MARK_FALLBACK_SAME_KIND"] == 1, note
+    _rows(low, DRIPS, "a deleted trim falls back to the smallest trim")
+    assert json.loads(bpy.data.texts[TEXT].as_string())["next_id"] == 3 and new_mark_id(editor) == 3, "the id of the deleted mark never comes back"
+    while len(editor.marks):
+        editor.marks.remove(0)
+    _decal_edit(low)  # окно закрывают из Edit Mode декали
+    note = _close_editor()
+    assert "HOTSPOT_REFRESH_EDIT_MODE_LEFT=1" in note and "HOTSPOT_MARK_FALLBACK_WHOLE_TEXTURE=2" in note, note
+    assert bpy.context.object.mode == "OBJECT", "the refresh stays in Object Mode: its undo step is a memfile step"
+    whole = (0.0, float(HEIGHT))
+    _rows(low, whole, "no marks: the whole texture")
+    _rows(high, whole, "no marks: the whole texture")
+    assert mesh_record(mesh)[0].default == 2 * WHOLE_TEXTURE_MARK_ID
+    _select_seam(source)
+    _check_live_width(strict=False)
+    _rows(low, whole, "the live width keeps the whole texture")
+    item = editor.marks.add()
+    item.mark_id, item.label, item.kind, item.up, item.x, item.y, item.w, item.h = new_mark_id(editor), "first", "trim", "+y", 0, 100, 1024, 64
+    assert item.mark_id == 4
+    note = _close_editor()
+    assert "HOTSPOT_MARK_FALLBACK_WHOLE_TEXTURE_REPLACED=2" in note, note
+    _rows(low, (100.0, 164.0), "a real mark replaces the whole texture")
+    _rows(high, (100.0, 164.0), "a real mark replaces the whole texture")
+    print(f"HOTSPOT REFRESH on close: moved mark remapped, others bitwise, shared mesh once, linked skipped by name, deleted -> smallest trim, ids monotonic, "
+          f"whole texture from Edit Mode and replaced; undo {'checked' if undo else 'not available in background (windowed proof)'}; {note}", flush=True)
+    _markup(*marks)
+    load_draft(scene, TEXT, discard=True)
+    _select_seam(source)
+
+
 def _select_seam(source):
     """Источник активен в Edit Mode с выделенным швом (выделение сборки)."""
 
@@ -731,6 +850,7 @@ def main():
     _press()
     _check_live_width()
     _check_island_marks(kernel)
+    _check_refresh_on_close(kernel)
     _hotspot(False)
     bpy.context.scene.hotspotuv_settings.envelope_debug_alpha = 0.25
     _press()

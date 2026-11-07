@@ -376,3 +376,167 @@ def test_a_one_sided_island_takes_one_wing_of_a_corner_mark_and_swap_flips_it_th
         assert np.max(np.abs(atlas[seam, 1] * 512 - 304.0)) <= 1e-9, "the seam is on the band centre line"
         lone, _ = atlas_uvs(decal.uvs[rows], decal.loop_vertex[rows], decal.loop_group[rows], record.mapping(code_for(CORNER, swap)))
         assert np.array_equal(atlas[rows], lone), "Apply and the press map a one-sided island with the same function"
+
+
+# --------------------------------------------------------------------------
+# HOTSPOT_REFRESH_ON_CLOSE_V1, HOTSPOT_MARK_FALLBACK_V1, HOTSPOT_MARK_ID_MONOTONIC_V1
+# --------------------------------------------------------------------------
+
+from dataclasses import replace as _replace  # noqa: E402
+
+from cftuv.hotspot_islands import (  # noqa: E402
+    COUNTER_FALLBACK_CORNER_TO_TRIM,
+    COUNTER_FALLBACK_SAME_KIND,
+    COUNTER_FALLBACK_TRIM_TO_WING,
+    COUNTER_FALLBACK_WHOLE,
+    COUNTER_MARKS_CHANGED,
+    COUNTER_TRANSFERRED,
+    COUNTER_WHOLE_REPLACED,
+    FALLBACK_COUNTERS,
+    changed_islands,
+    fallback_mark,
+    known_codes,
+    referenced_mark_ids,
+    refresh_record,
+)
+from cftuv.hotspot_markup import WHOLE_TEXTURE_MARK_ID, whole_texture_mark  # noqa: E402
+
+
+def _sheet(*marks):
+    return HotspotMarkupV1(1024, 512, "sheet.png", tuple(marks))
+
+
+def _mapped(decal, record, face_code):
+    """UV слоя (float32) декали, отображённой кнопкой по кодам граней - то, что лежит в меше."""
+
+    return map_islands(decal.uvs, decal.loop_vertex, decal.loop_group, np.repeat(face_code, decal.totals), record)[0].astype(np.float32)
+
+
+def _refresh(decal, record, face_code, markup, strip=None, transfer=True):
+    fresh, codes, counters = refresh_record(record, markup, decal.face_group, known_codes(record, face_code))
+    atlas = _mapped(decal, record, face_code)
+    loops = np.repeat(face_code, decal.totals), np.repeat(codes, decal.totals)
+    out, numbers = remap_atlas(atlas, decal.loop_vertex, decal.loop_group, *loops, record, fresh, strip, transfer)
+    counters.update(numbers)
+    return fresh, codes, atlas, out, counters
+
+
+def _rebuilt(decal, codes, record):
+    return map_islands(decal.uvs, decal.loop_vertex, decal.loop_group, np.repeat(codes, decal.totals), record)[0]
+
+
+def test_the_fallback_of_a_deleted_mark_is_by_kind_then_the_smallest_id_then_the_whole_texture():
+    trims = (HotspotMarkV1(5, "t5", "trim", 0, 0, 1024, 64, "+y"), HotspotMarkV1(3, "t3", "trim", 0, 64, 1024, 64, "+y"))
+    corners = (HotspotMarkV1(7, "c7", "corner", 0, 128, 1024, 64, "+y"), HotspotMarkV1(4, "c4", "corner", 0, 192, 1024, 64, "+y"))
+
+    def pick(marks, kind):
+        mark, name = fallback_mark(_sheet(*marks), kind)
+        return mark.id, name
+
+    assert pick(trims + corners, "corner") == (4, COUNTER_FALLBACK_SAME_KIND)
+    assert pick(trims, "corner") == (3, COUNTER_FALLBACK_CORNER_TO_TRIM)
+    assert pick(trims + corners, "trim") == (3, COUNTER_FALLBACK_SAME_KIND)
+    assert pick(corners, "trim") == (4, COUNTER_FALLBACK_TRIM_TO_WING)
+    for kind in ("trim", "corner"):
+        mark, name = fallback_mark(_sheet(), kind)
+        assert mark == whole_texture_mark(1024, 512) and name == COUNTER_FALLBACK_WHOLE
+    assert len(set(FALLBACK_COUNTERS)) == len(FALLBACK_COUNTERS)
+
+
+def test_unchanged_marks_keep_their_islands_bit_for_bit_and_a_moved_trim_is_transferred_exactly():
+    decal = _Decal()
+    record = _record(TRIM)
+    face = assign(np.full(decal.face_group.shape[0], record.default), decal.face_group, [decal.group(3, 4)], code_for(OTHER, False))
+    renamed = _replace(TRIM, name="drips renamed")  # имя - только показ: UV побитово, снимок обновлён
+    moved = _replace(OTHER, y=320, up="-y")
+    fresh, codes, atlas, out, counters = _refresh(decal, record, face, _sheet(renamed, CORNER, moved))
+    assert np.array_equal(codes, face) and fresh.mark(0) == renamed and fresh.mark(2) == moved and (fresh.width, fresh.height) == (1024, 512)
+    assert counters[COUNTER_MARKS_CHANGED] == 1 and all(counters[name] == 0 for name in FALLBACK_COUNTERS)
+    c_rows = decal.loop_group == decal.group(3, 4)
+    assert np.array_equal(out[~c_rows], atlas[~c_rows]), "islands of unchanged marks stay bit for bit"
+    error = float(np.max(np.abs(out[c_rows] - _rebuilt(decal, codes, fresh)[c_rows])))
+    assert error <= 1e-6 and counters[COUNTER_TRANSFERRED] == 1, error
+    assert changed_islands(atlas, out, decal.loop_group) == (1, 2)
+
+
+@pytest.mark.parametrize("swap", [False, True])
+def test_a_moved_and_flipped_corner_pair_is_transferred_exactly_where_a_rebuild_puts_it(swap):
+    decal = _Decal()
+    record = _record(TRIM)
+    face = assign(np.full(decal.face_group.shape[0], record.default), decal.face_group, [decal.group(3, 0), decal.group(5, 1)], code_for(CORNER, swap))
+    moved = _replace(CORNER, y=160, up="-y", band=20)
+    fresh, codes, atlas, out, counters = _refresh(decal, record, face, _sheet(TRIM, moved, OTHER))
+    pair = np.isin(decal.loop_group, [decal.group(3, 0), decal.group(5, 1)])
+    direct = _rebuilt(decal, codes, fresh)
+    error = float(np.max(np.abs(out[pair] - direct[pair])))
+    print(f"HOTSPOT REFRESH corner transfer (swap={swap}) vs rebuild {error:.2e} UV")
+    assert error <= 1e-6 and counters[COUNTER_TRANSFERRED] == 2 and np.array_equal(out[~pair], atlas[~pair]), error
+    kernel = _refresh(decal, record, face, _sheet(TRIM, moved, OTHER), strip=decal.uvs, transfer=False)[3]
+    assert float(np.max(np.abs(kernel[pair] - direct[pair]))) <= 1e-12, "with the session kernel UV the remap is the rebuild itself"
+
+
+def test_deleted_marks_fall_back_by_kind_and_the_corner_keeps_its_swap():
+    decal = _Decal()
+    record = _record(TRIM)
+    face = assign(np.full(decal.face_group.shape[0], record.default), decal.face_group, [decal.group(3, 0), decal.group(5, 1)], code_for(CORNER, True))
+    face = assign(face, decal.face_group, [decal.group(3, 4)], code_for(OTHER, False))
+    corner = HotspotMarkV1(9, "new edge", "corner", 0, 300, 1024, 96, "+y", 8)
+    fresh, codes, _atlas, out, counters = _refresh(decal, record, face, _sheet(TRIM, corner))
+    by_group = dict(zip(decal.face_group.tolist(), codes.tolist()))
+    assert by_group[decal.group(3, 0)] == by_group[decal.group(5, 1)] == encode(9, True), "corner -> the smallest corner, swap kept"
+    assert by_group[decal.group(3, 4)] == encode(0, False), "trim -> the smallest trim"
+    assert counters[COUNTER_FALLBACK_SAME_KIND] == 3 and counters[COUNTER_PAIRS] == 1 and fresh.mark(1) is None and fresh.mark(2) is None
+    assert float(np.max(np.abs(out - _rebuilt(decal, codes, fresh)))) * 1024 <= 0.1, "the fallback lands where a rebuild with the new codes puts it"
+    fresh, codes, _atlas, _out, counters = _refresh(decal, record, face, _sheet(OTHER))
+    assert set(codes.tolist()) == {encode(2, False)} and counters[COUNTER_FALLBACK_CORNER_TO_TRIM] == 2 and counters[COUNTER_FALLBACK_SAME_KIND] == 0
+    assert fresh.default == encode(2, False), "the default mark falls back as well"
+
+
+def test_a_deleted_trim_without_trims_takes_the_corner_one_wing_unless_its_seam_partner_falls_with_it():
+    decal = _Decal()
+    record = _record(TRIM)
+    face = assign(np.full(decal.face_group.shape[0], record.default), decal.face_group, [decal.group(3, 4)], code_for(OTHER, False))
+    _fresh, codes, _atlas, _out, counters = _refresh(decal, record, face, _sheet(CORNER))
+    assert set(codes.tolist()) == {encode(1, False)} and counters[COUNTER_FALLBACK_TRIM_TO_WING] == 3
+    assert counters[COUNTER_UNPAIRED] == 1 and counters[COUNTER_PAIRS] == 1, "the lone side takes one wing; A and B both fell onto the corner and pair"
+
+
+def test_no_marks_left_maps_every_shell_into_the_whole_texture_and_a_later_mark_replaces_it():
+    decal = _Decal()
+    record = _record(TRIM)
+    face = np.full(decal.face_group.shape[0], record.default)
+    fresh, codes, _atlas, out, counters = _refresh(decal, record, face, _sheet())  # trim обращается точно: сравнение с UV ядра
+    whole = encode(WHOLE_TEXTURE_MARK_ID, False)
+    assert set(codes.tolist()) == {whole} and fresh.default == whole and counters[COUNTER_FALLBACK_WHOLE] == 3
+    assert whole <= np.iinfo(np.int32).max, "the face attribute is INT32"
+    pixels = np.asarray(out) * (1024, 512)
+    assert np.max(np.abs(pixels[:, 1] - decal.uvs[:, 1] * 512)) <= 1e-3, "v runs over the whole height"
+    assert np.max(np.abs(pixels[:, 0] - decal.uvs[:, 0] * 512)) <= 1e-3, "one width of u is the texture height along x (repeats through wrap)"
+    assert record_from_json(record_to_json(fresh)) == fresh, "the pseudo-mark round-trips through the mesh record"
+    assert "whole texture" in selection_text(fresh, [whole])
+    again, same_codes, counters = refresh_record(fresh, _sheet(), decal.face_group, codes)
+    assert again == fresh and np.array_equal(same_codes, codes) and not any(counters[name] for name in FALLBACK_COUNTERS), "a second refresh changes nothing"
+    real = HotspotMarkV1(12, "first", "trim", 0, 200, 1024, 64, "+y")
+    later, later_codes, counters = refresh_record(fresh, _sheet(real), decal.face_group, codes)
+    assert set(later_codes.tolist()) == {encode(12, False)} and counters[COUNTER_WHOLE_REPLACED] == 3 and later.mark(WHOLE_TEXTURE_MARK_ID) is None
+    assert referenced_mark_ids(fresh, codes) == set(), "the pseudo-mark is no floor for new ids"
+
+
+def test_the_id_floor_names_every_mark_a_decal_refers_to():
+    island = IslandMarkV1(3, encode(7, True), ((0.0, 0.0, 0.0),))
+    record = _record(TRIM, islands=(island,))
+    assert referenced_mark_ids(record, [encode(11, False), NO_MARK]) == {0, 1, 2, 7, 11}
+
+
+
+def test_a_record_is_current_only_when_every_mark_of_its_table_is_unchanged_in_the_markup():
+    from cftuv.hotspot_islands import record_is_current
+
+    record = _record(TRIM)
+    assert record_is_current(record, _sheet(TRIM, CORNER, OTHER))
+    assert not record_is_current(record, _sheet(TRIM, CORNER, _replace(OTHER, y=320))), "a moved mark of a non-default island"
+    assert not record_is_current(record, _sheet(TRIM, CORNER)), "a deleted mark"
+    assert not record_is_current(record, _sheet(_replace(TRIM, name="renamed"), CORNER, OTHER)), "the snapshot follows the name too"
+    assert not record_is_current(record, HotspotMarkupV1(2048, 512, "", (TRIM, CORNER, OTHER))), "another texture size"
+    whole, _codes, _counters = refresh_record(record, _sheet(), np.zeros(1, dtype=np.int64), np.full(1, record.default))
+    assert record_is_current(whole, _sheet()) and not record_is_current(whole, _sheet(OTHER)), "the pseudo-mark gives way to a real mark"
