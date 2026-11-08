@@ -12,7 +12,12 @@
 5. замкнутый меш без швов по рёбрам - именованный отказ `SOURCE_HAS_NO_BOUNDARY_CHAIN`, а не исключение;
 6. триангулированный бевел без атрибута - именованный отказ `BEVEL_SPLIT_UNRESOLVED` (меш декали не создан), с атрибутом - строится;
 7. строка «Faces: Inward / Outward» панели рисуется только в режиме выделения граней;
-8. живая ширина декали нажатия по граням доступна, и её точный пересчёт побитово равен нажатию на новой ширине.
+8. живая ширина декали нажатия по граням доступна, и её точный пересчёт побитово равен нажатию на новой ширине;
+9. OUTWARD - это обычная процедура на меше без граней бевела (BEVEL_FACES_OUTWARD_IS_THE_EDGE_PATH_V1, поле: шумный верх
+   `rounded_wall_noise_top.001` без декали): четверть кольца с шумным триангулированным верхом, бевел обода, вертикальных рёбер
+   торцов и низа; та же строка статуса и побитово тот же меш декали, что у нажатия по рёбрам открытой границы того же меша с
+   удалёнными гранями бевела; умеренный шум - верх строится, сильный - домен верха не молчит (каждый патч анализа - домен со
+   своим исходом, отказ назван в статусе).
 
 Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_faces_build.py
 Последняя строка при успехе: BEVEL_FACES_BUILD_BLENDER_OK
@@ -22,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import random
 import re
 import sys
 import time
@@ -349,6 +355,95 @@ def _run_closed_mesh_without_seams_is_a_named_refusal():
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def _noisy_wall(noise, arcs=16, rows=3, r_in=3.9, r_out=4.3, height=4.5):
+    """Четверть кольца стены: верх - треугольники с шумом высоты `noise` (сид постоянный), бевел обода верха, вертикальных рёбер
+    торцов и границы низа в 2 сегмента (материал 1). Грани бевела - в конце нумерации: у меша без них те же номера граней, рёбер, вершин."""
+
+    rng = random.Random(7)
+    bm = bmesh.new()
+    radii = [r_in + (r_out - r_in) * k / rows for k in range(rows + 1)]
+    top, bottom = [], []
+    for i in range(arcs + 1):
+        cos, sin = math.cos(0.5 * math.pi * i / arcs), math.sin(0.5 * math.pi * i / arcs)
+        top.append([bm.verts.new((r * cos, r * sin, height + rng.uniform(-noise, noise))) for r in radii])
+        bottom.append([bm.verts.new((r * cos, r * sin, 0.0)) for r in (r_in, r_out)])
+    top_faces, bottom_faces = [], []
+    for i in range(arcs):
+        for k in range(rows):
+            a, b, c, d = top[i][k], top[i][k + 1], top[i + 1][k + 1], top[i + 1][k]
+            top_faces += [bm.faces.new(item) for item in (((a, b, c), (a, c, d)) if (i + k) % 2 else ((a, b, d), (b, c, d)))]
+        bottom_faces.append(bm.faces.new((bottom[i][0], bottom[i + 1][0], bottom[i + 1][1], bottom[i][1])))
+        bm.faces.new((top[i][0], top[i + 1][0], bottom[i + 1][0], bottom[i][0]))
+        bm.faces.new((top[i][rows], bottom[i][1], bottom[i + 1][1], top[i + 1][rows]))
+    for i in (0, arcs):
+        ring = [bottom[i][0], bottom[i][1], *reversed(top[i])]
+        bm.faces.new(ring if i == arcs else list(reversed(ring)))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    vertical = {frozenset((top[i][0], bottom[i][0])) for i in (0, arcs)} | {frozenset((top[i][rows], bottom[i][1])) for i in (0, arcs)}
+    sharp = [
+        edge for edge in bm.edges
+        if sum(1 for face in edge.link_faces if face in top_faces) == 1
+        or sum(1 for face in edge.link_faces if face in bottom_faces) == 1
+        or frozenset(edge.verts) in vertical
+    ]
+    bmesh.ops.bevel(bm, geom=sharp, offset=0.05, offset_type="OFFSET", segments=2, profile=0.5, affect="EDGES",
+                    clamp_overlap=True, material=1, loop_slide=True, face_strength_mode="NONE")
+    bm.faces.sort(key=lambda face: face.material_index)
+    return bm
+
+
+def _upward_decal(name):
+    """Грани декали, смотрящие вверх (декаль верха), всего граней и отпечаток содержимого меша декали."""
+
+    from cftuv.envelope_production_mesh import mesh_content_digest
+
+    decal = bpy.data.objects.get(name + ".CFTUV_Decal")
+    assert decal is not None, name
+    mesh = decal.data
+    return sum(1 for polygon in mesh.polygons if polygon.normal.z > 0.7), len(mesh.polygons), mesh_content_digest(mesh)
+
+
+def _press_counted(obj, side):
+    """Нажатие: (строка статуса без сводки граней, построено, отказано); каждый патч анализа - домен со своим исходом."""
+
+    built, refused, status, _seconds = _press(obj, side)
+    assert built + refused == len(_controller().width_build.analysis_bundle.patch_graph.nodes), (obj.name, side, status)
+    return status.split(" | ")[0], built, refused
+
+
+def _run_outward_is_the_edge_path_without_the_bevel_faces():
+    """Поле (`rounded_wall_noise_top.001`, Outward): декали стен есть, верха нет. Строка `MATERIALIZED 4 / refused 1
+    (DEVELOPABLE_CHART_SELF_OVERLAP)` называла отказ верха, а нажатие по рёбрам на том же верху без бевела отказывает тоже: это
+    предел развёртки ядра на шумном верху, а не Outward. Здесь исполняется модель владельца: OUTWARD = обычная процедура на меше,
+    где граней бевела нет (тот же меш с удалёнными гранями бевела, источники - его открытая граница, то же имя объекта)."""
+
+    for noise, top_builds in ((0.04, True), (0.12, None)):
+        _clean()
+        name = f"noisy_wall_{round(noise * 100)}"
+        obj = _object(name, _noisy_wall(noise))
+        bevel = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
+        _enter_face_selection(obj, bevel)
+        outward = (*_press_counted(obj, "OUTWARD"), *_upward_decal(name))
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.data.objects.remove(bpy.data.objects[name + ".CFTUV_Decal"], do_unlink=True)
+        obj.name = name + "_faces"
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bmesh.ops.delete(bm, geom=[face for face in bm.faces if face.material_index == 1], context="FACES_ONLY")
+        border = [edge.index for edge in bm.edges if len(edge.link_faces) == 1]
+        control = _object(name, bm)
+        _enter_edge_selection(control, border)
+        edges = (*_press_counted(control, "OUTWARD"), *_upward_decal(name))
+        bpy.ops.object.mode_set(mode="OBJECT")
+        assert outward == edges, (name, "outward is the edge path on the mesh without the bevel faces", outward, edges)
+        status, built, refused, upward = outward[:4]
+        if top_builds:
+            assert refused == 0 and upward > 0, (name, status)
+        elif upward == 0:
+            assert refused > 0 and re.search(r"refused \d+ \([A-Z_]+", status), (name, "the top domain is refused by name", status)
+        SUMMARY.append(f"{name}: outward = edge path without the bevel: {status}, {upward} top decal faces")
+
+
 class _Layout:
     """Заглушка `UILayout`: любой вызов - заглушка, `prop` записывает имя свойства."""
 
@@ -395,6 +490,7 @@ def _main():
     _run_a_triangulated_bevel_needs_the_attribute()
     _run_the_live_width_of_a_face_build_equals_a_press_at_that_width()
     _run_edge_path_is_not_touched_by_face_presses()
+    _run_outward_is_the_edge_path_without_the_bevel_faces()
     _run_synthetic_cases()
     for line in SUMMARY:
         print("[BevelFacesTest]", line, flush=True)
