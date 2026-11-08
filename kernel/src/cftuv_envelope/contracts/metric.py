@@ -1088,11 +1088,16 @@ class DevelopableProposalLawV1(str, Enum):
     (`_cone_relief`, закон `CONE_RELIEF_NLERP_V1`). Пробуется ТОЛЬКО после отказа шарнира
     `DEVELOPABLE_CHART_SELF_OVERLAP` при развёртке в бюджете (изометрия накрывает себя сама, ARAP
     её не лечит), и последняя запись `previous_refusals` у него — именно этот отказ.
+
+    `ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1` — тот же ARAP (80 итераций), но старт — проекция на
+    плоскость Ньюэлла, и только если она сама вложение. Пробуется ТОЛЬКО после отказа ARAP от шарнира;
+    две последние записи `previous_refusals` — отказ шарнира и отказ ARAP (`ARAP_FROM_PLANE_PROJECTION_V1`).
     """
 
     BINARY64_HINGE_V1 = "BINARY64_HINGE_V1"
     ARAP_LOCAL_GLOBAL_80_BINARY64_V1 = "ARAP_LOCAL_GLOBAL_80_BINARY64_V1"
     ARAP_CONE_RELIEF_80_BINARY64_V1 = "ARAP_CONE_RELIEF_80_BINARY64_V1"
+    ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1 = "ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1"
 
 
 class DevelopableProposalSelectionLawV1(str, Enum):

@@ -292,7 +292,7 @@ PINS: dict = {
     "reference/density_result_v1.py": "c893b9ff34e821bb6a8d97e39a9319b57f0bb27e6bf80749cdaa5e3ce4c5849e",
     "reference/density_attempt_memo_v1.py": "1376063e8aa2e56484b6f1912c2a5f3ba06c2c3c2f1dccbe77d3d7732a6c44a1",
     "contracts/analysis.py": "d5384d422499e60ef4128ca87146edf72346f15be20793810adcb206fe070a42",
-    "contracts/metric.py": "9bbe31dd227dc5ff4423b274b81e34cd920b1dd88380e12ba3556d60a7f9ad4d",
+    "contracts/metric.py": "54213741907f7c6cded564924a812be2e2e62e22370062d9bd8587a2a3e68750",
     "ids.py": "36b918673550a9b72cecfe96d0b52ef88f826347faf52a16074adc218e5a64f3",
     "reference/angle_measure.py": "b9fdd6817bb5649d8383ee3cdf300d63ad23b448bb4be1ddcac9959b037b229a",
     "reference/metric.py": "61b61ceb8c7a7e461e49a3243114aac6ddd09746b85f76e65057a5a323ab3071",

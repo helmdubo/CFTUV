@@ -895,7 +895,8 @@
           "enum": [
             "BINARY64_HINGE_V1",
             "ARAP_LOCAL_GLOBAL_80_BINARY64_V1",
-            "ARAP_CONE_RELIEF_80_BINARY64_V1"
+            "ARAP_CONE_RELIEF_80_BINARY64_V1",
+            "ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1"
           ],
           "type": "string"
         },
@@ -1258,7 +1259,8 @@
           "enum": [
             "BINARY64_HINGE_V1",
             "ARAP_LOCAL_GLOBAL_80_BINARY64_V1",
-            "ARAP_CONE_RELIEF_80_BINARY64_V1"
+            "ARAP_CONE_RELIEF_80_BINARY64_V1",
+            "ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1"
           ],
           "type": "string"
         },
