@@ -10,7 +10,9 @@
 4. контроли - `BEVEL_SELECT_NONE_FOUND`: выделение и режим выделения не тронуты, оператор отменён (шага отмены нет);
 5. замена и добавление (`extend`), режим выделения переключён на грани, меш не изменён (ни одного шва, те же грани);
 6. несколько объектов в Edit Mode - каждый получает свои грани, строка отчёта называет каждый;
-7. кнопка рисуется в Edit Mode в любом режиме выделения, строка «Faces» - только в режиме граней; оператор с шагом отмены.
+7. кнопка рисуется в Edit Mode в любом режиме выделения, строка «Faces» - только в режиме граней; оператор с шагом отмены;
+8. углы обода у торцов стены с шумным треугольным верхом и своей фаской торца (BEVEL_SELECT_CORNERS_V1, поле
+   `rounded_wall_noise_top`): бевел по углу в 1/2/3 сегмента, каждая грань бевела у торцов выделена, по стене - точность и полнота.
 
 Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_select_faces.py
 Последняя строка при успехе: BEVEL_SELECT_FACES_BLENDER_OK
@@ -100,6 +102,85 @@ def _grid_cube_bevel():
 
 
 CONTROLS = {"planar_cuts": _planar_cuts, "thin_ledge": _thin_ledge, "cylinder32": _cylinder, "plain_cube": _plain_cube}
+
+WALL_LENGTH, WALL_DEPTH, WALL_HEIGHT = 2.0, 0.3, 1.0
+#: Замер (BEVEL_SELECT_CORNERS_V1): до правки R 0.88-0.91 и 8-28 пропусков у торцов, после - P 1.0, R >= 0.987, у торцов <= 2.
+WALL_MIN_PRECISION, WALL_MIN_RECALL, WALL_MAX_END_MISSES = 0.99, 0.98, 2
+
+
+def _noisy_wall(noise):
+    """Стена поля в миниатюре (`rounded_wall_noise_top`): верх - треугольники с шумом высоты, торец x = длина со своей фаской 45 градусов
+    0.02 на переднем вертикальном ребре. Бевел по углу снимает обод верха и вертикальные рёбра торцов; углы обода у торцов -
+    то место, где кнопка пропускала фаски."""
+
+    bm = bmesh.new()
+    top, bottom, segments = {}, {}, 8
+    for i in range(segments + 1):
+        x = WALL_LENGTH * i / segments
+        for j, y in enumerate((0.0, WALL_DEPTH / 2, WALL_DEPTH)):
+            rise = noise * math.sin(1.7 * i + 2.3 * j) if 0 < i < segments or j == 1 else 0.0
+            top[i, j] = bm.verts.new((x, y, WALL_HEIGHT + rise))
+        for j, y in enumerate((0.0, WALL_DEPTH)):
+            bottom[i, j] = bm.verts.new((x, y, 0.0))
+    for i in range(segments):
+        bm.faces.new((bottom[i, 0], bottom[i + 1, 0], top[i + 1, 0], top[i, 0]))
+        bm.faces.new((bottom[i + 1, 1], bottom[i, 1], top[i, 2], top[i + 1, 2]))
+        bm.faces.new((bottom[i, 1], bottom[i + 1, 1], bottom[i + 1, 0], bottom[i, 0]))
+        for j in (0, 1):
+            a, b, c, d = top[i, j], top[i + 1, j], top[i + 1, j + 1], top[i, j + 1]
+            for cycle in (((a, b, c), (a, c, d)) if (i + j) % 2 else ((a, b, d), (b, c, d))):
+                bm.faces.new(cycle)
+    bm.faces.new((bottom[0, 1], bottom[0, 0], top[0, 0], top[0, 1], top[0, 2]))
+    bm.faces.new((bottom[segments, 0], bottom[segments, 1], top[segments, 2], top[segments, 1], top[segments, 0]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    end = {(WALL_LENGTH, 0.0, 0.0), (WALL_LENGTH, 0.0, WALL_HEIGHT)}
+    edge = next(item for item in bm.edges if {vertex.co.to_tuple(4) for vertex in item.verts} == end)
+    bmesh.ops.bevel(bm, geom=[edge], offset=0.02, offset_type="OFFSET", segments=1, profile=0.5, affect="EDGES", clamp_overlap=True,
+                    loop_slide=True)
+    return bm
+
+
+def _wall_bevel(name, noise, segments, width):
+    source = _object(name + "_base", _noisy_wall(noise))
+    modifier = source.modifiers.new("Bevel", "BEVEL")
+    modifier.width, modifier.segments, modifier.limit_method, modifier.material = width, segments, "ANGLE", 1
+    modifier.face_strength_mode = "FSTR_NONE"
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mesh = bpy.data.meshes.new_from_object(source.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph)
+    bpy.data.objects.remove(source, do_unlink=True)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def _run_the_rim_corners_at_the_wall_ends_are_found():
+    """BEVEL_SELECT_CORNERS_V1: на углах обода у торцов (щель, сжатая clamp overlap у фаски торца, трапеции и короткие куски полосы,
+    угол трёх бевелей, ряд с крайним рельсом против профиля) выделена каждая грань бевела; по всей стене - точность и полнота."""
+
+    from cftuv import bevel_faces as bf
+    from cftuv.bevel_faces_blender import read_mesh_view
+
+    for noise in (0.0, 0.03):
+        for segments in (1, 2, 3):
+            for width in (0.03, 0.05):
+                _clean()
+                name = f"wall_n{noise}_s{segments}_w{width}"
+                obj = _wall_bevel(name, noise, segments, width)
+                truth = _truth(obj)
+                bm = bmesh.new()
+                bm.from_mesh(obj.data)
+                selection = bf.select_bevel_faces(read_mesh_view(bm, obj.matrix_world))
+                bm.free()
+                corner = frozenset(polygon.index for polygon in obj.data.polygons if polygon.index in truth
+                                   and min(polygon.center.x, WALL_LENGTH - polygon.center.x) < 0.15)
+                precision, recall = _score(selection.faces, truth)
+                SUMMARY.append(f"{name}: {selection.outcome} truth {len(truth)}, ends {len(corner)}, missed at ends "
+                               f"{len(corner - selection.faces)}, P {precision} R {recall} events {dict(selection.events)}")
+                # у торцов допустимы лишь крошечные грани угла, что гнут к соседу меньше 2 градусов, - и они названы числом
+                missed = corner - selection.faces
+                named = dict(selection.events).get(bf.BEVEL_NODE_FLAT_EDGE, 0)
+                assert selection.outcome == bf.BEVEL_SELECT_GEOMETRIC and len(missed) <= min(WALL_MAX_END_MISSES, named), (name, sorted(missed))
+                assert precision >= WALL_MIN_PRECISION and recall >= WALL_MIN_RECALL, (name, precision, recall)
 
 
 def _truth(obj):
@@ -336,6 +417,7 @@ def _main():
     _run_controls_find_nothing_and_keep_the_selection()
     _run_a_triangulated_bevel_is_exact_only_with_face_strength_all()
     _run_bevel_cases()
+    _run_the_rim_corners_at_the_wall_ends_are_found()
     for line in SUMMARY:
         print("[BevelSelectTest]", line, flush=True)
     from cftuv.envelope_domain_pool import shutdown_domain_pool

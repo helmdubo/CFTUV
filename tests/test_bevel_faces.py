@@ -378,3 +378,139 @@ def test_the_dihedral_sign_reads_the_edge_order_not_the_centre_of_a_non_convex_f
     geometry = bf._MeshGeometry(bf.BevelMeshViewV1(coords, faces), bf.BEVEL_SELECT_MAX_WIDTH)
     assert geometry.dihedral(frozenset((2, 3))) == pytest.approx(90.0)
     assert geometry.dihedral(frozenset((0, 1))) == pytest.approx(90.0)
+
+
+# --- Концы профиля у угла бевелей (BEVEL_SELECT_CORNERS_V1): поле, `rounded_wall_noise_top`, фаски у торцов верха пропущены ----------
+
+
+def _profile(points, rails=None):
+    """Сечение `points` (x, z) вытянуто вдоль y на 1 (рельс k - вдоль `rails[k]`, по умолчанию ось y); ряды между соседними точками.
+    Первый и последний ряд - пол и стена, остальные - профиль."""
+
+    coords, faces = {}, {}
+    for row, (x, z) in enumerate(points):
+        along = (0.0, 1.0, 0.0) if rails is None else rails[row]
+        coords[row * 2] = (x, 0.0, z)
+        coords[row * 2 + 1] = (x + along[0], along[1], z + along[2])
+    for row in range(len(points) - 1):
+        faces[row] = (row * 2, row * 2 + 1, row * 2 + 3, row * 2 + 2)
+    return coords, faces, frozenset(range(1, len(points) - 2))
+
+
+def _arc(segments, radius=0.1):
+    import math
+
+    return [(radius - radius * math.sin(math.pi / 2 * step / segments), radius - radius * math.cos(math.pi / 2 * step / segments))
+            for step in range(segments + 1)]
+
+
+def test_a_strip_beside_a_face_the_clamp_collapsed_is_found_through_it_by_name():
+    """Clamp overlap сжимает до нуля плоскую щель между двумя полосами (торец стены поля со своей фаской 45 градусов): у рельса
+    рядом вырожденный квад без нормали. Раньше полоса без угла рельса молча выпадала; теперь угол читается сквозь щель - по имени."""
+
+    arc = _arc(2)
+    points = [(1.0, 0.0), arc[0], arc[1], arc[1], arc[2], (0.0, 1.0)]  # ряд 2 - щель нулевой ширины
+    coords, faces, _rows = _profile(points)
+    assert bf.face_normal(coords, faces[2]) is None
+    selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+    assert selection.outcome == bf.BEVEL_SELECT_GEOMETRIC and selection.strip == {1, 3} and not selection.node
+    assert dict(selection.events)[bf.BEVEL_EDGE_THROUGH_DEGENERATE_FACE] == 2
+
+
+def test_a_row_whose_outer_rail_counter_turns_slightly_stays_whole_by_name():
+    """Шумный верх стены: грань у края фаски наклонена, внешний рельс гнёт против профиля на 6 градусов. Раньше смешанные знаки
+    резали ряд по широчайшей грани и крайняя полоса терялась; теперь ряд целый, решение названо."""
+
+    import math
+
+    def step(point, degrees, length):
+        return point[0] - length * math.cos(math.radians(degrees)), point[1] + length * math.sin(math.radians(degrees))
+
+    floor_end = (0.2, 0.0)
+    points = [step(floor_end, 6.0, -0.8), floor_end]  # пол поднимается к фаске на 6 градусов
+    for degrees in (0.0, 30.0, 60.0):
+        points.append(step(points[-1], degrees, 0.05))
+    points.append(step(points[-1], 90.0, 0.8))
+    coords, faces, rows = _profile(points)
+    selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+    assert selection.strip == rows == {1, 2, 3} and not selection.node
+    assert dict(selection.events)[bf.BEVEL_ROW_END_COUNTER_TURN] == 1
+    ledge = bf.select_bevel_faces(bf.BevelMeshViewV1(*_box(2.0, 0.1, 1.0)))  # уступ гнёт против на 90: исключение его не трогает
+    assert ledge.outcome == bf.BEVEL_SELECT_NONE_FOUND
+
+
+def test_a_row_whose_rails_fan_out_towards_a_corner_is_split_not_dropped():
+    """У угла митра поворачивает рельсы профиля на 3 градуса за грань: соседние рельсы параллельны, первый и последний - нет.
+    Раньше весь ряд отбрасывался (`BEVEL_BAND_NOT_PARALLEL` от первой грани); теперь ряд целый, пока уход в допуске рельса."""
+
+    import math
+
+    rails = [(math.sin(math.radians(3.0 * index)), math.cos(math.radians(3.0 * index)), 0.0) for index in range(5)]
+    coords, faces, rows = _profile([(1.0, 0.0), *_arc(3), (0.0, 1.0)], rails=[rails[0], *rails, rails[-1]])
+    selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+    assert selection.strip == rows == {1, 2, 3} and bf.BEVEL_BAND_NOT_PARALLEL not in dict(selection.events)
+
+
+def _sections(sections):
+    """Сечения `(y, [(x, z), ...])` с одним числом точек; ряд r между сечениями s и s + 1 - грань `s * 100 + r`."""
+
+    count = len(sections[0][1])
+    coords = {s * count + r: (x, y, z) for s, (y, points) in enumerate(sections) for r, (x, z) in enumerate(points)}
+    faces = {s * 100 + r: (s * count + r, (s + 1) * count + r, (s + 1) * count + r + 1, s * count + r + 1)
+             for s in range(len(sections) - 1) for r in range(count - 1)}
+    return coords, faces
+
+
+def test_end_pieces_that_continue_a_strip_are_strips_by_name_and_a_wider_one_is_not():
+    """Кусок фаски у торца: короткий (митра съела длину, квад шире половины длины), трапеция (clamp overlap срезал отступ у одной
+    вершины: рельсы сходятся на 9.5 градуса) и слишком широкий (наклонная грань шумного верха у края). Раньше первые два молча
+    выпадали из кандидатов; теперь кусок, что концом продолжает полосу не шире её в 1.5 раза, - полоса, каждый случай по имени."""
+
+    profile = [(1.0, 0.0), (0.1, 0.0), (0.0, 0.1), (0.0, 1.0)]
+    for far, expected in (
+        ((1.16, profile), {bf.BEVEL_ROW_SHORT_STRIP: 1}),
+        ((1.3, [(1.0, 0.0), (0.05, 0.0), (0.0, 0.1), (0.0, 1.0)]), {bf.BEVEL_FACE_TAPERED: 1}),
+        ((2.0, [(1.0, 0.0), (0.1, 0.0), (0.0, 0.3), (0.0, 1.0)]), {bf.BEVEL_END_PIECE_WIDER: 1}),
+    ):
+        coords, faces = _sections([(0.0, profile), (1.0, profile), far])
+        selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+        piece = {101} if bf.BEVEL_END_PIECE_WIDER not in expected else set()
+        assert selection.strip == {1} | piece and not selection.node, (far, selection)
+        assert {name: count for name, count in selection.events if name in expected} == expected, selection.events
+
+
+def _fanned_corner_cube(rise):
+    """Куб с фаской, каждый узел - веер из трёх треугольников к центру, поднятому на `rise` наружу: так выглядит угол трёх бевелей
+    в 2+ сегмента - каждая грань угла касается одной полосы."""
+
+    coords, faces, kinds = _outward_cube()
+    coords, faces, kinds = dict(coords), dict(faces), dict(kinds)
+    for node in sorted(face for face, kind in kinds.items() if kind == "node"):
+        cycle = faces.pop(node)
+        kinds.pop(node)
+        centre = [sum(coords[index][axis] for index in cycle) / 3.0 for axis in range(3)]
+        length = sum(value * value for value in centre) ** 0.5
+        apex = len(coords)
+        coords[apex] = tuple(value * (1.0 + rise / length) for value in centre)
+        for position in range(3):
+            fan = max(faces) + 1
+            faces[fan] = (cycle[position], cycle[(position + 1) % 3], apex)
+            kinds[fan] = "node"
+    return coords, faces, kinds
+
+
+def test_a_corner_whose_faces_each_touch_one_strip_is_one_node_cluster_by_name():
+    coords, faces, kinds = _fanned_corner_cube(0.01)
+    selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+    assert selection.strip == _kind(kinds, "strip") and selection.node == _kind(kinds, "node")
+    assert dict(selection.events) == {bf.BEVEL_NODE_CLUSTER: 24}
+
+
+def test_a_corner_lying_in_one_plane_stays_unselected_and_is_counted():
+    """Веер в плоскости узла: рёбра между треугольниками не гнут поверхность - не узел геометрии (как плоская обрезка сетки у фаски),
+    и каждая такая грань названа числом, а не молчит."""
+
+    coords, faces, kinds = _fanned_corner_cube(0.0)
+    selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+    assert selection.strip == _kind(kinds, "strip") and not selection.node
+    assert dict(selection.events) == {bf.BEVEL_NODE_FLAT_EDGE: 24}
