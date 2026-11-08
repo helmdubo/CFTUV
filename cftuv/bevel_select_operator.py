@@ -20,9 +20,10 @@ from .bevel_faces import (
     BEVEL_SELECT_NONE_FOUND,
     select_bevel_faces,
     selection_console_lines,
+    seam_edges,
     selection_line,
 )
-from .bevel_faces_blender import apply_face_selection, read_mesh_view
+from .bevel_faces_blender import apply_face_selection, read_mesh_view, read_view
 from .bevel_seed import BEVEL_SEED_NOT_BEVEL, select_from_seeds
 
 
@@ -103,4 +104,52 @@ class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
         return {"FINISHED"} if total else {"CANCELLED"}
 
 
-__all__ = ("HOTSPOTUV_OT_SelectBevelFaces",)
+class HOTSPOTUV_OT_SeamBevel(bpy.types.Operator):
+    """BEVEL_SEAM_MARK_V1: швы разметки по выделенным граням бевела - граница выделения и разрез «узел | полоса»."""
+
+    bl_idname = "hotspotuv.seam_bevel"
+    bl_label = "Seam Bevel"
+    bl_description = (
+        "Mark UV seams around the selected bevel faces: the selection boundary (rails, node edges to the original faces) and every "
+        "node | strip edge, so each node becomes its own patch and the rail seams meet the node seams at junction points. "
+        "A single selected node gets seams on its whole boundary. Nodes and strips: exact from Bevel Face Strength 'All', "
+        "otherwise a named geometric guess. Existing seams are kept"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == "MESH" and obj.mode == "EDIT"
+
+    def execute(self, context):
+        objects = [obj for obj in getattr(context, "objects_in_mode_unique_data", ()) if obj.type == "MESH"] or [context.active_object]
+        parts, marked = [], 0
+        for obj in objects:
+            bm = bmesh.from_edit_mesh(obj.data)
+            view = read_view(bm)
+            if not view.selected:
+                continue
+            edges, split = seam_edges(view)
+            bm.edges.ensure_lookup_table()
+            added = [bm.edges[index] for index in sorted(edges) if not bm.edges[index].seam]
+            for edge in added:
+                edge.seam = True
+            if added:
+                bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+            marked += len(added)
+            events = ", ".join(f"{name} {count}" for name, count in split.events)
+            parts.append(
+                f"{obj.name}: {len(edges)} seam edges ({len(added)} new), {len(split.strip)} strip / {len(split.node)} node"
+                f"{f', {len(split.unresolved)} unresolved' if split.unresolved else ''} ({split.source}{f'; {events}' if events else ''})"
+            )
+        if not parts:
+            self.report({"WARNING"}, "Seam Bevel: BEVEL_FACES_EMPTY_SELECTION - select the bevel faces (or a node) first")
+            return {"CANCELLED"}
+        line = f"Seam Bevel: {marked} new seam edges | " + "; ".join(parts)
+        print(f"[CFTUV][BevelSeam] {line}", flush=True)
+        self.report({"INFO"}, line)
+        return {"FINISHED"}
+
+
+__all__ = ("HOTSPOTUV_OT_SeamBevel", "HOTSPOTUV_OT_SelectBevelFaces")

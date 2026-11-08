@@ -315,6 +315,15 @@ def outward_sources(view: BevelFacesViewV1) -> frozenset[int]:
     )
 
 
+def seam_edges(view: BevelFacesViewV1) -> tuple[frozenset[int], BevelSplitV1]:
+    """BEVEL_SEAM_MARK_V1: швы разметки по выделению - граница выделения (рельсы и края узлов к исходным граням) и разрез «узел |
+    полоса»; узел становится своим патчем, швы рельсов сходятся с его краями в точках стыка. Разбиение и его события - как у нажатия
+    Inward (атрибут Face Strength, иначе геометрия по имени)."""
+
+    split = split_bevel_faces(view)
+    return outward_sources(view) | cut_edges(view, split), split
+
+
 def plan_faces(view: BevelFacesViewV1, side: str, all_faces) -> BevelFacesPlanV1:
     """План нажатия по граням: грани анализа, разрез, источники OUTWARD и именованный отказ, если считать нечего."""
 
@@ -1069,6 +1078,7 @@ __all__ = (
     "plan_faces",
     "plan_summary",
     "scope_digest",
+    "seam_edges",
     "select_bevel_faces",
     "selection_console_lines",
     "selection_line",

@@ -132,6 +132,28 @@ def test_inward_analyses_only_the_selection_and_cuts_every_node_from_its_strips(
     assert "12 strip / 8 node (BEVEL_SPLIT_GEOMETRIC)" in bf.plan_summary(plan)
 
 
+def test_seams_close_the_bevel_rails_and_every_node_into_one_network():
+    """BEVEL_SEAM_MARK_V1: весь бевел куба - 24 ребра рельсов и 24 ребра узлов; каждый конец шва рельса лежит на шве узла (стык)."""
+
+    view, kinds = _cube_view()
+    seams, split = bf.seam_edges(view)
+    assert split.node == {face for face, kind in kinds.items() if kind == "node"}
+    rails = bf.outward_sources(view)
+    assert len(rails) == 24 and len(seams) == 48 and rails <= seams
+    by_id = {edge_id: key for key, edge_id in view.edge_ids.items()}
+    node_vertices = {vertex for face in split.node for vertex in view.faces[face]}
+    assert all(by_id[edge_id] <= node_vertices for edge_id in seams - rails)
+
+
+def test_a_single_selected_node_gets_seams_on_its_whole_boundary():
+    coords, faces, kinds = _chamfered_cube()
+    node = min(face for face, kind in kinds.items() if kind == "node")
+    view = _view(coords, faces, {node})
+    seams, _split = bf.seam_edges(view)
+    cycle = faces[node]
+    assert seams == {view.edge_ids[frozenset((cycle[i], cycle[(i + 1) % len(cycle)]))] for i in range(len(cycle))}
+
+
 def test_outward_analyses_only_the_faces_the_selection_leaves_and_needs_no_split():
     view, kinds = _cube_view()
     plan = bf.plan_faces(view, bf.OUTWARD, kinds)

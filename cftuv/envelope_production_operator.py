@@ -44,7 +44,7 @@ from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
 from .bevel_faces import INWARD, plan_console_lines, plan_summary
 from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection
-from .bevel_select_operator import HOTSPOTUV_OT_SelectBevelFaces
+from .bevel_select_operator import HOTSPOTUV_OT_SeamBevel, HOTSPOTUV_OT_SelectBevelFaces
 from .envelope_gc_pause import gc_paused_call
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
@@ -456,7 +456,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         return {"FINISHED"}
 
 
-_CLASSES = (HOTSPOTUV_DecalMeshSettings, HOTSPOTUV_OT_BuildEnvelopeDecalMesh, HOTSPOTUV_OT_SelectBevelFaces)
+_CLASSES = (HOTSPOTUV_DecalMeshSettings, HOTSPOTUV_OT_BuildEnvelopeDecalMesh, HOTSPOTUV_OT_SelectBevelFaces, HOTSPOTUV_OT_SeamBevel)
 
 
 def fold_scene_settings() -> int:

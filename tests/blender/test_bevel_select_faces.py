@@ -412,7 +412,7 @@ def _run_the_button_is_drawn_in_edit_mode_in_every_select_mode():
         _enter([obj], mode=mode)
         drawn.clear()
         draw_decal_mesh_rows(_Logged(drawn))
-        assert "hotspotuv.select_bevel_faces" in drawn and ("face_side" in drawn) == side, (mode, drawn)
+        assert {"hotspotuv.select_bevel_faces", "hotspotuv.seam_bevel"} <= set(drawn) and ("face_side" in drawn) == side, (mode, drawn)
         bpy.ops.object.mode_set(mode="OBJECT")
     drawn.clear()
     draw_decal_mesh_rows(_Logged(drawn))
@@ -542,6 +542,49 @@ def _run_a_seed_on_the_wall_leaves_the_source_chamfer_out():
             assert "FINISHED" in result and after == selection.faces | selection.seeds and after <= truth, name
             bpy.ops.object.mode_set(mode="OBJECT")
 
+def _run_seam_bevel_joins_the_rails_and_the_nodes():
+    """BEVEL_SEAM_MARK_V1: весь бевел двух кубов (All, 2 сегмента) - швы ровно граница выделения и рёбра «узел | полоса» по атрибуту;
+    один выделенный узел - швы по всему его контуру; старые швы не снимаются."""
+
+    from cftuv.bevel_faces import FACE_STRENGTH_ATTRIBUTE
+
+    _clean()
+    obj = _modifier_bevel_bm("seam_cubes", _two_cubes(), 2, "FSTR_ALL")
+    strength = {item.index: int(value.value) for item, value in zip(obj.data.polygons, obj.data.attributes[FACE_STRENGTH_ATTRIBUTE].data)}
+    bevel = _truth(obj)
+    node = frozenset(face for face in bevel if strength[face] < 0)
+    expected = set()
+    for edge in obj.data.edges:
+        key = set(edge.vertices)
+        faces = [polygon.index for polygon in obj.data.polygons if key <= set(polygon.vertices)]
+        inside = [face in bevel for face in faces]
+        kinds = {face in node for face in faces}
+        if (any(inside) and not all(inside)) or (all(inside) and len(faces) == 2 and kinds == {True, False}):
+            expected.add(edge.index)
+    _enter([obj], faces=sorted(bevel))
+    result = bpy.ops.hotspotuv.seam_bevel()
+    seams = _seams(obj)
+    assert "FINISHED" in result and node and seams == expected, (len(seams), len(expected), sorted(seams ^ expected)[:10])
+    bpy.ops.object.mode_set(mode="OBJECT")
+    for edge in obj.data.edges:
+        edge.use_seam = False
+    kept = obj.data.edges[0].index
+    obj.data.edges[kept].use_seam = True
+    one = min(node)
+    _enter([obj], faces=(one,))
+    assert "FINISHED" in bpy.ops.hotspotuv.seam_bevel()
+    ring = {edge.index for edge in obj.data.edges if set(edge.vertices) <= set(obj.data.polygons[one].vertices)}
+    assert _seams(obj) == ring | {kept}, sorted(_seams(obj) ^ (ring | {kept}))
+    _enter([obj])
+    assert "CANCELLED" in bpy.ops.hotspotuv.seam_bevel()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    SUMMARY.append(f"seam_cubes: {len(expected)} seam edges = rails + node|strip ({len(node)} node faces); one node -> {len(ring)} edges")
+
+
+def _seams(obj):
+    return frozenset(edge.index for edge in bmesh.from_edit_mesh(obj.data).edges if edge.seam)
+
+
 def _main():
     import cftuv
 
@@ -560,6 +603,7 @@ def _main():
     _run_a_seed_grows_its_own_bevel_group()
     _run_a_seed_that_is_not_a_bevel_face_keeps_the_selection()
     _run_a_seed_on_the_wall_leaves_the_source_chamfer_out()
+    _run_seam_bevel_joins_the_rails_and_the_nodes()
     for line in SUMMARY:
         print("[BevelSelectTest]", line, flush=True)
     from cftuv.envelope_domain_pool import shutdown_domain_pool
