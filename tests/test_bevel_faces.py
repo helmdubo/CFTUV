@@ -514,3 +514,40 @@ def test_a_corner_lying_in_one_plane_stays_unselected_and_is_counted():
     selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
     assert selection.strip == _kind(kinds, "strip") and not selection.node
     assert dict(selection.events) == {bf.BEVEL_NODE_FLAT_EDGE: 24}
+
+
+# --- Лишние грани у торца шумного верха (BEVEL_SELECT_SEED_V1): поле, `rounded_wall_noise_top.001`, две лишние грани у угла торца x --
+
+
+def test_a_wide_end_face_that_keeps_turning_is_trimmed_from_the_row_by_name():
+    """Фаска в один сегмент (0.06) и рядом наклонная грань шумного верха вдвое шире: вместе - профиль 90 градусов уже предела, и ряд
+    брал обе. Профиль к широкой грани не выполаживается (её внешний рельс гнёт больше общего) - она не сегмент: ряд без неё, по имени.
+    Эллипс (Percent: широкая хорда там, где поворот мал) остаётся целым."""
+
+    import math
+
+    def step(point, degrees, length):
+        return point[0] - length * math.cos(math.radians(degrees)), point[1] + length * math.sin(math.radians(degrees))
+
+    for tilt, expected, trimmed in ((60.0, {1}, 1), (80.0, {1, 2}, 0)):
+        points = [(1.0, 0.0), (0.2, 0.0)]
+        for degrees, length in ((45.0, 0.06), (tilt, 0.12), (90.0, 0.8)):
+            points.append(step(points[-1], degrees, length))
+        coords, faces, _rows = _profile(points)
+        selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
+        assert selection.strip == expected and not selection.node, (tilt, selection)
+        assert dict(selection.events).get(bf.BEVEL_ROW_UNEVEN_END, 0) == trimmed, selection.events
+
+
+def test_a_node_between_nodes_is_measured_by_their_width_not_by_the_max_width():
+    """Грань, что касается только узлов, раньше мерялась долей предела ширины (0.25 / 2.5 = 0.1 - предел узла 0.375), и n-угольник
+    исходного меша у угла торца (поперечник 0.33 при фасках 0.06) проходил в узлы. Теперь узел наследует наименьшую ширину узлов,
+    которых касается; полоса по-прежнему мерило, если касается; ни того ни другого - доля предела."""
+
+    coords, faces = _grid()
+    geometry = bf._MeshGeometry(bf.BevelMeshViewV1(coords, faces), bf.BEVEL_SELECT_MAX_WIDTH)
+    geometry.node_width.update({1: 0.06, 2: 0.09})
+    assert bf._node_width(geometry, {}, {1, 2}) == 0.06
+    assert bf._node_width(geometry, {3: 0.2}, {1, 3}) == 0.2
+    assert bf._node_width(geometry, {}, {4}) == pytest.approx(bf.BEVEL_SELECT_MAX_WIDTH / bf.BEVEL_NODE_DIAMETER_FACTOR)
+    assert bf._node_limit(geometry, {}, {1, 2}) < 0.33 < bf._node_limit(geometry, {}, {4})
