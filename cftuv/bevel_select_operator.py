@@ -1,7 +1,7 @@
 """Кнопка «Select Bevel Faces» (BEVEL_SELECT_FACES_V1): предложение выделения граней бевела перед нажатием по граням.
 
 Что выделять, решают `bevel_faces.select_bevel_faces` (выделенных граней нет - весь меш: атрибут Face Strength All - точно; иначе
-геометрия под своим именем; ничего - `BEVEL_SELECT_NONE_FOUND`, выделение не тронуто) и `bevel_seed.select_from_seeds` (выделенные
+геометрия под своим именем; ничего - `BEVEL_SELECT_NONE_FOUND`, выделение не тронуто) и `bevel_seed.select_from_seeds` (кнопка «Grow Bevel», `grow`, BEVEL_SELECT_GROW_EXPLICIT_V1: выделенные
 грани - семена, BEVEL_SELECT_SEED_V1: группа бевела, в которой они лежат, и ничего вне её; параметры - из ряда семени, не из «Max
 Bevel Width»; семя не грань бевела - `BEVEL_SEED_NOT_BEVEL`, ни одного годного - выделение не тронуто); чтение и запись bmesh -
 `bevel_faces_blender`. Владелец правит предложение руками, нажатие «Build Decal Mesh» по граням считает выделение правдой и не
@@ -33,15 +33,20 @@ class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
     bl_label = "Select Bevel Faces"
     bl_description = (
         "Select the bevel faces (strips and nodes) of every mesh in Edit Mode: exact from Bevel Face Strength 'All', "
-        "otherwise a named geometric guess. With faces selected, the selected faces are seeds: only their bevel group grows "
-        "(the seeds stay selected). With no face selected, the whole mesh is scanned; Shift-click extends the selection"
+        "otherwise a named geometric guess. The whole mesh is scanned, the current selection is ignored; Shift-click extends it. "
+        "Grow (the Grow Bevel button) instead takes the selected faces as seeds: only their bevel group is selected"
     )
     bl_options = {"REGISTER", "UNDO"}
 
     extend: BoolProperty(
         name="Extend",
-        description="Add the bevel faces to the selection instead of replacing it. Selected faces are seeds and stay selected "
-                    "either way, and face select mode drops lone edges and vertices, so in practice the faces are the same",
+        description="Add the bevel faces to the selection instead of replacing it",
+        default=False, options={"SKIP_SAVE"},
+    )
+    grow: BoolProperty(
+        name="Grow From Selection",
+        description="BEVEL_SELECT_GROW_EXPLICIT_V1: the selected faces are seeds and only their bevel group is selected (the seeds stay "
+                    "selected); off - the whole mesh is scanned and the selection is ignored",
         default=False, options={"SKIP_SAVE"},
     )
     max_width: FloatProperty(
@@ -62,10 +67,10 @@ class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
         return self.execute(context)
 
     def _select(self, obj):
-        """Предложение для объекта: от семян, если выделены грани, иначе по всему мешу."""
+        """Предложение для объекта: «Grow» - от выделенных граней (семян), иначе весь меш; режим явный (BEVEL_SELECT_GROW_EXPLICIT_V1)."""
 
         view = read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world)
-        return select_from_seeds(view) if view.selected else select_bevel_faces(view, self.max_width)
+        return select_from_seeds(view) if self.grow else select_bevel_faces(view, self.max_width)
 
     def execute(self, context):
         objects = [obj for obj in getattr(context, "objects_in_mode_unique_data", ()) if obj.type == "MESH"] or [context.active_object]
@@ -84,7 +89,7 @@ class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
         nodes = sum(len(selection.node) for selection in total)
         seeds = sum(len(selection.seeds) for _obj, selection in found)
         line = (
-            f"Select Bevel Faces{' (extend)' if self.extend else ''}{f' from {seeds} seeds' if seeds else ''}: "
+            f"Select Bevel Faces{' (extend)' if self.extend and not self.grow else ''}{f' grown from {seeds} seeds' if self.grow else ''}: "
             f"{strips + nodes} faces ({strips} strip / {nodes} node) | "
             + "; ".join(selection_line(obj.name, selection) for obj, selection in found)
         )

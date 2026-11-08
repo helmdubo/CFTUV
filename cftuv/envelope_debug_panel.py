@@ -34,6 +34,7 @@ def draw_decal_mesh_rows(layout) -> None:
         if select_mode[2] and not select_mode[1]:
             row.prop(mesh_settings, "face_side", expand=True)  # BEVEL_FACES_INWARD_OUTWARD_V1: только в режиме граней
         row.operator("hotspotuv.select_bevel_faces", text="Select Bevel", icon="FACESEL")  # BEVEL_SELECT_FACES_V1: в любом режиме выделения
+        row.operator("hotspotuv.select_bevel_faces", text="Grow Bevel", icon="SELECT_EXTEND").grow = True  # BEVEL_SELECT_GROW_EXPLICIT_V1
     draw_decal_width_rows(layout)
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")

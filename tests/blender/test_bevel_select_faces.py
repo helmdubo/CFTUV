@@ -441,6 +441,15 @@ def _modifier_bevel_bm(name, bm, segments, mode, width=WIDTH):
     return obj
 
 
+def _whole_mesh_faces(obj):
+    """Ответ поиска по всему мешу без семян (выделение не читается)."""
+
+    from cftuv.bevel_faces import select_bevel_faces
+    from cftuv.bevel_faces_blender import read_mesh_view
+
+    return set(select_bevel_faces(read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world)).faces)
+
+
 def _press_seeds(obj, seeds, **kwargs):
     """Семена выделены в режиме граней, нажатие; `(результат, предложение, выделение после)`."""
 
@@ -449,7 +458,7 @@ def _press_seeds(obj, seeds, **kwargs):
 
     _enter([obj], faces=seeds)
     selection = select_from_seeds(read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world))
-    result = bpy.ops.hotspotuv.select_bevel_faces(**kwargs)
+    result = bpy.ops.hotspotuv.select_bevel_faces(grow=True, **kwargs)
     return result, selection, _state(obj)[0]
 
 
@@ -471,7 +480,13 @@ def _run_a_seed_grows_its_own_bevel_group():
                 assert "FINISHED" in result and selection.outcome == bs.BEVEL_SELECT_FROM_SEED and selection.source == source, (name, selection)
                 assert after == first, (name, extend, sorted(after - first), sorted(first - after))
                 bpy.ops.object.mode_set(mode="OBJECT")
-            SUMMARY.append(f"{name}: {selection.outcome} ({selection.source}) {len(after)} faces = first cube, events {dict(selection.events)}")
+            _enter([obj], faces=(seed,))  # BEVEL_SELECT_GROW_EXPLICIT_V1: без «Grow» выделение - не семена, весь меш
+            whole = _whole_mesh_faces(obj)
+            result = bpy.ops.hotspotuv.select_bevel_faces()
+            assert "FINISHED" in result and _state(obj)[0] == whole and not first >= whole, (name, len(whole))
+            bpy.ops.object.mode_set(mode="OBJECT")
+            SUMMARY.append(f"{name}: {selection.outcome} ({selection.source}) {len(after)} faces = first cube, events {dict(selection.events)}; "
+                           f"without Grow the whole mesh: {len(whole)} faces")
 
 
 def _run_a_seed_that_is_not_a_bevel_face_keeps_the_selection():
