@@ -11,8 +11,9 @@
   а живая ширина сверяет с мешем ОТПЕЧАТОК МЕША (`mesh_digest` записи кнопки).
 Путь по рёбрам сюда не заходит и не меняется.
 
-Кнопка «Select Bevel Faces» (BEVEL_SELECT_FACES_V1): вид всего меша в координатах мира (`read_mesh_view`) и запись предложенного
-выделения граней (`apply_face_selection`); что выделять, решает `bevel_faces.select_bevel_faces`.
+Кнопка «Select Bevel Faces» (BEVEL_SELECT_FACES_V1): вид всего меша в координатах мира с выделенными гранями (`read_mesh_view`,
+семена BEVEL_SELECT_SEED_V1) и запись предложенного выделения граней (`apply_face_selection`); что выделять, решают
+`bevel_faces.select_bevel_faces` (весь меш) и `bevel_seed.select_from_seeds` (группа выделенных граней).
 """
 
 from __future__ import annotations
@@ -140,7 +141,8 @@ def plan_face_build(bm, obj, side: str) -> FaceBuildV1:
 
 
 def read_mesh_view(bm, matrix_world) -> BevelMeshViewV1:
-    """Все грани меша, координаты вершин в мире (ширина бевела - метры сцены) и Face Strength всех граней либо `None`.
+    """Все грани меша, координаты вершин в мире (ширина бевела - метры сцены), Face Strength всех граней либо `None` и выделенные
+    грани (семена).
 
     Номера элементов обновляются (`index_update`): после правки топологии в Edit Mode они бывают устаревшими, а выделение пишется
     по тем же номерам. Меш не меняется.
@@ -152,7 +154,7 @@ def read_mesh_view(bm, matrix_world) -> BevelMeshViewV1:
     faces = {int(face.index): tuple(int(vertex.index) for vertex in face.verts) for face in bm.faces}
     layer = bm.faces.layers.int.get(FACE_STRENGTH_ATTRIBUTE)
     strength = None if layer is None else {int(face.index): int(face[layer]) for face in bm.faces}
-    return BevelMeshViewV1(coords, faces, strength)
+    return BevelMeshViewV1(coords, faces, strength, frozenset(int(face.index) for face in bm.faces if face.select))
 
 
 def apply_face_selection(bm, face_ids, extend: bool) -> None:

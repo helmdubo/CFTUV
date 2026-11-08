@@ -12,7 +12,10 @@
 6. несколько объектов в Edit Mode - каждый получает свои грани, строка отчёта называет каждый;
 7. кнопка рисуется в Edit Mode в любом режиме выделения, строка «Faces» - только в режиме граней; оператор с шагом отмены;
 8. углы обода у торцов стены с шумным треугольным верхом и своей фаской торца (BEVEL_SELECT_CORNERS_V1, поле
-   `rounded_wall_noise_top`): бевел по углу в 1/2/3 сегмента, каждая грань бевела у торцов выделена, по стене - точность и полнота.
+   `rounded_wall_noise_top`): бевел по углу в 1/2/3 сегмента, каждая грань бевела у торцов выделена, по стене - точность и полнота;
+9. группа от семян (BEVEL_SELECT_SEED_V1): выделенная грань бевела - семя, кнопка выделяет её группу и ничего на втором кубе того же
+   меша (Face Strength All - точно, без атрибута - геометрия), на стене поля - группа без своей фаски торца; семя - плоская грань:
+   `BEVEL_SEED_NOT_BEVEL`, оператор отменён, выделение не тронуто. Без выделенных граней (выделено только ребро) - весь меш.
 
 Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_select_faces.py
 Последняя строка при успехе: BEVEL_SELECT_FACES_BLENDER_OK
@@ -187,7 +190,7 @@ def _truth(obj):
     return frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
 
 
-def _enter(objects, mode=(False, False, True), faces=()):
+def _enter(objects, mode=(False, False, True), faces=(), edges=()):
     if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
@@ -203,6 +206,9 @@ def _enter(objects, mode=(False, False, True), faces=()):
         bm.faces.ensure_lookup_table()
         for index in faces:
             bm.faces[index].select_set(True)
+        bm.edges.ensure_lookup_table()
+        for index in edges:  # ребро без целой грани: семян нет, поиск по всему мешу
+            bm.edges[index].select_set(True)
         bm.select_flush_mode()
         bmesh.update_edit_mesh(obj.data)
 
@@ -211,6 +217,10 @@ def _state(obj):
     bm = bmesh.from_edit_mesh(obj.data)
     selected = frozenset(face.index for face in bm.faces if face.select)
     return selected, sum(1 for edge in bm.edges if edge.seam), len(bm.faces), len(bm.verts)
+
+
+def _selected_edges(obj):
+    return frozenset(edge.index for edge in bmesh.from_edit_mesh(obj.data).edges if edge.select)
 
 
 def _press(**kwargs):
@@ -289,7 +299,7 @@ def _run_a_triangulated_bevel_is_exact_only_with_face_strength_all():
         if mode == "FSTR_ALL":
             _run_case(f"tri_cube_s2_{mode[5:].lower()}", obj, bf.BEVEL_SELECT_FACE_STRENGTH)
             continue
-        _enter([obj], mode=(False, True, False), faces=(0,))
+        _enter([obj], mode=(False, True, False), edges=(0,))
         before = _state(obj)
         result, selection = _press()
         assert "CANCELLED" in result and selection.outcome == bf.BEVEL_SELECT_NONE_FOUND, (result, selection)
@@ -304,26 +314,32 @@ def _run_controls_find_nothing_and_keep_the_selection():
     for name, make in CONTROLS.items():
         _clean()
         obj = _object(name, make())
-        _enter([obj], mode=(False, True, False), faces=(0,))
-        before = _state(obj)
+        _enter([obj], mode=(False, True, False), edges=(0,))
+        before, edges = _state(obj), _selected_edges(obj)
         result, selection = _press()
         assert "CANCELLED" in result and selection.outcome == bf.BEVEL_SELECT_NONE_FOUND, (name, result, selection)
         assert _state(obj) == before and tuple(bpy.context.tool_settings.mesh_select_mode) == (False, True, False), name
+        assert _selected_edges(obj) == edges, name
         SUMMARY.append(f"control {name}: {selection.outcome} events {dict(selection.events)}")
         bpy.ops.object.mode_set(mode="OBJECT")
 
 
 def _run_replace_and_extend():
+    """Без выделенных граней (выделено одно ребро посреди плоской грани куба с сеткой) - весь меш, и замена, и добавление дают те же
+    грани. Одинокое ребро режим граней снимает и при добавлении: с семенами (BEVEL_SELECT_SEED_V1) выделение граней всегда семя, и
+    добавлять, кроме него, нечего - добавление осталось ради Shift и совместимости."""
+
     _clean()
-    obj = _modifier_bevel("extend_cube", "cube", 2, "FSTR_ALL")
-    truth = _truth(obj)
-    flat = min(set(range(len(obj.data.polygons))) - truth)
-    _enter([obj], faces=(flat,))
+    obj = _object("extend_grid", _grid_cube_bevel())
+    middle = min(obj.data.polygons, key=lambda polygon: (polygon.center - __import__("mathutils").Vector((0.0, 0.0, 1.0))).length)
+    inner = obj.data.loops[middle.loop_start].edge_index  # ребро без целой грани: ни одна грань не выделена
+    _enter([obj], mode=(False, True, False), edges=(inner,))
     bpy.ops.hotspotuv.select_bevel_faces()
-    assert _state(obj)[0] == truth, "replace drops the previous selection"
-    _enter([obj], faces=(flat,))
+    replaced = _state(obj)[0]
+    assert replaced and inner not in _selected_edges(obj), "replace drops the previous selection"
+    _enter([obj], mode=(False, True, False), edges=(inner,))
     bpy.ops.hotspotuv.select_bevel_faces(extend=True)
-    assert _state(obj)[0] == truth | {flat}, "extend keeps the previous selection"
+    assert _state(obj)[0] == replaced, "extend selects the same faces"
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
@@ -403,6 +419,114 @@ def _run_the_button_is_drawn_in_edit_mode_in_every_select_mode():
     assert "hotspotuv.select_bevel_faces" not in drawn, "Object Mode draws no select button"
 
 
+def _two_cubes():
+    """Два куба 2 в одном меше (второй сдвинут на 5 по x): две группы бевела, не связанные рёбрами."""
+
+    bm = bmesh.new()
+    for x in (0.0, 5.0):
+        bmesh.ops.create_cube(bm, size=2.0, matrix=__import__("mathutils").Matrix.Translation((x, 0.0, 0.0)))
+    return bm
+
+
+def _modifier_bevel_bm(name, bm, segments, mode, width=WIDTH):
+    source = _object(name + "_base", bm)
+    modifier = source.modifiers.new("Bevel", "BEVEL")
+    modifier.width, modifier.segments, modifier.limit_method, modifier.material = width, segments, "ANGLE", 1
+    modifier.face_strength_mode = mode
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mesh = bpy.data.meshes.new_from_object(source.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph)
+    bpy.data.objects.remove(source, do_unlink=True)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def _press_seeds(obj, seeds, **kwargs):
+    """Семена выделены в режиме граней, нажатие; `(результат, предложение, выделение после)`."""
+
+    from cftuv.bevel_faces_blender import read_mesh_view
+    from cftuv.bevel_seed import select_from_seeds
+
+    _enter([obj], faces=seeds)
+    selection = select_from_seeds(read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world))
+    result = bpy.ops.hotspotuv.select_bevel_faces(**kwargs)
+    return result, selection, _state(obj)[0]
+
+
+def _run_a_seed_grows_its_own_bevel_group():
+    """Два куба в одном меше: семя - полоса первого куба; выделена группа первого куба, второй не тронут (All - точно, без атрибута -
+    геометрия с тем же ответом); добавление (Shift) даёт то же - семена уже в группе."""
+
+    from cftuv import bevel_seed as bs
+
+    for segments in (1, 2, 4):
+        for mode, source in (("FSTR_ALL", "BEVEL_SELECT_FACE_STRENGTH"), ("FSTR_NONE", "BEVEL_SELECT_GEOMETRIC")):
+            _clean()
+            name = f"seed_cubes_s{segments}_{mode[5:].lower()}"
+            obj = _modifier_bevel_bm(name, _two_cubes(), segments, mode)
+            first = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1 and polygon.center.x < 2.5)
+            seed = min(index for index in first if len(obj.data.polygons[index].vertices) == 4)
+            for extend in (False, True):
+                result, selection, after = _press_seeds(obj, (seed,), extend=extend)
+                assert "FINISHED" in result and selection.outcome == bs.BEVEL_SELECT_FROM_SEED and selection.source == source, (name, selection)
+                assert after == first, (name, extend, sorted(after - first), sorted(first - after))
+                bpy.ops.object.mode_set(mode="OBJECT")
+            SUMMARY.append(f"{name}: {selection.outcome} ({selection.source}) {len(after)} faces = first cube, events {dict(selection.events)}")
+
+
+def _run_a_seed_that_is_not_a_bevel_face_keeps_the_selection():
+    from cftuv import bevel_seed as bs
+
+    for mode in ("FSTR_ALL", "FSTR_NONE"):
+        _clean()
+        obj = _modifier_bevel_bm(f"seed_flat_{mode}", _two_cubes(), 2, mode)
+        flat = min(polygon.index for polygon in obj.data.polygons if polygon.material_index != 1)
+        result, selection, after = _press_seeds(obj, (flat,))
+        assert "CANCELLED" in result and selection.outcome == bs.BEVEL_SEED_NOT_BEVEL and after == {flat}, (mode, result, selection)
+        assert dict(selection.events)[bs.BEVEL_SEED_NOT_BEVEL] == 1
+        SUMMARY.append(f"seed_flat_{mode[5:].lower()}: {selection.outcome}, selection kept")
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _run_a_seed_on_the_wall_leaves_the_source_chamfer_out():
+    """Стена поля: семена - каждая полоса обода посередине стены по очереди. Группа - бевел стены с точностью 1.0 (своя фаска торца
+    исходного меша не взята); полнота не ниже поиска по всему мешу (с допуском одной грани) у большинства семян. Остаток - семя,
+    чей ряд на шумном верху в 3 сегмента сам частичный (одна грань с поворотом ~19 градусов): рост упирается в стык по имени
+    (`BEVEL_SEED_OFFSET_MISMATCH`) - записан в сводку."""
+
+    from cftuv import bevel_faces as bf
+    from cftuv import bevel_seed as bs
+    from cftuv.bevel_faces_blender import read_mesh_view
+
+    for noise in (0.0, 0.03):
+        for segments in (1, 2, 3):
+            _clean()
+            name = f"seed_wall_n{noise}_s{segments}"
+            obj = _wall_bevel(name, noise, segments, 0.03)
+            truth = _truth(obj)
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            view = read_mesh_view(bm, obj.matrix_world)
+            bm.free()
+            _whole_precision, whole_recall = _score(bf.select_bevel_faces(view).faces, truth)
+            rim = [polygon.index for polygon in obj.data.polygons if polygon.index in truth and len(polygon.vertices) == 4
+                   and 0.5 < polygon.center.x < 1.5 and polygon.center.z > WALL_HEIGHT - 0.05]
+            recalls = []
+            for seed in rim:
+                selection = bs.select_from_seeds(view, {seed})
+                if selection.outcome == bs.BEVEL_SEED_NOT_BEVEL:  # кусок у торца шумного верха, не ставший рядом от семени, - по имени
+                    continue
+                precision, recall = _score(selection.faces | selection.seeds, truth)
+                assert selection.outcome == bs.BEVEL_SELECT_FROM_SEED and precision == 1.0, (name, seed, selection.outcome, precision)
+                recalls.append(recall)
+            kept = sum(recall >= whole_recall - 1.0 / len(truth) - 1e-9 for recall in recalls)
+            SUMMARY.append(f"{name}: {len(recalls)}/{len(rim)} seeds grown, P 1.0, R min {min(recalls)} max {max(recalls)}, "
+                           f"{kept}/{len(recalls)} at whole-mesh R {whole_recall}")
+            assert 2 * len(recalls) > len(rim) and 2 * kept > len(recalls), (name, len(rim), recalls, whole_recall)
+            result, selection, after = _press_seeds(obj, (rim[recalls.index(max(recalls))],))
+            assert "FINISHED" in result and after == selection.faces | selection.seeds and after <= truth, name
+            bpy.ops.object.mode_set(mode="OBJECT")
+
 def _main():
     import cftuv
 
@@ -418,6 +542,9 @@ def _main():
     _run_a_triangulated_bevel_is_exact_only_with_face_strength_all()
     _run_bevel_cases()
     _run_the_rim_corners_at_the_wall_ends_are_found()
+    _run_a_seed_grows_its_own_bevel_group()
+    _run_a_seed_that_is_not_a_bevel_face_keeps_the_selection()
+    _run_a_seed_on_the_wall_leaves_the_source_chamfer_out()
     for line in SUMMARY:
         print("[BevelSelectTest]", line, flush=True)
     from cftuv.envelope_domain_pool import shutdown_domain_pool

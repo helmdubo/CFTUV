@@ -11,6 +11,13 @@ import itertools
 import pytest
 
 from cftuv import bevel_faces as bf
+from cftuv.bevel_seed import (
+    BEVEL_SEED_NOT_BEVEL,
+    BEVEL_SEED_OFFSET_MISMATCH,
+    BEVEL_SELECT_FROM_SEED,
+    bevel_offset,
+    select_from_seeds,
+)
 
 W = 0.1
 
@@ -536,7 +543,7 @@ def test_a_wide_end_face_that_keeps_turning_is_trimmed_from_the_row_by_name():
         coords, faces, _rows = _profile(points)
         selection = bf.select_bevel_faces(bf.BevelMeshViewV1(coords, faces))
         assert selection.strip == expected and not selection.node, (tilt, selection)
-        assert dict(selection.events).get(bf.BEVEL_ROW_UNEVEN_END, 0) == trimmed, selection.events
+        assert dict(selection.events).get(bf.BEVEL_ROW_UNEVEN_FACE, 0) == trimmed, selection.events
 
 
 def test_a_node_between_nodes_is_measured_by_their_width_not_by_the_max_width():
@@ -551,3 +558,132 @@ def test_a_node_between_nodes_is_measured_by_their_width_not_by_the_max_width():
     assert bf._node_width(geometry, {3: 0.2}, {1, 3}) == 0.2
     assert bf._node_width(geometry, {}, {4}) == pytest.approx(bf.BEVEL_SELECT_MAX_WIDTH / bf.BEVEL_NODE_DIAMETER_FACTOR)
     assert bf._node_limit(geometry, {}, {1, 2}) < 0.33 < bf._node_limit(geometry, {}, {4})
+
+
+# --- Группа бевела от семян (BEVEL_SELECT_SEED_V1): владелец выделяет грань бевела, кнопка восстанавливает её группу -------------
+
+
+def _two_cubes():
+    """Два куба с фаской (второй сдвинут на 5 по x): две группы бевела, не связанные рёбрами."""
+
+    coords, faces, kinds = _outward_cube()
+    shift = max(coords) + 1
+    coords = {**coords, **{index + shift: (x + 5.0, y, z) for index, (x, y, z) in coords.items()}}
+    second = {face + 100: tuple(index + shift for index in cycle) for face, cycle in faces.items()}
+    return coords, {**faces, **second}, {**kinds, **{face + 100: kind for face, kind in kinds.items()}}
+
+
+def _two_width_cube(wide, narrow):
+    """Куб с фаской: вертикальные рёбра сняты на `wide` с обеих сторон, горизонтальные - на `narrow` по вертикальной грани и `wide`
+    по верху и низу (отступ другой фаски); нормали наружу."""
+
+    inset = {0: wide, 1: wide, 2: narrow}  # отступ грани оси k от ребра с гранью оси, вдоль которой меряется
+    index, coords = {}, {}
+    for axis, sign in itertools.product(range(3), (-1, 1)):
+        others = [item for item in range(3) if item != axis]
+        for a, b in itertools.product((-1, 1), (-1, 1)):
+            point = [0.0, 0.0, 0.0]
+            point[axis] = float(sign)
+            point[others[0]] = a * (1.0 - inset[others[0]])
+            point[others[1]] = b * (1.0 - inset[others[1]])
+            index[(axis, sign, a, b)] = len(coords)
+            coords[len(coords)] = tuple(point)
+    base_coords, faces, kinds = _chamfered_cube()
+    remap = {base: index[key] for key, base in _cube_keys().items()}
+    faces = {face: tuple(remap[vertex] for vertex in cycle) for face, cycle in faces.items()}
+    oriented = {}
+    for face, cycle in faces.items():
+        normal = bf.face_normal(coords, cycle)
+        center = [sum(coords[vertex][axis] for vertex in cycle) / len(cycle) for axis in range(3)]
+        oriented[face] = cycle if sum(normal[axis] * center[axis] for axis in range(3)) > 0.0 else tuple(reversed(cycle))
+    return coords, oriented, kinds
+
+
+def _cube_keys():
+    """Номера вершин `_chamfered_cube` по ключу (ось, знак, знаки двух других осей): тот же порядок обхода."""
+
+    keys = {}
+    for axis, sign in itertools.product(range(3), (-1, 1)):
+        for a, b in itertools.product((-1, 1), (-1, 1)):
+            keys[(axis, sign, a, b)] = len(keys)
+    return keys
+
+
+def _vertical(coords, faces, face):
+    """Полоса вдоль оси z (вертикальное ребро куба)."""
+
+    zs = [coords[vertex][2] for vertex in faces[face]]
+    return max(zs) - min(zs) > 1.0
+
+
+def test_a_seed_grows_its_own_bevel_group_and_nothing_else():
+    coords, faces, kinds = _two_cubes()
+    seed = min(face for face, kind in kinds.items() if kind == "strip" and face < 100)
+    selection = select_from_seeds(bf.BevelMeshViewV1(coords, faces, None, frozenset({seed})))
+    assert selection.outcome == BEVEL_SELECT_FROM_SEED and selection.source == bf.BEVEL_SELECT_GEOMETRIC
+    assert selection.strip == {face for face in _kind(kinds, "strip") if face < 100}
+    assert selection.node == {face for face in _kind(kinds, "node") if face < 100}
+    assert seed in selection.faces and selection.seeds == {seed}
+    assert bf.selection_line("Cubes", selection) == "Cubes: BEVEL_SELECT_FROM_SEED 1 seeds -> 12 strip / 8 node (geometric)"
+    node_seed = min(face for face, kind in kinds.items() if kind == "node" and face >= 100)  # семя-узел: мерило - ряд соседей
+    grown = select_from_seeds(bf.BevelMeshViewV1(coords, faces, None, frozenset({node_seed})))
+    assert grown.faces == {face for face, kind in kinds.items() if kind != "flat" and face >= 100}
+
+
+def test_a_seed_that_is_not_a_bevel_face_is_named_and_grows_nothing():
+    coords, faces, kinds = _two_cubes()
+    flat = min(_kind(kinds, "flat"))
+    alone = select_from_seeds(bf.BevelMeshViewV1(coords, faces, None, frozenset({flat})))
+    assert alone.outcome == BEVEL_SEED_NOT_BEVEL and not alone.faces and alone.seeds == {flat}
+    assert dict(alone.events)[BEVEL_SEED_NOT_BEVEL] == 1
+    assert bf.selection_line("Cubes", alone) == "Cubes: BEVEL_SEED_NOT_BEVEL 1 seeds (geometric)"
+    strip = min(face for face, kind in kinds.items() if kind == "strip" and face >= 100)
+    mixed = select_from_seeds(bf.BevelMeshViewV1(coords, faces, None, frozenset({flat, strip})))
+    assert mixed.outcome == BEVEL_SELECT_FROM_SEED and dict(mixed.events)[BEVEL_SEED_NOT_BEVEL] == 1
+    assert flat not in mixed.faces and mixed.faces == {face for face, kind in kinds.items() if kind != "flat" and face >= 100}
+
+
+def test_with_face_strength_all_the_seed_group_is_the_exact_connected_bevel_set():
+    coords, faces, kinds = _two_cubes()
+    value = {"flat": bf.FACE_STRENGTH_STRONG, "strip": 0, "node": bf.FACE_STRENGTH_WEAK}
+    strength = {face: value[kind] for face, kind in kinds.items()}
+    seed = min(face for face, kind in kinds.items() if kind == "node" and face >= 100)
+    selection = select_from_seeds(bf.BevelMeshViewV1(coords, faces, strength, frozenset({seed})))
+    assert selection.outcome == BEVEL_SELECT_FROM_SEED and selection.source == bf.BEVEL_SELECT_FACE_STRENGTH and not selection.events
+    assert selection.strip == {face for face in _kind(kinds, "strip") if face >= 100}
+    assert selection.node == {face for face in _kind(kinds, "node") if face >= 100}
+    flat = min(_kind(kinds, "flat"))
+    refused = select_from_seeds(bf.BevelMeshViewV1(coords, faces, strength, frozenset({flat})))
+    assert refused.outcome == BEVEL_SEED_NOT_BEVEL and dict(refused.events) == {BEVEL_SEED_NOT_BEVEL: 1}
+
+
+def test_a_bevel_of_another_offset_beyond_a_node_is_not_taken_by_name():
+    """Вертикальные рёбра сняты на 0.1 (отступ 0.1), горизонтальные - на 0.1 x 0.02 (отступ дуги ~0.07). Поиск по всему мешу берёт
+    все полосы. От полосы верха группа - кольцо верха: 4 полосы и 4 узла (узел касается двух полос верха), 4 вертикальные за узлами -
+    другой бевел, отказ по имени; от вертикальной - она и два её узла: дальше только горизонтальные, 4 отказа."""
+
+    coords, faces, kinds = _two_width_cube(0.1, 0.02)
+    view = bf.BevelMeshViewV1(coords, faces)
+    assert bf.select_bevel_faces(view).faces == _kind(kinds, "strip") | _kind(kinds, "node")
+    vertical = {face for face in _kind(kinds, "strip") if _vertical(coords, faces, face)}
+    assert len(vertical) == 4
+    top = {face for face in _kind(kinds, "strip") - vertical if min(coords[vertex][2] for vertex in faces[face]) > 0.0}
+    corners = {face for face in _kind(kinds, "node") if min(coords[vertex][2] for vertex in faces[face]) > 0.0}
+    across = select_from_seeds(view, {min(top)})
+    assert len(top) == len(corners) == 4 and across.strip == top and across.node == corners
+    assert dict(across.events)[BEVEL_SEED_OFFSET_MISMATCH] == 4
+    upright = select_from_seeds(view, {min(vertical)})
+    assert upright.strip == {min(vertical)} and len(upright.node) == 2 and dict(upright.events)[BEVEL_SEED_OFFSET_MISMATCH] == 4
+
+
+def test_the_bevel_offset_does_not_follow_the_chord():
+    """Одна фаска 0.045 в один сегмент: у ребра 90 градусов хорда 0.0636, у ребра 50 - 0.038; отступ - 0.045 у обоих; дуга в 3
+    сегмента радиуса 0.05 на 90 градусов - отступ 0.05."""
+
+    import math
+
+    for turn in (90.0, 50.0):
+        chord = 2.0 * 0.045 * math.cos(math.radians(turn) / 2.0)
+        assert bevel_offset(chord, turn, 1) == pytest.approx(0.045)
+    chords = 3 * 2.0 * 0.05 * math.sin(math.radians(15.0))
+    assert bevel_offset(chords, 90.0, 3) == pytest.approx(0.05)

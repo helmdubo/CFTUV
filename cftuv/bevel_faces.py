@@ -421,9 +421,10 @@ BEVEL_FACE_TAPERED = "BEVEL_FACE_TAPERED"
 BEVEL_ROW_SHORT_STRIP = "BEVEL_ROW_SHORT_STRIP"
 # ряд кусков у торца шире ряда, который он продолжал бы, - не полоса, число рядов.
 BEVEL_END_PIECE_WIDER = "BEVEL_END_PIECE_WIDER"
-# крайняя грань ряда вдвое шире остальных без выполаживания профиля к ней (BEVEL_SELECT_SEED_V1: наклонная грань шумного верха рядом
-# с фаской в один сегмент) - не сегмент, ряд без неё, число граней.
-BEVEL_ROW_UNEVEN_END = "BEVEL_ROW_UNEVEN_END"
+# грань ряда - не сегмент профиля (BEVEL_SELECT_SEED_V1), число граней: крайняя вдвое шире остальных без выполаживания профиля к ней
+# (наклонная грань шумного верха рядом с фаской в один сегмент) - ряд без неё; средняя шире обеих соседок (своя фаска торца между
+# бевелями её рёбер) - ряд режется по ней.
+BEVEL_ROW_UNEVEN_FACE = "BEVEL_ROW_UNEVEN_FACE"
 # узел из компоненты малых граней, каждая из которых касается одной полосы (угол трёх бевелей, пара треугольников), - число граней;
 BEVEL_NODE_CLUSTER = "BEVEL_NODE_CLUSTER"
 # малая грань у бевела не стала узлом: ребро к не-бевелу плоское (грань лежит в плоскости соседа) либо касание одно - число граней.
@@ -466,22 +467,26 @@ BEVEL_ROW_UNEVEN_FACTOR = 1.75
 
 @dataclass(frozen=True, slots=True)
 class BevelMeshViewV1:
-    """Весь меш: координаты (мир), циклы вершин всех граней, значения Face Strength всех граней либо `None` (атрибута нет)."""
+    """Весь меш: координаты (мир), циклы вершин всех граней, значения Face Strength всех граней либо `None` (атрибута нет), выделенные
+    грани (семена `bevel_seed`, BEVEL_SELECT_SEED_V1)."""
 
     coords: Mapping[int, tuple[float, float, float]]
     faces: Mapping[int, tuple[int, ...]]
     face_strength: Mapping[int, int] | None = None
+    selected: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
 class BevelSelectionV1:
-    """Предложение выделения: исход (один из четырёх `BEVEL_SELECT_*`), каким путём искали, полосы, узлы, события (имя, число)."""
+    """Предложение выделения: исход (`BEVEL_SELECT_*`, от семян - `bevel_seed`), каким путём искали, полосы, узлы, события (имя, число),
+    семена (выделение владельца, от которого росла группа; пусто - поиск по всему мешу)."""
 
     outcome: str
     source: str
     strip: frozenset[int] = frozenset()
     node: frozenset[int] = frozenset()
     events: tuple[tuple[str, int], ...] = ()
+    seeds: frozenset[int] = frozenset()
 
     @property
     def faces(self) -> frozenset[int]:
@@ -490,7 +495,7 @@ class BevelSelectionV1:
 
 @dataclass(frozen=True, slots=True)
 class BevelDetectionV1:
-    """????????? ????? ????: ???? ????? `(????? ??????? ??????? ?? ???????, ??????, ??????? ??????? ? ????????)`, ????, ???????."""
+    """Геометрия всего меша: ряды полос `(грани поперёк профиля по порядку, ширина, поворот профиля в градусах)`, узлы, события."""
 
     rows: tuple[tuple[tuple[int, ...], float, float], ...]
     node: frozenset[int]
@@ -678,9 +683,22 @@ def _accept_row(geometry, candidates, row, rails, events):
         # мал) - это соседняя грань поверхности, а не сегмент.
         wide = candidates[row[end]][2] >= BEVEL_ROW_UNEVEN_FACTOR * max(candidates[face_id][2] for face_id in others)
         if wide and total * turns[outer] >= total * turns[shared]:
-            _count(events, BEVEL_ROW_UNEVEN_END)
+            _count(events, BEVEL_ROW_UNEVEN_FACE)
             keep = slice(1, None) if end == 0 else slice(None, -1)
             return _accept_row(geometry, candidates, row[keep], rails[keep], events)
+    for index in range(1, len(row) - 1):
+        # Средняя грань шире обеих соседок либо уже обеих: хорды одной дуги не горбятся и не проваливаются (эллипс меняет их монотонно) -
+        # это своя фаска исходного меша между двумя бевелями её рёбер (торец стены: 2 + 1 + 2; clamp overlap сжимает её в щель), ряд
+        # режется по ней: иначе два бевеля по 45 градусов читаются одной дугой 90 с вдвое большим отступом.
+        width_here = candidates[row[index]][2]
+        widths = [candidates[row[index + step]][2] for step in (-1, 1)]
+        if all(width_here >= BEVEL_ROW_UNEVEN_FACTOR * width for width in widths) or \
+                all(width >= BEVEL_ROW_UNEVEN_FACTOR * width_here for width in widths):
+            _count(events, BEVEL_ROW_UNEVEN_FACE)
+            return (
+                _accept_row(geometry, candidates, row[:index], rails[: index + 1], events)
+                + _accept_row(geometry, candidates, row[index + 1 :], rails[index + 1 :], events)
+            )
     if BEVEL_ROW_MIN_TURN_DEGREES <= turn <= BEVEL_ROW_MAX_TURN_DEGREES and width <= geometry.max_width and len(signs) == 1:
         if counter:  # плоские концы уже обрезаны: крайний рельс против профиля гнёт заметно, решение поменяло ответ
             _count(events, BEVEL_ROW_END_COUNTER_TURN)
@@ -908,7 +926,7 @@ def _continued_width(geometry, face_id, taken, band_width) -> float:
 
 
 def detect_bevel_rows(view: BevelMeshViewV1, max_width: float = BEVEL_SELECT_MAX_WIDTH) -> BevelDetectionV1:
-    """????????? ????? ????: ???? ?????, ????, ???????; ??????? ?? ????????. `max_width` - ?????????? ?????? ?????? (????? ????)."""
+    """Геометрия всего меша: ряды полос, узлы, события; атрибут не читается. `max_width` - наибольшая ширина полосы (метры мира)."""
 
     geometry = _MeshGeometry(view, max_width)
     candidates = {}
@@ -925,7 +943,7 @@ def detect_bevel_rows(view: BevelMeshViewV1, max_width: float = BEVEL_SELECT_MAX
     rows = [row for band in bands for row in _band_rows(geometry, candidates, band, rail_faces, events)]
     found_rows = []
     node: frozenset[int] = frozenset()
-    while rows:  # ??????, ?? ????, ????? ????? ? ?????, ??? ?????????? ?????????, ? ?? ????
+    while rows:  # полосы, их узлы, затем куски у торца, что продолжают найденное, и их узлы
         for row, width, turn in rows:
             strip.update(row)
             band_width.update((face_id, width) for face_id in row)
@@ -939,7 +957,7 @@ def detect_bevel_rows(view: BevelMeshViewV1, max_width: float = BEVEL_SELECT_MAX
 
 
 def detect_bevel_faces(view: BevelMeshViewV1, max_width: float = BEVEL_SELECT_MAX_WIDTH):
-    """????????? ????? ????: `(??????, ????, ???????)` (`detect_bevel_rows` ??? ?????)."""
+    """Геометрия всего меша: `(полосы, узлы, события)` (`detect_bevel_rows` без рядов)."""
 
     found = detect_bevel_rows(view, max_width)
     return found.strip, found.node, found.events
@@ -976,9 +994,14 @@ _SOURCE_WORD = {
 
 
 def selection_line(name: str, selection: BevelSelectionV1) -> str:
-    """Строка объекта: исход и числа; неоднозначный атрибут называет, что даёт точный ответ."""
+    """Строка объекта: исход и числа (от семян - и число семян); неоднозначный атрибут называет, что даёт точный ответ."""
 
-    if selection.outcome == BEVEL_SELECT_NONE_FOUND:
+    if selection.seeds:
+        text = f"{name}: {selection.outcome} {len(selection.seeds)} seeds"
+        if selection.faces:
+            text += f" -> {len(selection.strip)} strip / {len(selection.node)} node"
+        text += f" ({_SOURCE_WORD[selection.source]})"
+    elif selection.outcome == BEVEL_SELECT_NONE_FOUND:
         text = f"{name}: {BEVEL_SELECT_NONE_FOUND} ({_SOURCE_WORD[selection.source]})"
     else:
         text = f"{name}: {selection.outcome} {len(selection.strip)} strip / {len(selection.node)} node"
@@ -1013,7 +1036,7 @@ __all__ = (
     "BEVEL_ROW_SHORT_STRIP",
     "BEVEL_ROW_SPLIT_AT_WIDEST_FACE",
     "BEVEL_ROW_TRIMMED_FLAT_END",
-    "BEVEL_ROW_UNEVEN_END",
+    "BEVEL_ROW_UNEVEN_FACE",
     "BEVEL_ROW_WRAPS",
     "BEVEL_SELECT_FACE_STRENGTH",
     "BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS",

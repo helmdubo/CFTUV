@@ -1,8 +1,11 @@
 """Кнопка «Select Bevel Faces» (BEVEL_SELECT_FACES_V1): предложение выделения граней бевела перед нажатием по граням.
 
-Что выделять, решает `bevel_faces.select_bevel_faces` (атрибут Face Strength All - точно; иначе геометрия под своим именем; ничего -
-`BEVEL_SELECT_NONE_FOUND`, выделение не тронуто); чтение и запись bmesh - `bevel_faces_blender`. Владелец правит предложение руками,
-нажатие «Build Decal Mesh» по граням считает выделение правдой и не меняется. Регистрирует `envelope_production_operator` (`_CLASSES`).
+Что выделять, решают `bevel_faces.select_bevel_faces` (выделенных граней нет - весь меш: атрибут Face Strength All - точно; иначе
+геометрия под своим именем; ничего - `BEVEL_SELECT_NONE_FOUND`, выделение не тронуто) и `bevel_seed.select_from_seeds` (выделенные
+грани - семена, BEVEL_SELECT_SEED_V1: группа бевела, в которой они лежат, и ничего вне её; параметры - из ряда семени, не из «Max
+Bevel Width»; семя не грань бевела - `BEVEL_SEED_NOT_BEVEL`, ни одного годного - выделение не тронуто); чтение и запись bmesh -
+`bevel_faces_blender`. Владелец правит предложение руками, нажатие «Build Decal Mesh» по граням считает выделение правдой и не
+меняется. Регистрирует `envelope_production_operator` (`_CLASSES`).
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from .bevel_faces import (
     selection_line,
 )
 from .bevel_faces_blender import apply_face_selection, read_mesh_view
+from .bevel_seed import BEVEL_SEED_NOT_BEVEL, select_from_seeds
 
 
 class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
@@ -29,14 +33,21 @@ class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
     bl_label = "Select Bevel Faces"
     bl_description = (
         "Select the bevel faces (strips and nodes) of every mesh in Edit Mode: exact from Bevel Face Strength 'All', "
-        "otherwise a named geometric guess. Shift-click extends the selection"
+        "otherwise a named geometric guess. With faces selected, the selected faces are seeds: only their bevel group grows "
+        "(the seeds stay selected). With no face selected, the whole mesh is scanned; Shift-click extends the selection"
     )
     bl_options = {"REGISTER", "UNDO"}
 
-    extend: BoolProperty(name="Extend", description="Add the bevel faces to the selection instead of replacing it", default=False, options={"SKIP_SAVE"})
+    extend: BoolProperty(
+        name="Extend",
+        description="Add the bevel faces to the selection instead of replacing it. Selected faces are seeds and stay selected "
+                    "either way, and face select mode drops lone edges and vertices, so in practice the faces are the same",
+        default=False, options={"SKIP_SAVE"},
+    )
     max_width: FloatProperty(
         name="Max Bevel Width",
-        description="Geometric guess only: the widest bevel band (scene units); a wider band of narrow faces is a wall or a ledge",
+        description="Whole-mesh geometric guess only: the widest bevel band (scene units); a wider band of narrow faces is a wall or a "
+                    "ledge. Grown from seeds, the width comes from the seed's own bevel",
         default=BEVEL_SELECT_MAX_WIDTH, min=1e-4, soft_max=1.0, subtype="DISTANCE",
     )
 
@@ -50,27 +61,39 @@ class HOTSPOTUV_OT_SelectBevelFaces(bpy.types.Operator):
             self.extend = True
         return self.execute(context)
 
+    def _select(self, obj):
+        """Предложение для объекта: от семян, если выделены грани, иначе по всему мешу."""
+
+        view = read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world)
+        return select_from_seeds(view) if view.selected else select_bevel_faces(view, self.max_width)
+
     def execute(self, context):
         objects = [obj for obj in getattr(context, "objects_in_mode_unique_data", ()) if obj.type == "MESH"] or [context.active_object]
-        found = [(obj, select_bevel_faces(read_mesh_view(bmesh.from_edit_mesh(obj.data), obj.matrix_world), self.max_width)) for obj in objects]
+        found = [(obj, self._select(obj)) for obj in objects]
         total = [selection for _obj, selection in found if selection.faces]
         if total:
             context.tool_settings.mesh_select_mode = (False, False, True)
             for obj, selection in found:
-                if selection.faces:  # BEVEL_SELECT_NONE_FOUND: выделение этого объекта не тронуто
-                    apply_face_selection(bmesh.from_edit_mesh(obj.data), selection.faces, self.extend)
+                if selection.faces:  # BEVEL_SELECT_NONE_FOUND / BEVEL_SEED_NOT_BEVEL: выделение этого объекта не тронуто
+                    apply_face_selection(bmesh.from_edit_mesh(obj.data), selection.faces | selection.seeds, self.extend)
                     bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
         for obj, selection in found:
             for line in selection_console_lines(obj.name, selection):
                 print(line, flush=True)
         strips = sum(len(selection.strip) for selection in total)
         nodes = sum(len(selection.node) for selection in total)
+        seeds = sum(len(selection.seeds) for _obj, selection in found)
         line = (
-            f"Select Bevel Faces{' (extend)' if self.extend else ''}: {strips + nodes} faces ({strips} strip / {nodes} node) | "
+            f"Select Bevel Faces{' (extend)' if self.extend else ''}{f' from {seeds} seeds' if seeds else ''}: "
+            f"{strips + nodes} faces ({strips} strip / {nodes} node) | "
             + "; ".join(selection_line(obj.name, selection) for obj, selection in found)
         )
         print(f"[CFTUV][BevelSelect] {line}", flush=True)
-        guessed = any(selection.outcome == BEVEL_SELECT_NONE_FOUND or selection.source == BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS for _obj, selection in found)
+        guessed = any(
+            selection.outcome in (BEVEL_SELECT_NONE_FOUND, BEVEL_SEED_NOT_BEVEL) or selection.source == BEVEL_SELECT_FACE_STRENGTH_AMBIGUOUS
+            or any(name == BEVEL_SEED_NOT_BEVEL for name, _count in selection.events)
+            for _obj, selection in found
+        )
         self.report({"WARNING" if guessed else "INFO"}, line)
         return {"FINISHED"} if total else {"CANCELLED"}
 
