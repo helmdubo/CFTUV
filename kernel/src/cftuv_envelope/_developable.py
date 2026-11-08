@@ -41,6 +41,10 @@
    шарнира (соперником принятого шарнира оно не бывает): закон выбора — тот же
    `ARAP_AFTER_HINGE_REFUSED_V1`, а победителя называет `proposal_law`. Спираль ленты
    (вершины с избытком нет) и всё, что план не нашёл, остаётся прежним отказом по тексту.
+3д. СТАРТ С ПРОЕКЦИИ (`adopt_plane_start`, `ARAP_FROM_PLANE_PROJECTION_V1`). Отказ ARAP от шарнира
+   (накрытие, растяжение, переворот) — ещё не приговор: 80 итераций не всегда выводят ARAP из складок
+   шарнира. Тот же ARAP, стартуя с проекции на плоскость Ньюэлла (если она сама вложение; иначе —
+   именованный пропуск, имя отказа прежнее), судится тем же судом; след несёт отказы шарнира и ARAP.
 4. СТУПЕНИ РЕШЁТКИ КАРТЫ: `S' = k · S` для `k` из `UNFOLD_CHART_SCALE_FACTORS`
    (`S` — масштаб решётки источника). Первая ступень, на которой привязанная карта
    в бюджете растяжения, без перевёрнутых треугольников и с простой границей, и
@@ -68,7 +72,7 @@ from dataclasses import replace
 from fractions import Fraction
 from hashlib import sha256
 
-from ._arap import ArapProposalUnavailable, arap_proposal
+from ._arap import ArapProposalUnavailable, arap_proposal, plane_projection
 from ._cone_relief import cone_relief_plan, relief_note, relieved_squares
 from ._embedding import _NONE, _OVERLAP, _segment_relation2
 from ._fan_closure import classify_interior_vertices, worst_defect_vertex
@@ -385,11 +389,62 @@ class _Unfolding:
         if not self._arap_can_help(hinge_refusal):
             self.adopt_cone_relief(hinge_refusal)
             return
+        from .planar_metric import PlanarMetricAdmissionError
+
+        hinge_state = dict(self.__dict__)
+        try:
+            self._take_second_proposal(
+                hinge_refusal,
+                lambda: arap_proposal(self.topology, self.proposal, self.snapped),
+                DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
+                "ARAP",
+            )
+        except PlanarMetricAdmissionError as arap_refusal:
+            # ARAP без положений (потолок работы, матрица не положительна) оставил шарнир: у старта с
+            # проекции та же матрица, и пробовать его незачем.
+            if self.proposal_law is DevelopableProposalLawV1.BINARY64_HINGE_V1:
+                raise
+            self.__dict__.update(hinge_state)
+            self.adopt_plane_start(hinge_refusal, arap_refusal)
+
+    def adopt_plane_start(self, hinge_refusal, arap_refusal) -> None:
+        """Третье предложение после отказа ARAP от шарнира: тот же ARAP, старт — проекция на плоскость Ньюэлла.
+
+        ARAP от шарнира за 80 итераций не всегда выходит из складок шарнира (верх стены с шумом: накрытие
+        границы), а старт с проекции уже вложен. Старт годен, только если проекция сама — вложение (ни
+        переворота, ни накрытия границы): иначе это именованный пропуск в тексте прежнего отказа ARAP (имя
+        отказа прежнее). Суд тот же; след лестницы несёт оба отказа (шарнира и ARAP), а отказ называет все
+        три предложения (`ARAP_FROM_PLANE_PROJECTION_V1`).
+        """
+
+        law = DevelopableProposalLawV1.ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1
+        start = plane_projection(self.topology, self.proposal, self.snapped)
+        defect = "the Newell normal of the owner triangles is zero"
+        if start is not None:
+            exact = exact_metres(start)
+            flipped = measure_stretch(
+                self.topology.triangles, self.snapped, exact, self.budget
+            ).certificate.chart_flipped_triangle_count
+            overlap = boundary_overlaps(self.topology, exact)[0]
+            defect = (
+                f"{flipped} flipped triangles, {overlap} boundary edge pairs meet or overlap"
+                if flipped or overlap
+                else ""
+            )
+        if defect:
+            raise refusal(
+                arap_refusal.outcome,
+                f"{arap_refusal}; {law.value} skipped: the mean-plane projection is not "
+                f"an embedding ({defect})",
+            ) from arap_refusal
         self._take_second_proposal(
             hinge_refusal,
-            lambda: arap_proposal(self.topology, self.proposal, self.snapped),
-            DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
-            "ARAP",
+            lambda: arap_proposal(
+                self.topology, replace(self.proposal, coordinates=start), self.snapped
+            ),
+            law,
+            "plane-start ARAP",
+            after=arap_refusal,
         )
 
     def adopt_cone_relief(self, hinge_refusal) -> None:
@@ -415,26 +470,38 @@ class _Unfolding:
             "; " + relief_note(plan),
         )
 
-    def _take_second_proposal(self, hinge_refusal, build, law, name, extra: str = "") -> None:
-        """Положения второго предложения вместо шарнирных; тот же суд, отказ несёт оба предложения."""
+    def _take_second_proposal(
+        self, hinge_refusal, build, law, name, extra: str = "", after=None
+    ) -> None:
+        """Положения второго предложения вместо шарнирных; тот же суд, отказ несёт оба предложения.
 
+        `after` — отказ ARAP от шарнира, после которого пробуется старт с проекции: он (а в нём и отказ
+        шарнира) встаёт в текст и в след лестницы вслед за отказом шарнира.
+        """
+
+        last = hinge_refusal if after is None else after
         try:
             arap = build()
         except ArapProposalUnavailable as unavailable:
-            raise refusal(hinge_refusal.outcome, f"{hinge_refusal}; {unavailable}") from hinge_refusal
+            raise refusal(last.outcome, f"{last}; {unavailable}") from hinge_refusal
         # У отказа шарнира по самонакрытию в тексте нет чисел растяжения, а «лучше ли ARAP
         # шарнира» без них не видно: берём их из записи измерения шарнира.
         numbers = ""
-        if hinge_refusal.outcome is NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP:
+        if after is None and hinge_refusal.outcome is NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP:
             numbers = "; the hinge proposal's " + stretch_refusal_text(
                 self.raw.certificate, worst_vertex=_vertex_name(worst_defect_vertex(self.classes))
             )
         self._swap_in_arap(arap, law, name)
         self.selection_law = DevelopableProposalSelectionLawV1.ARAP_AFTER_HINGE_REFUSED_V1
-        self.previous_refusals = (*self.previous_refusals, hinge_refusal.outcome.value)
+        self.previous_refusals = (
+            *self.previous_refusals,
+            hinge_refusal.outcome.value,
+            *(() if after is None else (after.outcome.value,)),
+        )
         self.proposal_note = (
-            f" [{self.proposal_law.value} after the hinge proposal was refused: "
-            f"{hinge_refusal.outcome.value}: {hinge_refusal}{numbers}{extra}]"
+            f" [{self.proposal_law.value} after the "
+            f"{'hinge' if after is None else 'ARAP'} proposal was refused: "
+            f"{last.outcome.value}: {last}{numbers}{extra}]"
         )
         refused = self.unsound_proposal_refusal()
         if refused is not None:

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import math
+import random
 
 from cftuv_envelope.contracts.analysis import SourceVertexV1
 from cftuv_envelope.contracts.metric import GridSnappingLawV1
@@ -237,6 +238,34 @@ def spiral_strip(steps=40, step_degrees=10.0, inner=1.0, outer=1.5, pitch=0.02):
             )
         )
     return surface(strip_points(rings), strip_cycles(len(rings)))
+
+
+def bumpy_ring(
+    steps=24, radial=2, sweep=345.0, *, inner=3.0, outer=3.6, amplitude=0.2, white=0.05, seed=4, pitch=0.0
+):
+    """Верх изогнутой стены с шумом (СИНТЕТИКА): кольцевой сектор `sweep` градусов, `radial` колец квадов.
+
+    Высота — гладкие волны (три синуса со случайными частотами и фазами) плюс белый шум, всё от
+    `random.Random(seed)`; диагонали квадов тоже случайны; позиции на сетке `1/1024`. `pitch` — подъём
+    за оборот (винт: лента `sweep > 360` не пересекает себя в 3D). Шарнир на таком верху складывается, и
+    ARAP от него за 80 итераций не выходит из накрытия; проекция на среднюю плоскость — вложение.
+    """
+
+    rng = random.Random(seed)
+    waves = [(rng.uniform(1, 6), rng.uniform(0, 6.3), rng.uniform(0.5, 3), rng.uniform(0, 6.3)) for _ in range(3)]
+    points, cycles = {}, []
+    for k in range(steps + 1):
+        theta = math.radians(sweep) * k / steps
+        for j in range(radial + 1):
+            r = inner + (outer - inner) * j / radial
+            z = sum(amplitude * math.sin(f * theta + p) * math.cos(g * (r - inner) * 6 + q) for f, p, g, q in waves) / 3
+            z += rng.uniform(-white, white) + pitch * theta / (2.0 * math.pi)
+            points[f"p{k}_{j}"] = tuple(round(c * 1024) / 1024 for c in (r * math.cos(theta), r * math.sin(theta), z))
+    for k in range(steps):
+        for j in range(radial):
+            a, b, c, d = f"p{k}_{j}", f"p{k}_{j + 1}", f"p{k + 1}_{j + 1}", f"p{k + 1}_{j}"
+            cycles += [[a, b, c], [a, c, d]] if rng.random() < 0.5 else [[a, b, d], [b, c, d]]
+    return points, cycles
 
 
 def closed_cylinder(segments=8, radius=1.0, height=1.0):

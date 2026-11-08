@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 
 from ._unfold import UnfoldProposalV1, UnfoldTopologyV1, squared_distance
 
@@ -292,6 +293,52 @@ def _work(first, triangle_count: int) -> int:
         _envelope_work(first)
         + ARAP_PROPOSAL_ITERATIONS * (4 * envelope + 64 * triangle_count)
     )
+
+
+def plane_projection(topology: UnfoldTopologyV1, proposal: UnfoldProposalV1, positions):
+    """Старт закона `ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1`: ортогональная проекция на плоскость Ньюэлла.
+
+    Нормаль — точная сумма `(b - a) x (c - a)` по треугольникам владельца (дроби: от порядка и от имён не
+    зависит), базис — ось, наименее согласная с нормалью (`e1 = axis - (n_k / n.n) n`, равенство решает
+    меньший номер оси), и `e2 = n x e1`: обход против часовой у треугольника, согласного с нормалью,
+    сохраняется. Начало — первая вершина корня шарнира (её же пришпиливает ARAP). Скаляры `(p - o) . e`
+    точны, в binary64 входят одним округлением и делятся на `sqrt(e . e)`. `None` — нормаль нулевая.
+    """
+
+    normal = [Fraction(0), Fraction(0), Fraction(0)]
+    for item in topology.triangles:
+        a, b, c = (positions[vertex] for vertex in item.vertex_ids)
+        u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        w = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+        normal[0] += u[1] * w[2] - u[2] * w[1]
+        normal[1] += u[2] * w[0] - u[0] * w[2]
+        normal[2] += u[0] * w[1] - u[1] * w[0]
+    squared = _dot3(normal, normal)
+    if not squared:
+        return None
+    axis = min(range(3), key=lambda k: (abs(normal[k]), k))
+    first = tuple((1 if k == axis else 0) - normal[axis] * normal[k] / squared for k in range(3))
+    second = (
+        normal[1] * first[2] - normal[2] * first[1],
+        normal[2] * first[0] - normal[0] * first[2],
+        normal[0] * first[1] - normal[1] * first[0],
+    )
+    first_length = math.sqrt(float(_dot3(first, first)))
+    second_length = math.sqrt(float(_dot3(second, second)))
+    origin = positions[topology.by_id[proposal.root_triangle_id].vertex_ids[0]]
+    coordinates = {}
+    for vertex in vertex_order(topology, proposal):
+        point = positions[vertex]
+        offset = (point[0] - origin[0], point[1] - origin[1], point[2] - origin[2])
+        coordinates[vertex] = (
+            float(_dot3(offset, first)) / first_length,
+            float(_dot3(offset, second)) / second_length,
+        )
+    return coordinates
+
+
+def _dot3(left, right):
+    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 
 
 def arap_proposal(

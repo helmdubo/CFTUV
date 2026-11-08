@@ -18,7 +18,8 @@
    фиксированным порядком операций), поэтому равенство точное, а не «в допуске».
 
    У сертификата второго предложения (`ARAP_LOCAL_GLOBAL_80_BINARY64_V1`, а при самонакрытии
-   изометрии с граничной вершиной-избытком — `ARAP_CONE_RELIEF_80_BINARY64_V1`) пересчёт
+   изометрии с граничной вершиной-избытком — `ARAP_CONE_RELIEF_80_BINARY64_V1`, а после отказа ARAP от
+   шарнира — ARAP со старта с проекции `ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1`) пересчёт
    тот же и ЗВУЧЕН по той же причине: ARAP — только `+ - * /` и `sqrt` в
    фиксированном порядке, число итераций названо законом, поэтому предложение
    воспроизводится побитово, а карту после него судит тот же ТОЧНЫЙ суд, что перечитывает
@@ -79,6 +80,15 @@ SECOND_PROPOSAL_LAWS = frozenset(
     {
         DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
         DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1,
+        DevelopableProposalLawV1.ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1,
+    }
+)
+
+#: Законы, которые бывают ТОЛЬКО после отказа шарнира (соперником принятого шарнира они не бывают).
+AFTER_REFUSAL_ONLY_LAWS = frozenset(
+    {
+        DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1,
+        DevelopableProposalLawV1.ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1,
     }
 )
 
@@ -99,13 +109,21 @@ def _arap_after_refusal(certificate) -> bool:
     )
 
 
+def _proposal_refusals(certificate) -> int:
+    """Сколько записей хвоста следа — отказы предложений: шарнир, а у старта с проекции ещё и ARAP от шарнира."""
+
+    if not _arap_after_refusal(certificate):
+        return 0
+    plane = DevelopableProposalLawV1.ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1
+    return 2 if certificate.proposal_law is plane else 1
+
+
 def ladder_trace(certificate) -> tuple[str, ...]:
-    """След ступеней НИЖЕ развёртки: у второго предложения после отказа шарнира последняя запись — отказ шарнира."""
+    """След ступеней НИЖЕ развёртки: после отказа шарнира хвост следа — отказы предложений (`_proposal_refusals`)."""
 
     trace = certificate.previous_refusals
-    if _arap_after_refusal(certificate):
-        return trace[:-1]
-    return trace
+    tail = _proposal_refusals(certificate)
+    return trace[: max(0, len(trace) - tail)] if tail else trace
 
 
 def _policy_budget(certificate, budget) -> Fraction:
@@ -226,16 +244,17 @@ def _check_ladder_trace(issues, path, certificate) -> None:
             "an unfolded chart is tried only after a named near-planar refusal: "
             "the ladder trace must name a ladder trigger",
         )
-    after = _arap_after_refusal(certificate)
+    tail = _proposal_refusals(certificate)
     relief = certificate.proposal_law is (
         DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1
     )
     last = {NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP.value} if relief else {
         item.value for item in ARAP_TRIGGER_OUTCOMES
     }
-    if after and (
-        len(certificate.previous_refusals) != len(trace) + 1
-        or certificate.previous_refusals[-1] not in last
+    # Старт с проекции: хвост — отказ шарнира и отказ ARAP от шарнира, оба из `ARAP_TRIGGER_OUTCOMES`.
+    if tail and (
+        len(certificate.previous_refusals) != len(trace) + tail
+        or any(item not in last for item in certificate.previous_refusals[len(trace) :])
     ):
         add_issue(
             issues,
@@ -397,7 +416,7 @@ def _check_proposal_selection(issues, path, certificate) -> None:
     }[selection]
     sound = (arap_won, hinge is not None, rival is not None) == shape
     # Третье предложение (запас угла) бывает только ВТОРЫМ после отказа шарнира, соперником принятого оно не бывает.
-    if certificate.proposal_law is DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1:
+    if certificate.proposal_law in AFTER_REFUSAL_ONLY_LAWS:
         sound = sound and selection is law.ARAP_AFTER_HINGE_REFUSED_V1
     if sound:
         chosen = _fraction(rival if arap_won else hinge)

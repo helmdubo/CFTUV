@@ -221,14 +221,19 @@ def test_wall_noise_top_patch_three_is_accepted_by_arap_within_the_owners_twenty
 
 
 def test_wall_noise_top_patch_three_reports_the_arap_numbers_and_the_hinge_numbers():
-    """Отказ несёт числа обоих предложений; на пороге ниже 18.74 % (здесь 18 %) `wall_noise_top` ещё отказан."""
+    """Отказ несёт числа всех предложений; на пороге ниже 18.74 % (здесь 18 %) `wall_noise_top` ещё отказан.
+
+    После отказа ARAP от шарнира пробуется старт с проекции (ARAP_FROM_PLANE_PROJECTION_V1): его число первое.
+    """
 
     with pytest.raises(PlanarMetricAdmissionError) as failure:
         developable_chart(_wall_noise_top(), budget=Fraction(18, 100))
     error = failure.value
     text = str(error)
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
-    arap_band, hinge_band = _bands(text)[:2]
+    plane_band, arap_band, hinge_band = _bands(text)[:3]
+    assert 1.392 < plane_band <= 1.42
+    assert "ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1 after the ARAP proposal was refused" in text
     assert arap_band <= 1.41
     assert hinge_band > 9.0
     assert text.index("the ARAP proposal before snapping") < text.index(
@@ -238,12 +243,14 @@ def test_wall_noise_top_patch_three_reports_the_arap_numbers_and_the_hinge_numbe
 
 
 def test_rounded_wall_noise_top_patch_two_is_refused_by_both_and_names_both():
-    """Шарнир: самонакрытие и растяжение 42 (число берётся из измерения шарнира); ARAP: 1.71."""
+    """Шарнир: самонакрытие и растяжение 42 (число берётся из измерения шарнира); ARAP: 1.71; старт с проекции: 1.74."""
 
     error = _refusal(_rounded_wall_noise_top())
     text = str(error)
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
-    arap_band, hinge_band = _bands(text)[:2]
+    plane_band, arap_band, hinge_band = _bands(text)[:3]
+    assert 1.44 < plane_band <= 1.75
+    assert "ARAP_FROM_PLANE_PROJECTION_80_BINARY64_V1 after the ARAP proposal was refused" in text
     assert arap_band <= 1.71
     assert hinge_band > 40.0
     assert "the hinge unfolding covers itself before any snapping" in text
