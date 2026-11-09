@@ -45,7 +45,15 @@ from .analysis_surface import source_revision_from_bmesh
 from .bevel_faces import BOTH, plan_console_lines, plan_summary
 from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection
 from .bevel_select_operator import HOTSPOTUV_OT_SeamBevel, HOTSPOTUV_OT_SelectBevelFaces
-from .bevel_copy import BEVEL_COPY_RAIL_UNPAIRED, copy_result, note_copy, rail_unpaired
+from .bevel_copy import (
+    BEVEL_COPY_RAIL_SPLIT,
+    BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK,
+    BEVEL_COPY_RAIL_SPLIT_REFUSED,
+    BEVEL_COPY_RAIL_UNPAIRED,
+    copy_result,
+    note_copy,
+    rail_unpaired,
+)
 from .bevel_wings import parts_summary
 from .bevel_wings_blender import counter_lines as wing_counter_lines
 from .bevel_wings_blender import press_record as wings_press_record
@@ -183,8 +191,8 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         items=FACE_SIDE_ITEMS,
         default=BOTH,
         description=(
-            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1, BEVEL_FACES_BOTH_V2): Both (default) copies the selected bevel faces "
-            "offset like the decal and welds the copy to the decal that grows outward by the decal width, one mesh with mirrored UV wings; Inward fills the selected bevel faces, "
+            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1, BEVEL_FACES_BOTH_V3): Both (default) copies the selected bevel faces "
+            "offset like the decal and welds the copy to the decal that grows outward by the decal width, one mesh, one UV island per bevel segment; Inward fills the selected bevel faces, "
             "Outward the faces around them; edge selection is unchanged"
         ),
     )
@@ -452,7 +460,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
         # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`) и мягкая находка стоят в них наравне с отказом продуктового пути.
         mesh_settings.status = receipt_status_text(receipt) + ("" if face_build is None else f" | {plan_summary(face_build.plan)}")
-        if both:  # BEVEL_FACES_BOTH_V2: копия и внешняя часть, отказ внешней части по имени, вершины рельса без пары, крылья не строятся - всё названо
+        if both:  # BEVEL_FACES_BOTH_V3: копия и внешняя часть, отказ внешней части по имени, деления рёбер рельса, вершины рельса без пары, крылья не строятся - всё названо
             mesh_settings.status += _both_status(face_build, arrays, receipt, wings_off)
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
@@ -477,10 +485,14 @@ def _note_both(face_build, bundle, run, mesh_settings, hotspot) -> tuple:
 
 
 def _both_status(face_build, arrays, receipt, wings_off: str) -> str:
-    """Хвост строки статуса нажатия Both: части (копия, внешняя часть и её отказы), вершины рельса без пары, отказ крыльев."""
+    """Хвост строки статуса нажатия Both: части (копия, внешняя часть и её отказы), вершины рельса копии, вставшие в рёбра внешней части
+    (BEVEL_COPY_RAIL_SPLIT_V3), и отказы деления, вершины рельса без пары, отказ крыльев."""
 
     unpaired = rail_unpaired(arrays)
+    counters = dict(getattr(arrays, "weld_counters", ()) or ())
     text = f" | {parts_summary(len(face_build.copy.faces), receipt.domains, receipt.skipped)}"
+    for name in (BEVEL_COPY_RAIL_SPLIT, BEVEL_COPY_RAIL_SPLIT_REFUSED, BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK):
+        text += f", {name} {counters[name]}" if counters.get(name) else ""
     return text + (f", {BEVEL_COPY_RAIL_UNPAIRED} {unpaired}" if unpaired else "") + (f" | {wings_off}" if wings_off else "")
 
 

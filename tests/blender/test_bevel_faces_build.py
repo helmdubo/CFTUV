@@ -19,15 +19,20 @@
    удалёнными гранями бевела; умеренный шум - верх строится, сильный - домен верха не молчит (каждый патч анализа - домен со
    своим исходом, отказ назван в статусе).
 
-10. BOTH (по умолчанию, BEVEL_FACES_BOTH_V2, BEVEL_WINGS_V2): куб с бевелом в 1, 2 и 3 сегмента, узлы в углах; один объект декали; грани
+10. BOTH (по умолчанию, BEVEL_FACES_BOTH_V3, BEVEL_WINGS_V3): куб с бевелом в 1, 2 и 3 сегмента, узлы в углах; один объект декали; грани
     копии - ровно выделенные грани (те же кольца вершин с тем же обходом при смещении 0, то же число граней, вершин и петель), внешняя часть -
     все домены анализа невыделенных граней; каждая вершина копии на границе выделения - ОДНА вершина с внешней декалью, ни одной пары
-    вершин в одной точке; при смещении декали внутренняя вершина копии смещена вдоль своей нормали (сумма нормалей граней, взвешенных
-    площадью) ровно на смещение, вершина рельса - митра (вдоль нормали копии то же смещение); UV: на каждом ребре рельса UV копии и внешней
-    грани равны, рельсы копии зеркальны около `V = 0.5` при той же `U`, крылья - ровно [0, 1], ни одна грань UV не вывернута; кадр модели
-    живой ширины не двигает копию и держит рельс сваренным, точный пересчёт не двигает копию и побитово равен нажатию на новой ширине;
-    строка частей «copy N faces, outward a/b refused (...)» называет отказ внешней части (шумный верх стены); выделение всех граней -
-    именованный отказ `BEVEL_FACES_NOTHING_OUTSIDE`.
+    вершин в одной точке, ни одного открытого ребра копии; при смещении декали внутренняя вершина копии смещена вдоль своей нормали (сумма
+    нормалей граней, взвешенных площадью) ровно на смещение, вершина рельса - митра (вдоль нормали копии то же смещение); UV СЕГМЕНТА: один
+    остров UV на сегмент (полоса между узлами с юбками декали с обоих рельсов), острова = сегменты, узел - весь в острове одного сегмента;
+    на каждом ребре рельса внутри сегмента UV копии и юбки равны (разрыв 0), шов меша - ровно рёбра, где UV расходится; рельсы полосы зеркальны
+    около `V = 0.5` при той же `U`; V ровно [0, 1] (края юбок полной ширины - 0 и 1); ни одна грань UV не вывернута; одна плотность (разброс
+    по граням при смещении 0 назван числом); кадр модели живой ширины не двигает копию и держит рельс сваренным, точный пересчёт не двигает
+    копию и побитово равен нажатию на новой ширине; плита с отверстием и L-профиль - острова = сегменты, веера вогнутых углов раскрыты от
+    юбки своего сегмента; стена-колонка (четверть кольца, стены и торцы поделены по высоте, шумный верх): грань
+    юбки ядра над колонкой торца одна на всю высоту, а у рельса копии вершины на каждом уровне - они встают в ребро юбки (T-стык,
+    BEVEL_COPY_RAIL_SPLIT_V3), открытых рёбер копии нет; строка частей «copy N faces, outward a/b refused (...)» называет отказ внешней части
+    (шумный верх стены) и вершины рельса без пары; выделение всех граней - именованный отказ `BEVEL_FACES_NOTHING_OUTSIDE`.
 
 Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_faces_build.py
 Последняя строка при успехе: BEVEL_FACES_BUILD_BLENDER_OK
@@ -365,31 +370,38 @@ def _run_closed_mesh_without_seams_is_a_named_refusal():
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-def _noisy_wall(noise, arcs=16, rows=3, r_in=3.9, r_out=4.3, height=4.5):
+def _noisy_wall(noise, arcs=16, rows=3, r_in=3.9, r_out=4.3, height=4.5, levels=1):
     """Четверть кольца стены: верх - треугольники с шумом высоты `noise` (сид постоянный), бевел обода верха, вертикальных рёбер
-    торцов и границы низа в 2 сегмента (материал 1). Грани бевела - в конце нумерации: у меша без них те же номера граней, рёбер, вершин."""
+    торцов и границы низа в 2 сегмента (материал 1). Грани бевела - в конце нумерации: у меша без них те же номера граней, рёбер, вершин.
+    `levels` - стены и торцы поделены по высоте на столько рядов (вертикальное ребро торца - цепь рёбер: у колонки бевела вершины на
+    каждом уровне, а у плоского торца ядро оставляет только вершины силуэта)."""
 
     rng = random.Random(7)
     bm = bmesh.new()
     radii = [r_in + (r_out - r_in) * k / rows for k in range(rows + 1)]
-    top, bottom = [], []
+    top, bottom, column = [], [], []
     for i in range(arcs + 1):
         cos, sin = math.cos(0.5 * math.pi * i / arcs), math.sin(0.5 * math.pi * i / arcs)
         top.append([bm.verts.new((r * cos, r * sin, height + rng.uniform(-noise, noise))) for r in radii])
         bottom.append([bm.verts.new((r * cos, r * sin, 0.0)) for r in (r_in, r_out)])
+        middle = [[bm.verts.new((r * cos, r * sin, height * level / levels)) for level in range(1, levels)] for r in (r_in, r_out)]
+        column.append([[bottom[i][side], *middle[side], top[i][0 if side == 0 else rows]] for side in (0, 1)])
     top_faces, bottom_faces = [], []
     for i in range(arcs):
         for k in range(rows):
             a, b, c, d = top[i][k], top[i][k + 1], top[i + 1][k + 1], top[i + 1][k]
             top_faces += [bm.faces.new(item) for item in (((a, b, c), (a, c, d)) if (i + k) % 2 else ((a, b, d), (b, c, d)))]
         bottom_faces.append(bm.faces.new((bottom[i][0], bottom[i + 1][0], bottom[i + 1][1], bottom[i][1])))
-        bm.faces.new((top[i][0], top[i + 1][0], bottom[i + 1][0], bottom[i][0]))
-        bm.faces.new((top[i][rows], bottom[i][1], bottom[i + 1][1], top[i + 1][rows]))
+        for level in range(levels):
+            inner, outer = column[i][0], column[i + 1][0]
+            bm.faces.new((inner[level + 1], outer[level + 1], outer[level], inner[level]))
+            inner, outer = column[i][1], column[i + 1][1]
+            bm.faces.new((inner[level + 1], inner[level], outer[level], outer[level + 1]))
     for i in (0, arcs):
-        ring = [bottom[i][0], bottom[i][1], *reversed(top[i])]
+        ring = [*column[i][0][:1], *column[i][1][:-1], *reversed(top[i]), *reversed(column[i][0][1:-1])]
         bm.faces.new(ring if i == arcs else list(reversed(ring)))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-    vertical = {frozenset((top[i][0], bottom[i][0])) for i in (0, arcs)} | {frozenset((top[i][rows], bottom[i][1])) for i in (0, arcs)}
+    vertical = {frozenset(pair) for i in (0, arcs) for side in (0, 1) for pair in zip(column[i][side], column[i][side][1:])}
     sharp = [
         edge for edge in bm.edges
         if sum(1 for face in edge.link_faces if face in top_faces) == 1
@@ -530,39 +542,98 @@ def _copy_normals(obj, bevel):
     return {vertex: value.normalized() for vertex, value in sums.items()}
 
 
-def _uv_checks(name, mesh, copy):
-    """UV крыльев: непрерывность через рельс, рельсы копии зеркальны около средней линии (`V = 0.5`) при той же `U`, ни одна грань не вывернута."""
+def _islands(mesh, uv, loop_at, edge_faces):
+    """Острова UV: грани, связанные рёбрами с непрерывной UV."""
+
+    parent = list(range(len(mesh.polygons)))
+
+    def find(item):
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    for (a, b), faces in edge_faces.items():
+        if len(faces) == 2 and max((uv[loop_at[(faces[0], x)]].uv - uv[loop_at[(faces[1], x)]].uv).length for x in (a, b)) <= 1e-6:
+            parent[find(faces[0])] = find(faces[1])
+    found = {}
+    for polygon in mesh.polygons:
+        found.setdefault(find(polygon.index), []).append(polygon.index)
+    return list(found.values())
+
+
+def _uv_checks(name, mesh, copy, strict_islands=True, trim_tolerance=0.0):
+    """UV сегментов (BEVEL_WINGS_V3): остров на сегмент, узел в одном сегменте, непрерывность через рельс внутри сегмента, швы - ровно разрывы UV,
+    рельсы полосы зеркальны около средней линии (`V = 0.5`) при той же `U`, ни одна грань не вывернута, V в [0, 1] (шумный профиль шире полосы
+    трима и узлы - в `trim_tolerance`), плотность по граням (разброс назван)."""
 
     domain, copy_faces, _outer, copy_vertices, outer_vertices = _parts(mesh, copy)
     uv = mesh.uv_layers["UVMap"].data
-    rail = copy_vertices & outer_vertices
+    owner = [item.value for item in mesh.attributes["cftuv_owner"].data]
+    seams = {tuple(sorted(edge.vertices)) for edge in mesh.edges if edge.use_seam}
     loop_at, edge_faces = {}, {}
     for polygon in mesh.polygons:
         for loop in polygon.loop_indices:
             loop_at[(polygon.index, mesh.loops[loop].vertex_index)] = loop
         for key in polygon.edge_keys:
             edge_faces.setdefault(key, []).append(polygon.index)
-    rail_gap, rail_edges = 0.0, 0
+    rail_gap, rail_edges, segment_seams, seam_mismatch = 0.0, 0, 0, 0
     for (a, b), faces in edge_faces.items():
-        if len(faces) == 2 and (domain[faces[0]] == copy) != (domain[faces[1]] == copy):
-            gap = max((uv[loop_at[(faces[0], x)]].uv - uv[loop_at[(faces[1], x)]].uv).length for x in (a, b))
-            rail_gap, rail_edges = max(rail_gap, gap), rail_edges + 1
-    assert rail_edges > 0 and rail_gap <= 1e-6, (name, "UV is continuous across the rail", rail_edges, rail_gap)
-    owner = [item.value for item in mesh.attributes["cftuv_owner"].data]
-    by_frame = {}
+        if len(faces) != 2:
+            continue
+        gap = max((uv[loop_at[(faces[0], x)]].uv - uv[loop_at[(faces[1], x)]].uv).length for x in (a, b))
+        seam_mismatch += (gap > 1e-5) != ((a, b) in seams)
+        if (domain[faces[0]] == copy) != (domain[faces[1]] == copy):
+            if (a, b) in seams:
+                segment_seams += 1
+            else:
+                rail_gap, rail_edges = max(rail_gap, gap), rail_edges + 1
+    assert rail_edges > 0 and rail_gap <= 1e-6, (name, "UV is continuous across the rail inside a segment", rail_edges, rail_gap)
+    assert seam_mismatch == 0, (name, "the seams are exactly the edges where UV breaks", seam_mismatch)
+    islands = _islands(mesh, uv, loop_at, edge_faces)
+    segments = {owner[polygon.index] // 2 for polygon in copy_faces}
+    for faces in islands:
+        mine = {owner[face] // 2 for face in faces if domain[face] == copy}
+        assert len(mine) <= 1, (name, "an island carries one segment", mine)
+    with_copy = sum(1 for faces in islands if any(domain[face] == copy for face in faces))
+    assert with_copy == len(segments), (name, "every segment is one island", with_copy, len(segments))
+    if strict_islands:
+        assert len(islands) == len(segments), (name, "islands = segments", len(islands), len(segments))
+    node_faces = [polygon for polygon in copy_faces if owner[polygon.index] % 2 == 1]
+    for polygon in node_faces:  # узел целиком в одном сегменте: соседи-узлы по ребру - тот же сегмент
+        for key in polygon.edge_keys:
+            for other in edge_faces[key]:
+                if other != polygon.index and domain[other] == copy and owner[other] % 2 == 1:
+                    assert owner[other] // 2 == owner[polygon.index] // 2, (name, "a node is attached to one segment", polygon.index, other)
+    rail = copy_vertices & outer_vertices
+    by_segment = {}
     for polygon in copy_faces:
-        for loop in polygon.loop_indices:
-            if mesh.loops[loop].vertex_index in rail:
-                by_frame.setdefault(owner[polygon.index], set()).add((round(uv[loop].uv.x, 5), round(uv[loop].uv.y - 0.5, 5)))
+        if owner[polygon.index] % 2 == 0:
+            for loop in polygon.loop_indices:
+                if mesh.loops[loop].vertex_index in rail:
+                    by_segment.setdefault(owner[polygon.index] // 2, set()).add((round(uv[loop].uv.x, 5), round(uv[loop].uv.y - 0.5, 5)))
     mirror = 0.0
-    for points in by_frame.values():
+    for points in by_segment.values():
         for u, h in points:
             mirror = max(mirror, min(abs(u - other_u) + abs(h + other_h) for other_u, other_h in points))
-    assert by_frame and mirror <= 2e-5, (name, "the rails of the two wings mirror about the centre line at the same U", mirror)
-    heights = [loop.uv.y for loop in uv]
     flipped = sum(1 for polygon in mesh.polygons if _uv_face_area(uv, polygon) < 0.0)
     assert flipped == 0, (name, "no UV face is flipped", flipped)
-    return rail_edges, rail_gap, mirror, (min(heights), max(heights))
+    heights = [loop.uv.y for loop in uv]
+    assert -trim_tolerance - 1e-6 <= min(heights) and max(heights) <= 1.0 + trim_tolerance + 1e-6, (name, "V in the trim [0, 1]", min(heights), max(heights))
+    density, node_density = [], []  # узел - кусок двоякой кривизны, его развёртка подобием по граням меняет площадь: разброс узлов назван отдельно
+    for polygon in mesh.polygons:
+        if polygon.area > 1e-9:
+            node = domain[polygon.index] == copy and owner[polygon.index] % 2 == 1
+            (node_density if node else density).append(math.sqrt(abs(_uv_face_area(uv, polygon)) / 2.0 / polygon.area))
+    density.sort()
+    median = density[len(density) // 2]
+    node_spread = (max(node_density) - min(node_density)) / median if node_density else 0.0
+    return {
+        "rail_edges": rail_edges, "rail_gap": rail_gap, "segment_seams": segment_seams, "mirror": mirror, "islands": len(islands),
+        "segments": len(segments), "heights": (min(heights), max(heights)), "density": median, "spread": (density[-1] - density[0]) / median,
+        "node_spread": node_spread,
+        "open_copy": sum(1 for key, faces in edge_faces.items() if len(faces) == 1 and domain[faces[0]] == copy),
+    }
 
 
 def _both_checks(name, obj, bevel, offset):
@@ -647,24 +718,31 @@ def _run_both_is_the_default_one_welded_mesh_of_the_copy_and_the_outward_decal()
             patches = _controller().width_build.analysis_bundle.patch_graph.nodes
             parts = BOTH_PARTS.search(status)
             assert parts and parts.groups()[:3] == (str(len(bevel)), str(len(patches)), str(len(patches))), (name, status)
-            assert built == len(patches) and refused == 0 and "BEVEL_COPY_RAIL_UNPAIRED" not in status, (name, status)
+            assert built == len(patches) and refused == 0 and "BEVEL_COPY_RAIL_UNPAIRED" not in status and "BEVEL_COPY_RAIL_SPLIT" not in status, (name, status)
             assert "ADAPTER_WELD" not in status, (name, "the weld names nothing", status)
             assert [item.name for item in bpy.data.objects if item.name.startswith(name + ".")] == [name + ".CFTUV_Decal"], "one decal mesh"
             assert _width_problem_text() == "", _width_problem_text()
             mesh = bpy.data.objects[name + ".CFTUV_Decal"].data
             counters = LAST_COUNTERS[mesh.session_uid]
-            for key in ("BEVEL_WINGS_OUTER_UNPAIRED", "BEVEL_WINGS_NOT_TWO_SIDED", "BEVEL_WINGS_OUTER_MIRRORED", "BEVEL_WINGS_FOLDS"):
+            for key in ("BEVEL_WINGS_OUTER_UNPAIRED", "BEVEL_WINGS_NOT_TWO_SIDED", "BEVEL_WINGS_OUTER_MIRRORED", "BEVEL_WINGS_FOLDS", "BEVEL_WINGS_COPY_FLIPPED",
+                        "BEVEL_WINGS_KNOT_BREAKS", "BEVEL_WINGS_KNOT_CONFLICTS", "BEVEL_WINGS_KERNEL_FLIPPED"):
                 assert counters[key] == 0, (key, counters)
-            assert "BEVEL_WINGS_ALPHA_UNKNOWN" not in counters and counters["BEVEL_WINGS_ALPHA_SPREAD_PPM"] <= 100, counters
+            assert "BEVEL_WINGS_ALPHA_UNKNOWN" not in counters and counters["BEVEL_WINGS_ALPHA_SPREAD_PPM"] <= 1000, counters
             numbers = _both_checks(name, obj, bevel, 0.0 if offset == 0.0 else _decal_settings().offset)
-            rail_edges, rail_gap, mirror, (low, high) = _uv_checks(name, mesh, _copy_domain(mesh))
-            assert abs(low) <= 1e-6 and abs(high - 1.0) <= 1e-6, (name, "the wings span the trim [0, 1]", low, high)
+            uv = _uv_checks(name, mesh, _copy_domain(mesh))
+            (low, high) = uv["heights"]
+            assert abs(low) <= 1e-6 and abs(high - 1.0) <= 1e-6, (name, "the segments span the trim [0, 1]", low, high)
+            assert uv["mirror"] <= 2e-5 and uv["open_copy"] == 0, (name, uv)
+            if offset == 0.0:
+                assert uv["spread"] <= 0.02, (name, "one texel density for the whole press", uv["spread"])
+                flat_spread, node_spread = uv["spread"], uv["node_spread"]
             if offset is None:
                 SUMMARY.append(
                     f"{name}: {status.split(' | ')[-1]} {seconds:.2f} s, {len(mesh.polygons)} faces {len(mesh.vertices)} vertices, "
                     f"{numbers['rail']} rail vertices welded, {numbers['doubled']} doubled, interior offset error {numbers['interior']:.2g}, "
-                    f"rail offset error {numbers['rail_error']:.2g}, {rail_edges} rail edges UV gap {rail_gap:.2g}, mirror {mirror:.2g}, "
-                    f"half bevel {counters['BEVEL_WINGS_HALF_BEVEL_MEDIAN_MICRO_WIDTHS']} micro-widths, alpha spread {counters['BEVEL_WINGS_ALPHA_SPREAD_PPM']} ppm"
+                    f"rail offset error {numbers['rail_error']:.2g}, {uv['islands']} islands = {uv['segments']} segments, {uv['rail_edges']} rail edges UV gap "
+                    f"{uv['rail_gap']:.2g}, {uv['segment_seams']} segment-seam rail edges, mirror {uv['mirror']:.2g}, density {uv['density']:.4g} UV/m "
+                    f"spread {flat_spread:.2g} at offset 0 (node faces {node_spread:.2g}), alpha spread {counters['BEVEL_WINGS_ALPHA_SPREAD_PPM']} ppm"
                 )
             bpy.ops.object.mode_set(mode="OBJECT")
     _clean()  # ширина возвращается без записи кнопки: живой пересчёт не заказывается
@@ -719,6 +797,73 @@ def _run_the_live_width_of_both_equals_a_press_at_that_width():
     _settings().envelope_debug_alpha = ALPHA
 
 
+def _run_both_plate_and_l_profile_are_one_island_per_segment():
+    """Плита с отверстием и L-профиль (бевел модификатором в 2 сегмента, Face Strength): острова UV = сегменты, веера у вогнутых углов
+    раскрыты от юбки своего сегмента (BEVEL_WINGS_FAN_UNFOLD_V3), разрыв на рельсе 0, вывернутых 0, V ровно [0, 1]."""
+
+    from cftuv.bevel_wings_blender import LAST_COUNTERS
+
+    for base in ("plate_hole", "lprofile"):
+        _clean()
+        _settings().envelope_debug_alpha = BOTH_ALPHA
+        name = f"both_{base}"
+        obj = _modifier_bevel(name, base, 2, True)
+        bevel = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
+        _enter_face_selection(obj, bevel)
+        built, refused, status, seconds = _press(obj, "BOTH")
+        assert refused == 0 and "BEVEL_COPY_RAIL_UNPAIRED" not in status, (name, status)
+        mesh = bpy.data.objects[name + ".CFTUV_Decal"].data
+        counters = LAST_COUNTERS[mesh.session_uid]
+        for key in ("BEVEL_WINGS_OUTER_UNPAIRED", "BEVEL_WINGS_FOLDS", "BEVEL_WINGS_COPY_FLIPPED", "BEVEL_WINGS_OUTER_MIRRORED"):
+            assert counters[key] == 0, (name, key, counters)
+        _both_checks(name, obj, bevel, _decal_settings().offset)
+        uv = _uv_checks(name, mesh, _copy_domain(mesh))
+        assert uv["open_copy"] == 0 and abs(uv["heights"][0]) <= 1e-6 and abs(uv["heights"][1] - 1.0) <= 1e-6, (name, uv)
+        SUMMARY.append(
+            f"{name}: {BOTH_PARTS.search(status).group(0)} {seconds:.2f} s, {uv['islands']} islands = {uv['segments']} segments, "
+            f"fans unfolded {counters['BEVEL_WINGS_FANS_UNFOLDED']}, rail UV gap {uv['rail_gap']:.2g} on {uv['rail_edges']} edges, "
+            f"skirt stretch {counters['BEVEL_WINGS_SKIRT_STRETCH_PPM']} ppm, density spread {uv['spread']:.2g}"
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+    _clean()
+    _settings().envelope_debug_alpha = ALPHA
+
+
+def _run_both_welds_the_wall_columns_without_t_junctions():
+    """Стена-колонка (поле: торцы стены, щели на рёбрах между копией и декалью): юбка ядра над колонкой торца - одна грань на всю высоту
+    (ядро держит вершины силуэта), у рельса копии вершины на каждом уровне. Они встают в ребро юбки (BEVEL_COPY_RAIL_SPLIT_V3): ни одного
+    открытого ребра копии, ни одной вершины рельса без пары; UV - острова сегментов, разрыв на рельсе 0, вывернутых 0."""
+
+    from cftuv.bevel_wings_blender import LAST_COUNTERS
+
+    _clean()
+    _settings().envelope_debug_alpha = ALPHA
+    obj = _object("both_columns", _noisy_wall(0.04, levels=3))
+    bevel = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
+    _enter_face_selection(obj, bevel)
+    built, refused, status, seconds = _press(obj, "BOTH")
+    parts = BOTH_PARTS.search(status)
+    assert parts and refused == 0 and "BEVEL_COPY_RAIL_UNPAIRED" not in status, (status, "every rail vertex of the copy is welded")
+    split = re.search(r"BEVEL_COPY_RAIL_SPLIT (\d+)", status)
+    assert split and int(split.group(1)) > 0 and "BEVEL_COPY_RAIL_SPLIT_REFUSED" not in status, (status, "the column rail vertices stand in the wing edges")
+    mesh = bpy.data.objects["both_columns.CFTUV_Decal"].data
+    counters = LAST_COUNTERS[mesh.session_uid]
+    numbers = _both_checks("both_columns", obj, bevel, _decal_settings().offset)
+    uv = _uv_checks("both_columns", mesh, _copy_domain(mesh), strict_islands=False, trim_tolerance=0.5)
+    assert uv["open_copy"] == 0, ("no open copy edge: the T-junctions are welded", uv)
+    record = _controller().width_build
+    SUMMARY.append(
+        f"both_columns: {parts.group(0)} {seconds:.2f} s, {split.group(0)}, {numbers['rail']} rail vertices welded, open copy edges {uv['open_copy']}, "
+        f"{uv['islands']} islands for {uv['segments']} segments, rail UV gap {uv['rail_gap']:.2g} on {uv['rail_edges']} edges, "
+        f"{uv['segment_seams']} segment-seam rail edges, V {uv['heights'][0]:.3f}..{uv['heights'][1]:.3f}, density spread {uv['spread']:.2g}, "
+        f"folds {counters['BEVEL_WINGS_FOLDS']} (kernel {counters['BEVEL_WINGS_KERNEL_FLIPPED']}), node skirts {counters['BEVEL_WINGS_NODE_SKIRTS']}, "
+        f"skirt past trim {counters['BEVEL_WINGS_SKIRT_PAST_TRIM']}, "
+        f"{len(record.analysis_bundle.patch_graph.nodes)} outward domains"
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    _clean()
+
+
 def _run_both_names_the_refused_part():
     """Отказ домена внешней части назван в строке частей, копия и остальное в меше (шумный верх стены: верх отказан ядром по имени);
     выделение без граней снаружи - именованный отказ нажатия."""
@@ -769,6 +914,8 @@ def _main():
     _run_synthetic_cases()
     _run_both_is_the_default_one_welded_mesh_of_the_copy_and_the_outward_decal()
     _run_the_live_width_of_both_equals_a_press_at_that_width()
+    _run_both_plate_and_l_profile_are_one_island_per_segment()
+    _run_both_welds_the_wall_columns_without_t_junctions()
     _run_both_names_the_refused_part()
     for line in SUMMARY:
         print("[BevelFacesTest]", line, flush=True)

@@ -69,7 +69,7 @@ import numpy as np
 from cftuv_envelope.mesh_glue import glue_domains
 
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
-from .bevel_copy import copy_for
+from .bevel_copy import copy_for, split_rails
 from .bevel_wings import MESH_PROPERTY as WINGS_MESH_PROPERTY
 from .hotspot_mapping import MESH_PROPERTY as HOTSPOT_MESH_PROPERTY
 from .envelope_production_weld import (
@@ -432,6 +432,7 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True, digest: b
     object.__setattr__(arrays, "bevel_copy", copy)
     if copy is not None:
         object.__setattr__(arrays, "domains", tuple(patch for patch in arrays.domains if patch != copy.patch_id))
+        arrays = split_rails(arrays)  # BEVEL_COPY_RAIL_SPLIT_V3: вершины рельса копии встают в рёбра внешней части (T-стыки силуэта ядра)
     return arrays
 
 
@@ -675,7 +676,7 @@ def mesh_content_digest(mesh) -> str:
 
 def _build_mesh(name: str, arrays: MeshArraysV1, hotspot: str | None = None, wings: str | None = None):
     """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`. `hotspot` - запись отображения Hotspot (свойство меша до заливки), `None` - режим выключен;
-    `wings` - запись крыльев UV нажатия Both (BEVEL_WINGS_V2), `None` - её нет."""
+    `wings` - запись крыльев UV нажатия Both (BEVEL_WINGS_V3), `None` - её нет."""
 
     mesh = bpy.data.meshes.new(name)
     if hotspot is not None:
@@ -695,7 +696,7 @@ def _map_hotspot(mesh) -> None:
         from .hotspot_blender import map_mesh_uvs
 
         map_mesh_uvs(mesh, DECAL_UV_LAYER)
-    elif keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V2: тот же путь всех писателей UV, записи Hotspot у меша Both нет
+    elif keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V3: тот же путь всех писателей UV (UV и швы), записи Hotspot у меша Both нет
         from .bevel_wings_blender import map_mesh_wings
 
         map_mesh_wings(mesh, DECAL_UV_LAYER)
@@ -1064,7 +1065,7 @@ def write_decal_object(
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
 
-    `wings` - запись крыльев UV нажатия Both (`bevel_wings_blender.press_record`): свойство НОВОГО меша, его UV - крылья (BEVEL_WINGS_V2).
+    `wings` - запись крыльев UV нажатия Both (`bevel_wings_blender.press_record`): свойство НОВОГО меша, его UV - сегменты (BEVEL_WINGS_V3).
 
     `hotspot` - запись отображения Hotspot (`hotspot_blender.press_record`): она ложится свойством в НОВЫЙ меш (с метками островов прежнего меша
     декали, `_carry_hotspot`), и его UV - UV атласа метки;

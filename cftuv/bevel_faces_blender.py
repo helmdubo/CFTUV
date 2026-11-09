@@ -36,7 +36,7 @@ from .bevel_copy import BevelCopySpecV1, copy_spec
 from .surface_ir import SourceRevision
 
 FACE_SIDE_ITEMS = (
-    (BOTH, "Both", "Selected bevel faces and the faces around them: a copy of the bevel faces, offset like the decal, welded to the decal that grows outward by the decal width from the bevel edge; UV wings mirror about the bevel centre line"),
+    (BOTH, "Both", "Selected bevel faces and the faces around them: a copy of the bevel faces, offset like the decal, welded to the decal that grows outward by the decal width from the bevel edge; one UV island per bevel segment, its centre line at V 0.5"),
     (INWARD, "Inward", "Selected bevel faces: every strip and node is filled from its whole boundary inward, as if the other faces were absent"),
     (OUTWARD, "Outward", "Faces around the selection: the edges the selected bevel faces leave are the sources, as if the selection were absent"),
 )

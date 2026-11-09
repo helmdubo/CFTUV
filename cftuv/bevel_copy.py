@@ -1,4 +1,4 @@
-"""Копия граней бевела декали Both (BEVEL_FACES_BOTH_V2). Без Blender: чистый Python и numpy.
+"""Копия граней бевела декали Both (BEVEL_FACES_BOTH_V3). Без Blender: чистый Python и numpy.
 
 ЧТО ЭТО. Выделенные грани бевела (полосы и узлы) не заливаются ядром изнутри: декаль Both кладёт над ними их КОПИЮ - те же вершины, грани
 и петли, что у оригинала, смещённые над поверхностью, - а ядро растит декаль только НАРУЖУ (нажатие Outward: грани вне выделения, источники -
@@ -6,28 +6,33 @@
 
 ОДИН СВАРЕННЫЙ МЕШ (BEVEL_COPY_WELD_V2). Копия - ещё один домен сборки меша (`copy_result`): вид домена с вершинами копии, у каждой ссылка
 вершины исходника, которой её называет ядро (`LOCATION_FORMAT`), и позиция исходника (те же числа, что у снапшота анализа: `float` от `co`
-вершины bmesh), поэтому
-сварка хоста (`envelope_production_weld`) сама сводит вершины рельса копии с вершинами рельса внешней декали в ОДНУ вершину, а смещение этой
-вершины - митра нормалей обеих частей (тот же закон смещения, что у швов между доменами ядра). Внутренние вершины копии смещены вдоль своей
-нормали (BEVEL_COPY_OFFSET_V2: нормаль вершины - сумма векторов Ньюэлла её граней копии, то есть нормалей, взвешенных площадью). Где внешняя
-часть отказана, у вершины рельса копии пары нет: она остаётся своей вершиной (сварка её не находит), это число `BEVEL_COPY_RAIL_UNPAIRED`
-в строке статуса нажатия (`rail_unpaired`) - не тихий разрыв. Позиции рельса не берутся из видов ядра: совпадение побитово держит тест
-Blender (ноль вершин без пары, ноль пар вершин в одной точке).
+вершины bmesh), поэтому сварка хоста (`envelope_production_weld`) сама сводит вершины рельса копии с вершинами рельса внешней декали в ОДНУ
+вершину, а смещение этой вершины - митра нормалей обеих частей. Внутренние вершины копии смещены вдоль своей нормали (BEVEL_COPY_OFFSET_V2:
+сумма векторов Ньюэлла её граней копии, то есть нормалей, взвешенных площадью).
 
-UV КОПИИ (метры, их отображает в крылья `bevel_wings`). Для каждой полосы (компонента граней полосы по рёбрам) - колонки профиля: путь по
-квадам полосы от ребра рельса до ребра рельса по ту сторону (`_walk`), и в нём две перекладины (цепи вершин поперёк полосы). Стороны рельсов
-красятся по перекладинам (концы перекладины - разные стороны, вершины одного ребра рельса - одна), знак `+` - сторона цвета 0. На перекладине
-с длиной `W` вершина на расстоянии `d` от стороны `+` получает поперёк `S = W / 2 - d` (средняя линия бевела - нуль), а вся перекладина - одну
-`U`: длину дуги средней линии (ломаной через середины перекладин) от первой перекладины, поэтому зеркальные точки крыльев имеют одну `U`
-(перекладины идут вдоль полосы по общим колонкам; у замкнутого кольца последняя
-колонка несёт `U` полного оборота - шов UV). Направление `U` выбрано так, что грани копии в UV против часовой (как карты ядра).
+T-СТЫКИ РЕЛЬСА (BEVEL_COPY_RAIL_SPLIT_V3, `split_rails`). Ядро держит на рельсе только вершины силуэта: над прямой колонкой торца юбка - одна
+грань на всю высоту, а у рельса копии вершины на каждом уровне; без пары они смещались вдоль своей нормали, ребро юбки - прямо, щель. После
+сварки такие вершины встают в ребро грани юбки (n-угольник, вершины на ребре по порядку рельса, UV петли - по доле, как у `WALL_EDGE_SPLIT_V1`:
+модель превью ширины видит их делениями стены домена), смещение - митра нормали копии и нормали грани юбки. Где внешняя часть отказана,
+вершина рельса остаётся своей: число `BEVEL_COPY_RAIL_UNPAIRED` в строке статуса (`rail_unpaired`) - не тихий разрыв; деление и его отказ -
+`BEVEL_COPY_RAIL_SPLIT` и `BEVEL_COPY_RAIL_SPLIT_REFUSED` там же.
 
-УЗЕЛ ПРОДОЛЖАЕТ ПОЛОСУ (BEVEL_COPY_NODE_CONTINUES_STRIP_V2). Грань узла (и грань полосы вне колонок) берёт кадр полосы, с которой у неё
-больше всего общих рёбер; грань без такой полосы - кадр соседней грани узла с наибольшим числом общих рёбер (обход слоями, ничья - меньший
-номер кадра). Вершина узла, лежащая на гранях своей полосы, берёт её UV точно; остальные грани узла разворачиваются слоями от уже известных
-вершин (у грани их две и больше): подобие без отражения из плоскости грани в UV по известным вершинам, новая вершина берёт UV первой грани,
-что её положила, поэтому грань узла не выворачивается и UV непрерывна через разрез и внутри узла. Узел без полосы рядом - своя плоская проекция
-(`BEVEL_COPY_NODE_NO_STRIP`). Каждое отступление - число с именем (правило 4).
+UV КОПИИ - СЕГМЕНТЫ (метры, их отображает в UV трима `bevel_wings`). Сегмент - кусок полосы (компонента граней полосы по рёбрам) по колонкам
+профиля: путь по квадам полосы от ребра рельса до ребра рельса по ту сторону (`_walk`), и в нём две перекладины (цепи вершин поперёк полосы).
+Стороны рельсов красятся по перекладинам (концы перекладины - разные стороны, вершины одного ребра рельса - одна). На перекладине с длиной `W`
+вершина на расстоянии `d` от стороны `+` получает поперёк `S = W / 2 - d` (средняя линия бевела - нуль), а вся перекладина - одну `U`: длину
+дуги средней линии (ломаной через середины перекладин) от первой перекладины, поэтому зеркальные точки рельсов имеют одну `U` (у замкнутого
+кольца последняя колонка несёт `U` полного оборота - шов UV). Одна система координат на сегмент, ничего не согласуется между сегментами.
+Направление (BEVEL_SEGMENT_U_ALONG_WORLD_AXIS_V3): грани сегмента в UV против часовой, `U` растёт к плюсу мировой оси, вдоль которой сегмент
+тянется больше всего (X, затем Y, затем Z при равенстве), `U = 0` - первая перекладина.
+
+УЗЕЛ - К ОДНОМУ СЕГМЕНТУ (BEVEL_NODE_ATTACH_MOST_EDGES_LONGEST_V3). Компонента граней вне колонок (узел и грани полосы вне колонок рядом)
+целиком берёт сегмент, с которым у неё больше всего общих рёбер; ничья - более длинный сегмент, затем меньший номер; другие сегменты у этого
+узла получают шов UV. Вершина узла на гранях своего сегмента берёт его UV точно; остальные грани узла разворачиваются слоями от известных
+вершин (у грани их две и больше): подобие без отражения из плоскости грани в UV, новая вершина берёт UV первой грани, что её положила, - `U`
+сегмента продолжается за конец полосы, грань узла не выворачивается. Узел без полосы рядом - своя плоская проекция (`BEVEL_COPY_NODE_NO_STRIP`).
+Владелец грани копии - `OWNER_SHIFT * сегмент + OWNER_NODE` (BEVEL_COPY_OWNER_V3: бит узла читают крылья). Каждое отступление - число с
+именем (правило 4).
 """
 
 from __future__ import annotations
@@ -50,6 +55,10 @@ BEVEL_COPY_NODE_FIT_DEGENERATE = "BEVEL_COPY_NODE_FIT_DEGENERATE"
 BEVEL_COPY_NORMAL_DEGENERATE = "BEVEL_COPY_NORMAL_DEGENERATE"
 BEVEL_COPY_UV_FLIPPED_FACES = "BEVEL_COPY_UV_FLIPPED_FACES"
 BEVEL_COPY_RAIL_UNPAIRED = "BEVEL_COPY_RAIL_UNPAIRED"
+BEVEL_COPY_SEGMENTS = "BEVEL_COPY_SEGMENTS"
+BEVEL_COPY_RAIL_SPLIT = "BEVEL_COPY_RAIL_SPLIT"
+BEVEL_COPY_RAIL_SPLIT_REFUSED = "BEVEL_COPY_RAIL_SPLIT_REFUSED"
+BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK = "BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK"
 
 #: Ссылка вершины копии: та же, что у вершины исходника в батчах ядра - `location:` (`mesh_weld.WELD_LOCATION_PREFIX` без `src:`), ключ вершины
 #: батча `src:<SourceVertexId>` и идентичность вершины хоста `host-vertex:host-source:<отпечаток>:<имя>:<номер>` (`envelope_request_export._source_ids`).
@@ -57,6 +66,10 @@ BEVEL_COPY_RAIL_UNPAIRED = "BEVEL_COPY_RAIL_UNPAIRED"
 LOCATION_FORMAT = "location:src:host-vertex:host-source:{digest}:{name}:{vertex}"
 #: Значения UV двух граней копии в общей вершине, разошедшиеся больше этого (метры), - шов копии.
 SEAM_UV_TOLERANCE = 1e-12
+#: Владелец грани копии (BEVEL_COPY_OWNER_V3): `OWNER_SHIFT * сегмент + OWNER_NODE`, бит узла - грань вне колонок полосы (узел, грань полосы вне
+#: колонок и плоская проекция узла без полосы); его читают крылья (`bevel_wings`): веер ядра у вершины узла - сегмент узла.
+OWNER_SHIFT = 2
+OWNER_NODE = 1
 #: Сколько нажатий Both помнит реестр копий (`note_copy`): живая ширина читает копию своего нажатия.
 REGISTRY_SIZE = 8
 
@@ -322,39 +335,64 @@ def _signed_area(points) -> float:
     return 0.5 * total
 
 
-def _orient(frames, rings, events) -> None:
-    """Направление `U` каждого кадра: грани кадра в UV против часовой (сумма площадей); после - вывернутые грани числом."""
+def _orient(frames, rings, coords, events) -> list:
+    """Направление и начало `U` каждого сегмента (BEVEL_SEGMENT_U_ALONG_WORLD_AXIS_V3): грани сегмента в UV против часовой (сумма площадей,
+    иначе отражение `U -> -U`); затем `U` растёт к плюсу той мировой оси, вдоль которой сегмент тянется больше всего (ось - наибольшая по модулю
+    составляющая градиента `U` по вершинам сегмента, `sum (U - mean U) (p - mean p)`; равенство - меньшая ось X, Y, Z), иначе поворот на 180
+    градусов (`U, S -> -U, -S`: ориентация та же); начало `U = 0` - первая перекладина. После - вывернутые грани числом. Длины сегментов по `U`."""
 
     flipped = 0
+    lengths = []
     for faces, corner in frames:
         total = sum(_signed_area([corner[(face, vertex)] for vertex in rings[face]]) for face in faces)
         if total < 0.0:
             for slot, (u, s) in list(corner.items()):
                 corner[slot] = (-u, s)
+        slots = sorted(corner)
+        along = np.asarray([corner[slot][0] for slot in slots], dtype=np.float64)
+        points = np.asarray([coords[slot[1]] for slot in slots], dtype=np.float64)
+        gradient = (along - along.mean()) @ (points - points.mean(axis=0))
+        axis = int(np.argmax(np.abs(gradient)))
+        sign = -1.0 if float(gradient[axis]) < 0.0 else 1.0
+        low = min(sign * u for u, _s in corner.values())
+        high = max(sign * u for u, _s in corner.values())
+        for slot, (u, s) in list(corner.items()):
+            corner[slot] = (sign * u - low, sign * s)
+        lengths.append(high - low)
         flipped += sum(1 for face in faces if _signed_area([corner[(face, vertex)] for vertex in rings[face]]) < 0.0)
     _count(events, BEVEL_COPY_UV_FLIPPED_FACES, flipped)
+    return lengths
 
 
-def _assign_nodes(rest, frame_of, table, rings):
-    """Грани вне кадров -> кадр (BEVEL_COPY_NODE_CONTINUES_STRIP_V2): слоями, по числу общих рёбер с гранями кадра; без соседа - не назначены."""
+def _attach_nodes(rest, frame_of, table, rings, lengths):
+    """Узел - к ОДНОМУ сегменту (BEVEL_NODE_ATTACH_MOST_EDGES_LONGEST_V3): компонента граней вне колонок (узел вместе с гранями полосы вне
+    колонок рядом) целиком берёт сегмент, с гранями которого у неё больше всего общих рёбер; ничья - более длинный сегмент (длина средней
+    линии), затем меньший номер. Компонента без такого соседа берёт сегмент соседней компоненты, уже присоединённой (обход слоями).
+    `([(компонента, сегмент)] в порядке присоединения, грани без сегмента)`."""
 
     owner = dict(frame_of)
-    pending = set(rest)
+    pending = _components(set(rest), table, rings)
+    attached = []
     while pending:
-        chosen = {}
-        for face in sorted(pending):
+        chosen = []
+        for component in pending:
             votes: dict = {}
-            for key in _edges(rings[face]):
-                for other in table.get(key, ()):
-                    if other != face and other in owner:
-                        votes[owner[other]] = votes.get(owner[other], 0) + 1
+            for face in sorted(component):
+                for key in _edges(rings[face]):
+                    for other in table.get(key, ()):
+                        if other not in component and other in owner:
+                            votes[owner[other]] = votes.get(owner[other], 0) + 1
             if votes:
-                chosen[face] = min(votes, key=lambda frame: (-votes[frame], frame))
+                chosen.append((component, min(votes, key=lambda frame: (-votes[frame], -lengths[frame], frame))))
         if not chosen:
             break
-        owner.update(chosen)
-        pending -= set(chosen)
-    return {face: owner[face] for face in rest if face in owner}, pending
+        for component, frame in chosen:
+            for face in component:
+                owner[face] = frame
+        attached.extend(chosen)
+        taken = {component for component, _frame in chosen}
+        pending = [component for component in pending if component not in taken]
+    return attached, {face for component in pending for face in component}
 
 
 def _local(coords, ring):
@@ -481,28 +519,29 @@ def copy_spec(view, split) -> BevelCopySpecV1:
     strip = {int(face) for face in split.strip} & selected
     for component in _components(strip, table, rings):
         frames.extend(_strip_frames(coords, rings, table, component, selected, events))
-    _orient(frames, rings, events)
+    lengths = _orient(frames, rings, coords, events)
     corner: dict = {}
     frame_of: dict = {}
+    known: list = []
     for number, (faces, values) in enumerate(frames):
         corner.update(values)
+        known.append({vertex: values[(face, vertex)] for face in sorted(faces) for vertex in rings[face]})
         for face in faces:
             frame_of[face] = number
     rest = selected - set(frame_of)
     _count(events, BEVEL_COPY_STRIP_FACE_OFF_COLUMN, len(rest & strip))
-    assigned, lonely = _assign_nodes(rest, frame_of, table, rings)
-    _count(events, BEVEL_COPY_NODE_CONTINUES_STRIP, len(assigned))
-    by_frame: dict = {}
-    for face, frame in assigned.items():
-        by_frame.setdefault(frame, set()).add(face)
-    for frame, faces in sorted(by_frame.items()):
-        frame_faces, values = frames[frame]
-        own = {vertex: values[(face, vertex)] for face in sorted(frame_faces) for vertex in rings[face]}
-        for cluster in _components(faces, table, rings):
-            touching = {vertex for face in cluster for vertex in rings[face]}
-            corner.update(_unfold(coords, rings, cluster, {vertex: own[vertex] for vertex in touching if vertex in own}, events))
-            for face in cluster:
-                frame_of[face] = frame
+    attached, lonely = _attach_nodes(rest, frame_of, table, rings, lengths)
+    nodes = set(lonely)
+    for cluster, frame in attached:
+        touching = {vertex for face in cluster for vertex in rings[face]}
+        unfolded = _unfold(coords, rings, cluster, {vertex: known[frame][vertex] for vertex in touching if vertex in known[frame]}, events)
+        corner.update(unfolded)
+        for (_face, vertex), value in sorted(unfolded.items()):
+            known[frame].setdefault(vertex, value)
+        for face in cluster:
+            frame_of[face] = frame
+            nodes.add(face)
+    _count(events, BEVEL_COPY_NODE_CONTINUES_STRIP, sum(len(cluster) for cluster, _frame in attached))
     lonely_frames = _components(set(lonely), table, rings)
     _count(events, BEVEL_COPY_NODE_NO_STRIP, len(lonely))
     for cluster in lonely_frames:
@@ -515,6 +554,7 @@ def copy_spec(view, split) -> BevelCopySpecV1:
             frame_of[face] = number
             for vertex in rings[face]:
                 corner[(face, vertex)] = projected[vertex]
+    _count(events, BEVEL_COPY_SEGMENTS, len(frames))
     uvs = tuple(corner[(face, vertex)] for face in face_ids for vertex in rings[face])
     seams = set()
     for key, faces in table.items():
@@ -535,7 +575,7 @@ def copy_spec(view, split) -> BevelCopySpecV1:
         normals=tuple(normals),
         faces=tuple(tuple(local[vertex] for vertex in rings[face]) for face in face_ids),
         face_ids=face_ids,
-        owners=tuple(int(frame_of[face]) for face in face_ids),
+        owners=tuple(OWNER_SHIFT * int(frame_of[face]) + (OWNER_NODE if face in nodes else 0) for face in face_ids),
         uvs=tuple((float(u), float(s)) for u, s in uvs),
         seams=tuple(sorted(seams)),
         boundary=boundary,
@@ -621,26 +661,222 @@ def copy_for(results) -> BevelCopyResultV1 | None:
     return None
 
 
+def _copy_number(arrays, copy):
+    keys = tuple(arrays.domain_keys)
+    return next((at for at, key in enumerate(keys) if key == (copy.patch_id, copy.domain_id)), None)
+
+
+def _copy_index(arrays, number) -> list:
+    buffers = getattr(arrays, "buffers", None)
+    return buffers.domain_index(number).tolist() if buffers is not None else list(arrays.domain_vertex_index[number])
+
+
 def rail_unpaired(arrays) -> int:
-    """Вершины копии на границе выделения, которые сварка не свела ни с одной вершиной внешней части (`BEVEL_COPY_RAIL_UNPAIRED`): их номер
-    вершины меша не встречается у других доменов. Копии в массивах нет - нуль."""
+    """Вершины копии на границе выделения, которых нет ни в одной грани внешней части после сварки и деления рёбер рельса
+    (`BEVEL_COPY_RAIL_UNPAIRED`): так остаются вершины рельса там, где внешняя часть отказана. Копии в массивах нет - нуль."""
 
     copy = getattr(arrays, "bevel_copy", None)
     if copy is None:
         return 0
-    keys = tuple(arrays.domain_keys)
-    number = next((at for at, key in enumerate(keys) if key == (copy.patch_id, copy.domain_id)), None)
+    number = _copy_number(arrays, copy)
     if number is None:
         return 0
-    buffers = getattr(arrays, "buffers", None)
-    index = [buffers.domain_index(at).tolist() if buffers is not None else list(arrays.domain_vertex_index[at]) for at in range(len(keys))]
-    others = {vertex for at, values in enumerate(index) if at != number for vertex in values}
-    mine = index[number]
-    return sum(1 for local in copy.spec.boundary if mine[local] not in others)
+    mine = _copy_index(arrays, number)
+    outward = {vertex for ring, domain in zip(arrays.faces, arrays.face_domain) if domain != copy.patch_id for vertex in ring}
+    return sum(1 for local in copy.spec.boundary if mine[local] not in outward)
+
+
+def _rail_links(spec) -> dict:
+    """Рёбра рельса копии (у ребра одна грань копии) по локальным вершинам: `{вершина: [соседи]}`."""
+
+    counts: dict = {}
+    for ring in spec.faces:
+        for key in _edges(ring):
+            counts[key] = counts.get(key, 0) + 1
+    links: dict = {}
+    for key, count in sorted(counts.items(), key=lambda item: sorted(item[0])):
+        if count == 1:
+            a, b = sorted(key)
+            links.setdefault(a, []).append(b)
+            links.setdefault(b, []).append(a)
+    return links
+
+
+def _rail_path(links, lonely, start, end, used):
+    """Путь по рёбрам рельса копии от `start` до `end` только через вершины без пары (`lonely`, ещё не взятые): внутренние вершины по порядку
+    либо `None`; из двух путей - короткий."""
+
+    found = None
+    for first in sorted(links.get(start, ())):
+        if first not in lonely or first in used:
+            continue
+        previous, current, path = start, first, [first]
+        while True:
+            following = [item for item in links.get(current, ()) if item != previous]
+            if len(links.get(current, ())) != 2 or not following:
+                break
+            beyond = following[0]
+            if beyond == end:
+                if found is None or len(path) < len(found):
+                    found = list(path)
+                break
+            if beyond not in lonely or beyond in used or beyond in path:
+                break
+            path.append(beyond)
+            previous, current = current, beyond
+    return found
+
+
+def rail_splits(faces, face_domain, copy_patch: int, copy_index, spec) -> tuple:
+    """Деления рёбер внешней части вершинами рельса копии (BEVEL_COPY_RAIL_SPLIT_V3): `([(грань, угол, ((локальная вершина копии, доля), ...))],
+    отказано)`.
+
+    Ядро держит на рельсе только вершины силуэта: ребро внешней грани от вершины рельса `a` до вершины рельса `b` (обе - вершины копии после
+    сварки) идёт там, где у копии между ними ещё вершины рельса (T-стык: они без пары, смещаются вдоль своей нормали, ребро внешней грани -
+    прямо, щель). Такие вершины встают в ребро внешней грани по порядку пути по рёбрам рельса копии, доля - проекция позиции исходника на
+    `a b`. Путь - только через вершины без пары, ребро копии `a b` уже общее. Доли не строго по возрастанию в `(0, 1)` - ребро не делится,
+    отказ числом (`BEVEL_COPY_RAIL_SPLIT_REFUSED`), щель названа."""
+
+    inverse = {int(mesh): local for local, mesh in enumerate(copy_index)}
+    links = _rail_links(spec)
+    outward = {vertex for ring, domain in zip(faces, face_domain) if domain != copy_patch for vertex in ring}
+    lonely = {local for local in spec.boundary if int(copy_index[local]) not in outward}
+    shared = {frozenset((int(copy_index[a]), int(copy_index[b]))) for ring in spec.faces for a, b in (tuple(key) for key in _edges(ring))}
+    entries, refused, used = [], 0, set()
+    if not lonely:
+        return entries, refused
+    for number, (ring, domain) in enumerate(zip(faces, face_domain)):
+        if domain == copy_patch:
+            continue
+        size = len(ring)
+        for corner in range(size):
+            a, b = int(ring[corner]), int(ring[(corner + 1) % size])
+            start, end = inverse.get(a), inverse.get(b)
+            if start is None or end is None or frozenset((a, b)) in shared:
+                continue
+            path = _rail_path(links, lonely, start, end, used)
+            if path is None:
+                continue
+            origin, target = np.asarray(spec.positions[start]), np.asarray(spec.positions[end])
+            span = target - origin
+            length = float(span @ span)
+            shares = [float((np.asarray(spec.positions[local]) - origin) @ span) / length if length > 0.0 else -1.0 for local in path]
+            if not all(0.0 < share < 1.0 for share in shares) or any(later <= earlier for earlier, later in zip(shares, shares[1:])):
+                refused += 1
+                continue
+            used.update(path)
+            entries.append((number, corner, tuple(zip(path, shares))))
+    return entries, refused
+
+
+def _unit_newell(points):
+    n = _newell(points, range(len(points)))
+    length = math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+    return None if length <= 0.0 else (n[0] / length, n[1] / length, n[2] / length)
+
+
+def split_rails(arrays):
+    """Массивы меша Both с делениями рёбер рельса (`rail_splits`): новые углы внешних граней - вершины копии, UV новой петли - по доле между
+    петлями концов ребра (как у `WALL_EDGE_SPLIT_V1`: деления домена кладутся к его `domain_wall_splits`, модель превью ширины видит их так
+    же), шов ребра - швы его кусков. Вершина рельса, вставшая в ребро, - одна вершина копии и внешней грани, её смещение - митра нормали копии
+    и нормали внешней грани (как у сварки), отказ митры - смещение вдоль нормали копии числом (`BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK`).
+    Делить нечего - те же массивы."""
+
+    from dataclasses import replace
+
+    from .envelope_production_weld import miter_offset
+
+    copy = getattr(arrays, "bevel_copy", None)
+    number = None if copy is None else _copy_number(arrays, copy)
+    if number is None:
+        return arrays
+    copy_index = _copy_index(arrays, number)
+    faces, face_domain = tuple(arrays.faces), tuple(arrays.face_domain)
+    entries, refused = rail_splits(faces, face_domain, copy.patch_id, copy_index, copy.spec)
+    if not entries:
+        if not refused:
+            return arrays
+        counters = ((BEVEL_COPY_RAIL_SPLIT, 0), (BEVEL_COPY_RAIL_SPLIT_REFUSED, refused), (BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK, 0))
+        return replace(arrays, weld_counters=(*arrays.weld_counters, *counters))
+    at_face = {(face, corner): inserted for face, corner, inserted in entries}
+    ordinal = {int(patch): at for at, (patch, _domain) in enumerate(arrays.domain_keys)}
+    loop_counts = [int(item) for item in arrays.domain_loop_counts]
+    splits = [list(item) for item in arrays.domain_wall_splits] + [[] for _ in range(len(loop_counts) - len(arrays.domain_wall_splits))]
+    domain_start = [0]
+    for count in loop_counts:
+        domain_start.append(domain_start[-1] + count)
+    old_inserted = [{place + order for order, (place, *_rest) in enumerate(item)} for item in splits]
+    positions = list(arrays.positions)
+    uvs_in = arrays.uvs
+    new_faces, new_uvs, added = [], [], [[] for _ in loop_counts]
+    seams = {tuple(pair) for pair in arrays.seam_edges}
+    fallbacks, loop_at = 0, 0
+    for face, ring in enumerate(faces):
+        size = len(ring)
+        ring_out, uv_out = [], []
+        domain = ordinal[int(face_domain[face])]
+        for corner in range(size):
+            ring_out.append(ring[corner])
+            uv_out.append(uvs_in[loop_at + corner])
+            inserted = at_face.get((face, corner))
+            if inserted is None:
+                continue
+            here, there = loop_at + corner, loop_at + (corner + 1) % size
+            local_here, local_there = here - domain_start[domain], there - domain_start[domain]
+            if local_here in old_inserted[domain] or local_there in old_inserted[domain]:  # конец ребра - петля деления стены ядра: доли не к чему привязать
+                refused += 1
+                continue
+            view_here = local_here - sum(1 for item in old_inserted[domain] if item < local_here)
+            view_there = local_there - sum(1 for item in old_inserted[domain] if item < local_there)
+            normal = _unit_newell([positions[item] for item in ring])
+            chain = [int(ring[corner])]
+            for local, share in inserted:
+                vertex = int(copy_index[local])
+                found = None if normal is None else miter_offset([tuple(copy.spec.normals[local]), normal])[0]
+                if found is None:
+                    fallbacks += 1
+                else:
+                    source = copy.spec.positions[local]
+                    positions[vertex] = tuple(source[axis] + arrays.offset * found[axis] for axis in range(3))
+                start, end = uvs_in[here], uvs_in[there]
+                ring_out.append(vertex)
+                uv_out.append((start[0] + (end[0] - start[0]) * share, start[1] + (end[1] - start[1]) * share))
+                added[domain].append((view_here + 1, view_here, view_there, share))
+                chain.append(vertex)
+            chain.append(int(ring[(corner + 1) % size]))
+            whole = (min(chain[0], chain[-1]), max(chain[0], chain[-1]))
+            if whole in seams:
+                seams.discard(whole)
+                seams.update((min(x, y), max(x, y)) for x, y in zip(chain, chain[1:]))
+        new_faces.append(tuple(ring_out))
+        new_uvs.extend(uv_out)
+        loop_at += size
+    for domain, items in enumerate(added):
+        if items:
+            loop_counts[domain] += len(items)
+            splits[domain] = sorted([*splits[domain], *items], key=lambda item: item[0])
+    digest = arrays.digest
+    if digest:
+        digest = hashlib.sha256(f"{digest}|{BEVEL_COPY_RAIL_SPLIT}|{entries!r}".encode("utf-8")).hexdigest()
+    return replace(
+        arrays, positions=tuple(positions), faces=tuple(new_faces), uvs=tuple(new_uvs), seam_edges=tuple(sorted(seams)),
+        domain_vertex_index=tuple(tuple(item) for item in arrays.domain_vertex_index), domain_loop_counts=tuple(loop_counts),
+        domain_wall_splits=tuple(tuple(item) for item in splits), digest=digest, buffers=None,
+        weld_counters=(
+            *arrays.weld_counters, (BEVEL_COPY_RAIL_SPLIT, sum(len(item) for item in added)), (BEVEL_COPY_RAIL_SPLIT_REFUSED, refused),
+            (BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK, fallbacks),
+        ),
+    )
 
 
 __all__ = (
     "BEVEL_COPY_COLUMNS_BRANCH",
+    "BEVEL_COPY_RAIL_SPLIT",
+    "BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK",
+    "BEVEL_COPY_RAIL_SPLIT_REFUSED",
+    "BEVEL_COPY_SEGMENTS",
+    "OWNER_NODE",
+    "OWNER_SHIFT",
     "BEVEL_COPY_COLUMN_OPEN",
     "BEVEL_COPY_NODE_CONTINUES_STRIP",
     "BEVEL_COPY_NODE_FIT_DEGENERATE",
@@ -657,5 +893,7 @@ __all__ = (
     "copy_result",
     "copy_spec",
     "note_copy",
+    "rail_splits",
     "rail_unpaired",
+    "split_rails",
 )
