@@ -16,6 +16,8 @@
 9. группа от семян (BEVEL_SELECT_SEED_V1): выделенная грань бевела - семя, кнопка выделяет её группу и ничего на втором кубе того же
    меша (Face Strength All - точно, без атрибута - геометрия), на стене поля - группа без своей фаски торца; семя - плоская грань:
    `BEVEL_SEED_NOT_BEVEL`, оператор отменён, выделение не тронуто. Без выделенных граней (выделено только ребро) - весь меш.
+10. «Seam Bevel» (BEVEL_SEAM_MARK_V1): весь бевел двух кубов - рельсы и «узел | полоса» по атрибуту; без атрибута на стене поля
+   («Grow Bevel» -> «Seam Bevel») узлы верхних углов торцов изолированы и шва между двумя полосами нет (BEVEL_SEAM_NODE_AGREEMENT_V1).
 
 Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_select_faces.py
 Последняя строка при успехе: BEVEL_SELECT_FACES_BLENDER_OK
@@ -143,11 +145,11 @@ def _noisy_wall(noise):
     return bm
 
 
-def _wall_bevel(name, noise, segments, width):
+def _wall_bevel(name, noise, segments, width, mode="FSTR_NONE"):
     source = _object(name + "_base", _noisy_wall(noise))
     modifier = source.modifiers.new("Bevel", "BEVEL")
     modifier.width, modifier.segments, modifier.limit_method, modifier.material = width, segments, "ANGLE", 1
-    modifier.face_strength_mode = "FSTR_NONE"
+    modifier.face_strength_mode = mode
     depsgraph = bpy.context.evaluated_depsgraph_get()
     mesh = bpy.data.meshes.new_from_object(source.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph)
     bpy.data.objects.remove(source, do_unlink=True)
@@ -581,6 +583,42 @@ def _run_seam_bevel_joins_the_rails_and_the_nodes():
     SUMMARY.append(f"seam_cubes: {len(expected)} seam edges = rails + node|strip ({len(node)} node faces); one node -> {len(ring)} edges")
 
 
+def _run_seam_bevel_isolates_the_wall_end_top_corner_nodes_without_face_strength():
+    """BEVEL_SPLIT_RAIL_LOCAL_PLANE_V1 + BEVEL_SEAM_NODE_AGREEMENT_V1 (поле: «Grow Bevel» -> «Seam Bevel» на `rounded_wall_noise_top`
+    без атрибута, верхний угол торца, где обод встречает вертикальное ребро торца): узел угла был не изолирован - соседний кусок
+    полосы уходил в узел. Правда узлов - та же стена с Face Strength All (та же топология); у верхних углов торцов каждый узел - свой
+    патч, и ни один шов не лежит между двумя полосами правды."""
+
+    from cftuv.bevel_faces import FACE_STRENGTH_ATTRIBUTE
+
+    for noise in (0.0, 0.03):
+        _clean()
+        twin = _wall_bevel(f"seam_twin_n{noise}", noise, 1, 0.03, "FSTR_ALL")
+        strength = {item.index: int(value.value) for item, value in zip(twin.data.polygons, twin.data.attributes[FACE_STRENGTH_ATTRIBUTE].data)}
+        obj = _wall_bevel(f"seam_wall_n{noise}", noise, 1, 0.03)
+        assert FACE_STRENGTH_ATTRIBUTE not in obj.data.attributes and len(obj.data.polygons) == len(strength)
+        node = frozenset(face for face, value in strength.items() if value < 0)
+        seed = min(polygon.index for polygon in obj.data.polygons if strength[polygon.index] == 0 and len(polygon.vertices) == 4
+                   and 0.5 < polygon.center.x < 1.5 and polygon.center.z > WALL_HEIGHT - 0.05)
+        _enter([obj], faces=(seed,))
+        assert "FINISHED" in bpy.ops.hotspotuv.select_bevel_faces(grow=True)
+        assert "FINISHED" in bpy.ops.hotspotuv.seam_bevel()
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        selected = frozenset(face.index for face in bm.faces if face.select)
+        seams = frozenset(edge.index for edge in bm.edges if edge.seam)
+        corner = {face for face in node & selected if bm.faces[face].calc_center_median().z > WALL_HEIGHT / 2
+                  and min(bm.faces[face].calc_center_median().x, WALL_LENGTH - bm.faces[face].calc_center_median().x) < 0.15}
+        open_edges = {edge.index for face in corner for edge in bm.faces[face].edges
+                      if edge.index not in seams and not all(other.index in node for other in edge.link_faces)}
+        across = {edge.index for edge in bm.edges if edge.seam and len(edge.link_faces) == 2
+                  and all(other.index in selected and other.index not in node for other in edge.link_faces)}
+        bpy.ops.object.mode_set(mode="OBJECT")
+        assert corner and not open_edges and not across, (noise, sorted(corner), sorted(open_edges), sorted(across))
+        SUMMARY.append(f"seam_wall_n{noise}: grown {len(selected)} faces, {len(seams)} seams, {len(corner)} top-corner nodes isolated, "
+                       f"0 seams between two strips")
+
+
 def _seams(obj):
     return frozenset(edge.index for edge in bmesh.from_edit_mesh(obj.data).edges if edge.seam)
 
@@ -604,6 +642,7 @@ def _main():
     _run_a_seed_that_is_not_a_bevel_face_keeps_the_selection()
     _run_a_seed_on_the_wall_leaves_the_source_chamfer_out()
     _run_seam_bevel_joins_the_rails_and_the_nodes()
+    _run_seam_bevel_isolates_the_wall_end_top_corner_nodes_without_face_strength()
     for line in SUMMARY:
         print("[BevelSelectTest]", line, flush=True)
     from cftuv.envelope_domain_pool import shutdown_domain_pool

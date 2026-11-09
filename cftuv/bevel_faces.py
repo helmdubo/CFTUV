@@ -52,6 +52,16 @@ BEVEL_COLUMN_WRAPS = "BEVEL_COLUMN_WRAPS"
 BEVEL_COLUMN_SAME_SIDE = "BEVEL_COLUMN_SAME_SIDE"
 BEVEL_COLUMN_RAILS_NOT_PARALLEL = "BEVEL_COLUMN_RAILS_NOT_PARALLEL"
 BEVEL_COLUMN_OVERLAPS = "BEVEL_COLUMN_OVERLAPS"
+#: Колонка принята только по плоскости плоской стороны У РЕЛЬСА (нормали её углов при концах рельса), а нормаль всей грани её
+#: отбросила бы (BEVEL_SPLIT_RAIL_LOCAL_PLANE_V1): шумная неплоская грань верха с углами вразброс на 40 градусов уводит нормаль Ньюэлла
+#: от ребра бевела, и кусок полосы у узла уходил в узел.
+BEVEL_COLUMN_RAIL_LOCAL_PLANE = "BEVEL_COLUMN_RAIL_LOCAL_PLANE"
+#: Seam Bevel без атрибута (BEVEL_SEAM_NODE_AGREEMENT_V1): несогласия обхода колонок и классификатора выделения, ставшие полосой, и
+#: грани выделения вне группы классификатора (разбиение обхода как есть).
+BEVEL_SEAM_WALK_NODE_IS_STRIP = "BEVEL_SEAM_WALK_NODE_IS_STRIP"
+BEVEL_SEAM_CLASSIFIER_NODE_IS_COLUMN = "BEVEL_SEAM_CLASSIFIER_NODE_IS_COLUMN"
+BEVEL_SEAM_UNRESOLVED_IS_STRIP = "BEVEL_SEAM_UNRESOLVED_IS_STRIP"
+BEVEL_SEAM_OUTSIDE_CLASSIFIER = "BEVEL_SEAM_OUTSIDE_CLASSIFIER"
 
 #: Допуск рельса колонки к линии A x B (Unbevel RAIL_TOL: перекос митры коротких полос до ~16 градусов).
 RAIL_TOLERANCE_DEGREES = 20.0
@@ -181,11 +191,33 @@ def _walk_column(view, table, start_key, start_face):
         face_id = beyond
 
 
-def _rail_deviation(view, start_key, end_key, side_a, side_b):
-    """Синус большего угла рельса к линии A x B, если хоть один рельс в допуске; иначе имя отброса."""
+def _side_normal_at_rail(view, face_id, key):
+    """Нормаль плоской стороны у её рельса: сумма нормалей двух углов грани при концах рельса, повёрнутых по нормали всей грани
+    (угол при вогнутой вершине переворачивается); у треугольника - сама грань; вырожденные углы - нормаль всей грани."""
 
-    na = face_normal(view.coords, view.faces[side_a])
-    nb = face_normal(view.coords, view.faces[side_b])
+    cycle = view.faces[face_id]
+    whole = face_normal(view.coords, cycle)
+    count = len(cycle)
+    position = next((index for index in range(count) if frozenset((cycle[index], cycle[(index + 1) % count])) == key), None)
+    if whole is None or position is None:
+        return whole
+    total = (0.0, 0.0, 0.0)
+    for start in (position - 1, position):
+        corner = face_normal(view.coords, tuple(cycle[(start + offset) % count] for offset in range(3)))
+        if corner is not None:
+            sign = 1.0 if _dot(corner, whole) >= 0.0 else -1.0
+            total = tuple(total[axis] + sign * corner[axis] for axis in range(3))
+    return _unit(total) or whole
+
+
+def _rail_deviation(view, start_key, end_key, side_a, side_b, at_rail=False):
+    """Синус большего угла рельса к линии A x B, если хоть один рельс в допуске; иначе имя отброса. `at_rail` - нормали сторон у их
+    рельсов (`_side_normal_at_rail`), иначе нормали всех граней."""
+
+    if at_rail:
+        na, nb = _side_normal_at_rail(view, side_a, start_key), _side_normal_at_rail(view, side_b, end_key)
+    else:
+        na, nb = face_normal(view.coords, view.faces[side_a]), face_normal(view.coords, view.faces[side_b])
     if na is None or nb is None:
         return BEVEL_COLUMN_SAME_SIDE
     direction = _cross(na, nb)
@@ -227,20 +259,27 @@ def geometric_split(view: BevelFacesViewV1) -> BevelSplitV1:
                 continue
             faces, end_key, side_b = walked
             deviation = _rail_deviation(view, key, end_key, side_a, side_b)
+            at_rail = False
+            if isinstance(deviation, str) and deviation == BEVEL_COLUMN_RAILS_NOT_PARALLEL:
+                local = _rail_deviation(view, key, end_key, side_a, side_b, at_rail=True)
+                if not isinstance(local, str):  # BEVEL_SPLIT_RAIL_LOCAL_PLANE_V1: принятая прежде колонка не меняется ни в чём
+                    deviation, at_rail = local, True
             if isinstance(deviation, str):
                 events[deviation] = events.get(deviation, 0) + 1
                 continue
-            candidates.append((deviation, _midpoint(view, key), faces))
+            candidates.append((deviation, _midpoint(view, key), faces, at_rail))
     candidates.sort(key=lambda item: item[:2])
     strip: set[int] = set()
     accepted: set[tuple[int, ...]] = set()
-    for _deviation, _mid, faces in candidates:
+    for _deviation, _mid, faces, at_rail in candidates:
         if frozenset(faces) & strip:
             if tuple(sorted(faces)) not in accepted:  # та же колонка с другого конца - не событие
                 events[BEVEL_COLUMN_OVERLAPS] = events.get(BEVEL_COLUMN_OVERLAPS, 0) + 1
             continue
         strip.update(faces)
         accepted.add(tuple(sorted(faces)))
+        if at_rail:
+            events[BEVEL_COLUMN_RAIL_LOCAL_PLANE] = events.get(BEVEL_COLUMN_RAIL_LOCAL_PLANE, 0) + 1
     node, unresolved = _nodes_and_unresolved(view, table, frozenset(strip))
     return BevelSplitV1(frozenset(strip), node, unresolved, BEVEL_SPLIT_GEOMETRIC, tuple(sorted(events.items())))
 
@@ -315,12 +354,41 @@ def outward_sources(view: BevelFacesViewV1) -> frozenset[int]:
     )
 
 
-def seam_edges(view: BevelFacesViewV1) -> tuple[frozenset[int], BevelSplitV1]:
-    """BEVEL_SEAM_MARK_V1: швы разметки по выделению - граница выделения (рельсы и края узлов к исходным граням) и разрез «узел |
-    полоса»; узел становится своим патчем, швы рельсов сходятся с его краями в точках стыка. Разбиение и его события - как у нажатия
-    Inward (атрибут Face Strength, иначе геометрия по имени)."""
+def reconcile_with_selection(split: BevelSplitV1, classified: "BevelSelectionV1 | None") -> BevelSplitV1:
+    """BEVEL_SEAM_NODE_AGREEMENT_V1 (только геометрия, без атрибута): узел - грань, которую узлом зовут ОБА - обход колонок
+    (`geometric_split`) и классификатор кнопки «Select Bevel» / «Grow Bevel» (`classified`, его полосы и узлы); их несогласие -
+    полоса, число по имени: `BEVEL_SEAM_WALK_NODE_IS_STRIP` (обход - узел, классификатор - полоса), `BEVEL_SEAM_CLASSIFIER_NODE_IS_COLUMN`
+    (классификатор - узел, обход нашёл колонку профиля), `BEVEL_SEAM_UNRESOLVED_IS_STRIP` (обход не разрешил, классификатор - полоса
+    или узел). Грани выделения вне группы классификатора остаются за обходом - `BEVEL_SEAM_OUTSIDE_CLASSIFIER` числом."""
 
-    split = split_bevel_faces(view)
+    if classified is None or split.source != BEVEL_SPLIT_GEOMETRIC:
+        return split
+    events = dict(split.events)
+    known = (classified.strip | classified.node) & (split.strip | split.node | split.unresolved)
+    node = set(split.node - known)
+    for face_id in known:
+        walk_node, class_node = face_id in split.node, face_id in classified.node
+        if walk_node and class_node:
+            node.add(face_id)
+        elif face_id in split.unresolved:
+            _count(events, BEVEL_SEAM_UNRESOLVED_IS_STRIP)
+        elif walk_node:
+            _count(events, BEVEL_SEAM_WALK_NODE_IS_STRIP)
+        elif class_node:
+            _count(events, BEVEL_SEAM_CLASSIFIER_NODE_IS_COLUMN)
+    outside = (split.strip | split.node | split.unresolved) - known
+    if outside:
+        events[BEVEL_SEAM_OUTSIDE_CLASSIFIER] = len(outside)
+    strip = (split.strip | known) - node
+    return BevelSplitV1(frozenset(strip), frozenset(node), split.unresolved - known, split.source, tuple(sorted(events.items())))
+
+
+def seam_edges(view: BevelFacesViewV1, classified: "BevelSelectionV1 | None" = None) -> tuple[frozenset[int], BevelSplitV1]:
+    """BEVEL_SEAM_MARK_V1: швы разметки по выделению - граница выделения (рельсы и края узлов к исходным граням) и разрез «узел |
+    полоса»; узел становится своим патчем, швы рельсов сходятся с его краями в точках стыка. Разбиение - атрибут Face Strength, иначе
+    геометрия по имени, согласованная с классификатором выделения `classified` (`reconcile_with_selection`)."""
+
+    split = reconcile_with_selection(split_bevel_faces(view), classified)
     return outward_sources(view) | cut_edges(view, split), split
 
 
@@ -1077,6 +1145,7 @@ __all__ = (
     "plan_console_lines",
     "plan_faces",
     "plan_summary",
+    "reconcile_with_selection",
     "scope_digest",
     "seam_edges",
     "select_bevel_faces",

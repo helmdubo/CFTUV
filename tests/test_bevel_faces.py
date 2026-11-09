@@ -154,6 +154,81 @@ def test_a_single_selected_node_gets_seams_on_its_whole_boundary():
     assert seams == {view.edge_ids[frozenset((cycle[i], cycle[(i + 1) % len(cycle)]))] for i in range(len(cycle))}
 
 
+def _noisy_top_corner(rise):
+    """Угол торца поля (`rounded_wall_noise_top`, BEVEL_SPLIT_RAIL_LOCAL_PLANE_V1) в миниатюре: фаска в один сегмент на трёх рёбрах угла
+    (верх z = 0, фасад y = 0, бок x = 0), треугольный узел T; полоса вдоль x разрезана на S1 (у узла) и S2. Верх у S1 - неплоский квад
+    Q1, дальний угол поднят на `rise`: нормаль Ньюэлла всей грани уходит от ребра бевела на ~30 градусов, а у рельса грань плоская."""
+
+    w, a, b, end, low = 0.1, 0.3, 0.6, 1.3, -1.0
+    points: dict = {}
+    named: dict = {}
+
+    def add(name, cycle):
+        named[name] = tuple(points.setdefault(point, len(points)) for point in cycle)
+
+    add("T", [(w, w, 0.0), (w, 0.0, -w), (0.0, w, -w)])
+    add("S1", [(w, w, 0.0), (a, w, 0.0), (a, 0.0, -w), (w, 0.0, -w)])
+    add("S2", [(a, w, 0.0), (end, w, 0.0), (end, 0.0, -w), (a, 0.0, -w)])
+    add("Y", [(w, w, 0.0), (0.0, w, -w), (0.0, b, -w), (w, b, 0.0)])
+    add("Z", [(w, 0.0, -w), (w, 0.0, low), (0.0, w, low), (0.0, w, -w)])
+    add("Q1", [(w, w, 0.0), (w, b, 0.0), (a, b, rise), (a, w, 0.0)])
+    add("Q2", [(a, w, 0.0), (a, b, rise), (end, b, 0.0), (end, w, 0.0)])
+    add("front", [(w, 0.0, -w), (a, 0.0, -w), (end, 0.0, -w), (end, 0.0, low), (w, 0.0, low)])
+    add("side", [(0.0, w, -w), (0.0, w, low), (0.0, b, low), (0.0, b, -w)])
+    ids = {name: index for index, name in enumerate(sorted(named))}
+    faces = {ids[name]: cycle for name, cycle in named.items()}
+    coords = {index: point for point, index in points.items()}
+    selected = {ids[name] for name in ("T", "S1", "S2", "Y", "Z")}
+    return _view(coords, faces, selected), ids
+
+
+def _edge(view, ids, first, second):
+    shared = set(bf._edges_of(view.faces[ids[first]])) & set(bf._edges_of(view.faces[ids[second]]))
+    return view.edge_ids[shared.pop()]
+
+
+def test_a_strip_piece_beside_a_corner_node_under_a_noisy_top_is_a_strip_by_name():
+    """BEVEL_SPLIT_RAIL_LOCAL_PLANE_V1 (поле: Seam Bevel на `rounded_wall_noise_top`, верхний угол торца): кусок полосы S1 у узла лежит
+    под неплоской гранью шумного верха; по нормали всей грани колонка S1 отбрасывалась (RAILS_NOT_PARALLEL), S1 уходил в узел - шва
+    между узлом и S1 не было, а шов вставал поперёк полосы S1 | S2. Плоскость у рельса принимает колонку, и это названо числом."""
+
+    flat_view, _ids = _noisy_top_corner(0.0)
+    assert dict(bf.geometric_split(flat_view).events).get(bf.BEVEL_COLUMN_RAIL_LOCAL_PLANE) is None
+    view, ids = _noisy_top_corner(0.25)
+    seams, split = bf.seam_edges(view)
+    assert split.node == {ids["T"]} and split.strip == {ids[name] for name in ("S1", "S2", "Y", "Z")}
+    assert dict(split.events) == {bf.BEVEL_COLUMN_RAIL_LOCAL_PLANE: 1}
+    node_edges = {_edge(view, ids, "T", name) for name in ("S1", "Y", "Z")}
+    assert node_edges <= seams and _edge(view, ids, "S1", "S2") not in seams  # узел - свой патч, поперёк полосы шва нет
+    assert seams == bf.outward_sources(view) | node_edges
+
+
+def test_seam_bevel_keeps_a_node_only_where_the_column_walk_and_the_selection_classifier_agree():
+    """BEVEL_SEAM_NODE_AGREEMENT_V1: без атрибута узел Seam Bevel - грань, которую узлом зовут и обход колонок, и классификатор
+    кнопки выделения; каждое несогласие - полоса с числом по имени, грани вне группы классификатора - за обходом; атрибут - как есть."""
+
+    view, ids = _noisy_top_corner(0.25)
+    wrong = bf.BevelSelectionV1(bf.BEVEL_SELECT_GEOMETRIC, bf.BEVEL_SELECT_GEOMETRIC, strip=frozenset({ids["S2"], ids["Y"], ids["Z"]}),
+                                node=frozenset({ids["T"], ids["S1"]}))  # классификатор зовёт кусок у узла узлом (кластер узла)
+    seams, split = bf.seam_edges(view, wrong)
+    assert split.node == {ids["T"]} and dict(split.events)[bf.BEVEL_SEAM_CLASSIFIER_NODE_IS_COLUMN] == 1
+    assert _edge(view, ids, "S1", "S2") not in seams and _edge(view, ids, "T", "S1") in seams
+
+    cube, kinds = _cube_view()
+    nodes = {face for face, kind in kinds.items() if kind == "node"}
+    strips = {face for face, kind in kinds.items() if kind == "strip"}
+    demoted, outside = min(nodes), max(nodes)
+    partial = bf.BevelSelectionV1(bf.BEVEL_SELECT_GEOMETRIC, bf.BEVEL_SELECT_GEOMETRIC, strip=frozenset(strips | {demoted}),
+                                  node=frozenset(nodes - {demoted, outside}))
+    _seams, split = bf.seam_edges(cube, partial)
+    assert split.node == nodes - {demoted} and demoted in split.strip
+    assert dict(split.events) == {bf.BEVEL_SEAM_WALK_NODE_IS_STRIP: 1, bf.BEVEL_SEAM_OUTSIDE_CLASSIFIER: 1}
+
+    truth = {face: (-16384 if kind == "node" else 0) for face, kind in kinds.items() if kind != "flat"}
+    exact = bf.BevelFacesViewV1(cube.coords, cube.faces, cube.selected, cube.edge_ids, truth)
+    assert bf.seam_edges(exact, partial) == bf.seam_edges(exact)  # Face Strength - verbatim, классификатор не читается
+
+
 def test_outward_analyses_only_the_faces_the_selection_leaves_and_needs_no_split():
     view, kinds = _cube_view()
     plan = bf.plan_faces(view, bf.OUTWARD, kinds)

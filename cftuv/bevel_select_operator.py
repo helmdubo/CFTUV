@@ -113,7 +113,8 @@ class HOTSPOTUV_OT_SeamBevel(bpy.types.Operator):
         "Mark UV seams around the selected bevel faces: the selection boundary (rails, node edges to the original faces) and every "
         "node | strip edge, so each node becomes its own patch and the rail seams meet the node seams at junction points. "
         "A single selected node gets seams on its whole boundary. Nodes and strips: exact from Bevel Face Strength 'All', "
-        "otherwise a named geometric guess. Existing seams are kept"
+        "otherwise a named geometric guess (a node only where the column walk and the Select Bevel classifier agree). "
+        "Existing seams are kept"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -127,10 +128,13 @@ class HOTSPOTUV_OT_SeamBevel(bpy.types.Operator):
         parts, marked = [], 0
         for obj in objects:
             bm = bmesh.from_edit_mesh(obj.data)
+            mesh_view = read_mesh_view(bm, obj.matrix_world)  # первым: обновляет номера вершин и граней, по ним читает `read_view`
             view = read_view(bm)
             if not view.selected:
                 continue
-            edges, split = seam_edges(view)
+            # BEVEL_SEAM_NODE_AGREEMENT_V1: без атрибута узлы согласуются с классификатором кнопки (группа выделенных граней, как «Grow»)
+            classified = select_from_seeds(mesh_view) if view.face_strength is None else None
+            edges, split = seam_edges(view, classified)
             bm.edges.ensure_lookup_table()
             added = [bm.edges[index] for index in sorted(edges) if not bm.edges[index].seam]
             for edge in added:
