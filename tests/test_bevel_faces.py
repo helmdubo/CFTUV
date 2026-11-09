@@ -784,3 +784,33 @@ def test_the_bevel_offset_does_not_follow_the_chord():
         assert bevel_offset(chord, turn, 1) == pytest.approx(0.045)
     chords = 3 * 2.0 * 0.05 * math.sin(math.radians(15.0))
     assert bevel_offset(chords, 90.0, 3) == pytest.approx(0.05)
+
+# --- BOTH (BEVEL_FACES_BOTH_V1) ------------------------------------------------------------------------------------------------
+
+
+def test_both_is_the_first_face_side_and_analyses_every_face_with_the_rails_and_the_node_cuts_as_analysis_seams():
+    """Both: один анализ всех граней; швы анализа - граница выделения (рельсы) и разрез «узел | полоса»; источники снаружи - как у Outward."""
+
+    view, kinds = _cube_view()
+    assert bf.FACE_SIDES[0] == bf.BOTH
+    plan = bf.plan_faces(view, bf.BOTH, kinds)
+    inward = bf.plan_faces(view, bf.INWARD, kinds)
+    outward = bf.plan_faces(view, bf.OUTWARD, kinds)
+    assert not plan.refusal and plan.scope == tuple(sorted(kinds))
+    assert plan.outward_sources == outward.outward_sources and len(plan.outward_sources) == 24
+    assert plan.cut_edges == inward.cut_edges | outward.outward_sources and len(plan.cut_edges) == 48
+    assert plan.split == inward.split and plan.events == inward.events
+    assert bf.scope_digest("mesh", plan) not in {bf.scope_digest("mesh", inward), bf.scope_digest("mesh", outward)}
+    assert bf.plan_summary(plan).startswith("faces both: 20 selected, 12 strip / 8 node")
+
+
+def test_both_keeps_unresolved_faces_out_and_names_a_selection_without_outside_faces():
+    coords, faces, kinds = _chamfered_cube()
+    every = _view(coords, faces, kinds)
+    strength = {face: (-16384 if kind == "node" else 0) for face, kind in kinds.items()}
+    plan = bf.plan_faces(bf.BevelFacesViewV1(every.coords, every.faces, every.selected, every.edge_ids, strength), bf.BOTH, kinds)
+    assert not plan.refusal and not plan.outward_sources and dict(plan.events)[bf.BEVEL_FACES_NOTHING_OUTSIDE] == len(kinds)
+    grid_coords, grid_faces = _grid()
+    plan = bf.plan_faces(_view(grid_coords, grid_faces, {4}), bf.BOTH, grid_faces)
+    assert plan.refusal == bf.BEVEL_SPLIT_UNRESOLVED and not plan.scope
+    assert bf.plan_faces(_view(coords, faces, ()), bf.BOTH, kinds).refusal == bf.BEVEL_FACES_EMPTY_SELECTION

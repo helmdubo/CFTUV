@@ -1043,8 +1043,8 @@ def begin_gpu_drag(controller, mesh_settings) -> bool:
     strip_gpu_everywhere(controller, REMOVED_STALE)
     enabled = bool(getattr(mesh_settings, "drag_gpu_affine", False))
     if enabled and _decal_maps_hotspot(controller):
-        # Узлы двигают UV ядра (`uv0 + e1 * dt / alpha`), а в меше под Hotspot - UV атласа: кадры идут путём Python, который отображает каждый.
-        print(f"[CFTUV][WidthLive] {GPU_DRAG_OFF_UNDER_HOTSPOT}: the decal maps its UVs into a hotspot mark; frames are written by Python", flush=True)
+        # Узлы двигают UV ядра (`uv0 + e1 * dt / alpha`), а в меше под Hotspot - UV атласа (у Both - крылья): кадры идут путём Python, который отображает каждый.
+        print(f"[CFTUV][WidthLive] {GPU_DRAG_OFF_UNDER_HOTSPOT}: the decal maps its UVs (hotspot mark or bevel wings); frames are written by Python", flush=True)
         enabled = False
     controller.width_gpu_drag = enabled
     return enabled
@@ -1054,17 +1054,19 @@ GPU_DRAG_OFF_UNDER_HOTSPOT = "GPU_DRAG_OFF_UNDER_HOTSPOT"
 
 
 def _decal_maps_hotspot(controller) -> bool:
-    """Меш декали последней кнопки несёт запись отображения Hotspot (HOTSPOT_ATLAS_MAPPING_V1)."""
+    """Меш декали последней кнопки несёт запись отображения Hotspot (HOTSPOT_ATLAS_MAPPING_V1) либо крыльев UV Both (BEVEL_WINGS_V1): UV меша - не UV ядра."""
 
     import bpy
 
+    from .bevel_wings import MESH_PROPERTY as WINGS_PROPERTY
     from .envelope_production_mesh import find_decal_object
     from .hotspot_mapping import MESH_PROPERTY
 
     record = getattr(controller, "width_build", None)
     source = None if record is None else bpy.data.objects.get(record.source_name)
     decal = None if source is None else find_decal_object(source)
-    return decal is not None and decal.data is not None and decal.data.get(MESH_PROPERTY) is not None
+    data = None if decal is None else decal.data
+    return data is not None and (data.get(MESH_PROPERTY) is not None or data.get(WINGS_PROPERTY) is not None)
 
 
 def strip_gpu_everywhere(controller, reason: str) -> int:

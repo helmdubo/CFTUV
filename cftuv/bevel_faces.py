@@ -8,6 +8,10 @@
   «узел | полоса», который существует только внутри анализа (меш владельца не получает ни шва, ни атрибута). Каждый патч (полоса или узел)
   заливается от всей своей границы внутрь; у разреза «узел | полоса» источники - обе стороны.
 - OUTWARD: анализ ТОЛЬКО невыделенных граней; источники - рёбра, которые оставляет выделение. Разбиение не нужно и не считается.
+- BOTH (по умолчанию, BEVEL_FACES_BOTH_V1): один анализ ВСЕХ граней (без неразрешённых), граница выделения и разрез «узел | полоса» -
+  швы только внутри анализа; источники - источники INWARD и OUTWARD вместе. Ядро распространяет фронт цепи-источника в ОБА её патча
+  (как у пути по рёбрам), поэтому один прогон даёт и заливку граней бевела, и полосу ширины декали снаружи от рельса, а вершины рельса -
+  общие (вершины меша источника). Крылья UV строит хост (`bevel_wings`).
 
 РАЗБИЕНИЕ «узел | полоса» (BEVEL_NODE_STRIP_SPLIT_V1), порядок источников:
 1. есть атрибут `__mod_weightednormals_faceweight` (модификатор Bevel с Face Strength, любой режим кроме None): узел - выделенная грань
@@ -27,9 +31,10 @@ from typing import Mapping
 
 FACE_STRENGTH_ATTRIBUTE = "__mod_weightednormals_faceweight"
 
+BOTH = "BOTH"
 INWARD = "INWARD"
 OUTWARD = "OUTWARD"
-FACE_SIDES = (INWARD, OUTWARD)
+FACE_SIDES = (BOTH, INWARD, OUTWARD)
 
 #: Закон ревизии анализа по граням: меняется, если меняется то, что входит в отпечаток.
 BEVEL_REVISION_LAW = "BEVEL_FACES_SCOPE_V1"
@@ -400,6 +405,8 @@ def plan_faces(view: BevelFacesViewV1, side: str, all_faces) -> BevelFacesPlanV1
     selected = frozenset(int(item) for item in view.selected)
     if not selected:
         return BevelFacesPlanV1(side, selected, (), refusal=BEVEL_FACES_EMPTY_SELECTION, detail="select the bevel faces")
+    if side == BOTH:
+        return _plan_both(view, selected, all_faces)
     if side == OUTWARD:
         scope = tuple(sorted(int(item) for item in all_faces if int(item) not in selected))
         if not scope:
@@ -419,6 +426,27 @@ def plan_faces(view: BevelFacesViewV1, side: str, all_faces) -> BevelFacesPlanV1
             detail=f"no selected face splits into strip and node faces ({len(selected)} faces); add Face Strength to the Bevel modifier",
         )
     return BevelFacesPlanV1(side, selected, scope, cut_edges=cut_edges(view, split), split=split, events=events)
+
+
+def _plan_both(view: BevelFacesViewV1, selected: frozenset[int], all_faces) -> BevelFacesPlanV1:
+    """BOTH: грани анализа - все, кроме неразрешённых; разрез - граница выделения и «узел | полоса»; источники снаружи - как у OUTWARD.
+    Невыделенных граней нет - внешней части нет, это событие `BEVEL_FACES_NOTHING_OUTSIDE` с нулём источников снаружи, а не отказ."""
+
+    split = split_bevel_faces(view)
+    events = ((split.source, len(selected)), *split.events)
+    if split.unresolved:
+        events = (*events, (BEVEL_SPLIT_UNRESOLVED, len(split.unresolved)))
+    every = sorted({int(item) for item in all_faces})
+    if not selected - split.unresolved:
+        return BevelFacesPlanV1(
+            BOTH, selected, (), split=split, events=events, refusal=BEVEL_SPLIT_UNRESOLVED,
+            detail=f"no selected face splits into strip and node faces ({len(selected)} faces); add Face Strength to the Bevel modifier",
+        )
+    outside = outward_sources(view)
+    if not any(item not in selected for item in every):
+        events = (*events, (BEVEL_FACES_NOTHING_OUTSIDE, len(selected)))
+    scope = tuple(item for item in every if item not in split.unresolved)
+    return BevelFacesPlanV1(BOTH, selected, scope, cut_edges=cut_edges(view, split) | outside, outward_sources=outside, split=split, events=events)
 
 
 def scope_digest(base_digest: str, plan: BevelFacesPlanV1) -> str:

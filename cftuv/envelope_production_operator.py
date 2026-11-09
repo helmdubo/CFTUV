@@ -42,9 +42,13 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty
 
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
-from .bevel_faces import INWARD, plan_console_lines, plan_summary
+from .bevel_faces import BOTH, plan_console_lines, plan_summary
 from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection
 from .bevel_select_operator import HOTSPOTUV_OT_SeamBevel, HOTSPOTUV_OT_SelectBevelFaces
+from .bevel_wings import note_both_domains, parts_summary
+from .bevel_wings_blender import counter_lines as wing_counter_lines
+from .bevel_wings_blender import inner_patches
+from .bevel_wings_blender import press_record as wings_press_record
 from .envelope_gc_pause import gc_paused_call
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
@@ -177,9 +181,10 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
     face_side: EnumProperty(
         name="Faces",
         items=FACE_SIDE_ITEMS,
-        default=INWARD,
+        default=BOTH,
         description=(
-            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1): Inward fills the selected bevel faces, "
+            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1, BEVEL_FACES_BOTH_V1): Both (default) fills the selected bevel faces "
+            "and continues outward by the decal width as one welded mesh with mirrored UV wings, Inward fills the selected bevel faces, "
             "Outward the faces around them; edge selection is unchanged"
         ),
     )
@@ -395,6 +400,10 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 _restore_edge_selection(source_obj, selected)
             else:
                 restore_face_selection(source_obj, face_build.plan.selected)
+        both = face_build is not None and face_build.plan.side == BOTH
+        if both:
+            note_both_domains(result.domain_id for result in run.results)  # BEVEL_FACES_BOTH_V1: закон сварки Both - до первых массивов
+        wings, wings_off = wings_press_record(face_build, bundle, getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP), hotspot)
         try:
             offset = float(mesh_settings.offset)
             # Массивы строятся один раз: их же читает образец превью ширины (`envelope_width_mesh_preview`), а писатель берёт готовые.
@@ -407,6 +416,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 width=float(settings.envelope_debug_alpha),
                 arrays=arrays,
                 hotspot=hotspot,
+                wings=wings,
             )
         except ProductionWriteError as exc:
             mesh_settings.status = f"Decal mesh not written: {exc.outcome}"
@@ -442,11 +452,13 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
         # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`) и мягкая находка стоят в них наравне с отказом продуктового пути.
         mesh_settings.status = receipt_status_text(receipt) + ("" if face_build is None else f" | {plan_summary(face_build.plan)}")
+        if both:  # BEVEL_FACES_BOTH_V1: какая часть отказана и почему; крылья не строятся - исход назван
+            mesh_settings.status += f" | {parts_summary(inner_patches(face_build, bundle), receipt.domains, receipt.skipped)}" + (f" | {wings_off}" if wings_off else "")
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
         )
-        for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend), *receipt_console_lines(receipt, run.results), *counter_lines(receipt.object_name)):
+        for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend), *receipt_console_lines(receipt, run.results), *counter_lines(receipt.object_name), *wing_counter_lines(receipt.object_name)):
             print(line, flush=True)
         unresolved = face_build is not None and face_build.plan.split is not None and face_build.plan.split.unresolved
         self.report(

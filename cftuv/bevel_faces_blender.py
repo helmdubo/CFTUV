@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from .bevel_faces import (
     BEVEL_FACES_NO_SOURCE,
+    BOTH,
     FACE_STRENGTH_ATTRIBUTE,
     INWARD,
     OUTWARD,
@@ -34,6 +35,7 @@ from .bevel_faces import (
 from .surface_ir import SourceRevision
 
 FACE_SIDE_ITEMS = (
+    (BOTH, "Both", "Selected bevel faces and the faces around them: one welded decal fills the bevel and continues outward by the decal width from the bevel edge; UV wings mirror about the bevel centre line"),
     (INWARD, "Inward", "Selected bevel faces: every strip and node is filled from its whole boundary inward, as if the other faces were absent"),
     (OUTWARD, "Outward", "Faces around the selection: the edges the selected bevel faces leave are the sources, as if the selection were absent"),
 )
@@ -53,7 +55,7 @@ def face_side_of(context, mesh_settings) -> str | None:
     mode = tuple(context.tool_settings.mesh_select_mode)
     if mode[1] or not mode[2]:
         return None
-    return str(getattr(mesh_settings, "face_side", INWARD))
+    return str(getattr(mesh_settings, "face_side", BOTH))
 
 
 def read_view(bm) -> BevelFacesViewV1:
@@ -109,18 +111,23 @@ class FaceBuildV1:
                 bmesh.update_edit_mesh(obj.data)  # анализ многопетлевого патча сбрасывал edit-mesh с разрезом: сброс без него
 
     def sources(self, bundle) -> frozenset[int]:
-        """Рёбра-источники: OUTWARD - рёбра, которые оставляет выделение; INWARD - вся граница каждого патча анализа."""
+        """Рёбра-источники: OUTWARD - рёбра, которые оставляет выделение; INWARD - вся граница каждого патча анализа; BOTH - вся граница
+        каждого патча из граней выделения и рёбра, которые оставляет выделение (BEVEL_FACES_BOTH_V1)."""
 
         if self.plan.side == OUTWARD:
             found = self.plan.outward_sources
         else:
+            selected = self.plan.selected
             found = frozenset(
                 int(edge_id)
                 for node in bundle.patch_graph.nodes.values()
+                if self.plan.side == INWARD or set(int(face) for face in node.face_indices) <= selected
                 for loop in node.boundary_loops
                 for chain in loop.chains
                 for edge_id in chain.edge_indices
             )
+            if self.plan.side == BOTH:
+                found |= self.plan.outward_sources
         if not found:
             raise BevelFacesRefused(BEVEL_FACES_NO_SOURCE, "the analysed faces have no boundary edge")
         return found

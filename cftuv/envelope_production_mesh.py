@@ -69,6 +69,8 @@ import numpy as np
 from cftuv_envelope.mesh_glue import glue_domains
 
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
+from .bevel_wings import MESH_PROPERTY as WINGS_MESH_PROPERTY
+from .bevel_wings import both_weld_law, is_both_run
 from .hotspot_mapping import MESH_PROPERTY as HOTSPOT_MESH_PROPERTY
 from .envelope_production_weld import (
     COUNTER_SEAM_CLIP_VERTICES,
@@ -426,7 +428,9 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True, digest: b
 def weld_law_of(results) -> tuple:
     """Закон сварки прогона: `WALL_NODE_MEAN_LEVEL_V1` только у «Straight strips»; Uniform trim и `DEBUG_NO_UV` - прежний закон."""
 
-    return WELD_LAW_MEAN_LEVEL if any(getattr(item, "uv_policy_id", "") == ENVELOPE_UV_POLICY_DIRECT_STRIP for item in results) else WELD_LAW
+    results = tuple(results)
+    law = WELD_LAW_MEAN_LEVEL if any(getattr(item, "uv_policy_id", "") == ENVELOPE_UV_POLICY_DIRECT_STRIP for item in results) else WELD_LAW
+    return both_weld_law(law) if is_both_run(results) else law  # BEVEL_FACES_BOTH_V1: у меша Both допуск невязки митры свой
 
 
 #: MESH_ASSEMBLY_BUFFERS_V1: операция порта, которая собирает массивы меша из байтов видов одним вызовом.
@@ -661,12 +665,15 @@ def mesh_content_digest(mesh) -> str:
     return hashlib.sha256(text.encode("ascii")).hexdigest()
 
 
-def _build_mesh(name: str, arrays: MeshArraysV1, hotspot: str | None = None):
-    """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`. `hotspot` - запись отображения Hotspot (свойство меша до заливки), `None` - режим выключен."""
+def _build_mesh(name: str, arrays: MeshArraysV1, hotspot: str | None = None, wings: str | None = None):
+    """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`. `hotspot` - запись отображения Hotspot (свойство меша до заливки), `None` - режим выключен;
+    `wings` - запись крыльев UV нажатия Both (BEVEL_WINGS_V1), `None` - её нет."""
 
     mesh = bpy.data.meshes.new(name)
     if hotspot is not None:
         mesh[HOTSPOT_MESH_PROPERTY] = hotspot
+    if wings is not None:
+        mesh[WINGS_MESH_PROPERTY] = wings
     return mesh, _fill_mesh(mesh, arrays)
 
 
@@ -680,6 +687,10 @@ def _map_hotspot(mesh) -> None:
         from .hotspot_blender import map_mesh_uvs
 
         map_mesh_uvs(mesh, DECAL_UV_LAYER)
+    elif keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V1: тот же путь всех писателей UV, записи Hotspot у меша Both нет
+        from .bevel_wings_blender import map_mesh_wings
+
+        map_mesh_wings(mesh, DECAL_UV_LAYER)
 
 
 def _remember_hotspot(mesh) -> None:
@@ -1041,8 +1052,11 @@ def write_decal_object(
     width: float | None = None,
     arrays: MeshArraysV1 | None = None,
     hotspot: str | None = None,
+    wings: str | None = None,
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
+
+    `wings` - запись крыльев UV нажатия Both (`bevel_wings_blender.press_record`): свойство НОВОГО меша, его UV - крылья (BEVEL_WINGS_V1).
 
     `hotspot` - запись отображения Hotspot (`hotspot_blender.press_record`): она ложится свойством в НОВЫЙ меш (с метками островов прежнего меша
     декали, `_carry_hotspot`), и его UV - UV атласа метки;
@@ -1081,7 +1095,7 @@ def write_decal_object(
                         material_created=False, warnings=warnings)
     if existing is None:
         _drop_stale_mesh(name)
-    mesh, marked = _build_mesh(name, arrays, _carry_hotspot(existing, hotspot))
+    mesh, marked = _build_mesh(name, arrays, _carry_hotspot(existing, hotspot), wings)
     material_created = _material_slot(mesh, material_name)
     if existing is None:
         decal = _link_child(source_obj, name, mesh)
