@@ -19,12 +19,15 @@
    удалёнными гранями бевела; умеренный шум - верх строится, сильный - домен верха не молчит (каждый патч анализа - домен со
    своим исходом, отказ назван в статусе).
 
-10. BOTH (по умолчанию, BEVEL_FACES_BOTH_V1, BEVEL_WINGS_V1): куб с бевелом в 2 сегмента и узлами в углах, ширина больше половины полосы;
-    один объект декали, все домены (полосы, узлы, грани снаружи) в меше, грани бевела покрыты целиком (площадь), полоса снаружи доходит
-    до ширины декали от рельса и не дальше; на рельсе ни одной пары вершин в одной точке (сварка; смещение 0 и по умолчанию - без
-    `ADAPTER_WELD_MITER_FALLBACK`); UV: на каждом ребре рельса UV грани бевела и грани снаружи равны (непрерывность), на средней линии
-    `V = 0.5` и UV обеих сторон равны, рельсы двух сторон полосы зеркальны около 0.5, ни одна грань UV не вывернута; живая ширина Both
-    побитово равна нажатию на новой ширине; строка частей называет отказ своей части (шумный верх стены).
+10. BOTH (по умолчанию, BEVEL_FACES_BOTH_V2, BEVEL_WINGS_V2): куб с бевелом в 1, 2 и 3 сегмента, узлы в углах; один объект декали; грани
+    копии - ровно выделенные грани (те же кольца вершин с тем же обходом при смещении 0, то же число граней, вершин и петель), внешняя часть -
+    все домены анализа невыделенных граней; каждая вершина копии на границе выделения - ОДНА вершина с внешней декалью, ни одной пары
+    вершин в одной точке; при смещении декали внутренняя вершина копии смещена вдоль своей нормали (сумма нормалей граней, взвешенных
+    площадью) ровно на смещение, вершина рельса - митра (вдоль нормали копии то же смещение); UV: на каждом ребре рельса UV копии и внешней
+    грани равны, рельсы копии зеркальны около `V = 0.5` при той же `U`, крылья - ровно [0, 1], ни одна грань UV не вывернута; кадр модели
+    живой ширины не двигает копию и держит рельс сваренным, точный пересчёт не двигает копию и побитово равен нажатию на новой ширине;
+    строка частей «copy N faces, outward a/b refused (...)» называет отказ внешней части (шумный верх стены); выделение всех граней -
+    именованный отказ `BEVEL_FACES_NOTHING_OUTSIDE`.
 
 Прогон: blender -b --factory-startup --python-exit-code 1 --python tests/blender/test_bevel_faces_build.py
 Последняя строка при успехе: BEVEL_FACES_BUILD_BLENDER_OK
@@ -482,31 +485,31 @@ def _run_the_face_side_row_is_drawn_only_in_face_select_mode():
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-BOTH_ALPHA = 0.1  # больше половины полосы бевела 0.08 в 2 сегмента (~0.06): фронты рельсов встречаются на средней линии
+BOTH_ALPHA = 0.1
 
 
-def _rail_segments(obj, bevel):
-    """Рёбра рельсов (у ребра выделенная и невыделенная грань) в координатах объекта: `[(a, b)]`."""
+def _copy_domain(mesh):
+    import json
 
-    mesh = obj.data
-    faces_of = {}
-    for polygon in mesh.polygons:
-        for key in polygon.edge_keys:
-            faces_of.setdefault(key, []).append(polygon.index)
-    found = []
-    for key, faces in faces_of.items():
-        if any(face in bevel for face in faces) and any(face not in bevel for face in faces):
-            found.append((mesh.vertices[key[0]].co.copy(), mesh.vertices[key[1]].co.copy()))
-    return found
+    record = mesh.get("cftuv_bevel_wings")
+    assert record is not None, (mesh.name, "the Both mesh carries its wing record")
+    return int(json.loads(str(record))["copy"])
 
 
-def _distance_to_segments(point, segments):
-    best = math.inf
-    for a, b in segments:
-        ab = b - a
-        t = max(0.0, min(1.0, (point - a).dot(ab) / max(ab.length_squared, 1e-30)))
-        best = min(best, (a + ab * t - point).length)
-    return best
+def _parts(mesh, copy):
+    """`(домен грани, грани копии, грани снаружи, вершины копии, вершины снаружи)` меша декали Both."""
+
+    domain = [item.value for item in mesh.attributes["cftuv_domain"].data]
+    copy_faces = [polygon for polygon in mesh.polygons if domain[polygon.index] == copy]
+    outer_faces = [polygon for polygon in mesh.polygons if domain[polygon.index] != copy]
+    return (domain, copy_faces, outer_faces, {v for polygon in copy_faces for v in polygon.vertices}, {v for polygon in outer_faces for v in polygon.vertices})
+
+
+def _ring(cycle):
+    """Кольцо вершин без выбора начала: наименьший поворот."""
+
+    cycle = tuple(cycle)
+    return min(cycle[at:] + cycle[:at] for at in range(len(cycle)))
 
 
 def _uv_face_area(uv, polygon):
@@ -514,59 +517,94 @@ def _uv_face_area(uv, polygon):
     return sum(points[i].x * points[(i + 1) % len(points)].y - points[(i + 1) % len(points)].x * points[i].y for i in range(len(points)))
 
 
-def _both_checks(name, obj, bevel, inner):
-    """Покрытие, сварка рельсов и крылья UV меша декали Both (смещение 0: вершины декали лежат на поверхности источника)."""
+def _copy_normals(obj, bevel):
+    """Закон смещения копии (BEVEL_COPY_OFFSET_V2): нормаль вершины - сумма нормалей её граней копии, взвешенных площадью."""
 
-    mesh = bpy.data.objects[name + ".CFTUV_Decal"].data
-    assert mesh.get("cftuv_bevel_wings") is not None, (name, "the Both mesh carries its wing record")
-    domain = [item.value for item in mesh.attributes["cftuv_domain"].data]
-    rails = _rail_segments(obj, bevel)
-    source_area = sum(obj.data.polygons[index].area for index in bevel)
-    inner_area = sum(polygon.area for polygon in mesh.polygons if domain[polygon.index] in inner)
-    assert abs(inner_area - source_area) <= 1e-4 * source_area, (name, "the bevel faces are covered entirely", inner_area, source_area)
-    reach = max(_distance_to_segments(mesh.vertices[v].co, rails) for p in mesh.polygons if domain[p.index] not in inner for v in p.vertices)
-    assert abs(reach - BOTH_ALPHA) <= 1e-4, (name, "the outward band reaches the decal width from the rail", reach)
-    on_rail = {vertex.index for vertex in mesh.vertices if _distance_to_segments(vertex.co, rails) <= 1e-6}
-    points = {}
-    for index in on_rail:
-        points.setdefault(tuple(round(value, 6) for value in mesh.vertices[index].co), []).append(index)
-    doubled = sum(len(items) - 1 for items in points.values())
-    assert doubled == 0, (name, "no two decal vertices at one point on a rail", doubled)
+    from mathutils import Vector
+
+    sums = {}
+    for index in bevel:
+        polygon = obj.data.polygons[index]
+        for vertex in polygon.vertices:
+            sums[vertex] = sums.get(vertex, Vector((0.0, 0.0, 0.0))) + polygon.normal * polygon.area
+    return {vertex: value.normalized() for vertex, value in sums.items()}
+
+
+def _uv_checks(name, mesh, copy):
+    """UV крыльев: непрерывность через рельс, рельсы копии зеркальны около средней линии (`V = 0.5`) при той же `U`, ни одна грань не вывернута."""
+
+    domain, copy_faces, _outer, copy_vertices, outer_vertices = _parts(mesh, copy)
     uv = mesh.uv_layers["UVMap"].data
+    rail = copy_vertices & outer_vertices
     loop_at, edge_faces = {}, {}
     for polygon in mesh.polygons:
         for loop in polygon.loop_indices:
             loop_at[(polygon.index, mesh.loops[loop].vertex_index)] = loop
         for key in polygon.edge_keys:
             edge_faces.setdefault(key, []).append(polygon.index)
-    rail_gap = centre_gap = 0.0
-    rail_edges = centre_edges = 0
+    rail_gap, rail_edges = 0.0, 0
     for (a, b), faces in edge_faces.items():
-        if len(faces) != 2:
-            continue
-        first, second = faces
-        sides = {domain[first] in inner, domain[second] in inner}
-        gap = max((uv[loop_at[(first, x)]].uv - uv[loop_at[(second, x)]].uv).length for x in (a, b))
-        if a in on_rail and b in on_rail and sides == {True, False}:
+        if len(faces) == 2 and (domain[faces[0]] == copy) != (domain[faces[1]] == copy):
+            gap = max((uv[loop_at[(faces[0], x)]].uv - uv[loop_at[(faces[1], x)]].uv).length for x in (a, b))
             rail_gap, rail_edges = max(rail_gap, gap), rail_edges + 1
-        elif sides == {True} and domain[first] == domain[second] and all(abs(uv[loop_at[(f, x)]].uv.y - 0.5) <= 1e-6 for f in faces for x in (a, b)):
-            centre_gap, centre_edges = max(centre_gap, gap), centre_edges + 1
     assert rail_edges > 0 and rail_gap <= 1e-6, (name, "UV is continuous across the rail", rail_edges, rail_gap)
-    assert centre_edges > 0 and centre_gap <= 1e-6, (name, "the two wings agree on the centre line", centre_edges, centre_gap)
-    heights = {}
-    for polygon in mesh.polygons:
-        if domain[polygon.index] in inner:
-            for loop in polygon.loop_indices:
-                if mesh.loops[loop].vertex_index in on_rail:
-                    heights.setdefault(domain[polygon.index], set()).add(round(uv[loop].uv.y - 0.5, 6))
+    owner = [item.value for item in mesh.attributes["cftuv_owner"].data]
+    by_frame = {}
+    for polygon in copy_faces:
+        for loop in polygon.loop_indices:
+            if mesh.loops[loop].vertex_index in rail:
+                by_frame.setdefault(owner[polygon.index], set()).add((round(uv[loop].uv.x, 5), round(uv[loop].uv.y - 0.5, 5)))
     mirror = 0.0
-    for values in heights.values():
-        for value in values:
-            mirror = max(mirror, min(abs(value + other) for other in values))
-    assert heights and mirror <= 1e-5, (name, "the rails of the two wings mirror about the centre line", mirror)
-    flipped = sum(1 for polygon in mesh.polygons if _uv_face_area(uv, polygon) < 0.0)  # нулевая площадь - щепка ядра на средней линии
+    for points in by_frame.values():
+        for u, h in points:
+            mirror = max(mirror, min(abs(u - other_u) + abs(h + other_h) for other_u, other_h in points))
+    assert by_frame and mirror <= 2e-5, (name, "the rails of the two wings mirror about the centre line at the same U", mirror)
+    heights = [loop.uv.y for loop in uv]
+    flipped = sum(1 for polygon in mesh.polygons if _uv_face_area(uv, polygon) < 0.0)
     assert flipped == 0, (name, "no UV face is flipped", flipped)
-    return rail_edges, centre_edges, doubled
+    return rail_edges, rail_gap, mirror, (min(heights), max(heights))
+
+
+def _both_checks(name, obj, bevel, offset):
+    """Копия граней бевела и сварка меша декали Both: топология копии - топология выделенных граней, смещение, одна вершина на рельсе."""
+
+    mesh = bpy.data.objects[name + ".CFTUV_Decal"].data
+    copy = _copy_domain(mesh)
+    _domain, copy_faces, _outer_faces, copy_vertices, outer_vertices = _parts(mesh, copy)
+    source = obj.data
+    selected_vertices = {vertex for index in bevel for vertex in source.polygons[index].vertices}
+    boundary = {vertex for polygon in source.polygons if polygon.index not in bevel for vertex in polygon.vertices} & selected_vertices
+    rail = copy_vertices & outer_vertices
+    assert len(copy_faces) == len(bevel) and len(copy_vertices) == len(selected_vertices), (name, "the copy has the faces and vertices of the selection", len(copy_faces), len(copy_vertices))
+    assert sum(polygon.loop_total for polygon in copy_faces) == sum(source.polygons[index].loop_total for index in bevel), (name, "the copy has the loops of the selection")
+    assert len(rail) == len(boundary), (name, "every boundary vertex of the copy is one vertex with the outward decal", len(rail), len(boundary))
+    points = {}
+    for vertex in mesh.vertices:
+        points.setdefault(tuple(round(value, 6) for value in vertex.co), []).append(vertex.index)
+    doubled = sum(len(items) - 1 for items in points.values())
+    assert doubled == 0, (name, "no two decal vertices at one point", doubled)
+    normals = _copy_normals(obj, bevel)
+    expected = {item: source.vertices[item].co + normals[item] * offset for item in selected_vertices}
+    nearest = {}
+    for vertex in copy_vertices:
+        co = mesh.vertices[vertex].co
+        nearest[vertex] = min(selected_vertices, key=lambda item: ((expected[item] - co).length, item))
+        assert (expected[nearest[vertex]] - co).length <= 4.0 * offset + 1e-6, (name, "a copy vertex lies over a selected vertex", vertex)
+    if offset == 0.0:
+        assert len(set(nearest.values())) == len(copy_vertices), (name, "every copy vertex lies on its own source vertex at offset 0")
+        rings = sorted(_ring(nearest[vertex] for vertex in polygon.vertices) for polygon in copy_faces)
+        assert rings == sorted(_ring(source.polygons[index].vertices) for index in bevel), (name, "the copy faces are the selected faces, same vertices, same winding")
+        return {"faces": len(copy_faces), "vertices": len(copy_vertices), "rail": len(rail), "doubled": doubled}
+    interior = rail_error = 0.0
+    for vertex in copy_vertices:
+        shift = mesh.vertices[vertex].co - source.vertices[nearest[vertex]].co
+        if vertex in rail:
+            rail_error = max(rail_error, abs(shift.dot(normals[nearest[vertex]]) - offset))  # митра: вдоль нормали копии смещение то же
+        else:
+            interior = max(interior, (shift - normals[nearest[vertex]] * offset).length)
+    assert interior <= 1e-6, (name, "an interior copy vertex is offset along its normal by the decal offset", interior)
+    assert rail_error <= 1e-6, (name, "a rail vertex is mitred: its offset along the copy normal is the decal offset", rail_error)
+    return {"faces": len(copy_faces), "vertices": len(copy_vertices), "rail": len(rail), "doubled": doubled, "interior": interior, "rail_error": rail_error}
 
 
 def _width_problem_text():
@@ -575,8 +613,8 @@ def _width_problem_text():
     return width_problem(bpy.context)
 
 
-def _press_both_cube(name, offset=None):
-    obj = _modifier_bevel(name, "cube", 2, True)
+def _press_both(name, segments=2, offset=None):
+    obj = _modifier_bevel(name, "cube", segments, True)
     bevel = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
     _enter_face_selection(obj, bevel)
     default_offset = _decal_settings().offset
@@ -589,39 +627,46 @@ def _press_both_cube(name, offset=None):
     return obj, bevel, pressed
 
 
-def _run_both_is_the_default_one_welded_mesh_with_wings():
-    """BOTH: одно нажатие, один меш - бевел целиком и полоса ширины декали снаружи, сварка на рельсе, крылья UV."""
+BOTH_PARTS = re.compile(r"both: copy (\d+) faces, outward (\d+)/(\d+)(?: refused \(([^)]*)\))?")
+
+
+def _run_both_is_the_default_one_welded_mesh_of_the_copy_and_the_outward_decal():
+    """BOTH: одно нажатие, один меш - копия граней бевела (их топология, смещение декали) и декаль наружу, сваренные на рельсе; крылья UV."""
 
     from cftuv.bevel_wings_blender import LAST_COUNTERS
 
     _clean()
     face_side = _decal_settings().bl_rna.properties["face_side"]
     assert face_side.default == "BOTH" and [item.identifier for item in face_side.enum_items] == ["BOTH", "INWARD", "OUTWARD"], "Both is the default face side"
-    _settings().envelope_debug_alpha = BOTH_ALPHA
-    for offset in (0.0, None):
-        _clean()
-        name = "both_cube"
-        obj, bevel, (built, refused, status, seconds) = _press_both_cube(name, offset)
-        patches = _controller().width_build.analysis_bundle.patch_graph.nodes
-        inner = {int(patch) for patch, node in patches.items() if set(node.face_indices) <= bevel}
-        outer = len(patches) - len(inner)
-        assert built == len(patches) and refused == 0, (name, status)
-        assert f"both: inward {len(inner)}/{len(inner)}, outward {outer}/{outer}" in status, status
-        assert "ADAPTER_WELD_MITER_FALLBACK" not in status, (name, "the rails are welded", status)
-        assert [item.name for item in bpy.data.objects if item.name.startswith(name + ".")] == [name + ".CFTUV_Decal"], "one decal mesh"
-        assert _width_problem_text() == "", _width_problem_text()
-        mesh = bpy.data.objects[name + ".CFTUV_Decal"].data
-        counters = LAST_COUNTERS[mesh.session_uid]
-        for key in ("BEVEL_WINGS_CENTRE_UNMET", "BEVEL_WINGS_UNFITTED", "BEVEL_WINGS_NOT_TWO_SIDED", "BEVEL_WINGS_FOLDS", "BEVEL_WINGS_ALONG_AGAINST"):
-            assert counters[key] == 0, (key, counters)
-        if offset == 0.0:
-            rails, centres, doubled = _both_checks(name, obj, bevel, inner)
-            SUMMARY.append(
-                f"{name}: both {built}/{built} built ({len(inner)} bevel + {outer} outer) {seconds:.2f} s, {len(mesh.polygons)} faces "
-                f"{len(mesh.vertices)} vertices, {rails} rail edges continuous, {centres} centre edges, {doubled} doubled rail vertices, "
-                f"fit gap {counters['BEVEL_WINGS_FIT_GAP_MAX_MICRO_WIDTHS']} micro-widths, half bevel {counters['BEVEL_WINGS_HALF_BEVEL_MEDIAN_MICRO_WIDTHS']}"
-            )
-        bpy.ops.object.mode_set(mode="OBJECT")
+    for segments in (1, 2, 3):
+        for offset in (0.0, None):
+            _clean()
+            _settings().envelope_debug_alpha = BOTH_ALPHA
+            name = f"both_cube{segments}"
+            obj, bevel, (built, refused, status, seconds) = _press_both(name, segments, offset)
+            patches = _controller().width_build.analysis_bundle.patch_graph.nodes
+            parts = BOTH_PARTS.search(status)
+            assert parts and parts.groups()[:3] == (str(len(bevel)), str(len(patches)), str(len(patches))), (name, status)
+            assert built == len(patches) and refused == 0 and "BEVEL_COPY_RAIL_UNPAIRED" not in status, (name, status)
+            assert "ADAPTER_WELD" not in status, (name, "the weld names nothing", status)
+            assert [item.name for item in bpy.data.objects if item.name.startswith(name + ".")] == [name + ".CFTUV_Decal"], "one decal mesh"
+            assert _width_problem_text() == "", _width_problem_text()
+            mesh = bpy.data.objects[name + ".CFTUV_Decal"].data
+            counters = LAST_COUNTERS[mesh.session_uid]
+            for key in ("BEVEL_WINGS_OUTER_UNPAIRED", "BEVEL_WINGS_NOT_TWO_SIDED", "BEVEL_WINGS_OUTER_MIRRORED", "BEVEL_WINGS_FOLDS"):
+                assert counters[key] == 0, (key, counters)
+            assert "BEVEL_WINGS_ALPHA_UNKNOWN" not in counters and counters["BEVEL_WINGS_ALPHA_SPREAD_PPM"] <= 100, counters
+            numbers = _both_checks(name, obj, bevel, 0.0 if offset == 0.0 else _decal_settings().offset)
+            rail_edges, rail_gap, mirror, (low, high) = _uv_checks(name, mesh, _copy_domain(mesh))
+            assert abs(low) <= 1e-6 and abs(high - 1.0) <= 1e-6, (name, "the wings span the trim [0, 1]", low, high)
+            if offset is None:
+                SUMMARY.append(
+                    f"{name}: {status.split(' | ')[-1]} {seconds:.2f} s, {len(mesh.polygons)} faces {len(mesh.vertices)} vertices, "
+                    f"{numbers['rail']} rail vertices welded, {numbers['doubled']} doubled, interior offset error {numbers['interior']:.2g}, "
+                    f"rail offset error {numbers['rail_error']:.2g}, {rail_edges} rail edges UV gap {rail_gap:.2g}, mirror {mirror:.2g}, "
+                    f"half bevel {counters['BEVEL_WINGS_HALF_BEVEL_MEDIAN_MICRO_WIDTHS']} micro-widths, alpha spread {counters['BEVEL_WINGS_ALPHA_SPREAD_PPM']} ppm"
+                )
+            bpy.ops.object.mode_set(mode="OBJECT")
     _clean()  # ширина возвращается без записи кнопки: живой пересчёт не заказывается
     _settings().envelope_debug_alpha = ALPHA
 
@@ -631,35 +676,52 @@ def _counts(scheduler):
     return (0, 0) if counters is None else (counters.applied, counters.failed)
 
 
+def _copy_positions(mesh):
+    _domain, _copy_faces, _outer, copy_vertices, _outer_vertices = _parts(mesh, _copy_domain(mesh))
+    return {mesh.vertices[vertex].co.to_tuple() for vertex in copy_vertices}
+
+
 def _run_the_live_width_of_both_equals_a_press_at_that_width():
-    """Живая ширина Both: точный пересчёт тем же анализом и законом сварки, крылья кадра - те же, что у нажатия на новой ширине."""
+    """Живая ширина Both: кадр модели не двигает копию и держит рельс сваренным; точный пересчёт не двигает копию и побитово равен нажатию на новой ширине."""
 
     from cftuv.envelope_production_mesh import mesh_content_digest
+    from cftuv.envelope_width_mesh_preview import preview_mesh_now
 
     _clean()
     _settings().envelope_debug_alpha = BOTH_ALPHA
-    obj, bevel, _pressed = _press_both_cube("both_live")
-    applied, failed = _counts(_controller().width_live)
+    obj, bevel, _pressed = _press_both("both_live")
+    mesh = bpy.data.objects["both_live.CFTUV_Decal"].data
+    pressed_copy = _copy_positions(mesh)
+    controller = _controller()
+    frame = preview_mesh_now(controller, BOTH_ALPHA * 1.1)
+    frame_text = "no frame" if frame is None else frame.outcome
+    if frame is not None:
+        assert _copy_positions(mesh) == pressed_copy, "the model frame does not move the copy"
+        _uv_checks("both_live frame", mesh, _copy_domain(mesh))
+        _both_checks("both_live", obj, bevel, _decal_settings().offset)
+    applied, failed = _counts(controller.width_live)
     _settings().envelope_debug_alpha = BOTH_ALPHA * 1.25
     scheduler = _pump_width_live()
     assert _counts(scheduler) == (applied + 1, failed), scheduler.counters
     live_mesh = bpy.data.objects["both_live.CFTUV_Decal"].data
     assert live_mesh.get("cftuv_bevel_wings") is not None
+    assert _copy_positions(live_mesh) == pressed_copy, "the copy does not depend on the width"
+    numbers = _both_checks("both_live", obj, bevel, _decal_settings().offset)
+    _uv_checks("both_live", live_mesh, _copy_domain(live_mesh))
     live = mesh_content_digest(live_mesh)
     _controller().clear()
     _enter_face_selection(obj, bevel)
     _press(obj, "BOTH")
     assert mesh_content_digest(bpy.data.objects["both_live.CFTUV_Decal"].data) == live, "live width of Both equals a press at that width"
+    SUMMARY.append(f"both_live: model frame {frame_text}, exact live width = press at {BOTH_ALPHA * 1.25:g}, {numbers['rail']} rail vertices welded, copy unchanged")
     bpy.ops.object.mode_set(mode="OBJECT")
     _clean()
     _settings().envelope_debug_alpha = ALPHA
 
 
-BOTH_PARTS = re.compile(r"both: inward (\d+)/(\d+)(?: refused \(([^)]*)\))?, outward (\d+)/(\d+)(?: refused \(([^)]*)\))?")
-
-
 def _run_both_names_the_refused_part():
-    """Отказ домена одной части назван в строке частей, остальное в меше (шумный верх стены: верх отказан ядром по имени)."""
+    """Отказ домена внешней части назван в строке частей, копия и остальное в меше (шумный верх стены: верх отказан ядром по имени);
+    выделение без граней снаружи - именованный отказ нажатия."""
 
     _clean()
     _settings().envelope_debug_alpha = ALPHA
@@ -669,10 +731,22 @@ def _run_both_names_the_refused_part():
     built, refused, status, _seconds = _press(obj, "BOTH")
     parts = BOTH_PARTS.search(status)
     assert parts, status
-    inward_built, inward_all, _inward, outward_built, outward_all, _outward = parts.groups()
-    assert int(inward_built) + int(outward_built) == built and int(inward_all) + int(outward_all) == built + refused, status
+    copy_faces, outward_built, outward_all, named = parts.groups()
+    assert int(copy_faces) == len(bevel) and int(outward_built) == built and int(outward_all) == built + refused, status
+    assert refused == 0 or named, (status, "a refused outward domain is named")
     assert bpy.data.objects.get("both_noisy.CFTUV_Decal") is not None
     SUMMARY.append(f"both_noisy: {status.split(' | ')[0]} | {parts.group(0)}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    _clean()
+    whole = _object("both_whole", _cube())
+    _enter_face_selection(whole, {polygon.index for polygon in whole.data.polygons})
+    _decal_settings().face_side = "BOTH"
+    try:
+        result = bpy.ops.hotspotuv.build_envelope_decal_mesh()
+    except RuntimeError as exc:  # отказ плана - ERROR отчёта оператора
+        result = str(exc)
+    assert "BEVEL_FACES_NOTHING_OUTSIDE" in _decal_settings().status, (result, _decal_settings().status)
+    assert bpy.data.objects.get("both_whole.CFTUV_Decal") is None
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
@@ -693,7 +767,7 @@ def _main():
     _run_edge_path_is_not_touched_by_face_presses()
     _run_outward_is_the_edge_path_without_the_bevel_faces()
     _run_synthetic_cases()
-    _run_both_is_the_default_one_welded_mesh_with_wings()
+    _run_both_is_the_default_one_welded_mesh_of_the_copy_and_the_outward_decal()
     _run_the_live_width_of_both_equals_a_press_at_that_width()
     _run_both_names_the_refused_part()
     for line in SUMMARY:

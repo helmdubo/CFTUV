@@ -69,8 +69,8 @@ import numpy as np
 from cftuv_envelope.mesh_glue import glue_domains
 
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
+from .bevel_copy import copy_for
 from .bevel_wings import MESH_PROPERTY as WINGS_MESH_PROPERTY
-from .bevel_wings import both_weld_law, is_both_run
 from .hotspot_mapping import MESH_PROPERTY as HOTSPOT_MESH_PROPERTY
 from .envelope_production_weld import (
     COUNTER_SEAM_CLIP_VERTICES,
@@ -198,6 +198,9 @@ class MeshArraysV1:
     reports: bool = True
     #: Смещение декали над поверхностью (метры), с которым построены позиции: его читает модель превью ширины (предел ошибки кадра домена-развёртки, `PREVIEW_DEVELOPABLE_FROZEN_NORMAL_V1`). В дайджест не входит.
     offset: float = 0.0
+    #: BEVEL_FACES_BOTH_V2: домен копии граней бевела нажатия Both (`bevel_copy.BevelCopyResultV1`), вошедший в массивы последним (в `domain_keys` он есть, в `domains` - нет:
+    #: квитанция считает домены ядра), либо `None`. Образец превью ширины берёт его результат отсюда (`sample_of`). В дайджест не входит.
+    bevel_copy: object = field(default=None, compare=False, repr=False)
     #: MESH_ASSEMBLY_BUFFERS_V1: плоские массивы numpy нативной сборки (`MeshBuffersV1`) либо `None` (эталон). У массивов с буферами кортежи `positions`, `faces`, `uvs`, `face_domain`,
     #: `face_owner`, `seam_edges` и `domain_vertex_index` не строятся, пока их не прочтут: первое чтение разворачивает их из буферов в те же кортежи (побитово), что строит эталон.
     buffers: object = field(default=None, compare=False, repr=False)
@@ -421,16 +424,21 @@ def build_mesh_arrays(results, offset: float, *, reports: bool = True, digest: b
     """
 
     ordered = sorted(results, key=lambda item: (item.patch_id, item.domain_id))
+    copy = copy_for(ordered)  # BEVEL_FACES_BOTH_V2: копия граней бевела нажатия Both - домен сборки после доменов ядра (номер патча за пакетом)
+    if copy is not None:
+        ordered.append(copy)
     found = _native_mesh_arrays(ordered, offset, reports, digest)
-    return _reference_mesh_arrays(ordered, offset, reports, digest) if found is None else found
+    arrays = _reference_mesh_arrays(ordered, offset, reports, digest) if found is None else found
+    object.__setattr__(arrays, "bevel_copy", copy)
+    if copy is not None:
+        object.__setattr__(arrays, "domains", tuple(patch for patch in arrays.domains if patch != copy.patch_id))
+    return arrays
 
 
 def weld_law_of(results) -> tuple:
     """Закон сварки прогона: `WALL_NODE_MEAN_LEVEL_V1` только у «Straight strips»; Uniform trim и `DEBUG_NO_UV` - прежний закон."""
 
-    results = tuple(results)
-    law = WELD_LAW_MEAN_LEVEL if any(getattr(item, "uv_policy_id", "") == ENVELOPE_UV_POLICY_DIRECT_STRIP for item in results) else WELD_LAW
-    return both_weld_law(law) if is_both_run(results) else law  # BEVEL_FACES_BOTH_V1: у меша Both допуск невязки митры свой
+    return WELD_LAW_MEAN_LEVEL if any(getattr(item, "uv_policy_id", "") == ENVELOPE_UV_POLICY_DIRECT_STRIP for item in results) else WELD_LAW
 
 
 #: MESH_ASSEMBLY_BUFFERS_V1: операция порта, которая собирает массивы меша из байтов видов одним вызовом.
@@ -667,7 +675,7 @@ def mesh_content_digest(mesh) -> str:
 
 def _build_mesh(name: str, arrays: MeshArraysV1, hotspot: str | None = None, wings: str | None = None):
     """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`. `hotspot` - запись отображения Hotspot (свойство меша до заливки), `None` - режим выключен;
-    `wings` - запись крыльев UV нажатия Both (BEVEL_WINGS_V1), `None` - её нет."""
+    `wings` - запись крыльев UV нажатия Both (BEVEL_WINGS_V2), `None` - её нет."""
 
     mesh = bpy.data.meshes.new(name)
     if hotspot is not None:
@@ -687,7 +695,7 @@ def _map_hotspot(mesh) -> None:
         from .hotspot_blender import map_mesh_uvs
 
         map_mesh_uvs(mesh, DECAL_UV_LAYER)
-    elif keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V1: тот же путь всех писателей UV, записи Hotspot у меша Both нет
+    elif keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V2: тот же путь всех писателей UV, записи Hotspot у меша Both нет
         from .bevel_wings_blender import map_mesh_wings
 
         map_mesh_wings(mesh, DECAL_UV_LAYER)
@@ -1056,7 +1064,7 @@ def write_decal_object(
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
 
-    `wings` - запись крыльев UV нажатия Both (`bevel_wings_blender.press_record`): свойство НОВОГО меша, его UV - крылья (BEVEL_WINGS_V1).
+    `wings` - запись крыльев UV нажатия Both (`bevel_wings_blender.press_record`): свойство НОВОГО меша, его UV - крылья (BEVEL_WINGS_V2).
 
     `hotspot` - запись отображения Hotspot (`hotspot_blender.press_record`): она ложится свойством в НОВЫЙ меш (с метками островов прежнего меша
     декали, `_carry_hotspot`), и его UV - UV атласа метки;

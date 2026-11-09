@@ -32,10 +32,11 @@ from .bevel_faces import (
     plan_faces,
     scope_digest,
 )
+from .bevel_copy import BevelCopySpecV1, copy_spec
 from .surface_ir import SourceRevision
 
 FACE_SIDE_ITEMS = (
-    (BOTH, "Both", "Selected bevel faces and the faces around them: one welded decal fills the bevel and continues outward by the decal width from the bevel edge; UV wings mirror about the bevel centre line"),
+    (BOTH, "Both", "Selected bevel faces and the faces around them: a copy of the bevel faces, offset like the decal, welded to the decal that grows outward by the decal width from the bevel edge; UV wings mirror about the bevel centre line"),
     (INWARD, "Inward", "Selected bevel faces: every strip and node is filled from its whole boundary inward, as if the other faces were absent"),
     (OUTWARD, "Outward", "Faces around the selection: the edges the selected bevel faces leave are the sources, as if the selection were absent"),
 )
@@ -84,11 +85,12 @@ def read_view(bm) -> BevelFacesViewV1:
 
 @dataclass(frozen=True, slots=True)
 class FaceBuildV1:
-    """Нажатие по граням: план, отпечаток меша и отпечаток анализа."""
+    """Нажатие по граням: план, отпечаток меша, отпечаток анализа и копия граней бевела (только BOTH, `bevel_copy.copy_spec`)."""
 
     plan: BevelFacesPlanV1
     mesh_revision: SourceRevision
     revision: SourceRevision
+    copy: BevelCopySpecV1 | None = None
 
     def build_bundle(self, bm, obj):
         """Пакет анализа граней `scope`; рёбра разреза - швы только на время анализа."""
@@ -111,23 +113,18 @@ class FaceBuildV1:
                 bmesh.update_edit_mesh(obj.data)  # анализ многопетлевого патча сбрасывал edit-mesh с разрезом: сброс без него
 
     def sources(self, bundle) -> frozenset[int]:
-        """Рёбра-источники: OUTWARD - рёбра, которые оставляет выделение; INWARD - вся граница каждого патча анализа; BOTH - вся граница
-        каждого патча из граней выделения и рёбра, которые оставляет выделение (BEVEL_FACES_BOTH_V1)."""
+        """Рёбра-источники: OUTWARD и BOTH - рёбра, которые оставляет выделение; INWARD - вся граница каждого патча анализа."""
 
-        if self.plan.side == OUTWARD:
+        if self.plan.side in (OUTWARD, BOTH):
             found = self.plan.outward_sources
         else:
-            selected = self.plan.selected
             found = frozenset(
                 int(edge_id)
                 for node in bundle.patch_graph.nodes.values()
-                if self.plan.side == INWARD or set(int(face) for face in node.face_indices) <= selected
                 for loop in node.boundary_loops
                 for chain in loop.chains
                 for edge_id in chain.edge_indices
             )
-            if self.plan.side == BOTH:
-                found |= self.plan.outward_sources
         if not found:
             raise BevelFacesRefused(BEVEL_FACES_NO_SOURCE, "the analysed faces have no boundary edge")
         return found
@@ -140,11 +137,12 @@ def plan_face_build(bm, obj, side: str) -> FaceBuildV1:
 
     bm.faces.ensure_lookup_table()
     mesh_revision = source_revision_from_bmesh(bm, obj, tuple(face.index for face in bm.faces))
-    plan = plan_faces(read_view(bm), side, (int(face.index) for face in bm.faces))
+    view = read_view(bm)
+    plan = plan_faces(view, side, (int(face.index) for face in bm.faces))
     if plan.refusal:
         raise BevelFacesRefused(plan.refusal, plan.detail)
     revision = SourceRevision(source_name=mesh_revision.source_name, digest=scope_digest(mesh_revision.digest, plan))
-    return FaceBuildV1(plan, mesh_revision, revision)
+    return FaceBuildV1(plan, mesh_revision, revision, copy_spec(view, plan.split) if plan.side == BOTH else None)
 
 
 def read_mesh_view(bm, matrix_world) -> BevelMeshViewV1:

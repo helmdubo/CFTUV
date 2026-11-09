@@ -505,6 +505,9 @@ def sample_of(results, arrays, *, key: tuple, alpha_text: str, origins: dict | N
     """
 
     by_key = {(item.patch_id, item.domain_id): item for item in results}
+    copy = getattr(arrays, "bevel_copy", None)  # BEVEL_FACES_BOTH_V2: домен копии граней бевела - в массивах, а не в результатах прогона
+    if copy is not None:
+        by_key[(copy.patch_id, copy.domain_id)] = copy
     domains = []
     start = 0
     partners = tuple(getattr(arrays, "domain_partners", ()) or ())

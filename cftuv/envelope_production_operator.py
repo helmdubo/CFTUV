@@ -45,9 +45,9 @@ from .analysis_surface import source_revision_from_bmesh
 from .bevel_faces import BOTH, plan_console_lines, plan_summary
 from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection
 from .bevel_select_operator import HOTSPOTUV_OT_SeamBevel, HOTSPOTUV_OT_SelectBevelFaces
-from .bevel_wings import note_both_domains, parts_summary
+from .bevel_copy import BEVEL_COPY_RAIL_UNPAIRED, copy_result, note_copy, rail_unpaired
+from .bevel_wings import parts_summary
 from .bevel_wings_blender import counter_lines as wing_counter_lines
-from .bevel_wings_blender import inner_patches
 from .bevel_wings_blender import press_record as wings_press_record
 from .envelope_gc_pause import gc_paused_call
 from .envelope_kernel_backend import (
@@ -183,8 +183,8 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         items=FACE_SIDE_ITEMS,
         default=BOTH,
         description=(
-            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1, BEVEL_FACES_BOTH_V1): Both (default) fills the selected bevel faces "
-            "and continues outward by the decal width as one welded mesh with mirrored UV wings, Inward fills the selected bevel faces, "
+            "Build Decal Mesh in Face Select mode (BEVEL_FACES_INWARD_OUTWARD_V1, BEVEL_FACES_BOTH_V2): Both (default) copies the selected bevel faces "
+            "offset like the decal and welds the copy to the decal that grows outward by the decal width, one mesh with mirrored UV wings; Inward fills the selected bevel faces, "
             "Outward the faces around them; edge selection is unchanged"
         ),
     )
@@ -343,6 +343,8 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             return None
         for line in plan_console_lines(face_build.plan):
             print(line, flush=True)
+        if face_build.copy is not None:  # BEVEL_FACES_BOTH_V2: решения UV копии - строкой с числами (правило 4)
+            print(f"[CFTUV][BevelCopy] {len(face_build.copy.faces)} faces, {len(face_build.copy.vertex_ids)} vertices" + "".join(f", {name} {count}" for name, count in face_build.copy.events), flush=True)
         return face_build
 
     def _build_and_write(self, context, controller, source_obj, source_bm, selected, kernel_backend, hotspot=None, face_build=None):
@@ -400,10 +402,8 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 _restore_edge_selection(source_obj, selected)
             else:
                 restore_face_selection(source_obj, face_build.plan.selected)
-        both = face_build is not None and face_build.plan.side == BOTH
-        if both:
-            note_both_domains(result.domain_id for result in run.results)  # BEVEL_FACES_BOTH_V1: закон сварки Both - до первых массивов
-        wings, wings_off = wings_press_record(face_build, bundle, getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP), hotspot)
+        both = face_build is not None and face_build.plan.side == BOTH and face_build.copy is not None
+        wings, wings_off = _note_both(face_build, bundle, run, mesh_settings, hotspot) if both else (None, "")
         try:
             offset = float(mesh_settings.offset)
             # Массивы строятся один раз: их же читает образец превью ширины (`envelope_width_mesh_preview`), а писатель берёт готовые.
@@ -452,8 +452,8 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
         # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`) и мягкая находка стоят в них наравне с отказом продуктового пути.
         mesh_settings.status = receipt_status_text(receipt) + ("" if face_build is None else f" | {plan_summary(face_build.plan)}")
-        if both:  # BEVEL_FACES_BOTH_V1: какая часть отказана и почему; крылья не строятся - исход назван
-            mesh_settings.status += f" | {parts_summary(inner_patches(face_build, bundle), receipt.domains, receipt.skipped)}" + (f" | {wings_off}" if wings_off else "")
+        if both:  # BEVEL_FACES_BOTH_V2: копия и внешняя часть, отказ внешней части по имени, вершины рельса без пары, крылья не строятся - всё названо
+            mesh_settings.status += _both_status(face_build, arrays, receipt, wings_off)
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
@@ -466,6 +466,22 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             f"Decal mesh: {mesh_settings.status}",
         )
         return {"FINISHED"}
+
+
+def _note_both(face_build, bundle, run, mesh_settings, hotspot) -> tuple:
+    """BEVEL_FACES_BOTH_V2: копия граней бевела - домен сборки меша этого нажатия (номер патча за пакетом), до первых массивов; `(запись крыльев, исход отказа крыльев)`."""
+
+    copy_patch = 1 + max((int(patch) for patch in bundle.patch_graph.nodes), default=-1)
+    note_copy(copy_result(face_build.copy, copy_patch, bundle.source_revision), (result.domain_id for result in run.results))
+    return wings_press_record(face_build, copy_patch, getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP), hotspot)
+
+
+def _both_status(face_build, arrays, receipt, wings_off: str) -> str:
+    """Хвост строки статуса нажатия Both: части (копия, внешняя часть и её отказы), вершины рельса без пары, отказ крыльев."""
+
+    unpaired = rail_unpaired(arrays)
+    text = f" | {parts_summary(len(face_build.copy.faces), receipt.domains, receipt.skipped)}"
+    return text + (f", {BEVEL_COPY_RAIL_UNPAIRED} {unpaired}" if unpaired else "") + (f" | {wings_off}" if wings_off else "")
 
 
 _CLASSES = (HOTSPOTUV_DecalMeshSettings, HOTSPOTUV_OT_BuildEnvelopeDecalMesh, HOTSPOTUV_OT_SelectBevelFaces, HOTSPOTUV_OT_SeamBevel)

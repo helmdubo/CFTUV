@@ -1054,7 +1054,7 @@ GPU_DRAG_OFF_UNDER_HOTSPOT = "GPU_DRAG_OFF_UNDER_HOTSPOT"
 
 
 def _decal_maps_hotspot(controller) -> bool:
-    """Меш декали последней кнопки несёт запись отображения Hotspot (HOTSPOT_ATLAS_MAPPING_V1) либо крыльев UV Both (BEVEL_WINGS_V1): UV меша - не UV ядра."""
+    """Меш декали последней кнопки несёт запись отображения Hotspot (HOTSPOT_ATLAS_MAPPING_V1) либо крыльев UV Both (BEVEL_WINGS_V2): UV меша - не UV ядра."""
 
     import bpy
 
