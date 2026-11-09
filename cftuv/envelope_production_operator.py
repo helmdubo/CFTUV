@@ -411,7 +411,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             else:
                 restore_face_selection(source_obj, face_build.plan.selected)
         both = face_build is not None and face_build.plan.side == BOTH and face_build.copy is not None
-        wings, wings_off = _note_both(face_build, bundle, run, mesh_settings, hotspot) if both else (None, "")
+        wings, wings_off = _note_both(face_build, bundle, run, mesh_settings) if both else (None, "")
         try:
             offset = float(mesh_settings.offset)
             # Массивы строятся один раз: их же читает образец превью ширины (`envelope_width_mesh_preview`), а писатель берёт готовые.
@@ -476,12 +476,12 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _note_both(face_build, bundle, run, mesh_settings, hotspot) -> tuple:
+def _note_both(face_build, bundle, run, mesh_settings) -> tuple:
     """BEVEL_FACES_BOTH_V2: копия граней бевела - домен сборки меша этого нажатия (номер патча за пакетом), до первых массивов; `(запись крыльев, исход отказа крыльев)`."""
 
     copy_patch = 1 + max((int(patch) for patch in bundle.patch_graph.nodes), default=-1)
     note_copy(copy_result(face_build.copy, copy_patch, bundle.source_revision), (result.domain_id for result in run.results))
-    return wings_press_record(face_build, copy_patch, getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP), hotspot)
+    return wings_press_record(face_build, copy_patch, getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP))
 
 
 def _both_status(face_build, arrays, receipt, wings_off: str) -> str:

@@ -51,6 +51,7 @@ from .hotspot_blender import (
     remap_mesh,
     remembered_record,
     split_decal_targets,
+    with_mesh_islands,
 )
 from .hotspot_islands import (
     COUNTER_EXPANDED,
@@ -142,8 +143,10 @@ def apply_to_selection(mesh, record, markup, mark, swap, source=None, faces=None
     """Object Mode: `(маска граней островов | None, числа | (отказ, подробность))` - метка выделенным островам, запись меша. UV ядра - путь
     `remap_path`: UV ядра последней записи сессии, если меш показывает ровно их (HOTSPOT_REMAP_FROM_BUILD), иначе обращение меток, у сторон
     corner-пары - с развёрткой по длине ряда шва по вершинам источника `source` (HOTSPOT_REMAP_BY_SEAM_ARC; HOTSPOT_REMAP_BY_INVERSION).
-    `faces` - маска граней вместо выделения меша (HOTSPOT_OBJECT_APPLY_V1: все грани декали)."""
+    `faces` - маска граней вместо выделения меша (HOTSPOT_OBJECT_APPLY_V1: все грани декали). У меша Both остров - сегмент целиком
+    (BEVEL_FACES_BOTH_HOTSPOT_V1), и у декали, собранной без Hotspot, тоже: вид островов - меша (`with_mesh_islands`)."""
 
+    record = with_mesh_islands(mesh, record)
     _vertices, totals, group = mesh_arrays(mesh)
     selected = np.zeros(len(mesh.polygons), dtype=bool)
     if faces is None:
@@ -160,7 +163,7 @@ def apply_to_selection(mesh, record, markup, mark, swap, source=None, faces=None
         strip, numbers = exact_strip(mesh, record, old_codes, source, DECAL_UV_LAYER)
     else:
         strip = kernel
-    groups, expanded = chosen_islands(group, selected, mark.kind, _vertices, np.repeat(group, totals), strip[:, 1])
+    groups, expanded = chosen_islands(group, selected, mark.kind, _vertices, np.repeat(group, totals), strip[:, 1], record.segments)
     new = refresh_marks(record, markup).with_marks([mark])
     new_codes = assign(old_codes, group, groups, code_for(mark, swap))
     if kernel is None:
@@ -298,8 +301,8 @@ class HOTSPOTUV_OT_HotspotPickMark(bpy.types.Operator):
     bl_idname = "hotspotuv.hotspot_pick_mark"
     bl_label = "Pick Mark"
     bl_description = (
-        "Use this mark. Edit Mode on a decal: the islands of the selected faces take it at once (whole pChain sides; corner marks: both sides "
-        "of the seam). Object Mode: every island of every selected decal. Nothing of that selected: the next Build Decal Mesh uses it"
+        "Use this mark. Edit Mode on a decal: the islands of the selected faces take it at once (whole pChain sides, corner marks: both sides "
+        "of the seam; a Both decal: whole bevel segments). Object Mode: every island of every selected decal. Nothing of that selected: the next Build Decal Mesh uses it"
     )
     bl_options = {"UNDO", "INTERNAL"}
 

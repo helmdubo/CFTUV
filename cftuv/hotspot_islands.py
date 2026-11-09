@@ -3,7 +3,9 @@
 ОСТРОВ - группа отображения `hotspot_mapping`: сторона шва одного домена и одного владельца (`cftuv_domain`, `cftuv_owner` грани), то есть одна
 сторона pChain вместе с её веерами. Выделение граней расширяется до целых островов; corner-метка - ещё и до соседей по шву (компонента плана
 крыльев `corner_plan` по всему мешу): крылья бывают только парой. Метка trim одной стороне corner-пары оставляет вторую одну - она ложится
-крылом без пары и названа числом HOTSPOT_CORNER_WING_UNPAIRED.
+крылом без пары и названа числом HOTSPOT_CORNER_WING_UNPAIRED. У декали Both (BEVEL_FACES_BOTH_HOTSPOT_V1, `segments` записи) остров - СЕГМЕНТ
+(копия бевела с юбками), его UV до метки - UV крыльев, метка кладёт его одним куском рамкой сегмента (`segment_atlas_uvs`), пар шва нет,
+якоря - центры граней копии (`segment_points`).
 
 ХРАНЕНИЕ. Правда покоящегося меша - атрибут граней `cftuv_hotspot_mark` (код `метка * 2 + swap`, `NO_MARK` - UV ядра как есть): его вместе с
 UV возвращает и Undo в Edit Mode, которое свойств ID не трогает. Атрибут пишется только у меша с записью `cftuv_hotspot` (режим выключен -
@@ -31,7 +33,19 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .hotspot_mapping import COUNTER_SHIFT, MAPPING_FORMAT, SEAM_V_TOLERANCE, HotspotMappingV1, _frame_to_atlas, atlas_uvs, cached_corner_plan, mapping_from_json
+from .hotspot_mapping import (
+    COUNTER_LOOPS,
+    COUNTER_SHIFT,
+    MAPPING_FORMAT,
+    SEAM_V_TOLERANCE,
+    HotspotMappingV1,
+    _frame_to_atlas,
+    atlas_uvs,
+    cached_corner_plan,
+    mapping_from_json,
+    segment_atlas_uvs,
+    segment_frame,
+)
 from .hotspot_markup import KIND_CORNER, KIND_TRIM, WHOLE_TEXTURE_MARK_ID, HotspotMarkV1, whole_texture_mark
 
 RECORD_VERSION = 2
@@ -105,6 +119,9 @@ class HotspotRecordV2:
     default: int
     marks: tuple  # HotspotMarkV1 по возрастанию id
     islands: tuple = ()
+    #: BEVEL_FACES_BOTH_HOTSPOT_V1: острова - СЕГМЕНТЫ декали Both, их UV до метки - UV крыльев (`bevel_wings`), отображение - рамка сегмента
+    #: (`segment_atlas_uvs`), якоря - центры граней копии. В JSON не пишется: слой Blender выводит его из записи крыльев меша.
+    segments: bool = False
 
     def mark(self, mark_id):
         return None if mark_id is None else next((mark for mark in self.marks if mark.id == int(mark_id)), None)
@@ -226,6 +243,24 @@ def seam_points(strip_v, loop_vertex, following, loop_group, positions) -> tuple
     return np.concatenate(points), np.concatenate(groups)
 
 
+def segment_points(loop_vertex, totals, face_group, face_copy, positions) -> tuple:
+    """`(точки (K, 3), группа точки (K))` островов-сегментов Both (BEVEL_SEGMENT_ISLAND_ANCHOR_COPY_V1): центры граней КОПИИ острова - копия от
+    ширины не зависит (те же грани и вершины, смещение - настройка смещения), а грань копии принадлежит ровно одному сегменту; остров без граней
+    копии (грань юбки без сегмента) - центры своих граней (они от ширины зависят: после пересборки такой остров назван UNMATCHED)."""
+
+    positions = np.asarray(positions, dtype=np.float64).reshape(-1, 3)
+    totals = np.asarray(totals, dtype=np.int64)
+    face_group = np.asarray(face_group, dtype=np.int64)
+    face_copy = np.asarray(face_copy, dtype=bool)
+    loop_face = np.repeat(np.arange(totals.shape[0], dtype=np.int64), totals)
+    sums = np.zeros((totals.shape[0], 3), dtype=np.float64)
+    np.add.at(sums, loop_face, positions[np.asarray(loop_vertex, dtype=np.int64)])
+    centres = sums / np.maximum(totals, 1)[:, None]
+    with_copy = np.isin(face_group, np.unique(face_group[face_copy]))
+    keep = face_copy | ~with_copy
+    return centres[keep], face_group[keep]
+
+
 def anchor_tolerance(positions) -> float:
     positions = np.asarray(positions, dtype=np.float64).reshape(-1, 3)
     if not positions.shape[0]:
@@ -322,6 +357,8 @@ def map_islands(uvs, loop_vertex, loop_group, loop_code, record: HotspotRecordV2
     counters = {COUNTER_MARK_MISSING: int(np.unique(loop_group[lost]).shape[0])}
     loop_code = np.where(lost, record.default, loop_code)
     codes = np.unique(loop_code)
+    if record.segments:
+        return _map_segments(uvs, loop_group, loop_code, codes, record, counters)
     if codes.shape[0] == 1 and int(codes[0]) != NO_MARK:
         atlas, numbers = atlas_uvs(uvs, loop_vertex, loop_group, record.mapping(int(codes[0])))
         _merge(counters, numbers)
@@ -334,6 +371,24 @@ def map_islands(uvs, loop_vertex, loop_group, loop_code, record: HotspotRecordV2
         part, numbers = atlas_uvs(uvs[rows], loop_vertex[rows], loop_group[rows], record.mapping(code))
         atlas[rows] = part
         _merge(counters, numbers)
+    return atlas, counters
+
+
+def _map_segments(uvs, loop_group, loop_code, codes, record: HotspotRecordV2, counters: dict) -> tuple:
+    """Острова-сегменты Both (BEVEL_FACES_BOTH_HOTSPOT_V1): углы каждого кода - рамкой сегмента его метки (`segment_atlas_uvs`), без пар крыльев
+    corner: сегмент сам несёт обе половины. Начало `U` острова - его наименьшее `U` (BEVEL_HOTSPOT_SEGMENT_FRAME_V1: остров от левого края
+    метки; веер узла, продолжающий `U` за первую перекладину, в метке, а не левее). `NO_MARK` - UV крыльев как есть."""
+
+    atlas = uvs.astype(np.float64)
+    groups, local = np.unique(loop_group, return_inverse=True)
+    start = np.full(groups.shape[0], np.inf)
+    np.minimum.at(start, local, atlas[:, 0])
+    framed = np.stack((atlas[:, 0] - start[local], atlas[:, 1]), axis=1)
+    for code in codes.tolist():
+        if code != NO_MARK:
+            rows = loop_code == code
+            atlas[rows] = segment_atlas_uvs(framed[rows], record.mapping(code))
+    counters[COUNTER_LOOPS] = int(uvs.shape[0])
     return atlas, counters
 
 
@@ -362,10 +417,13 @@ def _invert(mapping: HotspotMappingV1, atlas) -> np.ndarray:
     return np.stack(((px * rx + py * ry) / scale, (px * ux + py * uy) / scale), axis=1)
 
 
-def transfer_frame(before: HotspotMappingV1, after: HotspotMappingV1, atlas) -> np.ndarray:
+def transfer_frame(before: HotspotMappingV1, after: HotspotMappingV1, atlas, segments: bool = False) -> np.ndarray:
     """UV атласа острова из метки `before` в метку `after` того же вида и swap: `M_new(M_old^-1(atlas))` по одной рамке. Выравнивание corner
-    (`corner_along`) от прямоугольника не зависит, поэтому его обращать не надо: перенос точен до float и для corner-пары."""
+    (`corner_along`) от прямоугольника не зависит, поэтому его обращать не надо: перенос точен до float и для corner-пары. `segments` - острова
+    сегментов Both: рамка сегмента (`segment_frame`)."""
 
+    if segments:
+        return segment_atlas_uvs(segment_frame(atlas, before), after)
     frame = _invert(before, np.asarray(atlas, dtype=np.float64).reshape(-1, 2))
     scale, base = _frame(after)
     return _frame_to_atlas(after, frame[:, 0] * scale, frame[:, 1] * scale, base)
@@ -393,6 +451,9 @@ def strip_from_atlas(atlas, loop_group, loop_code, record: HotspotRecordV2) -> n
         if mapping is None:
             continue
         rows = np.flatnonzero(loop_code == code)
+        if record.segments:  # рамка сегмента Both обращается точно, ряда шва у неё нет
+            strip[rows] = segment_frame(atlas[rows], mapping)
+            continue
         frame = _invert(mapping, atlas[rows])
         if mapping.mark.kind == KIND_CORNER:
             groups, local = np.unique(loop_group[rows], return_inverse=True)
@@ -407,6 +468,8 @@ def paired_corner_groups(loop_vertex, loop_group, loop_code, strip_v, record: Ho
     """Острова corner-меток, у которых есть пара по шву в своей метке (компонента плана крыльев из двух и больше сторон): их `along` выровнен."""
 
     loop_vertex, loop_group, loop_code = (np.asarray(item, dtype=np.int64) for item in (loop_vertex, loop_group, loop_code))
+    if record.segments:  # сегмент Both - один остров с обеими половинами: пар шва нет
+        return np.zeros(0, dtype=np.int64)
     seam = np.abs(np.asarray(strip_v, dtype=np.float64)) <= SEAM_V_TOLERANCE
     found = []
     for code in np.unique(loop_code).tolist():
@@ -471,7 +534,7 @@ def remap_atlas(atlas, loop_vertex, loop_group, old_code, new_code, old: Hotspot
         if same_geometry(before, after):
             out[rows] = atlas[rows]
         elif transfer and before is not None and after is not None and before.mark.kind == after.mark.kind:
-            out[rows] = transfer_frame(before, after, atlas[rows])
+            out[rows] = transfer_frame(before, after, atlas[rows], old.segments)
             counters[COUNTER_TRANSFERRED] += int(np.unique(loop_group[rows]).shape[0])
     return out, counters
 
@@ -492,8 +555,8 @@ def carry_islands(old: HotspotRecordV2, new: HotspotRecordV2, fresh=()) -> tuple
     """`(запись, островов не перенесено)` кнопки поверх прежнего меша: метка по умолчанию - новая, острова прежнего - их метки (свежие из разметки
     `fresh`, иначе снимок прежней таблицы). Другая разметка или размер текстуры - острова не переносятся (HOTSPOT_ISLAND_MARKS_DROPPED)."""
 
-    if (old.markup, old.width, old.height) != (new.markup, new.width, new.height):
-        return new, len(old.islands)
+    if (old.markup, old.width, old.height, old.segments) != (new.markup, new.width, new.height, new.segments):
+        return new, len(old.islands)  # острова сегментов Both и стороны pChain друг на друга не переносятся: якоря разные
     islands = tuple(island for island in old.islands if island.code != new.default)
     wanted = {decode(island.code)[0] for island in islands} - {mark.id for mark in new.marks} - {None}
     fresh_by_id = {mark.id: mark for mark in fresh}
@@ -584,7 +647,7 @@ def refresh_record(record: HotspotRecordV2, markup, face_group, codes) -> tuple:
     values = np.array([code_map[key] for key in sorted(code_map)], dtype=np.int64)
     new_codes = values[np.searchsorted(keys, codes)] if codes.shape[0] else codes.copy()
     islands = tuple(replace(island, code=code_map[int(island.code)]) for island in record.islands)
-    fresh = HotspotRecordV2(record.markup, int(markup.width), int(markup.height), code_map[int(record.default)], tuple(table[key] for key in sorted(table)), islands)
+    fresh = HotspotRecordV2(record.markup, int(markup.width), int(markup.height), code_map[int(record.default)], tuple(table[key] for key in sorted(table)), islands, record.segments)
     return fresh, new_codes, counters
 
 
@@ -628,12 +691,13 @@ def referenced_mark_ids(record: HotspotRecordV2, codes=()) -> set:
 # --------------------------------------------------------------------------
 
 
-def chosen_islands(face_group, face_selected, kind: str, loop_vertex, loop_group, strip_v) -> tuple:
-    """`(группы, добавлено соседей по шву)`: острова выделенных граней; у corner-метки - и все острова их компонент плана крыльев (пара шва)."""
+def chosen_islands(face_group, face_selected, kind: str, loop_vertex, loop_group, strip_v, segments: bool = False) -> tuple:
+    """`(группы, добавлено соседей по шву)`: острова выделенных граней; у corner-метки - и все острова их компонент плана крыльев (пара шва).
+    `segments` - острова сегментов Both: сегмент несёт обе половины, соседей не добавляется."""
 
     face_group = np.asarray(face_group, dtype=np.int64)
     picked = np.unique(face_group[np.asarray(face_selected, dtype=bool)])
-    if kind != KIND_CORNER or not picked.shape[0]:
+    if kind != KIND_CORNER or segments or not picked.shape[0]:
         return picked, 0
     seam = np.abs(np.asarray(strip_v, dtype=np.float64)) <= SEAM_V_TOLERANCE
     plan = cached_corner_plan(np.asarray(loop_vertex, dtype=np.int64), np.asarray(loop_group, dtype=np.int64), seam)
@@ -738,6 +802,7 @@ __all__ = (
     "remap_atlas",
     "remember_islands",
     "seam_points",
+    "segment_points",
     "seam_snap",
     "labels_text",
     "selection_labels",

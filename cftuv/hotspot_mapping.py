@@ -306,6 +306,43 @@ def corner_along(plan: CornerPlanV1, u, swap: bool) -> tuple:
     return along, sign, numbers
 
 
+def _segment_swapped(mapping: HotspotMappingV1) -> bool:
+    return bool(mapping.swap) and mapping.mark.kind == KIND_CORNER
+
+
+def segment_atlas_uvs(uvs, mapping: HotspotMappingV1) -> np.ndarray:
+    """UV атласа острова СЕГМЕНТА декали Both (BEVEL_HOTSPOT_SEGMENT_FRAME_V1) по его UV крыльев `uvs` (L, 2): `U` вдоль (UV трима, та же
+    плотность, что у `V`), `V` - 0 и 1 на краях юбок, 0.5 на средней линии бевела (`bevel_wings`).
+
+    Сегмент ложится в прямоугольник метки ОДНИМ куском: `P = низ + U * T * вправо + V * T * вверх` (`T` - толщина метки, `низ` - левый конец
+    нижнего края в рамке метки), то есть `V` 0..1 - вся толщина снизу вверх, `U = 0` - левый край метки, `U` растёт вправо, единица `U` -
+    толщина (изотропно: `U` и `V` крыльев в одной плотности). trim и corner - одна формула: у corner средняя линия бевела (`V = 0.5`) - средняя
+    линия метки, половины (полбевела и юбка) - два крыла. Только поворот (+y, -y, +x, -x); Swap у corner - поворот на 180 градусов вокруг
+    ЦЕНТРА прямоугольника метки (`U -> длина / T - U`, `V -> 1 - V`): крылья меняются местами, сегмент короче метки остаётся в ней, не отражение.
+    """
+
+    uvs = np.asarray(uvs, dtype=np.float64).reshape(-1, 2)
+    thickness = float(mapping.mark.thickness)
+    along, across = uvs[:, 0], uvs[:, 1]
+    if _segment_swapped(mapping):
+        along, across = mapping.mark.length / thickness - along, 1.0 - across
+    return _frame_to_atlas(mapping, along * thickness, across * thickness, mapping.left_end(-thickness / 2.0))
+
+
+def segment_frame(atlas, mapping: HotspotMappingV1) -> np.ndarray:
+    """UV крыльев сегмента по его UV атласа: точное обращение `segment_atlas_uvs` (оси `вправо`, `вверх` ортонормированы)."""
+
+    atlas = np.asarray(atlas, dtype=np.float64).reshape(-1, 2)
+    thickness = float(mapping.mark.thickness)
+    (ux, uy), (rx, ry) = mapping.up, mapping.right
+    bx, by = mapping.left_end(-thickness / 2.0)
+    px, py = atlas[:, 0] * float(mapping.width) - bx, atlas[:, 1] * float(mapping.height) - by
+    along, across = (px * rx + py * ry) / thickness, (px * ux + py * uy) / thickness
+    if _segment_swapped(mapping):
+        along, across = mapping.mark.length / thickness - along, 1.0 - across
+    return np.stack((along, across), axis=1)
+
+
 def mapping_for(markup_name: str, markup, mark_id: int, swap: bool = False) -> HotspotMappingV1 | None:
     """Отображение метки `mark_id` разметки; `None` - такой метки нет."""
 
@@ -335,4 +372,6 @@ __all__ = (
     "mapping_for",
     "mapping_from_json",
     "mapping_to_json",
+    "segment_atlas_uvs",
+    "segment_frame",
 )

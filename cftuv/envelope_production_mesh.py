@@ -692,14 +692,14 @@ def _map_hotspot(mesh) -> None:
     подтверждение, кадры живой ширины), поэтому превью и точный кадр отображаются одной функцией."""
 
     keys = getattr(mesh, "keys", None)  # свойства ID: у меша Blender они есть всегда
-    if keys is not None and HOTSPOT_MESH_PROPERTY in keys():
-        from .hotspot_blender import map_mesh_uvs
-
-        map_mesh_uvs(mesh, DECAL_UV_LAYER)
-    elif keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V3: тот же путь всех писателей UV (UV и швы), записи Hotspot у меша Both нет
+    if keys is not None and WINGS_MESH_PROPERTY in keys():  # BEVEL_WINGS_V3: тот же путь всех писателей UV (UV, швы и сегмент грани)
         from .bevel_wings_blender import map_mesh_wings
 
         map_mesh_wings(mesh, DECAL_UV_LAYER)
+    if keys is not None and HOTSPOT_MESH_PROPERTY in keys():  # Hotspot - последняя стадия UV: у меша Both - сегменты в метку (BEVEL_FACES_BOTH_HOTSPOT_V1)
+        from .hotspot_blender import map_mesh_uvs
+
+        map_mesh_uvs(mesh, DECAL_UV_LAYER)
 
 
 def _remember_hotspot(mesh) -> None:
@@ -713,14 +713,15 @@ def _remember_hotspot(mesh) -> None:
         remember_mesh_islands(mesh)
 
 
-def _carry_hotspot(existing, hotspot: str | None) -> str | None:
-    """HOTSPOT_ISLAND_MARKS_V1: запись кнопки поверх прежнего меша декали несёт метки его островов (метка по умолчанию - выбор панели)."""
+def _carry_hotspot(existing, hotspot: str | None, wings: str | None = None) -> str | None:
+    """HOTSPOT_ISLAND_MARKS_V1: запись кнопки поверх прежнего меша декали несёт метки его островов (метка по умолчанию - выбор панели); у нового
+    меша Both (`wings`) острова - сегменты (BEVEL_FACES_BOTH_HOTSPOT_V1)."""
 
     if hotspot is None or existing is None or existing.data is None:
         return hotspot
     from .hotspot_blender import carry_record
 
-    return carry_record(existing.data, hotspot)
+    return carry_record(existing.data, hotspot, wings is not None)
 
 
 def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
@@ -1104,7 +1105,7 @@ def write_decal_object(
                         material_created=False, warnings=warnings)
     if existing is None:
         _drop_stale_mesh(name)
-    mesh, marked = _build_mesh(name, arrays, _carry_hotspot(existing, hotspot), wings)
+    mesh, marked = _build_mesh(name, arrays, _carry_hotspot(existing, hotspot, wings), wings)
     material_created = _material_slot(mesh, material_name)
     if existing is None:
         decal = _link_child(source_obj, name, mesh)

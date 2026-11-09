@@ -4,8 +4,10 @@
   подтверждение и кадры живой ширины) проходит через `map_mesh_wings` из `envelope_production_mesh._map_hotspot`: превью и точный кадр
   отображаются одной функцией от одних чисел (UV копии и ядра, позиции, вершины углов, начала, домен и владелец граней), как отображение Hotspot;
   швы меша там же - рёбра, где UV крыльев двух граней расходится (`bevel_wings.seam_pairs`: границы островов сегментов и швы ядра в юбках).
-* Крылья строятся только под Straight strips и без Hotspot: Uniform trim строит `u` веера иначе (BEVEL_WINGS_OFF_UNDER_UNIFORM), а Hotspot
-  отображает UV ядра в свою метку (BEVEL_WINGS_OFF_UNDER_HOTSPOT) - меш Both строится, UV остаются законом ядра (или метки), исход назван.
+* Крылья строятся только под Straight strips: Uniform trim строит `u` веера иначе (BEVEL_WINGS_OFF_UNDER_UNIFORM) - меш Both строится, UV
+  остаются законом ядра, исход назван. Под Hotspot крылья строятся ВСЕГДА (BEVEL_FACES_BOTH_HOTSPOT_V1: Hotspot - последняя стадия UV меша):
+  сначала UV крыльев и швы, затем `hotspot_blender.map_mesh_uvs` кладёт каждый сегмент в его метку; сегмент грани - атрибут
+  `cftuv_bevel_segment` (остров Hotspot).
 """
 
 from __future__ import annotations
@@ -13,10 +15,9 @@ from __future__ import annotations
 import numpy as np
 
 from .bevel_faces import BOTH
-from .bevel_wings import COUNTER_SEAMS, MESH_PROPERTY, WingsRecordV3, seam_pairs, wing_uvs, wings_from_json, wings_to_json
+from .bevel_wings import COUNTER_SEAMS, MESH_PROPERTY, SEGMENT_ATTRIBUTE, WingsRecordV3, seam_pairs, wing_uvs, wings_from_json, wings_to_json
 from .envelope_request_policy import ENVELOPE_UV_POLICY_DIRECT_STRIP
 
-BEVEL_WINGS_OFF_UNDER_HOTSPOT = "BEVEL_WINGS_OFF_UNDER_HOTSPOT"
 BEVEL_WINGS_OFF_UNDER_UNIFORM = "BEVEL_WINGS_OFF_UNDER_UNIFORM"
 BEVEL_WINGS_RECORD_INVALID = "BEVEL_WINGS_RECORD_INVALID"
 #: Числа последнего отображения по `session_uid` меша (строки консоли кнопки и тесты).
@@ -24,13 +25,12 @@ LAST_COUNTERS: dict = {}
 LAST_COUNTERS_SIZE = 8
 
 
-def press_record(face_build, copy_patch, uv_policy_id: str, hotspot) -> tuple:
-    """`(запись крыльев JSON | None, исход отказа крыльев | "")` нажатия по граням: запись есть только у Both с копией под Straight strips без Hotspot."""
+def press_record(face_build, copy_patch, uv_policy_id: str) -> tuple:
+    """`(запись крыльев JSON | None, исход отказа крыльев | "")` нажатия по граням: запись есть у Both с копией под Straight strips, с Hotspot и
+    без (Uniform trim под Hotspot кнопка отказывает раньше: HOTSPOT_UV_POLICY_UNSUPPORTED)."""
 
     if face_build is None or face_build.plan.side != BOTH or copy_patch is None:
         return None, ""
-    if hotspot is not None:
-        return None, BEVEL_WINGS_OFF_UNDER_HOTSPOT
     if uv_policy_id != ENVELOPE_UV_POLICY_DIRECT_STRIP:
         return None, BEVEL_WINGS_OFF_UNDER_UNIFORM
     return wings_to_json(WingsRecordV3(int(copy_patch))), ""
@@ -79,8 +79,22 @@ def map_mesh_wings(mesh, layer_name: str = "UVMap") -> dict:
     mapped, counters, plan = wing_uvs(uvs, vertices.astype(np.int64), starts, face_values[0], face_values[1], record.copy_domain, positions)
     store.foreach_set(field, mapped.astype(np.float32).reshape(-1))
     counters[COUNTER_SEAMS] = _mark_seams(mesh, seam_pairs(mapped.astype(np.float32), plan))
+    _write_segments(mesh, plan.face_segment)
     _remember(mesh, counters)
     return counters
+
+
+def _write_segments(mesh, face_segment) -> None:
+    """Сегмент каждой грани - атрибут `SEGMENT_ATTRIBUTE` (создаётся, если нет; иного вида - заново). После записи UV: новый атрибут может
+    сдвинуть массив слоёв."""
+
+    attribute = mesh.attributes.get(SEGMENT_ATTRIBUTE)
+    if attribute is not None and (attribute.data_type != "INT" or attribute.domain != "FACE"):
+        mesh.attributes.remove(attribute)
+        attribute = None
+    if attribute is None:
+        attribute = mesh.attributes.new(name=SEGMENT_ATTRIBUTE, type="INT", domain="FACE")
+    attribute.data.foreach_set("value", np.asarray(face_segment, dtype=np.int32))
 
 
 def _mark_seams(mesh, pairs) -> int:
@@ -120,7 +134,6 @@ def counter_lines(object_name) -> list:
 
 
 __all__ = (
-    "BEVEL_WINGS_OFF_UNDER_HOTSPOT",
     "BEVEL_WINGS_OFF_UNDER_UNIFORM",
     "BEVEL_WINGS_RECORD_INVALID",
     "LAST_COUNTERS",

@@ -50,6 +50,9 @@ WINGS_FORMAT = "CFTUV_BEVEL_WINGS"
 WINGS_VERSION = 3
 #: Свойство МЕША декали: запись крыльев (`wings_to_json`), её кладёт кнопка Both в новый меш. Нет свойства - UV меша не трогаются.
 MESH_PROPERTY = "cftuv_bevel_wings"
+#: Атрибут граней меша декали Both: сегмент грани (`WingsPlanV3.face_segment`, -1 - грань юбки без сегмента). Его пишет каждая запись UV
+#: крыльев; по нему Hotspot собирает остров сегмента (BEVEL_FACES_BOTH_HOTSPOT_V1): после отображения в метку UV ядра в меше уже нет.
+SEGMENT_ATTRIBUTE = "cftuv_bevel_segment"
 #: Допуск `v` угла на цепи-источнике (в единицах alpha): UV ядра у источника - точный нуль.
 SEAM_V_TOLERANCE = 1e-6
 #: Узлы кусочно-линейных функций одной группы с `u` ближе этого - один узел.
@@ -691,6 +694,7 @@ __all__ = (
     "COUNTER_SKIRT_STRETCH",
     "COUNTER_VERTEX_PAIRED",
     "MESH_PROPERTY",
+    "SEGMENT_ATTRIBUTE",
     "WingsPlanV3",
     "WingsRecordV3",
     "cached_wings_plan",

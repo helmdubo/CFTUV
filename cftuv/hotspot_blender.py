@@ -9,6 +9,8 @@
   кладёт отображение в свойство НОВОГО меша, и каждая запись UV этого меша (кнопка, подтверждение и кадры живой ширины) проходит через
   `map_mesh_uvs`: превью и точный кадр отображаются одной функцией.
 * Uniform trim под Hotspot не поддержан: именованный отказ кнопки `HOTSPOT_UV_POLICY_UNSUPPORTED` (и строка панели).
+* Декаль Both (BEVEL_FACES_BOTH_HOTSPOT_V1): Hotspot - последняя стадия UV, её вход - UV крыльев; остров - сегмент (`segment_layout`: запись
+  крыльев и атрибут `cftuv_bevel_segment`), вид островов записи выводится из меша (`with_mesh_islands`), в JSON не пишется.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ from dataclasses import replace
 import bpy
 import numpy as np
 
+from .bevel_wings import MESH_PROPERTY as WINGS_PROPERTY
+from .bevel_wings import SEGMENT_ATTRIBUTE, wings_from_json
 from .hotspot_islands import (
     COUNTER_DROPPED,
     MARK_ATTRIBUTE,
@@ -33,6 +37,7 @@ from .hotspot_islands import (
     remap_atlas,
     remember_islands,
     seam_points,
+    segment_points,
     strip_from_atlas,
     unwarp_paired,
 )
@@ -452,19 +457,44 @@ def _uv_store(mesh, layer_name: str):
     return mesh.uv_layers[layer_name].data, "uv"
 
 
+def segment_layout(mesh):
+    """`(домен копии, сегмент каждой грани)` меша декали Both (BEVEL_FACES_BOTH_HOTSPOT_V1): запись крыльев меша и атрибут граней
+    `cftuv_bevel_segment` (его пишут крылья при каждой записи UV); иначе `None` - острова меша - стороны pChain."""
+
+    if WINGS_PROPERTY not in mesh.keys():
+        return None
+    try:
+        copy = wings_from_json(str(mesh[WINGS_PROPERTY])).copy_domain
+    except (KeyError, TypeError, ValueError):
+        return None
+    attribute = mesh.attributes.get(SEGMENT_ATTRIBUTE)
+    if attribute is None or attribute.domain != "FACE" or attribute.data_type != "INT" or len(attribute.data) != len(mesh.polygons):
+        return None
+    return int(copy), _read(attribute.data, "value", np.int32).astype(np.int64)
+
+
+def with_mesh_islands(mesh, record):
+    """Запись с видом островов меша: у меша Both острова - сегменты (`segments`), у остальных - стороны pChain."""
+
+    segments = segment_layout(mesh) is not None
+    return record if record is None or record.segments == segments else replace(record, segments=segments)
+
+
 def mesh_record(mesh) -> tuple:
-    """`(запись v2 | None, ошибка)` свойства `cftuv_hotspot` меша; свойства нет - `(None, "")`."""
+    """`(запись v2 | None, ошибка)` свойства `cftuv_hotspot` меша; свойства нет - `(None, "")`. Вид островов - меша (`with_mesh_islands`)."""
 
     if MESH_PROPERTY not in mesh.keys():
         return None, ""
     try:
-        return record_from_json(str(mesh[MESH_PROPERTY])), ""
+        return with_mesh_islands(mesh, record_from_json(str(mesh[MESH_PROPERTY]))), ""
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         return None, f"{type(exc).__name__}: {exc}"
 
 
 def mesh_arrays(mesh) -> tuple:
-    """`(вершины углов, число углов граней, группа грани)` меша декали: группа - `домен * 2^20 + владелец` (сторона шва отображения, остров)."""
+    """`(вершины углов, число углов граней, группа грани)` меша декали: группа - `домен * 2^20 + владелец` (сторона шва отображения, остров);
+    у меша Both грань сегмента - группа сегмента `домен копии * 2^20 + сегмент` (BEVEL_FACES_BOTH_HOTSPOT_V1: копия и юбки сегмента - один
+    остров), грань юбки без сегмента остаётся своей группой."""
 
     corner = mesh.attributes.get(".corner_vert")
     vertices = _read(corner.data, "value", np.int32) if corner is not None and corner.domain == "CORNER" else _read(mesh.loops, "vertex_index", np.int32)
@@ -474,6 +504,10 @@ def mesh_arrays(mesh) -> tuple:
         attribute = mesh.attributes.get(name)
         if attribute is not None and attribute.domain == "FACE" and len(attribute.data) == len(totals):
             group += _read(attribute.data, "value", np.int32).astype(np.int64) * scale
+    layout = segment_layout(mesh)
+    if layout is not None:
+        copy, segment = layout
+        group = np.where(segment >= 0, copy * (1 << 20) + segment, group)
     return vertices.astype(np.int64), totals, group
 
 
@@ -565,8 +599,16 @@ def _write_attribute(mesh, name: str, kind: str, domain: str, field: str, values
 
 
 def _seam_points(mesh, strip, vertices, totals, group) -> tuple:
+    """Якоря островов: середины рёбер шва (стороны pChain) либо центры граней копии (сегменты Both, BEVEL_SEGMENT_ISLAND_ANCHOR_COPY_V1)."""
+
     positions = _positions(mesh)
-    points, groups = seam_points(strip[:, 1], vertices, loop_next(totals), np.repeat(group, totals), positions)
+    layout = segment_layout(mesh)
+    if layout is not None:
+        domain = mesh.attributes.get("cftuv_domain")
+        face_domain = _read(domain.data, "value", np.int32).astype(np.int64) if domain is not None else np.full(len(totals), -1, dtype=np.int64)
+        points, groups = segment_points(vertices, totals, group, face_domain == layout[0], positions)
+    else:
+        points, groups = seam_points(strip[:, 1], vertices, loop_next(totals), np.repeat(group, totals), positions)
     return points, groups, anchor_tolerance(positions)
 
 
@@ -653,13 +695,14 @@ def remember_mesh_islands(mesh) -> None:
         mesh[MESH_PROPERTY] = text
 
 
-def carry_record(old_mesh, text: str) -> str:
-    """Запись кнопки `text` поверх прежнего меша декали: метка по умолчанию - выбор панели, острова прежнего меша - их метки (свежие из разметки)."""
+def carry_record(old_mesh, text: str, segments: bool = False) -> str:
+    """Запись кнопки `text` поверх прежнего меша декали: метка по умолчанию - выбор панели, острова прежнего меша - их метки (свежие из разметки).
+    `segments` - новый меш - Both (острова - сегменты): острова сторон pChain на него не переносятся, и наоборот."""
 
     old, _error = mesh_record(old_mesh) if old_mesh is not None else (None, "")
     if old is None:
         return text
-    new = record_from_json(text)
+    new = replace(record_from_json(text), segments=bool(segments))
     markup, _problems = read_markup_text(new.markup)
     record, dropped = carry_islands(remembered_record(old_mesh, old), new, () if markup is None else markup.marks)
     if dropped:
@@ -731,6 +774,8 @@ __all__ = (
     "material_images",
     "mesh_arrays",
     "mesh_record",
+    "segment_layout",
+    "with_mesh_islands",
     "press_record",
     "recovered_strip",
     "remap_mesh",
