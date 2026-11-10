@@ -43,7 +43,8 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
 from .bevel_faces import BOTH, plan_console_lines, plan_summary
-from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection
+from .bevel_faces_blender import FACE_SIDE_ITEMS, BevelFacesRefused, face_side_of, plan_face_build, restore_face_selection, split_refused_patches
+from .bevel_patch_split import split_summary
 from .bevel_select_operator import HOTSPOTUV_OT_SeamBevel, HOTSPOTUV_OT_SelectBevelFaces
 from .bevel_copy import (
     BEVEL_COPY_RAIL_SPLIT,
@@ -366,9 +367,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             receipt_console_lines,
             receipt_report_level,
             receipt_status_text,
-            run_production,
         )
-        from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
         settings = context.scene.hotspotuv_settings
         mesh_settings = getattr(context.scene, SETTINGS_ATTRIBUTE)
@@ -382,24 +381,13 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         else:
             source_revision, mesh_revision = face_build.revision, face_build.mesh_revision
             build = lambda: face_build.build_bundle(source_bm, source_obj)  # noqa: E731
+        split = None
         try:
-            bundle = controller.get_analysis_bundle(source_object_key, source_data_key, source_revision, build)
-            selected = selected if face_build is None else face_build.sources(bundle)
-            run = run_production(
-                controller,
-                bundle,
-                frozenset(selected),
-                float(settings.envelope_debug_alpha),
-                source_object_key=source_object_key,
-                source_data_key=source_data_key,
-                density=settings.envelope_debug_fan_density,
-                uv_policy_id=getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP),
-                developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
-                silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
-                workers=settings.envelope_debug_workers,
-                kernel_backend=kernel_backend,
-                defer_byte_check=True,
-            )
+            press = lambda item, revision, make: self._press_run(context, controller, (source_object_key, source_data_key), kernel_backend, selected, item, revision, make)  # noqa: E731
+            bundle, selected, run = press(face_build, source_revision, build)
+            if face_build is not None and face_build.plan.side == BOTH:  # BOTH_PATCH_SPLIT_V1: отказанный патч внешней части - куски
+                analyse = lambda item: press(item, item.revision, lambda: item.build_bundle(source_bm, source_obj))  # noqa: E731
+                face_build, bundle, selected, run, split = split_refused_patches(face_build, source_bm, source_obj, bundle, selected, run, analyse)
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу
             outcome = getattr(exc, "outcome", None)  # отказ хоста или граней - по имени исхода, иное исключение - по типу
             mesh_settings.status = f"Failed: {getattr(outcome, 'value', outcome)}" if outcome else f"Decal mesh failed: {type(exc).__name__}"
@@ -461,7 +449,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`) и мягкая находка стоят в них наравне с отказом продуктового пути.
         mesh_settings.status = receipt_status_text(receipt) + ("" if face_build is None else f" | {plan_summary(face_build.plan)}")
         if both:  # BEVEL_FACES_BOTH_V3: копия и внешняя часть, отказ внешней части по имени, деления рёбер рельса, вершины рельса без пары, крылья не строятся - всё названо
-            mesh_settings.status += _both_status(face_build, arrays, receipt, wings_off)
+            mesh_settings.status += _both_status(face_build, arrays, receipt, wings_off, split)
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
@@ -475,6 +463,33 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         )
         return {"FINISHED"}
 
+    def _press_run(self, context, controller, keys, kernel_backend, selected, face_build, revision, build) -> tuple:
+        """Пакет анализа (из кэша сессии по ревизии) и прогон продуктового пути одного нажатия: `(пакет, рёбра-источники, прогон)`."""
+
+        from .envelope_production_export import run_production
+        from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
+
+        settings = context.scene.hotspotuv_settings
+        mesh_settings = getattr(context.scene, SETTINGS_ATTRIBUTE)
+        bundle = controller.get_analysis_bundle(keys[0], keys[1], revision, build)
+        selected = selected if face_build is None else face_build.sources(bundle)
+        run = run_production(
+            controller,
+            bundle,
+            frozenset(selected),
+            float(settings.envelope_debug_alpha),
+            source_object_key=keys[0],
+            source_data_key=keys[1],
+            density=settings.envelope_debug_fan_density,
+            uv_policy_id=getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP),
+            developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
+            silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
+            workers=settings.envelope_debug_workers,
+            kernel_backend=kernel_backend,
+            defer_byte_check=True,
+        )
+        return bundle, selected, run
+
 
 def _note_both(face_build, bundle, run, mesh_settings) -> tuple:
     """BEVEL_FACES_BOTH_V2: копия граней бевела - домен сборки меша этого нажатия (номер патча за пакетом), до первых массивов; `(запись крыльев, исход отказа крыльев)`."""
@@ -484,16 +499,19 @@ def _note_both(face_build, bundle, run, mesh_settings) -> tuple:
     return wings_press_record(face_build, copy_patch, getattr(mesh_settings, "uv_policy_id", ENVELOPE_UV_POLICY_DIRECT_STRIP))
 
 
-def _both_status(face_build, arrays, receipt, wings_off: str) -> str:
+def _both_status(face_build, arrays, receipt, wings_off: str, split=None) -> str:
     """Хвост строки статуса нажатия Both: части (копия, внешняя часть и её отказы), вершины рельса копии, вставшие в рёбра внешней части
-    (BEVEL_COPY_RAIL_SPLIT_V3), и отказы деления, вершины рельса без пары, отказ крыльев."""
+    (BEVEL_COPY_RAIL_SPLIT_V3), и отказы деления, вершины рельса без пары, разрез отказанных патчей (BOTH_PATCH_SPLIT_V1), отказ крыльев."""
 
     unpaired = rail_unpaired(arrays)
     counters = dict(getattr(arrays, "weld_counters", ()) or ())
     text = f" | {parts_summary(len(face_build.copy.faces), receipt.domains, receipt.skipped)}"
     for name in (BEVEL_COPY_RAIL_SPLIT, BEVEL_COPY_RAIL_SPLIT_REFUSED, BEVEL_COPY_RAIL_SPLIT_MITER_FALLBACK):
         text += f", {name} {counters[name]}" if counters.get(name) else ""
-    return text + (f", {BEVEL_COPY_RAIL_UNPAIRED} {unpaired}" if unpaired else "") + (f" | {wings_off}" if wings_off else "")
+    text += f", {BEVEL_COPY_RAIL_UNPAIRED} {unpaired}" if unpaired else ""
+    if split is not None:
+        text += " | " + split_summary(split.patches, split.pieces, split.rounds, dict(split.refused), split.no_cut)
+    return text + (f" | {wings_off}" if wings_off else "")
 
 
 _CLASSES = (HOTSPOTUV_DecalMeshSettings, HOTSPOTUV_OT_BuildEnvelopeDecalMesh, HOTSPOTUV_OT_SelectBevelFaces, HOTSPOTUV_OT_SeamBevel)

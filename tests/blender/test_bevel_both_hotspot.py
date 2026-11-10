@@ -110,7 +110,7 @@ def _uv_islands(mesh):
     return T._islands(mesh, uv, loop_at, edge_faces), loop_at, edge_faces
 
 
-def _segment_checks(name, mesh, off, strict_rect):
+def _segment_checks(name, mesh, off, strict_rect, named_folds=False):
     """Острова Hotspot = сегменты, UV = рамка сегмента UV крыльев V3 `off`, швы V3, разрыв на рельсе 0, вывернутых 0, острова в своих метках."""
 
     from cftuv.hotspot_blender import face_codes, mesh_arrays, mesh_record
@@ -144,7 +144,13 @@ def _segment_checks(name, mesh, off, strict_rect):
             rail_gap = max(rail_gap, gap)
     assert mismatch == 0 and rail_gap <= 1e-6, (name, "seams are exactly the UV breaks, the rail is continuous", mismatch, rail_gap)
     flipped = sum(1 for polygon in mesh.polygons if T._uv_face_area(uv, polygon) < 0.0)
-    assert flipped == 0, (name, "no UV face is flipped", flipped)
+    if named_folds:  # шумная юбка выворачивает грани и без Hotspot - число названо крыльями (BEVEL_WINGS_FOLDS, BEVEL_WINGS_COPY_FLIPPED)
+        from cftuv.bevel_wings_blender import LAST_COUNTERS
+
+        wings = LAST_COUNTERS.get(mesh.session_uid, {})
+        assert flipped <= wings.get("BEVEL_WINGS_FOLDS", 0) + wings.get("BEVEL_WINGS_COPY_FLIPPED", 0), (name, "every flipped UV face is a named fold", flipped, wings)
+    else:
+        assert flipped == 0, (name, "no UV face is flipped", flipped)
     across = along = 0  # метки обеих строк - горизонтальные полосы: поперёк - y, вдоль - x (за длиной метка повторяется, wrap)
     for code in np.unique(codes).tolist():
         mark = record.mapping(code).mark
@@ -286,6 +292,85 @@ def _run_island_marks_and_live_width():
     T._settings().envelope_debug_alpha = T.ALPHA
 
 
+def _outward_seams(mesh):
+    """Рёбра меша декали между гранями двух РАЗНЫХ доменов внешней части (разрез BOTH_PATCH_SPLIT_V1) и сколько из них - швы."""
+
+    domain = _read(mesh.attributes["cftuv_domain"].data, "value", np.int32)
+    copy, seams = T._copy_domain(mesh), _state(mesh)[4]
+    faces = {}
+    for polygon in mesh.polygons:
+        for key in polygon.edge_keys:
+            faces.setdefault(tuple(sorted(key)), []).append(polygon.index)
+    cross = [key for key, items in faces.items() if len(items) == 2 and copy not in (domain[items[0]], domain[items[1]]) and domain[items[0]] != domain[items[1]]]
+    return len(cross), sum(1 for key in cross if key in seams)
+
+
+def _unpaired(status):
+    tail = status.split("BEVEL_COPY_RAIL_UNPAIRED ", 1)
+    return int(tail[1].split(" ", 1)[0].rstrip(",|")) if len(tail) == 2 else 0
+
+
+def _run_a_refused_patch_is_split_into_pieces_under_hotspot():
+    """BOTH_PATCH_SPLIT_V1: шумный верх (`_noisy_wall(0.12)`, alpha 0.3) одной картой не разворачивается (`DEVELOPABLE_STRETCH_BUDGET_EXCEEDED`);
+    Both режет его на куски: разрез назван в статусе, рельсов без пары меньше, рёбра между кусками - швы, повторное нажатие побитово то же,
+    Hotspot сегментов работает на кусках, Outward не режет. Сравнение - то же нажатие с выключенным разрезом (`SPLIT_MAX_ROUNDS = 0`)."""
+
+    import cftuv.bevel_faces_blender as faces_blender
+    from cftuv.envelope_production_mesh import mesh_content_digest
+
+    T._clean()
+    _markup()
+    _hotspot(False)
+    T._settings().envelope_debug_alpha = 0.3
+    obj = T._object("bh_split", T._noisy_wall(0.12, levels=3))
+    bevel = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
+    rounds = faces_blender.SPLIT_MAX_ROUNDS
+    faces_blender.SPLIT_MAX_ROUNDS = 0
+    try:
+        _mesh, whole, _seconds = _press(obj, bevel)
+    finally:
+        faces_blender.SPLIT_MAX_ROUNDS = rounds
+    assert "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED" in whole and "BOTH_PATCH_SPLIT" not in whole, whole
+    mesh, status, seconds = _press(obj, bevel)
+    assert "BOTH_PATCH_SPLIT 1 -> " in status, status
+    assert _unpaired(status) < _unpaired(whole), (status, whole)
+    cross, seamed = _outward_seams(mesh)
+    assert cross > 0 and seamed == cross, ("the cut between pieces is a UV seam", cross, seamed)
+    off, plain = _state(mesh), mesh_content_digest(mesh)
+    again, _status, _seconds = _press(obj, bevel)
+    assert mesh_content_digest(again) == plain, "the same pieces on every press"
+    # Живая ширина считает по пакету нажатия (куски нажатия): точный пересчёт = нажатию на этой ширине (оно режет так же).
+    applied, failed = T._counts(T._controller().width_live)
+    T._settings().envelope_debug_alpha = 0.33
+    scheduler = T._pump_width_live()
+    assert T._counts(scheduler) == (applied + 1, failed), scheduler.counters
+    live = mesh_content_digest(bpy.data.objects[obj.name + ".CFTUV_Decal"].data)
+    T._controller().clear()
+    pressed, live_status, _seconds = _press(obj, bevel)
+    assert mesh_content_digest(pressed) == live, ("live width over the pieces equals a press at that width", live_status)
+    T._settings().envelope_debug_alpha = 0.3
+    _hotspot(True, 0, False)
+    mesh, hot_status, _seconds = _press(obj, bevel)
+    assert "BOTH_PATCH_SPLIT 1 -> " in hot_status and "BEVEL_WINGS_OFF" not in hot_status, hot_status
+    numbers = _segment_checks("split trim", mesh, off, strict_rect=False, named_folds=True)
+    _hotspot(False)
+    if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for item in bpy.context.view_layer.objects:
+        item.select_set(False)
+    T._enter_face_selection(obj, bevel)
+    _built, _refused, outward, _seconds = T._press(obj, "OUTWARD")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    assert "BOTH_PATCH_SPLIT" not in outward and "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED" in outward, outward
+    SUMMARY.append(
+        f"split: {status.split(' | ')[-1]}; unpaired rail vertices {_unpaired(whole)} -> {_unpaired(status)}; {cross} cut edges between pieces, "
+        f"all seams; {seconds:.2f} s; Hotspot trim: {numbers['hotspot_islands']} islands for {numbers['segments']} segments, flipped {numbers['flipped']}; "
+        f"Outward is not split"
+    )
+    T._clean()
+    T._settings().envelope_debug_alpha = T.ALPHA
+
+
 def _main():
     import cftuv
 
@@ -299,6 +384,7 @@ def _main():
     _run_both_under_hotspot("cube")
     _run_both_under_hotspot("columns")
     _run_island_marks_and_live_width()
+    _run_a_refused_patch_is_split_into_pieces_under_hotspot()
     for line in SUMMARY:
         print("[BevelBothHotspotTest]", line, flush=True)
     from cftuv.envelope_domain_pool import shutdown_domain_pool

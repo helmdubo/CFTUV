@@ -113,7 +113,8 @@ def test_the_button_explicitly_orders_the_selected_uv_law_and_old_settings_keep_
         raise RuntimeError("request captured")
 
     monkeypatch.setattr(envelope_production_export, "run_production", capture_request)
-    method = next(node for node in ast.walk(_production_operator_tree()) if isinstance(node, ast.FunctionDef) and node.name == "_build_and_write")
+    # тело кнопки и её прогон (`_press_run`: его зовут и раунды разреза Both, BOTH_PATCH_SPLIT_V1)
+    methods = [node for node in ast.walk(_production_operator_tree()) if isinstance(node, ast.FunctionDef) and node.name in ("_build_and_write", "_press_run")]
     namespace = {
         "__package__": "cftuv",
         "ENVELOPE_UV_POLICY_DIRECT_STRIP": ENVELOPE_UV_POLICY_DIRECT_STRIP,
@@ -123,7 +124,7 @@ def test_the_button_explicitly_orders_the_selected_uv_law_and_old_settings_keep_
         "build_analysis_bundle": lambda *_args: object(),
         "_restore_edge_selection": lambda *_args: None,
     }
-    exec(compile(ast.Module(body=[method], type_ignores=[]), "production_button", "exec"), namespace)
+    exec(compile(ast.Module(body=methods, type_ignores=[]), "production_button", "exec"), namespace)
     mesh_settings = SimpleNamespace()
     if saved_policy is not None:
         mesh_settings.uv_policy_id = saved_policy
@@ -135,8 +136,10 @@ def test_the_button_explicitly_orders_the_selected_uv_law_and_old_settings_keep_
         def ensure_lookup_table(self):
             pass
 
+    button = SimpleNamespace(report=lambda *_args: None)
+    button._press_run = lambda *args: namespace["_press_run"](button, *args)
     result = namespace["_build_and_write"](
-        SimpleNamespace(report=lambda *_args: None), context,
+        button, context,
         SimpleNamespace(get_analysis_bundle=lambda *_args: object()),
         SimpleNamespace(data=object()), SimpleNamespace(faces=Faces()), [1], "PYTHON",
     )

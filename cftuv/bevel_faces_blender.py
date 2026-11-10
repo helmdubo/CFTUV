@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .bevel_faces import (
     BEVEL_FACES_NO_SOURCE,
@@ -33,6 +33,7 @@ from .bevel_faces import (
     scope_digest,
 )
 from .bevel_copy import BevelCopySpecV1, copy_spec
+from .bevel_patch_split import BOTH_PATCH_SPLIT_NO_CUT, SPLIT_MAX_ROUNDS, SPLIT_TRIGGER_OUTCOMES, overlap_pair, patch_cut
 from .surface_ir import SourceRevision
 
 FACE_SIDE_ITEMS = (
@@ -112,6 +113,13 @@ class FaceBuildV1:
 
                 bmesh.update_edit_mesh(obj.data)  # анализ многопетлевого патча сбрасывал edit-mesh с разрезом: сброс без него
 
+    def with_cuts(self, cuts) -> "FaceBuildV1":
+        """То же нажатие с добавленными рёбрами разреза (BOTH_PATCH_SPLIT_V1): разрез входит в отпечаток анализа (`scope_digest`)."""
+
+        plan = replace(self.plan, cut_edges=self.plan.cut_edges | frozenset(cuts))
+        revision = SourceRevision(source_name=self.mesh_revision.source_name, digest=scope_digest(self.mesh_revision.digest, plan))
+        return replace(self, plan=plan, revision=revision)
+
     def sources(self, bundle) -> frozenset[int]:
         """Рёбра-источники: OUTWARD и BOTH - рёбра, которые оставляет выделение; INWARD - вся граница каждого патча анализа."""
 
@@ -128,6 +136,84 @@ class FaceBuildV1:
         if not found:
             raise BevelFacesRefused(BEVEL_FACES_NO_SOURCE, "the analysed faces have no boundary edge")
         return found
+
+
+@dataclass(frozen=True, slots=True)
+class PatchSplitV1:
+    """Итог разреза отказанных патчей Both (BOTH_PATCH_SPLIT_V1): разрезанные патчи, их куски в последнем пакете, раунды, отказы кусков
+    по имени исхода, патчи без хорды (`BOTH_PATCH_SPLIT_NO_CUT`) и рёбра разреза."""
+
+    patches: int
+    pieces: int
+    rounds: int
+    refused: tuple[tuple[str, int], ...]
+    no_cut: int
+    cut_edges: int
+
+
+def _patch_faces(bm, matrix_world, face_ids):
+    """Циклы вершин граней патча и координаты их вершин в мире (длины хорды и площади - метры сцены)."""
+
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    faces = {int(index): tuple(int(vertex.index) for vertex in bm.faces[index].verts) for index in face_ids}
+    coords = {vertex: tuple(float(value) for value in matrix_world @ bm.verts[vertex].co) for cycle in faces.values() for vertex in cycle}
+    return faces, coords
+
+
+def _round_cuts(bm, obj, bundle, run, origin: list, edge_ids: dict) -> tuple[set[int], int]:
+    """Рёбра хорд всех патчей прогона, отказанных исходом из `SPLIT_TRIGGER_OUTCOMES`, и число патчей без хорды; `origin` - грани исходных
+    разрезанных патчей (дополняется)."""
+
+    cuts, no_cut = set(), 0
+    for item in sorted(run.results, key=lambda result: result.patch_id):
+        if item.outcome not in SPLIT_TRIGGER_OUTCOMES:
+            continue
+        face_ids = frozenset(int(index) for index in bundle.patch_graph.nodes[item.patch_id].face_indices)
+        chord = patch_cut(*_patch_faces(bm, obj.matrix_world, face_ids), overlap_pair(item.detail))
+        if not chord:
+            no_cut += 1
+            print(f"[CFTUV][BevelFaces] {BOTH_PATCH_SPLIT_NO_CUT}: patch {item.patch_id} ({len(face_ids)} faces, {item.outcome})", flush=True)
+            continue
+        if not any(face_ids <= faces for faces in origin):
+            origin.append(face_ids)
+        if not edge_ids:
+            bm.edges.ensure_lookup_table()
+            edge_ids.update((frozenset(int(vertex.index) for vertex in edge.verts), int(edge.index)) for edge in bm.edges)
+        cuts.update(edge_ids[frozenset(pair)] for pair in chord)
+    return cuts, no_cut
+
+
+def split_refused_patches(face_build: FaceBuildV1, bm, obj, bundle, selected, run, analyse):
+    """BOTH_PATCH_SPLIT_V1: патч внешней части Both, отказанный исходом из `SPLIT_TRIGGER_OUTCOMES`, режется хордой (`patch_cut`), пакет
+    пересобирается и прогон повторяется (`analyse(face_build) -> (bundle, selected, run)`), пока отказанные куски есть, хорда находится и
+    раундов не больше `SPLIT_MAX_ROUNDS`. Возвращает `(face_build, bundle, selected, run, PatchSplitV1 | None)`; `None` - ни один патч не
+    разрезан (нажатие прежнее побитово, кроме строки `BOTH_PATCH_SPLIT_NO_CUT`)."""
+
+    origin: list[frozenset[int]] = []
+    edge_ids: dict = {}
+    rounds = no_cut = 0
+    while rounds < SPLIT_MAX_ROUNDS:
+        cuts, missing = _round_cuts(bm, obj, bundle, run, origin, edge_ids)
+        no_cut += missing
+        if not cuts:
+            break
+        rounds += 1
+        face_build = face_build.with_cuts(cuts)
+        bundle, selected, run = analyse(face_build)
+    if not origin:
+        return face_build, bundle, selected, run, None
+    pieces = {
+        patch_id
+        for patch_id, node in bundle.patch_graph.nodes.items()
+        if any(frozenset(int(index) for index in node.face_indices) <= faces for faces in origin)
+    }
+    refused: dict[str, int] = {}
+    for item in run.results:
+        if item.patch_id in pieces and not item.is_materialized:
+            refused[item.outcome] = refused.get(item.outcome, 0) + 1
+    split = PatchSplitV1(len(origin), len(pieces), rounds, tuple(sorted(refused.items())), no_cut, len(face_build.plan.cut_edges))
+    return face_build, bundle, selected, run, split
 
 
 def plan_face_build(bm, obj, side: str) -> FaceBuildV1:
@@ -198,10 +284,12 @@ __all__ = (
     "BevelFacesRefused",
     "FACE_SIDE_ITEMS",
     "FaceBuildV1",
+    "PatchSplitV1",
     "apply_face_selection",
     "face_side_of",
     "plan_face_build",
     "read_mesh_view",
     "read_view",
     "restore_face_selection",
+    "split_refused_patches",
 )
