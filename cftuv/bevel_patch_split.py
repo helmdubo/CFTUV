@@ -14,6 +14,14 @@
 вершин границы) - `BOTH_PATCH_SPLIT_NO_CUT`, отказ куска остаётся как есть.
 
 Рёбра разреза - швы анализа (как разрез «узел | полоса» Inward) и НЕ источники: источники - рёбра, которые оставляет выделение.
+
+ОТДЕЛЕНИЕ НАЗВАННОЙ ГРАНИ (BOTH_PATCH_ISOLATE_V1, `isolating_cut`). Два отказа называют не карту, а ГРАНЬ источника, и губят из-за неё весь
+патч: `SOURCE_FACE_SELF_INTERSECTION` (предполёт хоста: грань-«бабочка», её называет текст отказа) и `SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE`
+(ядро: нормаль смещения вершины смотрит против треугольника; его грань - по номеру треугольника анализа). Поле: бевел швов в Edit Mode без
+Clamp Overlap - угол бевела перехлёстывает, у низа стены угловая грань перекрещена на 3 мм, у верха пятиугольник у угла скручен, и
+отказаны оба патча целиком. Хост не чинит геометрию (адаптер её не двигает): названные грани отделяются швом от остального патча
+(разрез - их рёбра, общие с другими гранями патча), остальной патч строится, а отделённая грань - свой кусок со своим исходом (обычно
+тем же отказом по имени). Счёт кусков и отказов - та же строка `BOTH_PATCH_SPLIT`.
 """
 
 from __future__ import annotations
@@ -25,6 +33,8 @@ from collections.abc import Mapping, Sequence
 
 #: Отказы внешней части Both, после которых патч режется: одна карта патча не годится, куски - могут.
 SPLIT_TRIGGER_OUTCOMES = frozenset({"DEVELOPABLE_CHART_SELF_OVERLAP", "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED"})
+#: Отказы, которые называют грань источника (BOTH_PATCH_ISOLATE_V1): патч режется не хордой, а по контуру названных граней.
+SPLIT_ISOLATE_OUTCOMES = frozenset({"SOURCE_FACE_SELF_INTERSECTION", "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE"})
 #: Раундов разреза на нажатие не больше: каждый раунд режет каждый ещё отказанный кусок одной хордой (до 2^N кусков у патча).
 SPLIT_MAX_ROUNDS = 4
 
@@ -173,6 +183,31 @@ def patch_cut(faces: Mapping[int, Sequence[int]], coords, apart=None) -> tuple[t
     return tuple(sorted(best[1]))
 
 
+_CROSSING_FACE = re.compile(r"(?:face (\d+) crosses itself|^\s+face (\d+): edges)", re.MULTILINE)
+_OPPOSED_TRIANGLE = re.compile(r"opposes the normal of its triangle host-triangle:.*?:(\d+)\b")
+
+
+def named_faces(outcome: str, detail: str, triangle_faces: Mapping[int, int]) -> frozenset[int]:
+    """Грани источника, которые называет отказ из `SPLIT_ISOLATE_OUTCOMES`: «бабочки» самопересечения (первая строка и запись) либо
+    грань треугольника, против которого смотрит нормаль смещения (`triangle_faces`: номер треугольника анализа -> грань)."""
+
+    text = detail or ""
+    if outcome == "SOURCE_FACE_SELF_INTERSECTION":
+        return frozenset(int(first or second) for first, second in _CROSSING_FACE.findall(text))
+    if outcome == "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE":
+        return frozenset(triangle_faces[int(item)] for item in _OPPOSED_TRIANGLE.findall(text) if int(item) in triangle_faces)
+    return frozenset()
+
+
+def isolating_cut(faces: Mapping[int, Sequence[int]], named) -> tuple[tuple[int, int], ...]:
+    """Рёбра (пары вершин по возрастанию), общие у названной грани патча и его неназванной грани: шов отделяет названные грани.
+    Пусто - отделять нечего (названных граней нет в патче либо патч из них одних)."""
+
+    table = _edge_faces(faces)
+    inside = set(named) & set(faces)
+    return tuple(sorted(key for key, owners in table.items() if len(owners) == 2 and (owners[0] in inside) != (owners[1] in inside)))
+
+
 def split_summary(patches: int, pieces: int, rounds: int, refused: Mapping[str, int], no_cut: int) -> str:
     """Хвост строки статуса: сколько патчей разрезано, на сколько кусков, за сколько раундов, отказы кусков по имени и патчи без хорды."""
 
@@ -186,8 +221,11 @@ __all__ = (
     "BOTH_PATCH_SPLIT",
     "BOTH_PATCH_SPLIT_NO_CUT",
     "BOTH_PATCH_SPLIT_PIECE_REFUSED",
+    "SPLIT_ISOLATE_OUTCOMES",
     "SPLIT_MAX_ROUNDS",
     "SPLIT_TRIGGER_OUTCOMES",
+    "isolating_cut",
+    "named_faces",
     "overlap_pair",
     "patch_cut",
     "split_summary",

@@ -98,3 +98,34 @@ def test_cuts_enter_the_revision_of_the_press_and_only_add_up():
     assert once.with_cuts({8, 11}).plan.cut_edges == {7, 8, 11}
     assert once.revision == build.with_cuts({8, 7}).revision  # отпечаток - от множества рёбер, не от порядка раундов
     assert once.plan.outward_sources == plan.outward_sources  # рёбра разреза не источники
+
+
+def test_a_named_face_is_cut_off_along_its_edges_shared_with_the_patch():
+    """BOTH_PATCH_ISOLATE_V1: шов - рёбра названной грани, общие с другими гранями патча; её рёбра на границе патча не режутся."""
+
+    faces, _coords = _strip(4)  # грани 0..7, колонка i: грани 2i (низ) и 2i+1 (верх)
+    cut = split.isolating_cut(faces, {2})  # грань (i=1, j=0): соседи - грань 0 слева, 4 справа, 3 сверху
+    assert cut == ((3, 4), (4, 7), (6, 7))
+    assert _parts(faces, cut) == [1, 7]
+    assert split.isolating_cut(faces, {2, 3}) == ((3, 4), (4, 5), (6, 7), (7, 8))  # две соседние названные грани - один кусок
+    assert split.isolating_cut({0: faces[0]}, {0}) == ()  # патч из одной названной грани: отделять нечего
+    assert split.isolating_cut(faces, {100}) == ()  # грани нет в патче
+
+
+def test_the_named_faces_are_read_from_both_refusals():
+    crossing = (
+        "SOURCE_FACE_SELF_INTERSECTION: face 123 crosses itself, its edges 87-208 and 210-157 pass 0 µm apart — rebuild the face"
+        " (patch 2: 2 such faces: 123, 140)\nrecord: patch 2, extent 4.3 m, contact gap 1e-06 m; 0 T-vertices, 2 face self-intersections"
+        "\n  face 123: edges 87-208 and 210-157 pass 0 m apart\n  face 140: edges 1-2 and 3-4 pass 0 m apart"
+    )
+    assert split.named_faces("SOURCE_FACE_SELF_INTERSECTION", crossing, {}) == {123, 140}
+    name = "host-triangle:host-source:abc:my wall"
+    opposed = (
+        f"the offset normal of vertex host-vertex:host-source:abc:my wall:120 opposes the normal of its triangle {name}:133 (depth bound "
+        f"0.00328 m at the reference offset 0.02 m against the tolerance 0.0001 m) [SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1: refused again ... "
+        f"its triangle {name}:133 (depth ...)]"
+    )
+    assert split.named_faces("SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE", opposed, {133: 167, 9: 1}) == {167}
+    assert split.named_faces("SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE", opposed, {}) == frozenset()  # треугольника нет в пакете
+    assert split.named_faces("DEVELOPABLE_CHART_SELF_OVERLAP", crossing, {}) == frozenset()
+    assert split.SPLIT_ISOLATE_OUTCOMES == {"SOURCE_FACE_SELF_INTERSECTION", "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE"}

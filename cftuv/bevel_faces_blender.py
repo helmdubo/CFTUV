@@ -33,7 +33,16 @@ from .bevel_faces import (
     scope_digest,
 )
 from .bevel_copy import BevelCopySpecV1, copy_spec
-from .bevel_patch_split import BOTH_PATCH_SPLIT_NO_CUT, SPLIT_MAX_ROUNDS, SPLIT_TRIGGER_OUTCOMES, overlap_pair, patch_cut
+from .bevel_patch_split import (
+    BOTH_PATCH_SPLIT_NO_CUT,
+    SPLIT_ISOLATE_OUTCOMES,
+    SPLIT_MAX_ROUNDS,
+    SPLIT_TRIGGER_OUTCOMES,
+    isolating_cut,
+    named_faces,
+    overlap_pair,
+    patch_cut,
+)
 from .surface_ir import SourceRevision
 
 FACE_SIDE_ITEMS = (
@@ -162,20 +171,28 @@ def _patch_faces(bm, matrix_world, face_ids):
 
 
 def _round_cuts(bm, obj, bundle, run, origin: list, edge_ids: dict) -> tuple[set[int], int]:
-    """Рёбра хорд всех патчей прогона, отказанных исходом из `SPLIT_TRIGGER_OUTCOMES`, и число патчей без хорды; `origin` - грани исходных
-    разрезанных патчей (дополняется)."""
+    """Рёбра разреза всех патчей прогона, отказанных исходом из `SPLIT_TRIGGER_OUTCOMES` (хорда) либо `SPLIT_ISOLATE_OUTCOMES` (контур
+    названных граней, BOTH_PATCH_ISOLATE_V1), и число патчей, которые резать нечем; `origin` - грани исходных разрезанных патчей (дополняется)."""
 
-    cuts, no_cut = set(), 0
+    cuts, no_cut, triangle_faces = set(), 0, None
     for item in sorted(run.results, key=lambda result: result.patch_id):
-        if item.outcome not in SPLIT_TRIGGER_OUTCOMES:
+        if item.outcome not in SPLIT_TRIGGER_OUTCOMES and item.outcome not in SPLIT_ISOLATE_OUTCOMES:
             continue
         face_ids = frozenset(int(index) for index in bundle.patch_graph.nodes[item.patch_id].face_indices)
-        chord = patch_cut(*_patch_faces(bm, obj.matrix_world, face_ids), overlap_pair(item.detail))
+        faces, coords = _patch_faces(bm, obj.matrix_world, face_ids)
+        if item.outcome in SPLIT_ISOLATE_OUTCOMES:
+            if triangle_faces is None:
+                triangle_faces = {int(triangle.triangle_id): int(triangle.source_face_id) for triangle in bundle.patch_surface.triangles}
+            chord = isolating_cut(faces, named_faces(item.outcome, item.detail, triangle_faces))
+        else:
+            chord = patch_cut(faces, coords, overlap_pair(item.detail))
+        if not chord and item.outcome in SPLIT_ISOLATE_OUTCOMES and face_ids <= named_faces(item.outcome, item.detail, triangle_faces):
+            continue  # кусок - уже одна названная грань: его отказ назван в счёте кусков, резать дальше нечего и незачем
         if not chord:
             no_cut += 1
             print(f"[CFTUV][BevelFaces] {BOTH_PATCH_SPLIT_NO_CUT}: patch {item.patch_id} ({len(face_ids)} faces, {item.outcome})", flush=True)
             continue
-        if not any(face_ids <= faces for faces in origin):
+        if not any(face_ids <= known for known in origin):
             origin.append(face_ids)
         if not edge_ids:
             bm.edges.ensure_lookup_table()
@@ -185,7 +202,8 @@ def _round_cuts(bm, obj, bundle, run, origin: list, edge_ids: dict) -> tuple[set
 
 
 def split_refused_patches(face_build: FaceBuildV1, bm, obj, bundle, selected, run, analyse):
-    """BOTH_PATCH_SPLIT_V1: патч внешней части Both, отказанный исходом из `SPLIT_TRIGGER_OUTCOMES`, режется хордой (`patch_cut`), пакет
+    """BOTH_PATCH_SPLIT_V1: патч внешней части Both, отказанный исходом из `SPLIT_TRIGGER_OUTCOMES`, режется хордой (`patch_cut`), из
+    `SPLIT_ISOLATE_OUTCOMES` - по контуру названных граней (`isolating_cut`, BOTH_PATCH_ISOLATE_V1), пакет
     пересобирается и прогон повторяется (`analyse(face_build) -> (bundle, selected, run)`), пока отказанные куски есть, хорда находится и
     раундов не больше `SPLIT_MAX_ROUNDS`. Возвращает `(face_build, bundle, selected, run, PatchSplitV1 | None)`; `None` - ни один патч не
     разрезан (нажатие прежнее побитово, кроме строки `BOTH_PATCH_SPLIT_NO_CUT`)."""

@@ -371,6 +371,46 @@ def _run_a_refused_patch_is_split_into_pieces_under_hotspot():
     T._settings().envelope_debug_alpha = T.ALPHA
 
 
+def _run_a_bow_tie_face_is_cut_off_and_the_rest_of_its_patch_is_built():
+    """BOTH_PATCH_ISOLATE_V1: грань-«бабочка» низа (`SOURCE_FACE_SELF_INTERSECTION`, как угол бевела без Clamp Overlap) губила весь низ;
+    Both отделяет её швом: низ строится кусками, «бабочка» - свой кусок с прежним отказом по имени, рельсов без пары меньше, Hotspot по
+    кускам работает. Сравнение - то же нажатие с выключенным разрезом."""
+
+    import cftuv.bevel_faces_blender as faces_blender
+
+    T._clean()
+    _markup()
+    _hotspot(False)
+    bm = T._noisy_wall(0.04, levels=3)
+    bm.faces.ensure_lookup_table()
+    bottom = [face for face in bm.faces if face.material_index == 0 and face.normal.z < -0.99 and len(face.verts) == 4]
+    a, b, c, d = bottom[len(bottom) // 2].verts
+    c.co = a.co + (b.co - a.co) * 0.5 - (d.co - a.co) * 0.1  # угол грани за её противоположным ребром: рёбра грани пересекаются
+    obj = T._object("bh_bow_tie", bm)
+    bevel = frozenset(polygon.index for polygon in obj.data.polygons if polygon.material_index == 1)
+    rounds = faces_blender.SPLIT_MAX_ROUNDS
+    faces_blender.SPLIT_MAX_ROUNDS = 0
+    try:
+        _mesh, whole, _seconds = _press(obj, bevel)
+    finally:
+        faces_blender.SPLIT_MAX_ROUNDS = rounds
+    assert "refused 1 (SOURCE_FACE_SELF_INTERSECTION)" in whole and _unpaired(whole) > 0, whole
+    mesh, status, _seconds = _press(obj, bevel)
+    assert "BOTH_PATCH_SPLIT 1 -> 3 pieces (1 rounds), BOTH_PATCH_SPLIT_PIECE_REFUSED SOURCE_FACE_SELF_INTERSECTION 1" in status, status
+    assert "BOTH_PATCH_SPLIT_NO_CUT" not in status and _unpaired(status) < _unpaired(whole), (status, whole)
+    off = _state(mesh)  # куски низа по обе стороны «бабочки» друг друга не касаются: общих рёбер у доменов нет, швы разреза - на краю декали
+    _hotspot(True, 0, False)
+    mesh, hot_status, _seconds = _press(obj, bevel)
+    assert "BOTH_PATCH_SPLIT 1 -> 3 pieces" in hot_status, hot_status
+    numbers = _segment_checks("bow tie trim", mesh, off, strict_rect=False)
+    SUMMARY.append(
+        f"bow tie: {whole.split(' | ')[0]} -> {status.split(' | ')[0]}; {status.split(' | ')[-1]}; unpaired rail vertices "
+        f"{_unpaired(whole)} -> {_unpaired(status)}; Hotspot trim: {numbers['hotspot_islands']} islands for {numbers['segments']} segments"
+    )
+    _hotspot(False)
+    T._clean()
+
+
 def _main():
     import cftuv
 
@@ -385,6 +425,7 @@ def _main():
     _run_both_under_hotspot("columns")
     _run_island_marks_and_live_width()
     _run_a_refused_patch_is_split_into_pieces_under_hotspot()
+    _run_a_bow_tie_face_is_cut_off_and_the_rest_of_its_patch_is_built()
     for line in SUMMARY:
         print("[BevelBothHotspotTest]", line, flush=True)
     from cftuv.envelope_domain_pool import shutdown_domain_pool
