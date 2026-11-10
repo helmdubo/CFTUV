@@ -131,6 +131,48 @@ def test_a_curved_strip_has_one_along_per_rung_from_the_centre_line(closed):
     assert all(_area(uv) > 0.0 for _ring, uv in _corners(spec))
 
 
+def _sheared(columns, shear, step=0.3):
+    """Плоская лента (z = 0) с косыми перекладинами: ряд снизу, два ряда полосы (выделены, `|y| <= 0.1`), ряд сверху; `x = column step +
+    shear y` - перекладина наклонена к средней линии, как у митры перед узлом."""
+
+    rows = (-0.5, -0.1, 0.0, 0.1, 0.5)
+    count = columns + 1
+    coords = {row * count + column: (column * step + shear * y, y, 0.0) for row, y in enumerate(rows) for column in range(count)}
+    faces, selected = {}, set()
+    for row in range(len(rows) - 1):
+        for column in range(columns):
+            face = row * columns + column
+            faces[face] = (row * count + column, row * count + column + 1, (row + 1) * count + column + 1, (row + 1) * count + column)
+            if row in (1, 2):
+                selected.add(face)
+    return coords, faces, selected
+
+
+@pytest.mark.parametrize("shear", [0.0, 0.6, -1.0])
+def test_a_slanted_rung_stays_slanted_in_uv_only_the_rows_are_straightened(shear):
+    """BEVEL_COPY_RUNG_ONE_AXIS_V4: плоская лента с косыми перекладинами ложится в UV без искажения (расстояния между вершинами те же, что
+    на меше); ряды вдоль - прямые `S`, перекладина в UV - под тем же наклоном. Прежний закон (одна `U` на перекладину) выпрямлял её."""
+
+    coords, faces, selected = _sheared(6, shear)
+    spec = bc.copy_spec(_view(coords, faces, selected), _split(strip=selected))
+    uv = {}
+    for ring, values in _corners(spec):
+        for vertex, point in zip(ring, values):
+            uv.setdefault(vertex, set()).add((round(point[0], 12), round(point[1], 12)))
+    assert all(len(item) == 1 for item in uv.values()), "one frame: a vertex has one UV"
+    points = {vertex: np.asarray(next(iter(item))) for vertex, item in uv.items()}
+    vertices = sorted(points)
+    for a in vertices:
+        for b in vertices:
+            assert np.linalg.norm(points[a] - points[b]) == pytest.approx(math.dist(coords[a][:2], coords[b][:2]), abs=1e-9), (a, b)
+    rows = {}
+    for vertex, point in points.items():
+        rows.setdefault(round(coords[vertex][1], 9), set()).add(round(float(point[1]), 9))
+    assert all(len(values) == 1 for values in rows.values()), "every row is one straight line in UV"
+    assert dict(spec.events) == {bc.BEVEL_COPY_SEGMENTS: 1} and not spec.seams
+    assert all(_area(values) > 0.0 for _ring, values in _corners(spec))
+
+
 def test_nodes_without_a_strip_are_projected_by_name():
     view, kinds = _cube_view()
     nodes = {face for face, kind in kinds.items() if kind == "node"}

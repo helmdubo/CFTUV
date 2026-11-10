@@ -19,10 +19,12 @@ T-СТЫКИ РЕЛЬСА (BEVEL_COPY_RAIL_SPLIT_V3, `split_rails`). Ядро д
 
 UV КОПИИ - СЕГМЕНТЫ (метры, их отображает в UV трима `bevel_wings`). Сегмент - кусок полосы (компонента граней полосы по рёбрам) по колонкам
 профиля: путь по квадам полосы от ребра рельса до ребра рельса по ту сторону (`_walk`), и в нём две перекладины (цепи вершин поперёк полосы).
-Стороны рельсов красятся по перекладинам (концы перекладины - разные стороны, вершины одного ребра рельса - одна). На перекладине с длиной `W`
-вершина на расстоянии `d` от стороны `+` получает поперёк `S = W / 2 - d` (средняя линия бевела - нуль), а вся перекладина - одну `U`: длину
-дуги средней линии (ломаной через середины перекладин) от первой перекладины, поэтому зеркальные точки рельсов имеют одну `U` (у замкнутого
-кольца последняя колонка несёт `U` полного оборота - шов UV). Одна система координат на сегмент, ничего не согласуется между сегментами.
+Стороны рельсов красятся по перекладинам (концы перекладины - разные стороны, вершины одного ребра рельса - одна). Straighten по одной оси
+(BEVEL_COPY_RUNG_ONE_AXIS_V4): шаг перекладины делится на часть вдоль касательной средней линии и часть поперёк; вершина на дуге поперёк `d`
+от стороны `+` (вся дуга поперёк - `W`) получает `S = W / 2 - d`, а `U` - длину дуги средней линии (ломаной через точки перекладин на половине
+`W`) от первой перекладины плюс свой сдвиг вдоль касательной от точки средней линии. Перекладина поперёк полосы - одна `U` (зеркальные точки
+рельсов - одна `U`), косая (митра у узла) - косая и в UV, как на меше: в прямую выпрямляются только ряды вдоль. У замкнутого кольца последняя
+колонка несёт `U` полного оборота - шов UV. Одна система координат на сегмент, ничего не согласуется между сегментами.
 Направление (BEVEL_SEGMENT_U_ALONG_WORLD_AXIS_V3): грани сегмента в UV против часовой, `U` растёт к плюсу мировой оси, вдоль которой сегмент
 тянется больше всего (X, затем Y, затем Z при равенстве), `U = 0` - первая перекладина.
 
@@ -120,10 +122,6 @@ def _newell(coords, cycle):
 def _count(events: dict, name: str, amount: int = 1) -> None:
     if amount:
         events[name] = events.get(name, 0) + int(amount)
-
-
-def _dist(a, b) -> float:
-    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
 
 
 def _components(faces: set, table: dict, rings: dict) -> list:
@@ -273,41 +271,76 @@ def _strip_frames(coords, rings, table, component, selected, events):
     return frames
 
 
-def _chain_steps(coords, chain) -> list:
-    steps = [0.0]
-    for a, b in zip(chain, chain[1:]):
-        steps.append(steps[-1] + _dist(coords[a], coords[b]))
-    return steps
+def _unit(vector):
+    length = float(np.linalg.norm(vector))
+    return None if length <= 0.0 else vector / length
 
 
-def _centre(coords, chain, steps):
-    """Точка перекладины на половине её длины (средняя линия бевела)."""
+def _tangents(centres, ring) -> list:
+    """Касательная средней линии в каждой перекладине: внутри - биссектриса соседних единичных хорд; на конце пути - хорда, отражённая от
+    касательной соседа (точно для окружности, для прямой - сама хорда); у одной перекладины касательной нет (`None`)."""
 
-    half = 0.5 * steps[-1]
-    for at in range(1, len(chain)):
-        if steps[at] >= half:
-            span = steps[at] - steps[at - 1]
-            t = 0.0 if span <= 0.0 else (half - steps[at - 1]) / span
-            a, b = coords[chain[at - 1]], coords[chain[at]]
-            return tuple(a[axis] + t * (b[axis] - a[axis]) for axis in range(3))
-    return tuple(coords[chain[-1]])
+    count = centres.shape[0]
+    if count < 2:
+        return [None] * count
+    chords = [_unit(centres[(at + 1) % count] - centres[at]) for at in range(count if ring else count - 1)]
+    tangents = []
+    for at in range(count):
+        before = chords[at - 1] if (ring or at > 0) else None
+        after = chords[at] if (ring or at < count - 1) else None
+        if before is None or after is None:
+            tangents.append(after if before is None else before)
+            continue
+        middle = _unit(before + after)
+        tangents.append(after if middle is None else middle)
+    if not ring and count > 2:
+        for end, chord, near in ((0, chords[0], tangents[1]), (count - 1, chords[-1], tangents[-2])):
+            if chord is not None and near is not None:
+                tangents[end] = _unit(2.0 * float(near @ chord) * chord - near)
+    return tangents
+
+
+def _rung(coords, chain, tangent):
+    """Перекладина в кадре касательной средней линии (BEVEL_COPY_RUNG_ONE_AXIS_V4): шаг перекладины делится на часть вдоль касательной
+    (сдвиг `U`) и часть поперёк (её длина - дуга поперёк, `S`). `(вдоль от начала, поперёк от начала, точка средней линии, вдоль в ней)`:
+    точка средней линии - на половине дуги поперёк. Без касательной - вдоль нуль, поперёк - длина дуги (перекладина поперёк полосы)."""
+
+    points = np.asarray([coords[vertex] for vertex in chain], dtype=np.float64)
+    steps = np.diff(points, axis=0)
+    if tangent is None:
+        along = np.zeros(steps.shape[0])
+        cross = np.linalg.norm(steps, axis=1)
+    else:
+        along = steps @ tangent
+        cross = np.linalg.norm(steps - along[:, None] * tangent[None, :], axis=1)
+    a, c = np.r_[0.0, np.cumsum(along)], np.r_[0.0, np.cumsum(cross)]
+    half = 0.5 * float(c[-1])
+    at = min(max(int(np.searchsorted(c, half, side="left")), 1), len(chain) - 1)
+    span = float(c[at] - c[at - 1])
+    t = 0.0 if span <= 0.0 else (half - float(c[at - 1])) / span
+    return a, c, points[at - 1] + t * (points[at] - points[at - 1]), float(a[at - 1] + t * (a[at] - a[at - 1]))
 
 
 def _frame(coords, rings, oriented, column_of, order, ring):
-    """Кадр куска полосы: перекладины `order` вдоль; у всей перекладины одна `U` - длина дуги средней линии бевела (ломаная через середины
-    перекладин) от первой перекладины, поэтому `U` двух крыльев в зеркальных точках одна; `S = W / 2 - d`."""
+    """Кадр куска полосы - Straighten по одной оси (BEVEL_COPY_RUNG_ONE_AXIS_V4): поперёк `S = W / 2 - d`, где `d` - дуга перекладины
+    ПОПЕРЁК касательной средней линии от стороны `+`, `W` - вся такая дуга; `U` вершины - длина дуги средней линии (ломаная через точки
+    перекладин на половине `W`) от первой перекладины плюс сдвиг вершины вдоль касательной от точки средней линии. Перекладина поперёк
+    полосы - одна `U` (зеркальные точки рельсов - одна `U`); косая (митра у узла, наклон профиля) - косая и в UV, как на меше: в линию
+    выпрямляются только ряды вдоль, перекладины - нет."""
 
-    steps = [_chain_steps(coords, oriented[name]) for name in order]
-    centres = [_centre(coords, oriented[name], chain_steps) for name, chain_steps in zip(order, steps)]
+    chains = [oriented[name] for name in order]
+    first = np.asarray([_rung(coords, chain, None)[2] for chain in chains])
+    rungs = [_rung(coords, chain, tangent) for chain, tangent in zip(chains, _tangents(first, ring))]
+    centres = [rung[2] for rung in rungs]
     along = [0.0]
-    for first, second in zip(centres, centres[1:]):
-        along.append(along[-1] + _dist(first, second))
-    total = along[-1] + (_dist(centres[-1], centres[0]) if ring else 0.0)
+    for a, b in zip(centres, centres[1:]):
+        along.append(along[-1] + float(np.linalg.norm(b - a)))
+    total = along[-1] + (float(np.linalg.norm(centres[0] - centres[-1])) if ring else 0.0)
 
     def values(number, u):
-        chain, chain_steps = oriented[order[number]], steps[number]
-        width = chain_steps[-1]
-        return {vertex: (u, 0.5 * width - d) for vertex, d in zip(chain, chain_steps)}
+        shift, cross, _centre, middle = rungs[number]
+        width = float(cross[-1])
+        return {vertex: (u + float(shift[at]) - middle, 0.5 * width - float(cross[at])) for at, vertex in enumerate(chains[number])}
 
     by_chain = [values(number, u) for number, u in enumerate(along)]
     corner: dict = {}
