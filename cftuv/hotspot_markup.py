@@ -382,6 +382,25 @@ def empty_markup(width: int, height: int, image: str = "") -> HotspotMarkupV1:
     return HotspotMarkupV1(int(width), int(height), str(image), ())
 
 
+#: Имя первой метки новой разметки (HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1) - как у метки, нарисованной инструментом.
+FIRST_MARK_NAME = "mark 0"
+
+
+def first_markup(width: int, height: int, image: str = "") -> HotspotMarkupV1:
+    """Новая разметка материала (HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1): сразу метка 0 - trim во весь квадрат текстуры (0..1, «вверх» +y), годная
+    к работе без рисования; счётчик номеров - 1."""
+
+    mark = HotspotMarkV1(0, FIRST_MARK_NAME, KIND_TRIM, 0, 0, int(width), int(height), "+y", 0)
+    return HotspotMarkupV1(int(width), int(height), str(image), (mark,), 1)
+
+
+def covers_whole_square(markup: HotspotMarkupV1) -> bool:
+    """Единственная метка разметки - весь квадрат текстуры (первая метка новой разметки или такая же): в UV это 0..1 при любом размере, поэтому
+    подложка другого размера переводит такую разметку в свой размер, как разметку без меток (HOTSPOT_BACKDROP_V1)."""
+
+    return len(markup.marks) == 1 and (markup.marks[0].x, markup.marks[0].y, markup.marks[0].w, markup.marks[0].h) == (0, 0, int(markup.width), int(markup.height))
+
+
 def next_mark_id(markup: HotspotMarkupV1, floor: int = 0) -> int:
     """Номер новой метки (HOTSPOT_MARK_ID_MONOTONIC_V1): не меньше счётчика разметки, чем любой номер её меток плюс один и чем `floor` (номера,
     на которые ссылаются записи декалей файла). Номер удалённой метки поэтому не достаётся новой: декали не перескакивают на неё молча."""
@@ -430,8 +449,11 @@ __all__ = (
     "UP_CLOCKWISE",
     "UP_OPPOSITE",
     "UP_VECTORS",
+    "FIRST_MARK_NAME",
     "band_from_edge",
+    "covers_whole_square",
     "empty_markup",
+    "first_markup",
     "flipped_mark",
     "GRID_MAX",
     "GRID_MIN",

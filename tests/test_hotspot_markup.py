@@ -150,6 +150,14 @@ def test_every_problem_name_is_unique_and_upper_case():
     assert all(name == name.upper() for name in PROBLEM_NAMES)
 
 
+def test_the_first_markup_is_one_valid_whole_square_trim_and_only_it_rebases():
+    from cftuv.hotspot_markup import covers_whole_square, first_markup
+
+    markup = first_markup(2048, 1024, "sheet.png")
+    assert save_markup(markup)[1] == () and covers_whole_square(markup) and next_mark_id(markup) == 1
+    assert not covers_whole_square(empty_markup(256, 256)) and not covers_whole_square(_sheet(TRIM, VERTICAL))
+
+
 def test_next_id_and_an_empty_sheet():
     assert next_mark_id(empty_markup(256, 256)) == 0
     assert next_mark_id(_sheet(TRIM, VERTICAL)) == 3

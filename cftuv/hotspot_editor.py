@@ -62,6 +62,7 @@ from .hotspot_markup import (
     HotspotMarkV1,
     HotspotMarkupV1,
     band_from_edge,
+    covers_whole_square,
     grid_key_step,
     grid_step,
     mark_colours,
@@ -289,7 +290,7 @@ def prepare_markup(scene) -> tuple:
         refusal = load_draft(scene, name)
         if refusal:
             return None, refusal, f"markup {name!r} does not load"
-    action, refusal, detail = backdrop_switch(tuple(image.size[:2]), (editor.width, editor.height), len(editor.marks))
+    action, refusal, detail = backdrop_switch(tuple(image.size[:2]), (editor.width, editor.height), _scaled_marks(editor))
     if refusal:  # черновик (а не текст) решает: у непринятого черновика могут быть метки, которых в тексте ещё нет
         return None, refusal, detail
     editor.material = material.name
@@ -299,11 +300,25 @@ def prepare_markup(scene) -> tuple:
     return image, "", ""
 
 
-def _rebase(scene, editor, image) -> None:
-    """Разметка без меток переходит в размер картинки (HOTSPOT_BACKDROP_V1): сдвигаться нечему; текст пишется проверенным."""
+def _scaled_marks(editor) -> int:
+    """Метки, которые подложка другого размера растянула бы: единственная метка во весь квадрат (HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1) не в счёт."""
 
-    print(f"[CFTUV][Hotspot] markup {editor.draft_of!r} has no marks: its texture becomes {image.name!r} ({image.size[0]} x {image.size[1]} px), was {editor.width} x {editor.height}", flush=True)
-    editor.width, editor.height, editor.image = int(image.size[0]), int(image.size[1]), image.name
+    return 0 if covers_whole_square(draft_markup(editor)) else len(editor.marks)
+
+
+def _rebase(scene, editor, image) -> None:
+    """Разметка без меток (или с единственной меткой во весь квадрат - она остаётся во весь квадрат) переходит в размер картинки
+    (HOTSPOT_BACKDROP_V1): сдвигаться нечему; текст пишется проверенным."""
+
+    print(f"[CFTUV][Hotspot] markup {editor.draft_of!r} has no marks (or only the whole square): its texture becomes {image.name!r} ({image.size[0]} x {image.size[1]} px), was {editor.width} x {editor.height}", flush=True)
+    whole = covers_whole_square(draft_markup(editor)) and len(editor.marks) == 1
+    _SUSPEND["commit"] = True
+    try:
+        editor.width, editor.height, editor.image = int(image.size[0]), int(image.size[1]), image.name
+        if whole:
+            editor.marks[0].w, editor.marks[0].h = int(image.size[0]), int(image.size[1])
+    finally:
+        _SUSPEND["commit"] = False
     commit_draft(scene)
 
 
@@ -318,7 +333,7 @@ def switch_backdrop(scene, image_name: str) -> str:
     if image is None:
         refusal, detail = HOTSPOT_MATERIAL_HAS_NO_IMAGE, f"material {editor.material!r} has no Image Texture with image {image_name!r}"
     else:
-        action, refusal, detail = backdrop_switch(tuple(image.size[:2]), (editor.width, editor.height), len(editor.marks))
+        action, refusal, detail = backdrop_switch(tuple(image.size[:2]), (editor.width, editor.height), _scaled_marks(editor))
     if refusal:
         editor.backdrop_problem = f"{refusal}: {image_name}: {detail}"
         print(f"[CFTUV][Hotspot] {editor.backdrop_problem}", flush=True)

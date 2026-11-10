@@ -133,14 +133,16 @@ def test_no_usable_image_is_a_named_refusal_never_a_silent_nothing(material, ref
     assert image is None and name == refusal and detail
 
 
-def test_mark_up_creates_the_empty_markup_of_the_image_and_links_it_to_the_material_once(data):
+def test_mark_up_creates_the_markup_of_the_image_with_its_whole_square_mark_and_links_it_to_the_material_once(data):
     material = _Material("Trim")
     image = _Image("sheet.png", 2048, 1024)
     name, created, problems = ensure_material_markup(material, image)
     assert (name, created, problems) == ("sheet.png.hotspot", True, ())
     assert material[MATERIAL_MARKUP_PROPERTY] == "sheet.png.hotspot"
     markup, findings = load_markup(data.texts[name].as_string())
-    assert findings == () and (markup.width, markup.height, markup.image, markup.marks) == (2048, 1024, "sheet.png", ())
+    assert findings == () and (markup.width, markup.height, markup.image, markup.next_id) == (2048, 1024, "sheet.png", 1)
+    # HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1: новая разметка сразу годна - метка 0, trim во весь квадрат текстуры.
+    assert [(mark.id, mark.kind, mark.x, mark.y, mark.w, mark.h, mark.up) for mark in markup.marks] == [(0, "trim", 0, 0, 2048, 1024, "+y")]
     data.texts[name].from_string(data.texts[name].as_string() + "\n")  # правка руками: повторное нажатие её не трогает
     before = data.texts[name].as_string()
     assert ensure_material_markup(material, image) == (name, False, ())

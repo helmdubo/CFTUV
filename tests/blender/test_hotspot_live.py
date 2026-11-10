@@ -125,6 +125,59 @@ def _fold():
     return low, high
 
 
+def _check_mark_switch(touch_first):
+    """Поток владельца (Object Mode): окно открыто, метка декали правится живо (`touch_first`) или нет; в окне добавлена метка 1; панель
+    переключает декаль на неё (оператор выбора метки со своим шагом отмены); правки метки 1 - декаль идёт за ними каждый раз; закрытие -
+    итог = последний показ, Ctrl+Z - состояние после выбора метки (его шаг), ещё Ctrl+Z - до сессии."""
+
+    from cftuv import hotspot_editor as E
+    from cftuv import hotspot_live
+    from cftuv.hotspot_markup import HotspotMarkV1
+
+    bpy.context.scene.hotspotuv_settings.envelope_debug_alpha = 0.25
+    H._build_fold()
+    H._markup(HotspotMarkV1(0, "drips", "trim", 0, 64, 1024, 128, "+y"))
+    H._select_seam(bpy.data.objects[H.SOURCE])
+    H._hotspot(True, 0)
+    H._press()
+    _uv, _vertex, domain = H._arrays()
+    low, high = sorted(np.unique(domain))
+    H._object_mode()
+    _start(H.TEXT)
+    bpy.ops.ed.undo_push(message="Mark Up")
+    pre = _state(H.DECAL)
+    if touch_first:
+        _edit(mark=0, y=80)
+        H._rows(low, (80.0, 208.0), "live: mark 0 moved")
+    item = _editor().marks.add()  # новая метка в окне (перетаскивание по пустому месту)
+    E._SUSPEND["commit"] = True
+    item.mark_id, item.label, item.kind, item.up, item.x, item.y, item.w, item.h = E.new_mark_id(_editor()), "rust", "trim", "+y", 0, 400, 1024, 64
+    E._SUSPEND["commit"] = False
+    assert E.commit_edit(bpy.context) == () and item.mark_id == 1
+    for obj in bpy.context.view_layer.objects:
+        obj.select_set(obj.name == H.DECAL)
+    bpy.context.view_layer.objects.active = bpy.data.objects[H.DECAL]
+    assert bpy.ops.hotspotuv.hotspot_pick_mark("EXEC_DEFAULT", True, mark_id=1) == {"FINISHED"}  # панель: декаль - на метку 1, шаг отмены
+    for where in (low, high):
+        H._rows(where, (400.0, 464.0), "the panel switched the decal to mark 1")
+    picked = _state(H.DECAL)
+    for step, (y, h) in enumerate(((400, 48), (320, 48), (256, 96))):
+        _problems, line = _edit(mark=1, y=y, h=h)
+        for where in (low, high):
+            H._rows(where, (float(y), float(y + h)), f"edit {step} of the switched-to mark: the decal follows ({line})")
+    live = _state(H.DECAL)
+    restored, note = _close(H.TEXT, [H.DECAL])
+    assert _same(restored[0], picked), "close: back to the state the pick left"
+    assert _same(_state(H.DECAL), live), ("the refresh on close is the last live preview", note)
+    bpy.ops.ed.undo()
+    assert _same(_state(H.DECAL), picked), "Ctrl+Z after close: the whole session after the pick"
+    bpy.ops.ed.undo()
+    assert not _same(_state(H.DECAL), picked)
+    if not touch_first:
+        assert _same(_state(H.DECAL), pre), "Ctrl+Z again: before the pick, before the session"
+    SUMMARY.append(f"mark switch ({'mark edited live first' if touch_first else 'mark untouched first'}): the decal follows every edit of the switched-to mark; {hotspot_live.status()[:60]}")
+
+
 def _check_fold_session():
     from cftuv import hotspot_live
     from cftuv.hotspot_blender import mesh_record
@@ -282,6 +335,8 @@ def _check_both():
 
 def main():
     H._register()
+    _check_mark_switch(touch_first=False)
+    _check_mark_switch(touch_first=True)
     low = _check_fold_session()
     _check_discard_edit_mode_stale(low)
     settings = B.T._settings()

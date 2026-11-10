@@ -107,13 +107,15 @@ def _inputs(snap: LiveSnapshot, markup) -> tuple | None:
     return int(markup.width), int(markup.height), marks
 
 
-def _holds_preview(mesh, snap: LiveSnapshot) -> bool:
-    """Меш всё ещё показывает ровно наш последний показ: запись и UV те, что мы писали, число углов и граней то же (живая ширина, пересборка,
-    выбор метки меняют хоть что-то из этого)."""
+def _holds(mesh, snap: LiveSnapshot) -> bool:
+    """Меш показывает ровно то, что о нём знает сессия: наш последний показ (`written`), а без показа - сам снимок; запись и UV те же, число
+    углов и граней то же. Выбор метки панелью, Swap wings, живая ширина, пересборка меняют хоть что-то из этого - и тогда, и когда показа
+    ещё не было (HOTSPOT_MARKUP_LIVE_MARK_SWITCH_V1: снимок, снятый при «менять нечего», после выбора метки иначе считался бы «до»)."""
 
-    if mesh is None or str(mesh.get(MESH_PROPERTY, "")) != snap.written or (len(mesh.loops), len(mesh.polygons)) != (snap.uv.shape[0], snap.faces):
+    record, uv = (snap.written, snap.written_uv) if snap.written else (snap.record, snap.uv)
+    if mesh is None or str(mesh.get(MESH_PROPERTY, "")) != record or (len(mesh.loops), len(mesh.polygons)) != (snap.uv.shape[0], snap.faces):
         return False
-    return snap.written_uv is not None and np.array_equal(current_atlas(mesh, DECAL_UV_LAYER), snap.written_uv)
+    return uv is not None and np.array_equal(current_atlas(mesh, DECAL_UV_LAYER), uv)
 
 
 def _restore(mesh, snap: LiveSnapshot) -> None:
@@ -138,8 +140,8 @@ def _baseline(mesh, stale: list):
     """Меш в состоянии до сессии: снимок снят (первая запись) или возвращён; `None` - снимок не снять (чужой атрибут кодов)."""
 
     snap = _LIVE["meshes"].get(mesh.session_uid)
-    if snap is not None and snap.written and not _holds_preview(mesh, snap):
-        stale.append(mesh.name)  # меш правили не мы: его состояние - новое «до»
+    if snap is not None and not _holds(mesh, snap):
+        stale.append(mesh.name)  # меш правили не мы (с показом или без): его состояние - новое «до», метки записи - его
         snap = None
     if snap is None:
         snap = _take(mesh)
@@ -194,7 +196,7 @@ def _preview_mesh(mesh, source, markup, skipped: dict, stale: list):
         return ""
     known = _LIVE["meshes"].get(mesh.session_uid)
     inputs = None if known is None else _inputs(known, markup)
-    if known is not None and known.written and inputs is not None and inputs == known.inputs and _holds_preview(mesh, known):
+    if known is not None and known.written and inputs is not None and inputs == known.inputs and _holds(mesh, known):
         return "kept"  # правка не его меток: тот же показ, ничего не пишется
     snap = _baseline(mesh, stale)
     if snap is None:
@@ -236,7 +238,7 @@ def withdraw(reason: str) -> str:
         mesh = _mesh_of(uid)
         if mesh is not None and mesh.is_editmode:
             kept.append(mesh.name)
-        elif not _holds_preview(mesh, snap):
+        elif not _holds(mesh, snap):
             stale.append(snap.name)
         else:
             _restore(mesh, snap)

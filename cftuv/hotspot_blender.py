@@ -42,7 +42,7 @@ from .hotspot_islands import (
     unwarp_paired,
 )
 from .hotspot_mapping import MESH_PROPERTY, mapping_for
-from .hotspot_markup import KIND_CORNER, MarkupProblemV1, empty_markup, load_markup, save_markup
+from .hotspot_markup import KIND_CORNER, MarkupProblemV1, first_markup, load_markup, save_markup
 
 #: Свойство материала: имя текстового датаблока его разметки.
 MATERIAL_MARKUP_PROPERTY = "cftuv_hotspot_markup"
@@ -181,13 +181,14 @@ def resolve_material_image(material, preferred: str = "", markup_image: str = ""
 
 
 def ensure_material_markup(material, image) -> tuple:
-    """`(имя датаблока разметки, создан ли, находки)`: связанная разметка материала, иначе `<картинка>.hotspot`; нет датаблока - пустая разметка
-    картинки; материал ссылается на него. Пользователь не трогает ни текст, ни ссылку."""
+    """`(имя датаблока разметки, создан ли, находки)`: связанная разметка материала, иначе `<картинка>.hotspot`; нет датаблока - разметка
+    картинки с первой меткой во весь квадрат (HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1); материал ссылается на него. Пользователь не трогает ни текст,
+    ни ссылку; существующая разметка не меняется."""
 
     name = linked_markup_name(material) or f"{image.name}.hotspot"
     created = bpy.data.texts.get(name) is None
     if created:
-        problems = write_markup_text(name, empty_markup(int(image.size[0]), int(image.size[1]), image.name))
+        problems = write_markup_text(name, first_markup(int(image.size[0]), int(image.size[1]), image.name))
         if problems:
             return "", False, problems
     link_markup(material, name)

@@ -704,7 +704,9 @@ def _check_mark_up_preparation():
     editor = scene.hotspotuv_hotspot_editor
     assert image is not None and image.name == "panel_sheet.png" and refusal == "", (refusal, detail)
     assert sheet["cftuv_hotspot_markup"] == "panel_sheet.png.hotspot" and editor.draft_of == "panel_sheet.png.hotspot"
-    assert (editor.width, editor.height, len(editor.marks)) == (512, 256, 0) and not editor.dirty
+    assert (editor.width, editor.height, len(editor.marks)) == (512, 256, 1) and not editor.dirty
+    first = editor.marks[0]  # HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1: новая разметка - сразу метка 0 во весь квадрат
+    assert (first.mark_id, first.kind, first.x, first.y, first.w, first.h, first.up, editor.next_id) == (0, "trim", 0, 0, 512, 256, "+y", 1)
     editor.marks.add()  # пустой прямоугольник - черновик не принят
     from cftuv.hotspot_editor import commit_draft
 
@@ -714,17 +716,42 @@ def _check_mark_up_preparation():
     other.node_tree.nodes.new("ShaderNodeTexImage").image = bpy.data.images.new("panel_other.png", 256, 256)
     mesh_settings.material_name = other.name
     assert prepare_markup(scene)[1] == MARKUP_DRAFT_UNSAVED, "an unsaved draft of another markup is never replaced"
-    assert len(editor.marks) == 1 and editor.draft_of == "panel_sheet.png.hotspot" and "panel_other.png.hotspot" not in bpy.data.texts
+    assert len(editor.marks) == 2 and editor.draft_of == "panel_sheet.png.hotspot" and "panel_other.png.hotspot" not in bpy.data.texts
     mesh_settings.material_name = sheet.name
-    assert prepare_markup(scene)[1] == "" and len(editor.marks) == 1 and editor.dirty, "the same markup keeps its unsaved draft"
+    assert prepare_markup(scene)[1] == "" and len(editor.marks) == 2 and editor.dirty, "the same markup keeps its unsaved draft"
     from cftuv.hotspot_editor import load_draft
 
-    assert load_draft(scene, editor.draft_of, discard=True) == "" and not editor.dirty
+    assert load_draft(scene, editor.draft_of, discard=True) == "" and not editor.dirty and len(editor.marks) == 1
+    _check_whole_square_rebase(scene, sheet)
+    editor.marks.remove(0)  # дальше - разметка без меток
+    assert commit_draft(scene) == ()
     _check_editor_edits(scene)
     _check_backdrop(scene, sheet, principled)
     _check_overlay_gate(editor)
     mesh_settings.material_name = MATERIAL
     print("HOTSPOT MARK UP preparation: image from nodes, text created and linked, refusals named", flush=True)
+
+
+def _check_whole_square_rebase(scene, sheet):
+    """HOTSPOT_FIRST_MARK_WHOLE_SQUARE_V1 и HOTSPOT_BACKDROP_V1: единственная метка во весь квадрат не мешает подложке другого размера - разметка
+    переходит в её размер, метка остаётся во весь квадрат; обратно так же."""
+
+    from cftuv.hotspot_blender import read_markup_text
+    from cftuv.hotspot_editor import switch_backdrop
+
+    editor = scene.hotspotuv_hotspot_editor
+    node = sheet.node_tree.nodes.new("ShaderNodeTexImage")
+    node.image = bpy.data.images.new("panel_square.png", 1024, 1024)
+    try:
+        assert switch_backdrop(scene, "panel_square.png") == "" and (editor.width, editor.height) == (1024, 1024)
+        markup, _problems = read_markup_text(editor.draft_of)
+        assert [(mark.x, mark.y, mark.w, mark.h) for mark in markup.marks] == [(0, 0, 1024, 1024)], markup.marks
+        assert switch_backdrop(scene, "panel_sheet.png") == "" and (editor.width, editor.height) == (512, 256)
+        assert (editor.marks[0].w, editor.marks[0].h) == (512, 256)
+    finally:
+        sheet.node_tree.nodes.remove(node)
+        bpy.data.images.remove(bpy.data.images["panel_square.png"])
+    print("HOTSPOT FIRST MARK: a new markup has mark 0 over the whole square; a backdrop of another size rebases it, the mark stays whole", flush=True)
 
 
 def _check_editor_edits(scene):
