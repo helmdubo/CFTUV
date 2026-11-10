@@ -30,9 +30,10 @@ UV КОПИИ - СЕГМЕНТЫ (метры, их отображает в UV т
 
 УЗЕЛ - К ОДНОМУ СЕГМЕНТУ (BEVEL_NODE_ATTACH_MOST_EDGES_LONGEST_V3). Компонента граней вне колонок (узел и грани полосы вне колонок рядом)
 целиком берёт сегмент, с которым у неё больше всего общих рёбер; ничья - более длинный сегмент, затем меньший номер; другие сегменты у этого
-узла получают шов UV. Вершина узла на гранях своего сегмента берёт его UV точно; остальные грани узла разворачиваются слоями от известных
-вершин (у грани их две и больше): подобие без отражения из плоскости грани в UV, новая вершина берёт UV первой грани, что её положила, - `U`
-сегмента продолжается за конец полосы, грань узла не выворачивается. Узел без полосы рядом - своя плоская проекция (`BEVEL_COPY_NODE_NO_STRIP`).
+узла получают шов UV. Вершина узла на гранях своего сегмента берёт его UV точно; остальные вершины узла - одно конформное решение
+(BEVEL_COPY_NODE_CONFORMAL_V1, LSCM по треугольникам граней, опоры закреплены): `U` сегмента продолжается за конец полосы, искажение угла
+трёх фасок делится по всем граням узла. Вывернутая грань (`BEVEL_COPY_NODE_CONFORMAL_FOLDED`) или опор меньше двух - прежняя раскладка
+слоями подобием без отражения. Узел без полосы рядом - своя плоская проекция (`BEVEL_COPY_NODE_NO_STRIP`).
 Владелец грани копии - `OWNER_SHIFT * сегмент + OWNER_NODE` (BEVEL_COPY_OWNER_V3: бит узла читают крылья). Каждое отступление - число с
 именем (правило 4).
 """
@@ -54,6 +55,7 @@ BEVEL_COPY_STRIP_FACE_OFF_COLUMN = "BEVEL_COPY_STRIP_FACE_OFF_COLUMN"
 BEVEL_COPY_NODE_CONTINUES_STRIP = "BEVEL_COPY_NODE_CONTINUES_STRIP"
 BEVEL_COPY_NODE_NO_STRIP = "BEVEL_COPY_NODE_NO_STRIP"
 BEVEL_COPY_NODE_FIT_DEGENERATE = "BEVEL_COPY_NODE_FIT_DEGENERATE"
+BEVEL_COPY_NODE_CONFORMAL_FOLDED = "BEVEL_COPY_NODE_CONFORMAL_FOLDED"
 BEVEL_COPY_NORMAL_DEGENERATE = "BEVEL_COPY_NORMAL_DEGENERATE"
 BEVEL_COPY_UV_FLIPPED_FACES = "BEVEL_COPY_UV_FLIPPED_FACES"
 BEVEL_COPY_RAIL_UNPAIRED = "BEVEL_COPY_RAIL_UNPAIRED"
@@ -460,8 +462,69 @@ def _similarity(source, target):
     return a, ct - a * cs
 
 
+def _conformal(coords, rings, cluster, values: dict):
+    """Раскладка узла одним решением (BEVEL_COPY_NODE_CONFORMAL_V1): наименьшие квадраты конформной энергии (LSCM) по треугольникам веера
+    каждой грани кластера, вершины с известным UV (`values`, комплексные) закреплены. Голоморфная карта сохраняет ориентацию плоскости
+    треугольника, поэтому грани в UV - против часовой, как у полосы. `{вершина: UV}` свободных вершин; `None` - опор меньше двух или нечего
+    решать."""
+
+    vertices = sorted({vertex for face in cluster for vertex in rings[face]})
+    free = [vertex for vertex in vertices if vertex not in values]
+    pinned = [vertex for vertex in vertices if vertex in values]
+    if not free or len(pinned) < 2:
+        return None
+    column = {vertex: at for at, vertex in enumerate(free)}
+    rows = []
+    for face in sorted(cluster):
+        ring = rings[face]
+        for at in range(1, len(ring) - 1):
+            corner = (ring[0], ring[at], ring[at + 1])
+            p0, p1, p2 = (np.asarray(coords[vertex], dtype=np.float64) for vertex in corner)
+            e1, e2 = p1 - p0, p2 - p0
+            normal = np.cross(e1, e2)
+            area = 0.5 * float(np.linalg.norm(normal))
+            length = float(np.linalg.norm(e1))
+            if area <= 0.0 or length <= 0.0:
+                continue
+            first = e1 / length
+            second = np.cross(normal / (2.0 * area), first)
+            z = (0j, complex(length, 0.0), complex(float(e2 @ first), float(e2 @ second)))
+            weight = 1.0 / math.sqrt(area)
+            rows.append([(corner[k], weight * (z[(k + 2) % 3] - z[(k + 1) % 3])) for k in range(3)])
+    if not rows:
+        return None
+    matrix = np.zeros((len(rows), len(free)), dtype=np.complex128)
+    rhs = np.zeros(len(rows), dtype=np.complex128)
+    for row, terms in enumerate(rows):
+        for vertex, coefficient in terms:
+            if vertex in column:
+                matrix[row, column[vertex]] += coefficient
+            else:
+                rhs[row] -= coefficient * values[vertex]
+    solution, _residual, rank, _singular = np.linalg.lstsq(matrix, rhs, rcond=None)
+    if rank < len(free):
+        return None
+    return {vertex: complex(solution[at]) for vertex, at in column.items()}
+
+
 def _unfold(coords, rings, cluster, known: dict, events) -> dict:
-    """Узел продолжает полосу (BEVEL_COPY_NODE_CONTINUES_STRIP_V2): грани кластера разворачиваются слоями от вершин с известным UV (две и больше
+    """Узел продолжает полосу: одна конформная раскладка всего кластера с закреплёнными вершинами его сегмента (BEVEL_COPY_NODE_CONFORMAL_V1:
+    искажение угла трёх фасок делится по всем граням узла, а не копится в последних). Нет решения (опор меньше двух) или грань узла в UV
+    вывернулась (`BEVEL_COPY_NODE_CONFORMAL_FOLDED`, граней) - прежняя раскладка слоями (`_unfold_layers`). `{(грань, вершина): (U, S)}`."""
+
+    values = {vertex: complex(*uv) for vertex, uv in known.items()}
+    solved = _conformal(coords, rings, cluster, values)
+    if solved is not None:
+        values.update(solved)
+        folded = sum(1 for face in cluster if _signed_area([(values[vertex].real, values[vertex].imag) for vertex in rings[face]]) <= 0.0)
+        if not folded:
+            return {(face, vertex): (values[vertex].real, values[vertex].imag) for face in sorted(cluster) for vertex in rings[face]}
+        _count(events, BEVEL_COPY_NODE_CONFORMAL_FOLDED, folded)
+    return _unfold_layers(coords, rings, cluster, known, events)
+
+
+def _unfold_layers(coords, rings, cluster, known: dict, events) -> dict:
+    """Откат узла (BEVEL_COPY_NODE_CONTINUES_STRIP_V2): грани кластера разворачиваются слоями от вершин с известным UV (две и больше
     у грани) подобием без отражения из плоскости грани; новая вершина получает UV первой грани, что её положила. `{(грань, вершина): (U, S)}`."""
 
     values = {vertex: complex(*uv) for vertex, uv in known.items()}
@@ -911,6 +974,7 @@ __all__ = (
     "OWNER_NODE",
     "OWNER_SHIFT",
     "BEVEL_COPY_COLUMN_OPEN",
+    "BEVEL_COPY_NODE_CONFORMAL_FOLDED",
     "BEVEL_COPY_NODE_CONTINUES_STRIP",
     "BEVEL_COPY_NODE_FIT_DEGENERATE",
     "BEVEL_COPY_NODE_NO_STRIP",

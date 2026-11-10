@@ -173,6 +173,54 @@ def test_a_slanted_rung_stays_slanted_in_uv_only_the_rows_are_straightened(shear
     assert all(_area(values) > 0.0 for _ring, values in _corners(spec))
 
 
+def _anisotropy(coords, rings, corner) -> float:
+    """Наибольшее отношение сингулярных чисел якобиана 3D -> UV по треугольникам веера граней (1 - без искажения угла)."""
+
+    worst = 1.0
+    for face, ring in rings.items():
+        for at in range(1, len(ring) - 1):
+            p0, p1, p2 = (np.asarray(coords[ring[k]], dtype=np.float64) for k in (0, at, at + 1))
+            e1, e2 = p1 - p0, p2 - p0
+            normal = np.cross(e1, e2)
+            first = e1 / np.linalg.norm(e1)
+            second = np.cross(normal / np.linalg.norm(normal), first)
+            local = np.array([[e1 @ first, e2 @ first], [e1 @ second, e2 @ second]])
+            u0, u1, u2 = (np.asarray(corner[(face, ring[k])], dtype=np.float64) for k in (0, at, at + 1))
+            jac = np.stack((u1 - u0, u2 - u0), axis=1) @ np.linalg.inv(local)
+            sv = np.linalg.svd(jac, compute_uv=False)
+            worst = max(worst, float(sv[0] / sv[1]))
+    return worst
+
+
+def test_a_doubly_curved_node_unfolds_in_one_conformal_solve_from_its_strip_rung():
+    """BEVEL_COPY_NODE_CONFORMAL_V1: узел двоякой кривизны (кусок сферы 4 x 4 квада, как угол трёх фасок) с закреплённым рядом вершин у
+    полосы раскладывается одним решением: опоры точно на месте, ни одной вывернутой грани, искажение угла меньше раскладки слоями, где оно
+    копится в последних гранях."""
+
+    count, radius, span = 4, 0.2, math.pi / 2
+    coords = {}
+    for row in range(count + 1):
+        for column in range(count + 1):
+            theta, phi = span * row / count / 2, span * (column / count - 0.5)
+            coords[row * (count + 1) + column] = (radius * math.cos(theta) * math.cos(phi), radius * math.cos(theta) * math.sin(phi), radius * math.sin(theta))
+    rings = {row * count + column: (row * (count + 1) + column, row * (count + 1) + column + 1, (row + 1) * (count + 1) + column + 1,
+                                    (row + 1) * (count + 1) + column) for row in range(count) for column in range(count)}
+    known, along = {}, 0.0
+    for column in range(count + 1):
+        if column:
+            along += math.dist(coords[column - 1], coords[column])
+        known[column] = (along, 0.0)
+    events = {}
+    corner = bc._unfold(coords, rings, set(rings), known, events)
+    layers = bc._unfold_layers(coords, rings, set(rings), known, {})
+    assert events == {}, "no fold, no fallback"
+    assert all(corner[(face, vertex)] == known[vertex] for face, ring in rings.items() for vertex in ring if vertex in known), "the rung stays put"
+    assert all(bc._signed_area([corner[(face, vertex)] for vertex in ring]) > 0.0 for face, ring in rings.items())
+    assert len({corner[(face, vertex)] for face, ring in rings.items() for vertex in ring}) == len(coords), "one UV per vertex: no seam inside"
+    conformal, layered = _anisotropy(coords, rings, corner), _anisotropy(coords, rings, layers)
+    assert conformal < 1.25 and conformal < layered, (conformal, layered)
+
+
 def test_nodes_without_a_strip_are_projected_by_name():
     view, kinds = _cube_view()
     nodes = {face for face, kind in kinds.items() if kind == "node"}
