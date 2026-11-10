@@ -86,11 +86,49 @@ def test_one_segment_is_one_affine_trim_island_with_the_skirt_edges_at_zero_and_
     assert numbers[bw.COUNTER_HALF_BEVEL] == round(1e6 * H) and numbers[bw.COUNTER_SEGMENTS] == 1 and numbers[bw.COUNTER_GROUPS] == 2
     for name in (bw.COUNTER_OUTER_UNPAIRED, bw.COUNTER_NOT_TWO_SIDED, bw.COUNTER_OUTER_MIRRORED, bw.COUNTER_FOLDS, bw.COUNTER_COPY_FLIPPED,
                  bw.COUNTER_KNOT_BREAKS, bw.COUNTER_KNOT_CONFLICTS, bw.COUNTER_NODE_SKIRTS, bw.COUNTER_SKIRT_STRETCH, bw.COUNTER_SEGMENT_SEAMS,
-                 bw.COUNTER_KERNEL_FLIPPED):
+                 bw.COUNTER_KERNEL_FLIPPED, bw.COUNTER_SKIRT_FOOT_MOVED):
         assert numbers[name] == 0, (name, numbers)
     assert min(out[:, 1]) == 0.0 and max(out[:, 1]) == 1.0, "the full-width skirt edges are exactly 0 and 1"
     assert all(_area(out[a:b]) > 0.0 for a, b in zip(starts, starts[1:]))
     assert bw.seam_pairs(out, plan).shape == (0, 2), "one segment: no seam inside the island"
+
+
+@pytest.mark.parametrize("kernel_u", [1.4, 0.8, -0.3])
+def test_a_short_segment_skirt_follows_its_rail_in_3d_where_the_kernel_parameter_points_elsewhere(kernel_u):
+    """BEVEL_WINGS_SKIRT_FOOT_ON_RAIL_V4: сегмент в одну колонку между узлами (копия `0 <= x <= 0.4`, `0 <= y <= 2h`), над ним юбка - треугольник
+    с вершиной над серединой рельса на всю ширину декали. Ядро даёт вершине `u` чужой точки опоры (за углом узла, `1.4` и `-0.3` - за краями
+    рельса; `0.8` - на его конце, как веер выпуклого угла). Вершина берёт `(u, v)` по рельсу в 3D: грань ложится как на меше, край - ровно 1."""
+
+    width = 0.4
+    positions = np.array([(0.0, 0.0, 0.0), (width, 0.0, 0.0), (width, H, 0.0), (0.0, H, 0.0), (width, 2 * H, 0.0), (0.0, 2 * H, 0.0),
+                          (width / 2, 2 * H + ALPHA, 0.0)])
+    rings = ((0, 1, 2, 3), (3, 2, 4, 5), (5, 4, 6))
+    uvs = [(x, y - H) for ring in rings[:2] for x, y, _z in positions[list(ring)]]
+    uvs += [(0.0, 0.0), (width / ALPHA, 0.0), (kernel_u, 1.0)]
+    loops = np.array([vertex for ring in rings for vertex in ring])
+    starts = np.array([0, 4, 8, 11])
+    out, numbers, _plan = bw.wing_uvs(np.array(uvs), loops, starts, np.array([COPY, COPY, 2]), np.array([0, 0, 0]), COPY, positions)
+    points = positions[loops][:, :2]
+    assert np.allclose(out, _expected(points), atol=1e-12), "the whole segment is one isometry in the trim frame"
+    assert numbers[bw.COUNTER_SKIRT_FOOT_MOVED] == 1 and numbers[bw.COUNTER_FOLDS] == 0
+
+
+def test_a_piece_the_rail_geometry_would_fold_keeps_the_kernel_parameter_by_name():
+    """BEVEL_WINGS_SKIRT_FOOT_ON_RAIL_V4, откат: квад юбки над сегментом в одну колонку, у ядра он против часовой, а по геометрии рельса его
+    внешние вершины меняются местами (грань вывернулась бы). Кусок целиком берёт параметр ядра - `BEVEL_WINGS_SKIRT_FOOT_REVERTED`."""
+
+    width = 0.4
+    positions = np.array([(0.0, 0.0, 0.0), (width, 0.0, 0.0), (width, H, 0.0), (0.0, H, 0.0), (width, 2 * H, 0.0), (0.0, 2 * H, 0.0),
+                          (-0.05, 2 * H + ALPHA, 0.0), (width + 0.05, 2 * H + ALPHA, 0.0)])
+    rings = ((0, 1, 2, 3), (3, 2, 4, 5), (5, 4, 6, 7))
+    kernel = [(0.0, 0.0), (width / ALPHA, 0.0), (1.5, 1.0), (1.4, 1.0)]
+    uvs = [(x, y - H) for ring in rings[:2] for x, y, _z in positions[list(ring)]] + kernel
+    loops = np.array([vertex for ring in rings for vertex in ring])
+    out, numbers, _plan = bw.wing_uvs(np.array(uvs), loops, np.array([0, 4, 8, 12]), np.array([COPY, COPY, 2]), np.array([0, 0, 0]), COPY,
+                                      positions)
+    assert numbers[bw.COUNTER_SKIRT_FOOT_REVERTED] == 1 and numbers[bw.COUNTER_SKIRT_FOOT_MOVED] == 0 and numbers[bw.COUNTER_FOLDS] == 0
+    outer = np.array([(width + ALPHA * (u - width / ALPHA)) * SCALE for u, _v in kernel[2:]])
+    assert np.allclose(out[10:12, 0], outer, atol=1e-12) and np.allclose(out[10:12, 1], 1.0, atol=1e-12), "the kernel law, unchanged"
 
 
 def test_two_segments_are_two_islands_each_in_its_own_frame_with_a_seam_between_them():

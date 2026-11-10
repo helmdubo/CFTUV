@@ -20,6 +20,11 @@
   пар: на рельсе `V` равна `V` копии, на краю полной ширины (`v = 1`) - ровно 0 и 1; профиль шире полосы трима - юбка не уже
   `SKIRT_MIN_WIDTH k alpha` (край за 0 / 1, `BEVEL_WINGS_SKIRT_PAST_TRIM`); соседние узлы с `dU / du` не около `alpha` (перезапуск `u` ядра,
   чужая вершина) делят группу на куски, грань берёт свой кусок (`BEVEL_WINGS_KNOT_BREAKS`);
+* параметр ядра за пределами рельса сегмента (BEVEL_WINGS_SKIRT_FOOT_ON_RAIL_V4): угол юбки, у которого `U` по параметру ядра `u`
+  расходится с `U` по геометрии (проекция в 3D на прямую отрезка рельса куска, в который попадает `u`; за концом - вдоль крайнего
+  отрезка) больше `FOOT_APART` alpha, берёт `(u, v)` по геометрии (`v` - расстояние до той же прямой), с `FOOT_FULL` - целиком, между -
+  смесью: у короткого сегмента между узлами и у веера выпуклого угла точка опоры ядра - вне сегмента, юбка съезжала вбок
+  (`BEVEL_WINGS_SKIRT_FOOT_MOVED`, углов); вывернула геометрия грань, целую у ядра, - кусок по параметру ядра (`BEVEL_WINGS_SKIRT_FOOT_REVERTED`);
 * юбка края узла (рельс поперёк средней линии, BEVEL_WINGS_NODE_SKIRT_V3): точка рельса - кусочно-линейно по узлам `(U, S)`, юбка уходит
   влево от роста `u` на `v alpha` (ориентация карты ядра сохраняется), `BEVEL_WINGS_NODE_SKIRTS`;
 * веер (группа с одним узлом: грань касается рельса вершиной и у ядра - своя карта) раскрывается подобием без отражения от соседней грани
@@ -65,6 +70,15 @@ ALONG_TANGENT = 0.5773502691896257
 #: Соседние узлы вдоль с `dU / du` вне `[RUN_RATIO_LOW, RUN_RATIO_HIGH]` от `alpha` - разрыв куска (`BEVEL_WINGS_KNOT_BREAKS`).
 RUN_RATIO_LOW = 0.25
 RUN_RATIO_HIGH = 4.0
+#: Угол юбки берёт `(u, v)` по геометрии рельса (BEVEL_WINGS_SKIRT_FOOT_ON_RAIL_V4), когда `U` по ней расходится с `U` по параметру ядра:
+#: веер выпуклого угла узла (у ядра все его вершины опираются на угловую вершину цепи) и вершина юбки за углом узла (у ядра её опора -
+#: рельс вне сегмента). Расхождение до `FOOT_APART` alpha (ширины декали) - параметр ядра (точен на кривом рельсе), от `FOOT_FULL` -
+#: геометрия, между - линейная смесь: соседние вершины одной грани не расходятся скачком (крышка над торцом колонки, перпендикулярная
+#: рельсу, без искажения в кадр полосы не ложится, у ядра она гладкая). Углов со смесью больше нуля - `BEVEL_WINGS_SKIRT_FOOT_MOVED`;
+#: кусок, где геометрия вывернула грань, целую у ядра (клин у излома рельса), целиком берёт параметр ядра -
+#: `BEVEL_WINGS_SKIRT_FOOT_REVERTED`, кусков.
+FOOT_APART = 0.1
+FOOT_FULL = 0.3
 #: Наименьшая ширина юбки поперёк в UV - эта доля `k alpha` (её ширины в той же плотности): шире полосы трима профиль - юбка всё равно наружу.
 SKIRT_MIN_WIDTH = 0.5
 #: Владелец грани копии: `OWNER_SHIFT * сегмент + OWNER_NODE` (те же числа, что `bevel_copy.OWNER_SHIFT` и `bevel_copy.OWNER_NODE`).
@@ -91,6 +105,8 @@ COUNTER_ALPHA = "BEVEL_WINGS_ALPHA_MICRO_METRES"
 COUNTER_HALF_BEVEL = "BEVEL_WINGS_HALF_BEVEL_MEDIAN_MICRO_METRES"
 COUNTER_SKIRT_STRETCH = "BEVEL_WINGS_SKIRT_STRETCH_PPM"
 COUNTER_SKIRT_PAST_TRIM = "BEVEL_WINGS_SKIRT_PAST_TRIM"
+COUNTER_SKIRT_FOOT_MOVED = "BEVEL_WINGS_SKIRT_FOOT_MOVED"
+COUNTER_SKIRT_FOOT_REVERTED = "BEVEL_WINGS_SKIRT_FOOT_REVERTED"
 COUNTER_FANS_UNFOLDED = "BEVEL_WINGS_FANS_UNFOLDED"
 COUNTER_RAIL_GAP = "BEVEL_WINGS_RAIL_SNAP_MAX_MICRO_UV"
 COUNTER_KERNEL_FLIPPED = "BEVEL_WINGS_KERNEL_FLIPPED"
@@ -369,9 +385,9 @@ def _piecewise(xs, ts, x, slope):
     return mapped
 
 
-def _knots(xs, along, height):
+def _knots(xs, along, height, where=None):
     """Узлы с `u` ближе `KNOT_U_TOLERANCE` сливаются (значения - средние): `(xs, U, S, конфликтов)` по возрастанию `xs`; конфликт - слитые узлы
-    с разной `U`."""
+    с разной `U`. С `where` (позиции пар, `(K, 3)`) - ещё средние позиции узлов пятым числом."""
 
     order = np.argsort(xs, kind="stable")
     xs, along, height = xs[order], along[order], height[order]
@@ -380,16 +396,34 @@ def _knots(xs, along, height):
     ids = np.repeat(np.arange(starts.shape[0]), sizes)
     spread = np.maximum.reduceat(along, starts) - np.minimum.reduceat(along, starts)
     conflicts = int(np.count_nonzero(spread > 1e-9 * (1.0 + np.abs(along[starts]))))
-    return xs[starts], np.bincount(ids, weights=along) / sizes, np.bincount(ids, weights=height) / sizes, conflicts
+    merged = (xs[starts], np.bincount(ids, weights=along) / sizes, np.bincount(ids, weights=height) / sizes, conflicts)
+    if where is None:
+        return merged
+    where = where[order]
+    return (*merged, np.stack([np.bincount(ids, weights=where[:, axis]) / sizes for axis in range(3)], axis=1))
 
 
-def _slope(u, target) -> float | None:
-    """Наклон наименьших квадратов `target` по `u`; `None` - станции не тянутся вдоль."""
+def _foot_u(points, rail, xs, ts, at, direction, alpha):
+    """`u` угла юбки по геометрии (BEVEL_WINGS_SKIRT_FOOT_ON_RAIL_V4): проекция точки в 3D на прямую того отрезка ломаной рельса куска (узлы
+    `rail` по возрастанию `xs`), в который попадает параметр ядра `at` (за краями - крайний отрезок); `u` - линейно по доле отрезка, за концом
+    ломаной - сдвиг вдоль крайнего отрезка в метрах, переведённый в `u` так, что продолжение `U` за краем (`direction alpha` на единицу `u`)
+    даёт `U` крайнего отрезка на метр; `v` - расстояние до прямой того же отрезка в единицах alpha (у ядра `v` веера - расстояние до угловой
+    вершины, с `U` по прямой рельса оно сплющило бы веер; не больше 1 - край декали на 0 / 1 трима). Отрезок выбирает параметр ядра, а не ближайшая точка: на кривом рельсе ближайшая
+    точка ломаной рвётся у её вершин, а параметр ядра там точен. `(u, v)`."""
 
-    if u.shape[0] < 2 or float(np.ptp(u)) <= KNOT_U_TOLERANCE:
-        return None
-    centred = u - u.mean()
-    return float(centred @ (target - target.mean()) / (centred @ centred))
+    count = xs.shape[0] - 1
+    seg = np.clip(np.searchsorted(xs, at, side="right") - 1, 0, count - 1)
+    start, chord = rail[seg], rail[seg + 1] - rail[seg]
+    length2 = np.einsum("ij,ij->i", chord, chord)
+    good = length2 > 0.0
+    t = np.where(good, np.einsum("ij,ij->i", points - start, chord) / np.where(good, length2, 1.0), 0.0)
+    mapped = xs[seg] + t * (xs[seg + 1] - xs[seg])
+    length = np.sqrt(length2)
+    per_metre = (ts[seg + 1] - ts[seg]) / np.where(good, length, 1.0)
+    before, after = good & (seg == 0) & (t < 0.0), good & (seg == count - 1) & (t > 1.0)
+    mapped = np.where(before, xs[0] + t * length * per_metre / (direction * alpha), mapped)
+    mapped = np.where(after, xs[-1] + (t - 1.0) * length * per_metre / (direction * alpha), mapped)
+    return mapped, np.minimum(np.linalg.norm(points - start - t[:, None] * chord, axis=1) / alpha, 1.0)
 
 
 def _alpha(plan, u, positions, loop_vertex, counters) -> float:
@@ -437,26 +471,68 @@ def _runs(xs, ts, direction, alpha):
     return list(zip(edges, edges[1:]))
 
 
-def _along(out, plan, group, knots, u, v, alpha, scale, side) -> tuple:
+def _along(out, plan, group, knots, u, v, alpha, scale, side, points) -> tuple:
     """Закон юбки полосы: `U` кусочно-линейно по узлам куска (грань берёт кусок, где больше её узлов, иначе ближайший по `u`), `V` - от
     рельса до края 0 / 1; где профиль шире полосы трима (`k H > 0.5 - SKIRT_MIN_WIDTH k alpha`), юбка не выворачивается: её ширина в UV не
     меньше `SKIRT_MIN_WIDTH k alpha`, край выходит за 0 / 1 (`BEVEL_WINGS_SKIRT_PAST_TRIM`, углов). `group` - `(углы группы, номера пар,
-    u пар)`. `(разрывов, против стороны, углов за тримом)`."""
+    u пар)`. Угол, у которого параметр ядра уводит `U` от рельса сегмента, берёт `(u, v)` по геометрии (BEVEL_WINGS_SKIRT_FOOT_ON_RAIL_V4,
+    `_foot_u`, смесь по `FOOT_APART` / `FOOT_FULL`); вывернула она грань, целую у ядра, - кусок по параметру ядра. `(разрывов, против стороны,
+    углов за тримом, углов по геометрии, откатов)`."""
 
-    xs, ts, hs = knots
+    xs, ts, hs, rail = knots
     loops, rows, pair_u = group
     slopes = np.diff(ts) / np.diff(xs) if xs.shape[0] > 1 else np.zeros(0)
     direction = side if not slopes.shape[0] else (1.0 if float(np.median(slopes)) > 0.0 else -1.0)
     runs = _runs(xs, ts, direction, alpha)
     pieces = [(loops, runs[0])] if len(runs) == 1 else _pieces(plan, loops, pair_u, rows, xs, runs, u)
-    past = 0
+    past = moved = reverted = 0
     for chosen, (a, b) in pieces:
-        height = _piecewise(xs[a:b], hs[a:b], u[chosen], None) * scale
-        width = np.maximum(0.5 - height, SKIRT_MIN_WIDTH * alpha * scale)
-        past += int(np.count_nonzero(width > 0.5 - height))
-        out[chosen, 0] = _piecewise(xs[a:b], ts[a:b], u[chosen], direction * alpha) * scale
-        out[chosen, 1] = 0.5 + side * (height + v[chosen] * width)
-    return len(runs) - 1, int(direction != side), past
+        kernel = (u[chosen], v[chosen])
+        beyond = _place(out, chosen, (xs[a:b], ts[a:b], hs[a:b]), kernel, direction, alpha, scale, side)
+        if b - a < 2:
+            past += beyond
+            continue
+        foot, off = _foot_u(points[chosen], rail[a:b], xs[a:b], ts[a:b], kernel[0], direction, alpha)
+        slope = direction * alpha
+        apart = np.abs(_piecewise(xs[a:b], ts[a:b], foot, slope) - _piecewise(xs[a:b], ts[a:b], kernel[0], slope)) / alpha
+        weight = np.clip((apart - FOOT_APART) / (FOOT_FULL - FOOT_APART), 0.0, 1.0)
+        if not np.any(weight > 0.0):
+            past += beyond
+            continue
+        before = _face_areas(out, plan, chosen)
+        held = out[chosen].copy()
+        geometric = (kernel[0] + weight * (foot - kernel[0]), kernel[1] + weight * (off - kernel[1]))
+        moved_beyond = _place(out, chosen, (xs[a:b], ts[a:b], hs[a:b]), geometric, direction, alpha, scale, side)
+        after = _face_areas(out, plan, chosen)
+        if np.any((after <= 0.0) & (before > 0.0)):
+            out[chosen] = held  # геометрия вывернула грань, целую у ядра: кусок - по параметру ядра (BEVEL_WINGS_SKIRT_FOOT_REVERTED)
+            reverted += 1
+            past += beyond
+            continue
+        moved += int(np.count_nonzero(weight > 0.0))
+        past += moved_beyond
+    return len(runs) - 1, int(direction != side), past, moved, reverted
+
+
+def _place(out, chosen, knots, at_across, direction, alpha, scale, side) -> int:
+    """`U, V` углов `chosen` юбки полосы по `(u, v)` и узлам куска `(xs, U, |S|)`; углов за тримом."""
+
+    xs, ts, hs = knots
+    at, across = at_across
+    height = _piecewise(xs, hs, at, None) * scale
+    width = np.maximum(0.5 - height, SKIRT_MIN_WIDTH * alpha * scale)
+    out[chosen, 0] = _piecewise(xs, ts, at, direction * alpha) * scale
+    out[chosen, 1] = 0.5 + side * (height + across * width)
+    return int(np.count_nonzero(width > 0.5 - height))
+
+
+def _face_areas(out, plan, chosen):
+    """Удвоенные площади со знаком граней углов `chosen` (грани куска целиком в нём) по текущим `out`, по номерам граней этих углов."""
+
+    nxt = out[plan.following[chosen]]
+    here = out[chosen]
+    faces, inverse = np.unique(plan.loop_face[chosen], return_inverse=True)
+    return np.bincount(inverse, weights=here[:, 0] * nxt[:, 1] - nxt[:, 0] * here[:, 1], minlength=faces.shape[0])
 
 
 def _pieces(plan, loops, pair_u, rows, xs, runs, u) -> list:
@@ -549,11 +625,11 @@ def _unfold_fans(out, plan, u, v, fans) -> int:
     return unfolded
 
 
-def _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters) -> None:
+def _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters, points) -> None:
     """Юбки (углы снаружи) по группам «остров ядра x сегмент»: вдоль (юбка полосы) либо поперёк (юбка края узла)."""
 
     pair_u = u[plan.pair_outer]
-    unpaired = against = mirrored = breaks = conflicts = nodes = past = 0
+    unpaired = against = mirrored = breaks = conflicts = nodes = past = moved = reverted = 0
     stretch = 0.0
     fans: set = set()
     order = np.argsort(plan.loop_group, kind="stable")
@@ -568,7 +644,7 @@ def _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters) 
             _flat(out, loops, u, v, alpha, scale, half_median)
             continue
         side = 1.0 if float(across[rows].sum()) >= 0.0 else -1.0
-        xs, ts, ss, found = _knots(pair_u[rows], along[rows], across[rows])
+        xs, ts, ss, found, rail = _knots(pair_u[rows], along[rows], across[rows], points[plan.pair_copy[rows]])
         conflicts += found
         if not _is_along(xs, ts, ss, side):
             nodes += 1
@@ -577,7 +653,9 @@ def _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters) 
         against += int(np.count_nonzero(np.sign(across[rows]) == -side))
         if xs.shape[0] == 1:
             fans.update(int(face) for face in np.unique(plan.loop_face[loops]).tolist())
-        cut, wrong, beyond = _along(out, plan, (loops, rows, pair_u), (xs, ts, np.abs(ss)), u, v, alpha, scale, side)
+        cut, wrong, beyond, refooted, undone = _along(out, plan, (loops, rows, pair_u), (xs, ts, np.abs(ss), rail), u, v, alpha, scale, side, points)
+        moved += refooted
+        reverted += undone
         breaks += cut
         mirrored += wrong
         past += beyond
@@ -588,7 +666,7 @@ def _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters) 
     counters.update({
         COUNTER_OUTER_UNPAIRED: unpaired + plan.unassigned_faces, COUNTER_NOT_TWO_SIDED: against, COUNTER_OUTER_MIRRORED: mirrored,
         COUNTER_KNOT_BREAKS: breaks, COUNTER_KNOT_CONFLICTS: conflicts, COUNTER_NODE_SKIRTS: nodes, COUNTER_SKIRT_STRETCH: int(round(1e6 * stretch)),
-        COUNTER_SKIRT_PAST_TRIM: past,
+        COUNTER_SKIRT_PAST_TRIM: past, COUNTER_SKIRT_FOOT_MOVED: moved, COUNTER_SKIRT_FOOT_REVERTED: reverted,
     })
 
 
@@ -631,7 +709,7 @@ def wing_uvs(uvs, loop_vertex, face_starts, face_domain, face_owner, copy_domain
     out = np.empty_like(uvs)
     out[plan.copy_loops, 0] = u[plan.copy_loops] * scale
     out[plan.copy_loops, 1] = 0.5 + v[plan.copy_loops] * scale
-    _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters)
+    _skirt(out, plan, u, v, along, across, alpha, scale, half_median, counters, positions[loop_vertex])
     gap = float(np.max(np.abs(out[plan.pair_outer] - out[plan.pair_copy]))) if plan.pair_outer.shape[0] else 0.0
     counters[COUNTER_RAIL_GAP] = int(round(1e6 * gap))
     out[plan.pair_outer] = out[plan.pair_copy]  # точно в каждой вершине рельса: угол юбки на рельсе - угол копии своего сегмента
