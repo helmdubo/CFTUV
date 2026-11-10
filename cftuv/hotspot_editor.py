@@ -69,6 +69,8 @@ from .hotspot_markup import (
     problem_names,
     rotated_mark,
 )
+from .hotspot_live import WITHDRAW_CLOSE, WITHDRAW_DISCARD, WITHDRAW_RELOAD, WITHDRAW_STOPPED, preview, withdraw
+from .hotspot_live import status as live_status
 from .hotspot_refresh import record_mark_floor, schedule_refresh
 
 EDITOR_ATTRIBUTE = "hotspotuv_hotspot_editor"
@@ -218,6 +220,17 @@ def commit_draft(scene) -> tuple:
     return problems
 
 
+def commit_edit(context) -> tuple:
+    """Законченная правка инструмента или меню метки: черновик проверен и записан (`commit_draft`), затем, пока инструмент работает, - живой
+    показ текста на декалях разметки (HOTSPOT_MARKUP_LIVE_ON_RELEASE_V1, без шага отмены; шаг - на закрытии окна)."""
+
+    problems = commit_draft(context.scene)
+    editor = editor_of(context.scene)
+    if _RUNNING and editor is not None and editor.draft_of:
+        preview(editor.draft_of, problems)
+    return problems
+
+
 def load_draft(scene, text_name: str, *, discard: bool = False) -> str:
     """Текст -> черновик. Отказ по имени (пусто - загружено): непринятый черновик не затирается без `discard`."""
 
@@ -227,6 +240,7 @@ def load_draft(scene, text_name: str, *, discard: bool = False) -> str:
     markup, problems = read_markup_text(text_name)
     if markup is None:
         return problems[0].name
+    withdraw(WITHDRAW_DISCARD if discard else WITHDRAW_RELOAD)  # живой показ прежнего черновика уходит с ним (данные декалей - до сессии)
     _SUSPEND["commit"] = True
     try:
         editor.marks.clear()
@@ -684,6 +698,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def _finish(self, context):
+        withdraw(WITHDRAW_STOPPED)  # шаг отмены «Start Mark Tool» (FINISHED) не должен записать превью
         _SUSPEND["commit"] = False
         _RUNNING.discard(self._area_pointer)
         self._area.tag_redraw()
@@ -698,6 +713,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         problems = commit_draft(context.scene)
         _SUSPEND["commit"] = False
         _RUNNING.discard(self._area_pointer)
+        withdraw(WITHDRAW_CLOSE)  # HOTSPOT_MARKUP_LIVE_ON_RELEASE_V1: превью назад к снимку, обновление ниже - от состояния до сессии
         if editor is not None and editor.draft_of:
             schedule_refresh(editor.draft_of, problems)  # HOTSPOT_REFRESH_ON_CLOSE_V1: декали разметки - таймером, одним шагом отмены
 
@@ -727,7 +743,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
             if event.type == "ESC":  # Esc отменяет начатое перетаскивание; инструмент живёт, пока открыто окно
                 if self._drag is not None:
                     self._restore(editor)
-                    commit_draft(context.scene)
+                    commit_edit(context)
                 self._area.tag_redraw()
                 return {"RUNNING_MODAL"}
         mx, my = event.mouse_x - region.x, event.mouse_y - region.y
@@ -746,7 +762,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self._drag is not None:
             self._release(editor)
             editor.notice = ""
-            commit_draft(context.scene)
+            commit_edit(context)
             self._area.tag_redraw()
             return {"RUNNING_MODAL"}
         if event.type == "RIGHTMOUSE":
@@ -754,7 +770,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         if event.value == "PRESS" and event.type in {"D", "X", "DEL", "U"} and 0 <= editor.active < len(editor.marks):
             {"D": duplicate_active, "X": delete_active, "DEL": delete_active, "U": flip_active}[event.type](editor)
             editor.notice = ""
-            commit_draft(context.scene)
+            commit_edit(context)
             self._area.tag_redraw()
             return {"RUNNING_MODAL"}
         return {"PASS_THROUGH"}
@@ -775,7 +791,7 @@ class HOTSPOTUV_OT_HotspotMarkupEdit(bpy.types.Operator):
         refusal = rotate_active(editor) if event.type == "LEFTMOUSE" else flip_active(editor)
         if refusal:
             self.report({"WARNING"}, editor.notice)
-        commit_draft(context.scene)
+        commit_edit(context)
         self._area.tag_redraw()
         return {"RUNNING_MODAL"}
 
@@ -939,7 +955,7 @@ class _ActiveMarkOperator:
             self.report({"WARNING"}, editor.notice)
         else:
             editor.notice = ""  # отказ прошлой правки снимает следующая удачная
-        commit_draft(context.scene)
+        commit_edit(context)
         _redraw_image_editors()
         return {"FINISHED"}
 
@@ -1186,6 +1202,9 @@ def _draw_state(blf, area, editor, changed: str = "") -> None:
     for text in (editor.notice, editor.backdrop_problem):
         if text:
             lines.append((text[:220], alarm))
+    live = live_status() if running else ""
+    if live:  # HOTSPOT_MARKUP_LIVE_ON_RELEASE_V1: что живой показ сделал с декалями, пропуски по именам
+        lines.append((live[:220], alarm if any(name in live for name in ("SKIPPED", "FAILED", "STALE", "KEPT", "REFUSED")) else hint))
     if editor.dirty:
         lines.append(("NOT SAVED (the text keeps the last valid markup):", alarm))
         lines += [(f"  {item[:200]}", alarm) for item in editor.problems.split("; ")[:6]]
@@ -1363,6 +1382,7 @@ __all__ = (
     "show_backdrop",
     "switch_backdrop",
     "commit_draft",
+    "commit_edit",
     "draft_markup",
     "is_mini_context",
     "load_draft",

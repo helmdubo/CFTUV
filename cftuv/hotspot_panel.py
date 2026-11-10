@@ -36,6 +36,7 @@ def register_hotspot() -> None:
 
     from .hotspot_editor import register_editor
     from .hotspot_island_ops import register_island_ops
+    from .hotspot_live import register_live
     from .hotspot_refresh import register_refresh
 
     for cls in _CLASSES:
@@ -46,13 +47,16 @@ def register_hotspot() -> None:
     register_editor()
     register_island_ops()  # HOTSPOT_ISLAND_MARKS_V1, HOTSPOT_APPLY_ON_PICK_V1: выбор метки кладёт её выделенным островам готовой декали
     register_refresh()  # HOTSPOT_REFRESH_ON_CLOSE_V1: закрытие окна разметки обновляет её декали одним шагом отмены
+    register_live()  # HOTSPOT_MARKUP_LIVE_ON_RELEASE_V1: Ctrl+Z при открытом окне сначала возвращает снимок живого показа
 
 
 def unregister_hotspot() -> None:
     from .hotspot_editor import unregister_editor
     from .hotspot_island_ops import unregister_island_ops
+    from .hotspot_live import unregister_live
     from .hotspot_refresh import unregister_refresh
 
+    unregister_live()
     unregister_refresh()
     unregister_island_ops()
     unregister_editor()
